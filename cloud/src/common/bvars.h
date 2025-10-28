@@ -659,6 +659,7 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_get;
 extern bvar::LatencyRecorder g_bvar_txn_kv_range_get;
 extern bvar::LatencyRecorder g_bvar_txn_kv_put;
 extern bvar::LatencyRecorder g_bvar_txn_kv_commit;
+extern bvar::LatencyRecorder g_bvar_txn_kv_watch_key;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_key;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_value;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_add;
