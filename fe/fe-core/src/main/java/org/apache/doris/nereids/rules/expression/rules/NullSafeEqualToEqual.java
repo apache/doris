@@ -162,9 +162,7 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
         if (!expression.nullable()) {
             return true;
         } else if (expression instanceof SlotReference) {
-            if (expression.nullable()) {
-                conjuncts.add(ExpressionUtils.notIsNull(expression));
-            }
+            conjuncts.add(ExpressionUtils.notIsNull(expression));
             return true;
         } else if (expression instanceof PropagateNullable) {
             for (Expression child : expression.children()) {
