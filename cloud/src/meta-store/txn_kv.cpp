@@ -247,6 +247,7 @@ constexpr size_t FDB_VALUE_BYTES_LIMIT = 100'000; // 100 KB
 constexpr fdb_error_t FDB_ERROR_CODE_TIMED_OUT = 1004;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TOO_OLD = 1007;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_CONFLICT = 1020;
+constexpr fdb_error_t FDB_ERROR_COMMIT_UNKNOWN_RESULT = 1021;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TIMED_OUT = 1031;
 constexpr fdb_error_t FDB_ERROR_CODE_TOO_MANY_WATCHES = 1032;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION_VALUE = 2006;
@@ -790,6 +791,9 @@ TxnErrorCode Transaction::watch_key(std::string_view key) {
     auto err = fdb_future_get_error(fut);
     TEST_SYNC_POINT_CALLBACK("transaction:watch_key:get_err", &err);
     if (err) {
+        if (err == FDB_ERROR_COMMIT_UNKNOWN_RESULT) {
+            fdb_future_cancel(fut);
+        }
         LOG(WARNING) << "fdb watch key " << hex(key) << ": " << fdb_get_error(err);
         return cast_as_txn_code(err);
     }

@@ -574,6 +574,16 @@ std::string system_meta_service_encryption_key_info_key() {
     return ret;
 }
 
+// 0x02 0:"system"  1:"meta-service"  2:"instance_update"
+std::string system_meta_service_instance_update_key() {
+    std::string ret;
+    ret.push_back(CLOUD_SYS_KEY_SPACE02);
+    encode_bytes("system", &ret);
+    encode_bytes("meta-service", &ret);
+    encode_bytes("instance_update", &ret);
+    return ret;
+}
+
 //==============================================================================
 // Other keys
 //==============================================================================
@@ -1173,6 +1183,31 @@ bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id) {
             return false;
         }
         *tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode instance key
+bool decode_instance_key(std::string_view* in, std::string* instance_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 2) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != INSTANCE_KEY_PREFIX) {
+            return false;
+        }
+        *instance_id = std::get<std::string>(std::get<0>(out[1]));
     } catch (const std::bad_variant_access& e) {
         return false;
     }
