@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -554,6 +555,11 @@ public class ExpressionUtils {
                 return e;
             }
             Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr == null && e instanceof SlotReference
+                    && e.getDataType() instanceof VariantType) {
+                // this is valid, because the variant expression would be extended in expression rewrite
+                return e;
+            }
             if (replacedExpr == null && e instanceof NamedExpression) {
                 // if replace named expression failed, return null directly
                 containNull.add(true);
