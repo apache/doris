@@ -65,8 +65,7 @@ suite("docs/table-design/data-partitioning/manual-partitioning.md") {
         """
         try {
             sql " insert into null_range2 values (null) "
-            Assertions.fail("The SQL above should throw an exception as follows:\n\t\terrCode = 2, detailMessage = Insert has filtered data in strict mode.
-                    But in pipline test, the url is too long, so, we just can see detailMessage = In.")
+            Assertions.fail("The SQL above should throw an exception as follows:\n\t\terrCode = 2, detailMessage = Insert has filtered data in strict mode. url: http://127.0.0.1:8040/api/_load_error_log?file=__shard_0/error_log_insert_stmt_b3a6d1f1fac74750-b3bb5d6e92a66da4_b3a6d1f1fac74750_b3bb5d6e92a66da4")
         } catch (Exception e) {
             log.info("Caught exception message: " + e.getMessage())
             assertTrue(e.getMessage().contains("errCode = 2"))
