@@ -193,8 +193,6 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
                          size_t& size, std::unique_ptr<char[]>& buffer,
                          const std::string& file_path, bool is_doris_table, ReadStatistics& stats,
                          const IOContext* io_ctx) {
-    SCOPED_RAW_TIMER(&stats.remote_read_timer);
-
     auto [host, port] = get_peer_connection_info(file_path);
     VLOG_DEBUG << "PeerFileCacheReader read from peer, host=" << host << ", port=" << port
                << ", file_path=" << file_path;
@@ -205,6 +203,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
                                   << ", file_path=" << file_path;
         return Status::InternalError("host or port is empty");
     }
+    SCOPED_RAW_TIMER(&stats.peer_read_timer);
     peer_read_counter << 1;
     PeerFileCacheReader peer_reader(file_path, is_doris_table, host, port);
     auto st = peer_reader.fetch_blocks(empty_blocks, empty_start, Slice(buffer.get(), size), &size,
@@ -215,6 +214,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
                 .tag("port", port)
                 .tag("error", st.msg());
     }
+    stats.from_peer_cache = true;
     return st;
 }
 
@@ -224,6 +224,7 @@ Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>
                        FileReaderSPtr remote_file_reader) {
     s3_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
+    stats.from_peer_cache = false;
     return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
 }
 
@@ -508,6 +509,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                              << st.msg() << ", block state=" << block_state;
                 size_t bytes_read {0};
                 stats.hit_cache = false;
+                stats.from_peer_cache = false;
                 s3_read_counter << 1;
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
@@ -537,10 +539,16 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         statis->num_local_io_total++;
         statis->bytes_read_from_local += read_stats.bytes_read;
     } else {
-        statis->num_remote_io_total++;
-        statis->bytes_read_from_remote += read_stats.bytes_read;
+        if (read_stats.from_peer_cache) {
+            statis->num_peer_io_total++;
+            statis->bytes_read_from_peer += read_stats.bytes_read;
+            statis->peer_io_timer += read_stats.peer_read_timer;
+        } else {
+            statis->num_remote_io_total++;
+            statis->bytes_read_from_remote += read_stats.bytes_read;
+            statis->remote_io_timer += read_stats.remote_read_timer;
+        }
     }
-    statis->remote_io_timer += read_stats.remote_read_timer;
     statis->remote_wait_timer += read_stats.remote_wait_timer;
     statis->local_io_timer += read_stats.local_read_timer;
     statis->num_skip_cache_io_total += read_stats.skip_cache;
@@ -558,11 +566,17 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
             statis->inverted_index_num_local_io_total++;
             statis->inverted_index_bytes_read_from_local += read_stats.bytes_read;
         } else {
-            statis->inverted_index_num_remote_io_total++;
-            statis->inverted_index_bytes_read_from_remote += read_stats.bytes_read;
+            if (read_stats.from_peer_cache) {
+                statis->inverted_index_num_peer_io_total++;
+                statis->inverted_index_bytes_read_from_peer += read_stats.bytes_read;
+                statis->inverted_index_peer_io_timer += read_stats.peer_read_timer;
+            } else {
+                statis->inverted_index_num_remote_io_total++;
+                statis->inverted_index_bytes_read_from_remote += read_stats.bytes_read;
+                statis->inverted_index_remote_io_timer += read_stats.remote_read_timer;
+            }
         }
         statis->inverted_index_local_io_timer += read_stats.local_read_timer;
-        statis->inverted_index_remote_io_timer += read_stats.remote_read_timer;
     }
 
     g_skip_cache_sum << read_stats.skip_cache;

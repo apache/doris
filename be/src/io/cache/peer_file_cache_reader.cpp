@@ -67,8 +67,8 @@ PeerFileCacheReader::~PeerFileCacheReader() {
 
 Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& blocks, size_t off,
                                          Slice s, size_t* bytes_read, const IOContext* ctx) {
-    LOG(INFO) << "enter PeerFileCacheReader::fetch_blocks, off=" << off
-              << " bytes_read=" << *bytes_read;
+    VLOG_DEBUG << "enter PeerFileCacheReader::fetch_blocks, off=" << off
+               << " bytes_read=" << *bytes_read;
     *bytes_read = 0;
     if (blocks.empty()) {
         return Status::OK();
@@ -147,12 +147,12 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
                              ? static_cast<size_t>(block_off - static_cast<int64_t>(off))
                              : 0;
         size_t can_copy = std::min(s.size - rel, static_cast<size_t>(data.data().size()));
-        LOG(INFO) << "peer cache read data=" << data.block_offset()
-                  << " size=" << data.data().size() << " off=" << rel << " can_copy=" << can_copy;
+        VLOG_DEBUG << "peer cache read data=" << data.block_offset()
+                   << " size=" << data.data().size() << " off=" << rel << " can_copy=" << can_copy;
         std::memcpy(s.data + rel, data.data().data(), can_copy);
         filled += can_copy;
     }
-    LOG(INFO) << "peer cache read filled=" << filled;
+    VLOG_DEBUG << "peer cache read filled=" << filled;
     peer_bytes_read_total << filled;
     *bytes_read = filled;
     peer_bytes_per_read << filled;

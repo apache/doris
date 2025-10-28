@@ -182,7 +182,27 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         }
 
         // The query triggers reading the file cache from the peer
-        sql """select * from $table"""
+        profile("test_balance_warm_up_use_peer_cache_profile") {
+            sql """ set enable_profile = true;"""
+            sql """ set profile_level = 2;"""
+            run {
+                sql """/* test_balance_warm_up_use_peer_cache_profile */ select * from $table"""
+                sleep(1000)
+            }
+
+            check { profileString, exception ->
+                log.info(profileString)
+                // Use a regular expression to match the numeric value inside parentheses after "NumPeerIOTotal:"
+                def matcher = (profileString =~ /-  NumPeerIOTotal:\s+(\d+)/)
+                def total = 0
+                while (matcher.find()) {
+                    total += matcher.group(1).toInteger()
+                    logger.info("NumPeerIOTotal: {}", matcher.group(1))
+                }
+                assertTrue(total > 0)
+            } 
+        }
+
         subDirs.clear()
         collectDirs(dataPath)
         logger.info("after query, BE {} file_cache subdirs: {}", newAddBe.Host, subDirs) 
