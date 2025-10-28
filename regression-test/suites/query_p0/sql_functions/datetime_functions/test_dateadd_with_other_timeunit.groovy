@@ -23,7 +23,7 @@ suite("test_dateadd_with_other_timeunit") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                test_datetime datetime NULL COMMENT "",
+                test_datetime datetime(4) NULL COMMENT "",
                 test_date date NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_datetime)
@@ -35,23 +35,63 @@ suite("test_dateadd_with_other_timeunit") {
                 "storage_format" = "V2"
             )
         """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03", "2025-09-08") """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03", "2025-09-08"), ("2025-10-24 01:02:03.4567", "2025-10-24"); """
     
-    qt_sql """ select date_add("2019-08-01 13:21:03", INTERVAL "1 1:1:1" DAY_SECOND); """
-    qt_sql """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2019-08-01 13:21:03", INTERVAL "1 1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2019-08-01", INTERVAL "1 1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+
+    qt_sql """ select date_add(test_datetime, INTERVAL "1 1:1:1" DAY_SECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL " 1  1 : 1 : 1 " DAY_SECOND) result from ${tableName}; """
+
+    qt_sql """ select date_add(test_date, INTERVAL "1 1:1:1" DAY_SECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_date, INTERVAL " 1  1 : 1 : 1 " DAY_SECOND) result from ${tableName}; """
+
     qt_sql """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1 43" DAY_SECOND); """
     qt_sql """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1xxx" DAY_SECOND); """
-    qt_sql """ select date_add("2019-08-01", INTERVAL "1 1:1:1" DAY_SECOND); """
-    qt_sql """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1" DAY_SECOND); """
     qt_sql """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1 34" DAY_SECOND); """
     qt_sql """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1xx" DAY_SECOND); """
-    qt_sql """ select date_add(test_datetime, INTERVAL "1 1:1:1" DAY_SECOND) result from ${tableName}; """
-    qt_sql """ select date_add(test_date, INTERVAL "1 1:1:1" DAY_SECOND) result from ${tableName}; """
+
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid time format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 2' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid time format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 2:3' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid time format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 2:3:4.5678' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid seconds format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL 'xx 00:00:01' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid days format"
+    }
 
     test {
         sql """ select date_add(test_datetime, INTERVAL '1 xx:00:01' DAY_SECOND) result from ${tableName}; """
-        // check exception message contains
         exception "Invalid hours format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 00:xx:01' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid minutes format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 00:00:xx' DAY_SECOND) result from ${tableName}; """
+        exception "Invalid seconds format"
     }
 
 }

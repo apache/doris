@@ -151,7 +151,7 @@ struct AddDaySecondImpl {
     }
 
     static long parse_time_string_to_seconds(IntervalNativeType time_str_ref) {
-        StringRef time_str = {time_str_ref.data(), time_str_ref.length()};
+        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
         // string format: "d h:m:s"
         size_t space_pos = time_str.find_first_of(' ');
         if (space_pos == std::string::npos) {
@@ -160,7 +160,7 @@ struct AddDaySecondImpl {
                             std::string_view {time_str.data, time_str.size});
         }
         // day
-        StringRef days_sub = time_str.substring(0, space_pos);
+        StringRef days_sub = time_str.substring(0, space_pos).trim();
         StringParser::ParseResult success;
         int days = StringParser::string_to_int_internal<int32_t, true>(days_sub.data, days_sub.size,
                                                                        &success);
@@ -182,24 +182,24 @@ struct AddDaySecondImpl {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid time format, missing ':' in '{}'",
                             std::string_view {time_str.data, time_str.size});
         }
-        StringRef hours_sub = time_hour_str.substring(0, colon1);
+        StringRef hours_sub = time_hour_str.substring(0, colon1).trim();
         int hours = StringParser::string_to_int_internal<int32_t, true>(hours_sub.data,
                                                                         hours_sub.size, &success);
         if (success != StringParser::PARSE_SUCCESS) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid hours format in '{}'",
                             std::string_view {time_str.data, time_str.size});
         }
-        StringRef minutes_sub = time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1);
+        StringRef minutes_sub = time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1).trim();
         int minutes = StringParser::string_to_int_internal<int32_t, true>(
                 minutes_sub.data, minutes_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS || minutes >= 60) {
+        if (success != StringParser::PARSE_SUCCESS) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid minutes format in '{}'",
                             std::string_view {time_str.data, time_str.size});
         }
-        StringRef seconds_sub = time_hour_str.substring(colon2 + 1);
+        StringRef seconds_sub = time_hour_str.substring(colon2 + 1).trim();
         int seconds = StringParser::string_to_int_internal<int32_t, true>(
                 seconds_sub.data, seconds_sub.size, &success);
-        if (success != StringParser::PARSE_SUCCESS || seconds >= 60) {
+        if (success != StringParser::PARSE_SUCCESS) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
                             std::string_view {time_str.data, time_str.size});
         }
@@ -680,7 +680,15 @@ public:
                     Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
                                       res_col->get_data(), nullmap0, nullmap1);
                 } else {
-                    return Status::NotSupported("Do not support vector-vector for string type");
+                    const auto* nest_col1_string = check_and_get_column<ColumnString>(*nest_col1);
+                    if (nest_col1_string->size() == 1) {
+                        rconst = true;
+                        Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                            nest_col1_string->get_data_at(0).to_string(), nullmap0,
+                                            nullmap1);
+                    } else {
+                        return Status::NotSupported("Do not support vector-vector for string type");
+                    }
                 }
             }
 

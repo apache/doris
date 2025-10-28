@@ -75,6 +75,6 @@ public class DaySecondAdd extends ScalarFunction
 
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
-        return signature;
+        return super.computeSignature(signature);
     }
 }
