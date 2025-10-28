@@ -1122,6 +1122,7 @@ DECLARE_Bool(enable_graceful_exit_check);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
+DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
