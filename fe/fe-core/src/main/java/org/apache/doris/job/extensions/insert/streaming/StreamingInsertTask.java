@@ -29,7 +29,6 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
-import org.apache.doris.job.offset.s3.S3Offset;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -160,17 +159,11 @@ public class StreamingInsertTask {
     }
 
     private void run() throws JobException {
-        StreamingInsertJob job =
-                (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        StreamingInsertTask runningStreamTask = job.getRunningStreamTask();
-        log.info("current running stream task id is {} for job id {}",
-                runningStreamTask == null ? -1 : runningStreamTask.getTaskId(), getJobId());
         if (isCanceled.get()) {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
-        log.info("start to run streaming insert task, label {}, offset is {}, filepath {}",
-                labelName, runningOffset.toString(), ((S3Offset) runningOffset).getFileLists());
+        log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
         String errMsg = null;
         try {
             taskCommand.run(ctx, stmtExecutor);
