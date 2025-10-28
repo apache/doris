@@ -21,11 +21,11 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 53))) otherCondition=()
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 53))) otherCondition=() build RFs:RF3 expr_(cast(d_week_seq2 as BIGINT) - 53)->[cast(d_week_seq as BIGINT)]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
 ------------------PhysicalProject
---------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
+--------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2 RF3
 ------------------PhysicalProject
 --------------------filter((date_dim.d_year = 1998))
 ----------------------PhysicalOlapScan[date_dim]
