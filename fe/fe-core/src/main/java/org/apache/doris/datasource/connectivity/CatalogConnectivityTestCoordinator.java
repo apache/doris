@@ -49,6 +49,7 @@ public class CatalogConnectivityTestCoordinator {
     private final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     private String warehouseLocation;
+    private StorageProperties matchedObjectStorage;
 
     public CatalogConnectivityTestCoordinator(
             String catalogName,
@@ -106,6 +107,7 @@ public class CatalogConnectivityTestCoordinator {
 
     /**
      * Check if object storage test should be performed.
+     * Also caches the matched storage for later use in testObjectStorageForWarehouse().
      */
     private boolean shouldTestObjectStorage() {
         if (StringUtils.isBlank(this.warehouseLocation)) {
@@ -114,8 +116,8 @@ public class CatalogConnectivityTestCoordinator {
             return false;
         }
 
-        StorageProperties matchedStorage = findMatchingObjectStorage(this.warehouseLocation);
-        if (matchedStorage == null) {
+        this.matchedObjectStorage = findMatchingObjectStorage(this.warehouseLocation);
+        if (this.matchedObjectStorage == null) {
             LOG.debug("Skip object storage test: no storage configured for warehouse '{}' in catalog '{}'",
                     this.warehouseLocation, catalogName);
             return false;
@@ -126,16 +128,15 @@ public class CatalogConnectivityTestCoordinator {
 
     /**
      * Test object storage that matches the warehouse location from metadata service.
+     * Uses the cached matchedObjectStorage from shouldTestObjectStorage().
      *
      * @throws DdlException if test fails
      */
     private void testObjectStorageForWarehouse() throws DdlException {
-        StorageProperties matchedStorage = findMatchingObjectStorage(this.warehouseLocation);
-
         LOG.info("Testing {} connectivity for warehouse '{}' in catalog '{}'",
-                matchedStorage.getStorageName(), this.warehouseLocation, catalogName);
+                this.matchedObjectStorage.getStorageName(), this.warehouseLocation, catalogName);
 
-        StorageConnectivityTester tester = createStorageTester(matchedStorage, this.warehouseLocation);
+        StorageConnectivityTester tester = createStorageTester(this.matchedObjectStorage, this.warehouseLocation);
 
         // Test FE connection
         try {
