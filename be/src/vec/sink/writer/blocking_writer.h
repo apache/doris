@@ -64,6 +64,10 @@ public:
     Status sink(RuntimeState* state, Block* block, bool eos, RuntimeProfile* operator_profile);
 
     void set_low_memory_mode();
+    void set_finish_dependency(std::shared_ptr<pipeline::Dependency> finish_dependency) {
+        _finish_dependency = finish_dependency;
+    }
+    void on_finish() const;
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -78,6 +82,7 @@ private:
     std::atomic_bool _low_memory_mode = false;
     moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency;
 };
 
 } // namespace vectorized

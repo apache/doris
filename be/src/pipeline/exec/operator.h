@@ -1123,7 +1123,11 @@ template <typename Writer, typename Parent>
 class AsyncWriterSink : public PipelineXSinkLocalState<BasicSharedState> {
 public:
     using Base = PipelineXSinkLocalState<BasicSharedState>;
-    AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+    AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+    }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -1135,9 +1139,12 @@ public:
 
     bool is_blockable() const override { return true; }
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+
 protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 #ifdef BE_TEST

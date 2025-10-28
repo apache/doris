@@ -103,5 +103,9 @@ void BlockingWriter::set_low_memory_mode() {
     _low_memory_mode = true;
     clear_blocks(_free_blocks, _memory_used_counter);
 }
+
+void BlockingWriter::on_finish() const {
+    _finish_dependency->set_ready();
+}
 } // namespace vectorized
 } // namespace doris

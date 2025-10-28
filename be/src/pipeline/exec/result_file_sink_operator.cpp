@@ -105,6 +105,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
             p._file_opts.get(), p._storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
             _sender, nullptr, state->return_object_data_as_binary(), p._output_row_descriptor));
     _writer->set_header_info(p._header_type, p._header);
+    _writer->set_finish_dependency(_finish_dependency);
     return Status::OK();
 }
 
