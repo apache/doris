@@ -25,6 +25,7 @@ import org.apache.doris.datasource.SessionContext;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
