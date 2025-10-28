@@ -42,103 +42,92 @@ import java.util.function.BiFunction;
 
 /**
  * Utility class for converting Nereids expressions to Iceberg expressions.
- * This class provides methods to convert Doris Nereids expressions to Iceberg
- * expressions
- * for use in Iceberg table operations like filtering and predicate pushdown.
  */
 public class IcebergNereidsUtils {
 
     /**
      * Convert Nereids Expression to Iceberg Expression
-     * This handles basic predicates like AND, OR, NOT, comparison operators, and IN
-     * predicates
      */
     public static org.apache.iceberg.expressions.Expression convertNereidsToIcebergExpression(
             Expression nereidsExpr, Schema schema) {
-        try {
-            if (nereidsExpr == null) {
-                return null;
-            }
-
-            // Handle logical operators
-            if (nereidsExpr instanceof And) {
-                And andExpr = (And) nereidsExpr;
-                org.apache.iceberg.expressions.Expression left = convertNereidsToIcebergExpression(andExpr.child(0),
-                        schema);
-                org.apache.iceberg.expressions.Expression right = convertNereidsToIcebergExpression(andExpr.child(1),
-                        schema);
-                if (left != null && right != null) {
-                    return Expressions.and(left, right);
-                } else if (left != null) {
-                    return left;
-                } else if (right != null) {
-                    return right;
-                }
-                return null;
-            }
-
-            if (nereidsExpr instanceof Or) {
-                Or orExpr = (Or) nereidsExpr;
-                org.apache.iceberg.expressions.Expression left = convertNereidsToIcebergExpression(orExpr.child(0),
-                        schema);
-                org.apache.iceberg.expressions.Expression right = convertNereidsToIcebergExpression(orExpr.child(1),
-                        schema);
-                if (left != null && right != null) {
-                    return Expressions.or(left, right);
-                }
-                return null;
-            }
-
-            if (nereidsExpr instanceof Not) {
-                Not notExpr = (Not) nereidsExpr;
-                org.apache.iceberg.expressions.Expression child = convertNereidsToIcebergExpression(notExpr.child(),
-                        schema);
-                if (child != null) {
-                    return Expressions.not(child);
-                }
-                return null;
-            }
-
-            // Handle comparison operators
-            if (nereidsExpr instanceof EqualTo) {
-                return convertNereidsBinaryPredicate((EqualTo) nereidsExpr,
-                        schema, Expressions::equal);
-            }
-
-            if (nereidsExpr instanceof GreaterThan) {
-                return convertNereidsBinaryPredicate(
-                        (GreaterThan) nereidsExpr, schema,
-                        Expressions::greaterThan);
-            }
-
-            if (nereidsExpr instanceof GreaterThanEqual) {
-                return convertNereidsBinaryPredicate(
-                        (GreaterThanEqual) nereidsExpr, schema,
-                        Expressions::greaterThanOrEqual);
-            }
-
-            if (nereidsExpr instanceof LessThan) {
-                return convertNereidsBinaryPredicate((LessThan) nereidsExpr,
-                        schema, Expressions::lessThan);
-            }
-
-            if (nereidsExpr instanceof LessThanEqual) {
-                return convertNereidsBinaryPredicate(
-                        (LessThanEqual) nereidsExpr, schema,
-                        Expressions::lessThanOrEqual);
-            }
-
-            // Handle IN predicates
-            if (nereidsExpr instanceof InPredicate) {
-                return convertNereidsInPredicate((InPredicate) nereidsExpr,
-                        schema);
-            }
-
-            return null;
-
-        } catch (Exception e) {
+        if (nereidsExpr == null) {
             return null;
         }
+
+        // Handle logical operators
+        if (nereidsExpr instanceof And) {
+            And andExpr = (And) nereidsExpr;
+            org.apache.iceberg.expressions.Expression left = convertNereidsToIcebergExpression(andExpr.child(0),
+                    schema);
+            org.apache.iceberg.expressions.Expression right = convertNereidsToIcebergExpression(andExpr.child(1),
+                    schema);
+            if (left != null && right != null) {
+                return Expressions.and(left, right);
+            } else if (left != null) {
+                return left;
+            } else if (right != null) {
+                return right;
+            }
+            return null;
+        }
+
+        if (nereidsExpr instanceof Or) {
+            Or orExpr = (Or) nereidsExpr;
+            org.apache.iceberg.expressions.Expression left = convertNereidsToIcebergExpression(orExpr.child(0),
+                    schema);
+            org.apache.iceberg.expressions.Expression right = convertNereidsToIcebergExpression(orExpr.child(1),
+                    schema);
+            if (left != null && right != null) {
+                return Expressions.or(left, right);
+            }
+            return null;
+        }
+
+        if (nereidsExpr instanceof Not) {
+            Not notExpr = (Not) nereidsExpr;
+            org.apache.iceberg.expressions.Expression child = convertNereidsToIcebergExpression(notExpr.child(),
+                    schema);
+            if (child != null) {
+                return Expressions.not(child);
+            }
+            return null;
+        }
+
+        // Handle comparison operators
+        if (nereidsExpr instanceof EqualTo) {
+            return convertNereidsBinaryPredicate((EqualTo) nereidsExpr,
+                    schema, Expressions::equal);
+        }
+
+        if (nereidsExpr instanceof GreaterThan) {
+            return convertNereidsBinaryPredicate(
+                    (GreaterThan) nereidsExpr, schema,
+                    Expressions::greaterThan);
+        }
+
+        if (nereidsExpr instanceof GreaterThanEqual) {
+            return convertNereidsBinaryPredicate(
+                    (GreaterThanEqual) nereidsExpr, schema,
+                    Expressions::greaterThanOrEqual);
+        }
+
+        if (nereidsExpr instanceof LessThan) {
+            return convertNereidsBinaryPredicate((LessThan) nereidsExpr,
+                    schema, Expressions::lessThan);
+        }
+
+        if (nereidsExpr instanceof LessThanEqual) {
+            return convertNereidsBinaryPredicate(
+                    (LessThanEqual) nereidsExpr, schema,
+                    Expressions::lessThanOrEqual);
+        }
+
+        // Handle IN predicates
+        if (nereidsExpr instanceof InPredicate) {
+            return convertNereidsInPredicate((InPredicate) nereidsExpr,
+                    schema);
+        }
+        return null;
     }
 
     /**
@@ -172,7 +161,7 @@ public class IcebergNereidsUtils {
         }
 
         String colName = slotRef.getName();
-        org.apache.iceberg.types.Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+        NestedField nestedField = schema.caseInsensitiveFindField(colName);
         if (nestedField == null) {
             return null;
         }
@@ -237,15 +226,6 @@ public class IcebergNereidsUtils {
     private static Object extractNereidsLiteralValue(
             Literal literal,
             Type icebergType) {
-        try {
-            if (literal instanceof NullLiteral) {
-                return null;
-            }
-            // TODO: handle all the different literal types and convert them to the appropriate Iceberg types
-            return literal.getValue();
-
-        } catch (Exception e) {
-            return null;
-        }
+        return literal.getValue();
     }
 }
