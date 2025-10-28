@@ -981,7 +981,8 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     # to ensure hadoop-deps jar packages are available in ${DORIS_HOME}/fe/be-java-extensions/hadoop-deps/target/lib
     HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
     if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
-        cp -r "${HADOOP_DEPS_JAR_DIR}/lib" "${DORIS_HOME}/cloud/output/lib"
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
