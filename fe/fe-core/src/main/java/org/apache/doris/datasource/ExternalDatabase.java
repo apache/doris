@@ -131,19 +131,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public synchronized void resetToUninitialized() {
+    public void resetMetaToUninitialized() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
-        this.initialized = false;
-        this.lowerCaseToTableName = Maps.newConcurrentMap();
-        if (extCatalog.getUseMetaCache().isPresent()) {
-            if (extCatalog.getUseMetaCache().get() && metaCache != null) {
-                metaCache.invalidateAll();
-            } else if (!extCatalog.getUseMetaCache().get()) {
-                for (T table : idToTbl.values()) {
-                    table.unsetObjectCreated();
+        synchronized (this) {
+            this.initialized = false;
+            this.lowerCaseToTableName = Maps.newConcurrentMap();
+            if (extCatalog.getUseMetaCache().isPresent()) {
+                if (extCatalog.getUseMetaCache().get() && metaCache != null) {
+                    metaCache.invalidateAll();
+                } else if (!extCatalog.getUseMetaCache().get()) {
+                    for (T table : idToTbl.values()) {
+                        table.unsetObjectCreated();
+                    }
                 }
             }
         }
@@ -885,7 +887,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().isPresent() && extCatalog.getUseMetaCache().get() && metaCache != null) {
             metaCache.resetNames();
         } else {
-            resetToUninitialized();
+            resetMetaToUninitialized();
         }
     }
 }
