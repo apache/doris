@@ -150,8 +150,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     // R=0,D=1        R=1,D=2          R=1,D=3             R=2,D=4
     //                                                       \------ R=2,D=4
     //                                                       \------ R=2,D=5
-    auto h_key = hobby->children[0];
-    auto h_value = hobby->children[1];
+    auto h_key = hobby->children[0].children[0];
+    auto h_value = hobby->children[0].children[1];
     ASSERT_TRUE(h_key.repetition_level == 2 && h_key.definition_level == 4);
     ASSERT_TRUE(h_value.repetition_level == 2 && h_value.definition_level == 5);
 
