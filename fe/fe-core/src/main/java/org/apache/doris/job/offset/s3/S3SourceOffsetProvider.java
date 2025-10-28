@@ -83,6 +83,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                         .filter(name -> !name.equals(filePathBase)) // Single file case
                         .map(path -> path.getName().replace(filePathBase, ""))
                         .collect(Collectors.joining(","));
+
                 if (joined.isEmpty()) {
                     // base is a single file
                     offset.setFileLists(filePathBase);

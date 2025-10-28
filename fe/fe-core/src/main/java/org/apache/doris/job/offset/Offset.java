@@ -26,5 +26,4 @@ public interface Offset {
     boolean isEmpty();
 
     boolean isValidOffset();
-
 }
