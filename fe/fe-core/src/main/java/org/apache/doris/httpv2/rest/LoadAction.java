@@ -582,7 +582,8 @@ public class LoadAction extends RestBaseController {
                     && publicHostPort != null && reqHost.equalsIgnoreCase(publicHostPort.first)) {
                 return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
             } else if (privateHostPort != null) {
-                return new TNetworkAddress(privateHostPort.first, privateHostPort.second);
+                // use request host here, because private endpoint may be unknown for cloud mode
+                return new TNetworkAddress(reqHost, privateHostPort.second);
             } else {
                 return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
             }
