@@ -61,7 +61,7 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
 
     // "NULL <=> Null" to true
     @Test
-    void testNullSafeEqualToTrue() {
+    void testNullSafeEqualNull() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(NullSafeEqualToEqual.INSTANCE)
         ));
@@ -153,5 +153,28 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
         assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a <=> 4, a <=> 5)");
         assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
+    }
+
+    @Test
+    void testNullSafeEqualToTrue() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
+
+        assertRewriteAfterTypeCoercion("Ba <=> true", "Ba <=> true");
+        assertRewriteAfterTypeCoercion("null <=> true", "false");
+        assertRewriteAfterTypeCoercion("a > 1 <=> true", "a > 1 and a is not null");
+        assertRewriteAfterTypeCoercion("Xa > 1 <=> true", "Xa > 1 = true");
+        assertRewriteAfterTypeCoercion("Xa > null <=> true", "Xa > null <=> true");
+        assertRewriteAfterTypeCoercion("a + b > c - d <=> true", "a + b > c - d and a is not null and b is not null and c is not null and d is not null");
+        assertRewriteAfterTypeCoercion("(a in (1, 2, c)) <=> true", "(a in (1, 2, c)) <=> true");
+        assertRewriteAfterTypeCoercion("(a in (1, 2, 3, null)) <=> true", "a is not null and a in (1, 2, 3)");
+        assertRewriteAfterTypeCoercion("(a in (null, null, null)) <=> true", "false");
+        assertRewriteAfterTypeCoercion("(a + b in (1, 2, 3, null)) <=> true", "a is not null and b is not null and a + b in (1, 2, 3)");
+        assertRewriteAfterTypeCoercion("(a > 1 and b > 1 and (c > d or e > 1)) <=> true",
+                "a > 1 and a is not null and b > 1 and b is not null and (c > d and c is not null and d is not null or e > 1 and e is not null)");
+        assertRewriteAfterTypeCoercion("(a / b > 1) <=> true", "(a / b > 1) <=> true");
+        assertRewriteAfterTypeCoercion("(a / b > 1 and c > 1 or (d > 1)) <=> true",
+                "(a / b > 1) <=> true and (c > 1 and c is not null) or (d > 1 and d is not null)");
     }
 }
