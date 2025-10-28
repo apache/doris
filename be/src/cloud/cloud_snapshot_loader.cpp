@@ -211,7 +211,8 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
                     .file_size = static_cast<int64_t>(file_stat.size),
             };
             io::FileReaderSPtr file_reader = nullptr;
-            RETURN_IF_ERROR(_remote_fs->open_file(full_remote_file, &file_reader, &nested_reader_options));
+            RETURN_IF_ERROR(
+                    _remote_fs->open_file(full_remote_file, &file_reader, &nested_reader_options));
             io::FileWriterPtr file_writer = nullptr;
             RETURN_IF_ERROR(storage_fs()->create_file(full_target_file, &file_writer));
             size_t buf_size = config::s3_file_system_local_upload_buffer_size;

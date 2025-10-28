@@ -34,7 +34,8 @@ IDictionary::IDictionary(std::string name, std::vector<DictionaryAttribute> attr
         const auto& nested_name = _attributes[i].name;
         if (_name_to_attributes_index.contains(nested_name)) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "The names of attributes should not have duplicates : {}", nested_name);
+                                   "The names of attributes should not have duplicates : {}",
+                                   nested_name);
         }
         _name_to_attributes_index[nested_name] = i;
     }

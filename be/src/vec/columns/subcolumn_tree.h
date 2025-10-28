@@ -70,7 +70,8 @@ public:
             kind = Kind::SCALAR;
         }
 
-        void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& input_strings_pool) {
+        void add_child(std::string_view key, std::shared_ptr<Node> next_node,
+                       Arena& input_strings_pool) {
             next_node->parent = this;
             StringRef key_ref;
             if constexpr (IsShared) {
