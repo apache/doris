@@ -171,6 +171,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
             if (icebergTable.currentSnapshot() == null) {
                 LOG.info("Table {} has no data, skipping rewrite", table.getName());
+                // return empty result
                 return Lists.newArrayList("0", "0", "0", "0");
             }
 
