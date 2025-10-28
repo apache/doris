@@ -108,6 +108,7 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("16", metric->to_string().c_str());
     }
     {
+        DorisMetrics::instance()->report_all_tablets_requests_skip->set_value(0);
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         auto metric = server_entity->get_metric("report_all_tablets_requests_skip",
                                                 "engine_requests_total");
