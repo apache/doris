@@ -1997,7 +1997,7 @@ void PipelineFragmentContext::_release_resource() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
-    for (auto & _task : _tasks) {
+    for (auto& _task : _tasks) {
         if (!_task.empty()) {
             _call_back(_task.front().first->runtime_state(), &st);
         }
