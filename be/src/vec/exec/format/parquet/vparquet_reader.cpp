@@ -804,17 +804,32 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     for (size_t idx = 0; idx < _read_table_columns.size(); idx++) {
         const auto& read_table_col = _read_table_columns[idx];
         const auto& read_file_col = _read_file_columns[idx];
-        auto conjunct_iter = _colname_to_value_range->find(read_table_col);
-        if (_colname_to_value_range->end() == conjunct_iter) {
+        if (!_colname_to_slot_id->contains(read_table_col)) {
+            // equal delete may add column to read_table_col, but this column no slot_id.
             continue;
         }
+
         int parquet_col_id =
                 _file_metadata->schema().get_column(read_file_col)->physical_column_index;
         if (parquet_col_id < 0) {
             // complex type, not support page index yet.
             continue;
         }
+
         auto& chunk = row_group.columns[parquet_col_id];
+        if (chunk.offset_index_length == 0) {
+            continue;
+        }
+
+        tparquet::OffsetIndex offset_index;
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
+        _col_offsets[parquet_col_id] = offset_index;
+
+        auto conjunct_iter = _colname_to_value_range->find(read_table_col);
+        if (_colname_to_value_range->end() == conjunct_iter) {
+            continue;
+        }
+
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
@@ -832,8 +847,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (skipped_page_range.empty()) {
             continue;
         }
-        tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
@@ -841,7 +854,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();
