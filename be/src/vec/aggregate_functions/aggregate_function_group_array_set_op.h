@@ -260,7 +260,7 @@ struct GroupArraySetOpStringBaseData {
         HybridSetBase::IteratorBase* it = this->set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const std::string*>(it->get_value());
-            buf.write_binary(*value);
+            buf.write(value->data(), value->size());
             it->next();
         }
     }
@@ -273,10 +273,10 @@ struct GroupArraySetOpStringBaseData {
         UInt64 size;
         buf.read_var_uint(size);
 
-        std::string element;
+        StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
             buf.read_binary(element);
-            this->set->insert((void*)element.data(), element.size());
+            this->set->insert((void*)element.data, element.size);
         }
     }
 
@@ -316,10 +316,10 @@ struct GroupArrayStringIntersectData : public GroupArraySetOpStringBaseData {
         if (!init) {
             for (size_t i = 0; i < arr_size; ++i) {
                 if (col_null->is_null_at(offset + i)) {
-                    set->insert(nullptr, 0);
+                    set->insert(nullptr);
                 } else {
-                    auto src = nested_column_data.get_data_at(offset + i).to_string();
-                    set->insert((void*)src.data(), src.size());
+                    auto src = nested_column_data.get_data_at(offset + i);
+                    set->insert((void*)src.data, src.size);
                 }
             }
             init = true;
@@ -327,11 +327,11 @@ struct GroupArrayStringIntersectData : public GroupArraySetOpStringBaseData {
             Set new_set = std::make_unique<NullableStringSet>();
             for (size_t i = 0; i < arr_size; ++i) {
                 if (col_null->is_null_at(offset + i) && this->set->contain_null()) {
-                    new_set->insert(nullptr, 0);
+                    new_set->insert(nullptr);
                 } else {
-                    auto src = nested_column_data.get_data_at(offset + i).to_string();
-                    if (this->set->find((void*)src.data(), src.size())) {
-                        new_set->insert((void*)src.data(), src.size());
+                    auto src = nested_column_data.get_data_at(offset + i);
+                    if (this->set->find((void*)src.data, src.size)) {
+                        new_set->insert((void*)src.data, src.size);
                     }
                 }
             }
@@ -384,10 +384,10 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
 
         for (size_t i = 0; i < arr_size; ++i) {
             if (col_null->is_null_at(offset + i)) {
-                set->insert(nullptr, 0);
+                set->insert(nullptr);
             } else {
-                auto src = nested_column_data.get_data_at(offset + i).to_string();
-                set->insert((void*)src.data(), src.size());
+                auto src = nested_column_data.get_data_at(offset + i);
+                set->insert((void*)src.data, src.size);
             }
         }
         init = true;
