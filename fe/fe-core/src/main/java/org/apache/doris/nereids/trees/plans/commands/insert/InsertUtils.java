@@ -760,7 +760,7 @@ public class InsertUtils {
         // Append url part directly
         if (urlPartLen > 0) {
             if (useUrlPlaceholder) {
-                finalErrorMsg.append(". url : please use `show load` for detail msg");
+                finalErrorMsg.append(". url: please use `show load` for detail msg");
             } else {
                 finalErrorMsg.append(". url: ").append(url);
             }
