@@ -114,18 +114,7 @@ public class MTMVPlanUtil {
             RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION
     );
     // The rules should be disabled when run MTMV task
-    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = ImmutableList.of(
-            RuleType.COMPRESSED_MATERIALIZE_AGG,
-            RuleType.COMPRESSED_MATERIALIZE_SORT,
-            RuleType.ELIMINATE_CONST_JOIN_CONDITION,
-            RuleType.CONSTANT_PROPAGATION,
-            RuleType.ADD_DEFAULT_LIMIT,
-            RuleType.ELIMINATE_JOIN_BY_FK,
-            RuleType.ELIMINATE_JOIN_BY_UK,
-            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
-            RuleType.ELIMINATE_GROUP_BY,
-            RuleType.SALT_JOIN
-    );
+    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
 
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
         ConnectContext ctx = createBasicMvContext(null, disableRules);
