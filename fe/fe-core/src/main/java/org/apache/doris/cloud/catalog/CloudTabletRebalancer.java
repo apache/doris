@@ -106,6 +106,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private boolean tableBalanced = true;
 
+    private volatile boolean inited = false;
+
     private LinkedBlockingQueue<Pair<Long, Long>> tabletsMigrateTasks = new LinkedBlockingQueue<Pair<Long, Long>>();
 
     private Map<InfightTablet, InfightTask> tabletToInfightTask = new HashMap<>();
@@ -264,6 +266,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         performBalancing();
 
         checkDecommissionState(clusterToBes);
+        inited = true;
         LOG.info("finished to rebalancer. cost: {} ms", (System.currentTimeMillis() - start));
     }
 
@@ -1323,5 +1326,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     infos.size(), rets.size(), System.currentTimeMillis() - start);
         }
         return rets;
+    }
+
+    public boolean isInited() {
+        return inited;
     }
 }

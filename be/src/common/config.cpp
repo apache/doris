@@ -1091,6 +1091,7 @@ DEFINE_Bool(enable_graceful_exit_check, "false");
 DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
+DEFINE_Int32(blocking_pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
@@ -1625,6 +1626,8 @@ DEFINE_mString(binary_plain_encoding_default_impl, "v1");
 DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
     return config == "v1" || config == "v2";
 });
+
+DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
 
 // clang-format off
 #ifdef BE_TEST
