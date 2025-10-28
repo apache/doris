@@ -70,15 +70,15 @@ public:
             kind = Kind::SCALAR;
         }
 
-        void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& strings_pool) {
+        void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& input_strings_pool) {
             next_node->parent = this;
             StringRef key_ref;
             if constexpr (IsShared) {
                 SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                         ExecEnv::GetInstance()->subcolumns_tree_tracker());
-                key_ref = {strings_pool.insert(key.data(), key.length()), key.length()};
+                key_ref = {input_strings_pool.insert(key.data(), key.length()), key.length()};
             } else {
-                key_ref = {strings_pool.insert(key.data(), key.length()), key.length()};
+                key_ref = {input_strings_pool.insert(key.data(), key.length()), key.length()};
             }
             children[key_ref] = std::move(next_node);
         }

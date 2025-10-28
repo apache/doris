@@ -31,12 +31,12 @@ namespace doris::vectorized {
 IDictionary::IDictionary(std::string name, std::vector<DictionaryAttribute> attributes)
         : _dict_name(std::move(name)), _attributes(std::move(attributes)) {
     for (size_t i = 0; i < _attributes.size(); i++) {
-        const auto& name = _attributes[i].name;
-        if (_name_to_attributes_index.contains(name)) {
+        const auto& nested_name = _attributes[i].name;
+        if (_name_to_attributes_index.contains(nested_name)) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "The names of attributes should not have duplicates : {}", name);
+                                   "The names of attributes should not have duplicates : {}", nested_name);
         }
-        _name_to_attributes_index[name] = i;
+        _name_to_attributes_index[nested_name] = i;
     }
 }
 

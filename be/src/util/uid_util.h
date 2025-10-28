@@ -38,7 +38,7 @@ namespace doris {
 template <typename T>
 void to_hex(T val, char* buf) {
     static const char* digits = "0123456789abcdef";
-    for (int i = 0; i < 2 * sizeof(T); ++i) {
+    for (size_t i = 0; i < 2 * sizeof(T); ++i) {
         buf[2 * sizeof(T) - 1 - i] = digits[val & 0x0F];
         val >>= 4;
     }
