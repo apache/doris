@@ -539,9 +539,6 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        // if (slot->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-        //     continue;
-        // }
         auto it = iceberg_id_to_field_schema_map.find(slot->col_unique_id());
         if (it == iceberg_id_to_field_schema_map.end()) {
             // Column not found in file (e.g., partition column, added column)

@@ -53,7 +53,7 @@ Status HiveOrcReader::init_reader(
         // hive1 / use index
         std::map<std::string, const SlotDescriptor*> slot_map; // table_name to slot
         for (const auto& slot : tuple_descriptor->slots()) {
-            slot_map.emplace(slot->col_name(), slot);
+            slot_map.emplace(slot->col_name_lower_case(), slot);
         }
 
         // For top-level columns, use indexes to match, and for sub-columns, still use name to match columns.
@@ -161,7 +161,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids(const orc::Type* orc_type,
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        auto it = table_col_name_to_orc_type_map.find(slot->col_name());
+        auto it = table_col_name_to_orc_type_map.find(slot->col_name_lower_case());
         if (it == table_col_name_to_orc_type_map.end()) {
             // Column not found in file (e.g., partition column, added column)
             continue;
@@ -318,7 +318,7 @@ Status HiveParquetReader::init_reader(
     } else {                                                   // use idx
         std::map<std::string, const SlotDescriptor*> slot_map; //table_name to slot
         for (const auto& slot : tuple_descriptor->slots()) {
-            slot_map.emplace(slot->col_name(), slot);
+            slot_map.emplace(slot->col_name_lower_case(), slot);
         }
 
         // For top-level columns, use indexes to match, and for sub-columns, still use name to match columns.
@@ -444,12 +444,8 @@ ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* fiel
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        // if (slot->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-        //     continue;
-        // }
-
         // Find the field schema for this slot (may not exist for partition columns, etc.)
-        auto it = table_col_name_to_field_schema_map.find(slot->col_name());
+        auto it = table_col_name_to_field_schema_map.find(slot->col_name_lower_case());
         if (it == table_col_name_to_field_schema_map.end()) {
             // Column not found in file (e.g., partition column, added column)
             continue;
@@ -554,10 +550,6 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        // if (slot->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-        //     continue;
-        // }
-
         // Find the field schema for this slot (may not exist for partition columns, etc.)
         auto it = table_col_pos_to_field_schema_map.find(slot->col_pos());
         if (it == table_col_pos_to_field_schema_map.end()) {
