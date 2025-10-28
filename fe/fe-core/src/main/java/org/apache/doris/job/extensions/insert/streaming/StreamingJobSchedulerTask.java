@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.util.TimeUtils;
@@ -29,11 +30,13 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
 
+@Log4j2
 public class StreamingJobSchedulerTask extends AbstractTask {
     private static final long BACK_OFF_BASIC_TIME_SEC = 10L;
     private static final long MAX_BACK_OFF_TIME_SEC = 60 * 5;
@@ -47,9 +50,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     public void run() throws JobException {
         switch (streamingInsertJob.getJobStatus()) {
             case PENDING:
-                streamingInsertJob.createStreamingInsertTask();
-                streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
-                streamingInsertJob.setAutoResumeCount(0);
+                handlePendingState();
                 break;
             case RUNNING:
                 streamingInsertJob.fetchMeta();
@@ -60,6 +61,22 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             default:
                 break;
         }
+    }
+
+    private void handlePendingState() throws JobException {
+        if (Config.isCloudMode()) {
+            try {
+                streamingInsertJob.replayOnCloudMode();
+            } catch (JobException e) {
+                streamingInsertJob.setFailureReason(
+                    new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()));
+                streamingInsertJob.updateJobStatus(JobStatus.PAUSED);
+                return;
+            }
+        }
+        streamingInsertJob.createStreamingInsertTask();
+        streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
+        streamingInsertJob.setAutoResumeCount(0);
     }
 
     private void autoResumeHandler() throws JobException {
@@ -93,6 +110,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
 
     @Override
     protected void executeCancelLogic(boolean needWaitCancelComplete) throws Exception {
+        log.info("cancelling streaming insert job scheduler task for job id {}", streamingInsertJob.getJobId());
         if (streamingInsertJob.getRunningStreamTask() != null) {
             streamingInsertJob.getRunningStreamTask().cancel(needWaitCancelComplete);
         }
@@ -102,6 +120,10 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     public TRow getTvfInfo(String jobName) {
         StreamingInsertTask runningTask = streamingInsertJob.getRunningStreamTask();
         if (runningTask == null) {
+            return null;
+        }
+        if (!streamingInsertJob.needScheduleTask()) {
+            //todo: should list history task
             return null;
         }
         TRow trow = new TRow();

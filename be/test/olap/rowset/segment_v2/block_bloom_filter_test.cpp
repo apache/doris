@@ -87,7 +87,7 @@ TEST_F(BlockBloomFilterTest, Normal) {
     EXPECT_TRUE(bf2->test_bytes(nullptr, 1));
 
     bf->reset();
-    char* data = bf->data();
+    const char* data = bf->data();
     // data is reset to 0
     for (int i = 0; i < bf->size(); ++i) {
         EXPECT_EQ(*data, 0);

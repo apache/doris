@@ -46,6 +46,8 @@
 #include "vec/core/block.h"
 
 namespace doris {
+bvar::Adder<uint64_t> g_flush_cuz_rowscnt_oveflow("flush_cuz_rowscnt_oveflow");
+
 using namespace ErrorCode;
 
 MemTableWriter::MemTableWriter(const WriteRequest& req) : _req(req) {}
@@ -108,6 +110,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
                     { raw_rows = std::numeric_limits<int32_t>::max(); });
     if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
+        g_flush_cuz_rowscnt_oveflow << 1;
         RETURN_IF_ERROR(_flush_memtable());
     }
 

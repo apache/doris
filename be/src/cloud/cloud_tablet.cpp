@@ -47,6 +47,7 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/base_tablet.h"
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
@@ -146,83 +147,53 @@ std::string CloudTablet::tablet_path() const {
     return "";
 }
 
-Status CloudTablet::capture_consistent_rowsets_unlocked(
-        const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const {
-    Versions version_path;
-    auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
-    if (!st.ok()) {
-        // Check no missed versions or req version is merged
-        auto missed_versions = get_missed_versions(spec_version.second);
-        if (missed_versions.empty()) {
-            st.set_code(VERSION_ALREADY_MERGED); // Reset error code
-        }
-        st.append(" tablet_id=" + std::to_string(tablet_id()));
-        return st;
-    }
-    VLOG_DEBUG << "capture consitent versions: " << version_path;
-    return _capture_consistent_rowsets_unlocked(version_path, rowsets);
-}
-
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
-                                       const CaptureRsReaderOptions& opts) {
-    if (opts.query_freshness_tolerance_ms > 0) {
-        return capture_rs_readers_with_freshness_tolerance(spec_version, rs_splits,
-                                                           opts.query_freshness_tolerance_ms);
-    } else if (opts.enable_prefer_cached_rowset && !enable_unique_key_merge_on_write()) {
-        return capture_rs_readers_prefer_cache(spec_version, rs_splits);
-    }
-    return capture_rs_readers_internal(spec_version, rs_splits);
-}
-
-Status CloudTablet::capture_rs_readers_internal(const Version& spec_version,
-                                                std::vector<RowSetSplits>* rs_splits) {
+                                       const CaptureRowsetOps& opts) {
     DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
         LOG_WARNING("CloudTablet.capture_rs_readers.return e-230").tag("tablet_id", tablet_id());
         return Status::Error<false>(-230, "injected error");
     });
-    Versions version_path;
     std::shared_lock rlock(_meta_lock);
-    auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
-    if (!st.ok()) {
-        rlock.unlock(); // avoid logging in lock range
-        // Check no missed versions or req version is merged
-        auto missed_versions = get_missed_versions(spec_version.second);
-        if (missed_versions.empty()) {
-            st.set_code(VERSION_ALREADY_MERGED); // Reset error code
-            st.append(" versions are already compacted, ");
-        }
-        st.append(" tablet_id=" + std::to_string(tablet_id()));
-        // clang-format off
-        LOG(WARNING) << st << '\n' << [this]() { std::string json; get_compaction_status(&json); return json; }();
-        // clang-format on
-        return st;
-    }
-    VLOG_DEBUG << "capture consitent versions: " << version_path;
-    return capture_rs_readers_unlocked(version_path, rs_splits);
+    *rs_splits = DORIS_TRY(capture_rs_readers_unlocked(
+            spec_version, CaptureRowsetOps {.skip_missing_versions = opts.skip_missing_versions}));
+    return Status::OK();
 }
 
-Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
-                                                    std::vector<RowSetSplits>* rs_splits) {
+[[nodiscard]] Result<std::vector<Version>> CloudTablet::capture_consistent_versions_unlocked(
+        const Version& version_range, const CaptureRowsetOps& options) const {
+    if (options.query_freshness_tolerance_ms > 0) {
+        return capture_versions_with_freshness_tolerance(version_range, options);
+    } else if (options.enable_prefer_cached_rowset && !enable_unique_key_merge_on_write()) {
+        return capture_versions_prefer_cache(version_range);
+    }
+    return BaseTablet::capture_consistent_versions_unlocked(version_range, options);
+}
+
+Result<std::vector<Version>> CloudTablet::capture_versions_prefer_cache(
+        const Version& spec_version) const {
     g_capture_prefer_cache_count << 1;
     Versions version_path;
     std::shared_lock rlock(_meta_lock);
-    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_prefer_cache(
+    auto st = _timestamped_version_tracker.capture_consistent_versions_prefer_cache(
             spec_version, version_path,
-            [&](int64_t start, int64_t end) { return rowset_is_warmed_up_unlocked(start, end); }));
+            [&](int64_t start, int64_t end) { return rowset_is_warmed_up_unlocked(start, end); });
+    if (!st.ok()) {
+        return ResultError(st);
+    }
     int64_t path_max_version = version_path.back().second;
     VLOG_DEBUG << fmt::format(
-            "[verbose] CloudTablet::capture_rs_readers_prefer_cache, capture path: {}, "
+            "[verbose] CloudTablet::capture_versions_prefer_cache, capture path: {}, "
             "tablet_id={}, spec_version={}, path_max_version={}",
             fmt::join(version_path | std::views::transform([](const auto& version) {
                           return fmt::format("{}", version.to_string());
                       }),
                       ", "),
             tablet_id(), spec_version.to_string(), path_max_version);
-    return capture_rs_readers_unlocked(version_path, rs_splits);
+    return version_path;
 }
 
-bool CloudTablet::rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) {
+bool CloudTablet::rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) const {
     if (start_version > end_version) {
         return false;
     }
@@ -247,11 +218,11 @@ bool CloudTablet::rowset_is_warmed_up_unlocked(int64_t start_version, int64_t en
     return is_rowset_warmed_up(rs->rowset_id());
 };
 
-Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
-        const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-        int64_t query_freshness_tolerance_ms) {
+Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolerance(
+        const Version& spec_version, const CaptureRowsetOps& options) const {
     g_capture_with_freshness_tolerance_count << 1;
     using namespace std::chrono;
+    auto query_freshness_tolerance_ms = options.query_freshness_tolerance_ms;
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
     // find a version path where every edge(rowset) has been warmuped
     Versions version_path;
@@ -259,15 +230,17 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
     if (enable_unique_key_merge_on_write()) {
         // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
-        RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator_mow(
-                spec_version, version_path, [&](int64_t start, int64_t end) {
-                    return rowset_is_warmed_up_unlocked(start, end);
-                }));
+        RETURN_IF_ERROR_RESULT(
+                _timestamped_version_tracker.capture_consistent_versions_with_validator_mow(
+                        spec_version, version_path, [&](int64_t start, int64_t end) {
+                            return rowset_is_warmed_up_unlocked(start, end);
+                        }));
     } else {
-        RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
-                spec_version, version_path, [&](int64_t start, int64_t end) {
-                    return rowset_is_warmed_up_unlocked(start, end);
-                }));
+        RETURN_IF_ERROR_RESULT(
+                _timestamped_version_tracker.capture_consistent_versions_with_validator(
+                        spec_version, version_path, [&](int64_t start, int64_t end) {
+                            return rowset_is_warmed_up_unlocked(start, end);
+                        }));
     }
     int64_t path_max_version = version_path.back().second;
     auto should_be_visible_but_not_warmed_up = [&](const auto& rs_meta) -> bool {
@@ -309,17 +282,17 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
         // but has not been warmuped up yet, fallback to capture rowsets as usual
-        return capture_rs_readers_internal(spec_version, rs_splits);
+        return BaseTablet::capture_consistent_versions_unlocked(spec_version, options);
     }
     VLOG_DEBUG << fmt::format(
-            "[verbose] CloudTablet::capture_rs_readers_with_freshness_tolerance, capture path: {}, "
+            "[verbose] CloudTablet::capture_versions_with_freshness_tolerance, capture path: {}, "
             "tablet_id={}, spec_version={}, path_max_version={}",
             fmt::join(version_path | std::views::transform([](const auto& version) {
                           return fmt::format("{}", version.to_string());
                       }),
                       ", "),
             tablet_id(), spec_version.to_string(), path_max_version);
-    return capture_rs_readers_unlocked(version_path, rs_splits);
+    return version_path;
 }
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
