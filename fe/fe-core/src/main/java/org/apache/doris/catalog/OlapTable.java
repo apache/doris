@@ -3642,21 +3642,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // subPath is not empty, means it is a variant column, find the field pattern from children
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
-        for (Column child : column.getChildren()) {
-            String childName = child.getName();
-            if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
-                try {
-                    java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                            .getPathMatcher("glob:" + childName);
-                    if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+        if (column.getChildren() != null) {
+            for (Column child : column.getChildren()) {
+                String childName = child.getName();
+                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                    try {
+                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                                .getPathMatcher("glob:" + childName);
+                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                            fieldPattern = childName;
+                        }
+                    } catch (Exception e) {
+                        continue;
+                    }
+                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                    if (childName.equals(subPathString)) {
                         fieldPattern = childName;
                     }
-                } catch (Exception e) {
-                    continue;
-                }
-            } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
-                if (childName.equals(subPathString)) {
-                    fieldPattern = childName;
                 }
             }
         }
