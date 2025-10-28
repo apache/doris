@@ -801,7 +801,14 @@ std::string CacheBlockMetaStore::serialize_key(const BlockMetaKey& key) const {
 
 //TODO(zhengyu): use pb
 std::string CacheBlockMetaStore::serialize_value(const BlockMeta& meta) const {
-    return fmt::format("{}:{}:{}", meta.type, meta.size, meta.ttl);
+    doris::io::cache::BlockMetaPb pb;
+    if (meta.type != 0) pb.set_type(meta.type);
+    if (meta.size != 0) pb.set_size(meta.size);
+    if (meta.ttl != 0) pb.set_ttl(meta.ttl);
+
+    std::string result;
+    pb.SerializeToString(&result);
+    return result;
 }
 
 //TODO(zhengyu): use pb
@@ -822,6 +829,14 @@ BlockMetaKey CacheBlockMetaStore::deserialize_key(const std::string& key_str) co
 }
 
 BlockMeta CacheBlockMetaStore::deserialize_value(const std::string& value_str) const {
+    // First try to parse as protobuf (new format)
+    doris::io::cache::BlockMetaPb pb;
+    if (pb.ParseFromString(value_str)) {
+        return BlockMeta(pb.has_type() ? pb.type() : 0, pb.has_size() ? pb.size() : 0,
+                         pb.has_ttl() ? pb.ttl() : 0);
+    }
+
+    // Fallback to old string format for backward compatibility
     // Value format: "type:size:ttl"
     if (value_str.empty()) {
         LOG(WARNING) << "Failed to deserialize empty value string";
