@@ -67,11 +67,11 @@ public class IcebergMetadataCache {
 
     public void init() {
         long tableMetaCacheTtlSecond = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.TABLE_META_CACHE_TTL_SECOND),
+                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_TABLE_META_CACHE_TTL_SECOND),
                 ExternalCatalog.CACHE_NO_TTL);
 
         long snapshotMetaCacheTtlSecond = NumberUtils.toLong(
-                catalog.getProperties().get(IcebergExternalCatalog.SNAPSHOT_META_CACHE_TTL_SECOND),
+                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_SNAPSHOT_META_CACHE_TTL_SECOND),
                 ExternalCatalog.CACHE_NO_TTL);
 
         CacheFactory snapshotListCacheFactory = new CacheFactory(
@@ -119,7 +119,7 @@ public class IcebergMetadataCache {
 
     @NotNull
     private List<Snapshot> loadSnapshots(IcebergMetadataCacheKey key) {
-        Table icebergTable = loadTable(key);
+        Table icebergTable = getIcebergTable(key);
         List<Snapshot> snaps = Lists.newArrayList();
         Iterables.addAll(snaps, icebergTable.snapshots());
         return snaps;
