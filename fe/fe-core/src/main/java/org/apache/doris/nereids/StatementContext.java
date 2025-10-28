@@ -1021,6 +1021,7 @@ public class StatementContext implements Closeable {
     public void setMvRefreshPredicates(
             Map<TableIf, Set<Expression>> mvRefreshPredicates) {
         this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
+    }
 
     /**
      * Set file scan tasks for Iceberg rewrite operations.

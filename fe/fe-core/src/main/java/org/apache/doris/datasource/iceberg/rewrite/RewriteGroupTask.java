@@ -176,7 +176,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         insertExecutor.getCoordinator().setTxnId(transactionId);
 
         // Step 4: Execute insert operation
-        insertExecutor.executeSingleInsert(stmtExecutor, System.currentTimeMillis());
+        insertExecutor.executeSingleInsert(stmtExecutor);
 
         LOG.debug("[Rewrite Task] taskId: {} completed execution successfully", taskId);
     }
