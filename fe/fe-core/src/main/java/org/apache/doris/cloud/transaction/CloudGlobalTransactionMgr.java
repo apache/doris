@@ -214,7 +214,22 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, Map<Long, Map<Long, Set<Long>>>> autoPartitionInfo = Maps.newConcurrentMap();
 
     public void recordAutoPartitionInfo(Long dbId, Long txnId, Map<Long, Set<Long>> tabletMap) {
-        
+        autoPartitionInfo.compute(dbId, (k, v) -> {
+            if (v == null) {
+                v = Maps.newConcurrentMap();
+            }
+            v.put(txnId, tabletMap);
+            return v;
+        });
+    }
+
+    public Map<Long, Set<Long>> getAutoPartitionInfo(Long dbId, Long txnId) {
+        Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
+        Map<Long, Set<Long>> tabletMap = txnMap.get(txnId);
+        if (tabletMap == null) {
+            return new HashMap<>();
+        }
+        return tabletMap; 
     }
 
     public CloudGlobalTransactionMgr() {
@@ -434,12 +449,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             throw e;
         }
-    }
-
-    @Override
-    public Map<Long, Long> getAutoPartitionInfo(Long dbId, Long txnId) {
-        Map<Long, Map<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-        return new HashMap<>();
     }
 
     private boolean checkTransactionStateBeforeCommit(long dbId, long transactionId)

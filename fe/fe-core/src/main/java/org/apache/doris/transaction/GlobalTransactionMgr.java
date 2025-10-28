@@ -60,6 +60,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,6 +87,29 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     private TxnStateCallbackFactory callbackFactory;
 
     private Env env;
+
+    // To distinguish the idempotence of the createPartition RPC during incremental partition creation
+    // for automatic partitioned tables, record the dbId -> txnId -> tabletId -> BE id
+    private Map<Long, Map<Long, Map<Long, Set<Long>>>> autoPartitionInfo = Maps.newConcurrentMap();
+
+    public void recordAutoPartitionInfo(Long dbId, Long txnId, Map<Long, Set<Long>> tabletMap) {
+        autoPartitionInfo.compute(dbId, (k, v) -> {
+            if (v == null) {
+                v = Maps.newConcurrentMap();
+            }
+            v.put(txnId, tabletMap);
+            return v;
+        });
+    }
+
+    public Map<Long, Set<Long>> getAutoPartitionInfo(Long dbId, Long txnId) {
+        Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
+        Map<Long, Set<Long>> tabletMap = txnMap.get(txnId);
+        if (tabletMap == null) {
+            return new HashMap<>();
+        }
+        return tabletMap; 
+    }
 
     public GlobalTransactionMgr(Env env) {
         this.env = env;

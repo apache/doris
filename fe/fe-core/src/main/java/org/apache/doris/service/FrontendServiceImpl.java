@@ -3717,6 +3717,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (Config.isCloudMode()) {
                 Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, tabletMap);
             } else {
+                
+            }
+        } else {
+            if (Config.isCloudMode()) {
+                tabletMap = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
+            } else {
 
             }
         }
@@ -3769,7 +3775,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // 1. If the tablet was created in addPartition above, the status of its BE replica has already been checked.
                     // 2. If another createPartition operation ran concurrently and created the tablet,
                     //    its BE replica status was also checked at that time.
-                    Set<Long> nodeSet = txn.getAutoPartitonInfo(tablet.getId());
+                    Set<Long> nodeSet = tabletMap.get(tablet.getId());
                     Long[] nodes = nodeSet != null ? nodeSet.toArray(new Long[0]) : new Long[0];
 
                     if (nodes.length < quorum) {
