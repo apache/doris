@@ -166,11 +166,8 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
     }
 
     private boolean tryProcessPropagateNullable(Expression expression, Set<Expression> conjuncts) {
-        if (expression.isLiteral()) {
-            // for propagate nullable function, if any of its child is null literal,
-            // the fold rule will simplify it to null literal.
-            // so here no need to handle with the null literal case.
-            return !expression.isNullLiteral();
+        if (!expression.nullable()) {
+            return true;
         } else if (expression instanceof SlotReference) {
             if (expression.nullable()) {
                 conjuncts.add(ExpressionUtils.notIsNull(expression));
