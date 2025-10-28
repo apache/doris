@@ -46,6 +46,16 @@ suite("test_delete_from_timeout","nonConcurrent") {
 
         GetDebugPoint().clearDebugPointsForAllBEs()
 
+        GetDebugPoint().enableDebugPointForAllBEs("DeleteHandler::generate_delete_predicate.inject_failure",
+                [error_code: -235 /* TOO MANY VERSIONS */, error_msg: "too many versions"])
+
+        test {
+            sql """delete from ${tableName} where col1 = "false" and col2 = "-9999782574499444.2" and col3 = "-25"; """
+            exception "too many versions"
+        }
+
+        GetDebugPoint().clearDebugPointsForAllBEs()
+
         GetDebugPoint().enableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
 
         def t1 = Thread.start {

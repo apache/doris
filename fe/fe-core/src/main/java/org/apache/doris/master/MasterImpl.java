@@ -33,6 +33,7 @@ import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.master.CloudReportHandler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Status;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.system.Backend;
@@ -342,18 +343,31 @@ public class MasterImpl {
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
+        long tableId = pushTask.getTableId();
+        long partitionId = pushTask.getPartitionId();
+        long pushIndexId = pushTask.getIndexId();
+        long pushTabletId = pushTask.getTabletId();
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             if (pushTask.getPushType() == TPushType.DELETE) {
                 // we don't need to retry if the returned status code is DELETE_INVALID_CONDITION
                 // or DELETE_INVALID_PARAMETERS
                 // note that they will be converted to TStatusCode.INVALID_ARGUMENT when being sent from be to fe
-                if (request.getTaskStatus().getStatusCode() == TStatusCode.INVALID_ARGUMENT) {
-                    pushTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                            task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
-                    AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
-                    LOG.warn("finish push replica error: {}", request.getTaskStatus().getErrorMsgs().toString());
+                TStatus taskStatus = request.getTaskStatus();
+                String msg = task.getBackendId() + ": " + taskStatus.getErrorMsgs().toString();
+                LOG.warn("finish push replica, signature={}, error: {}",
+                        signature, taskStatus.getErrorMsgs().toString());
+                if (taskStatus.getStatusCode() == TStatusCode.OBTAIN_LOCK_FAILED) {
+                    // retry if obtain lock failed
+                    return;
                 }
+                if (taskStatus.getStatusCode() == TStatusCode.INVALID_ARGUMENT) {
+                    pushTask.countDownToZero(taskStatus.getStatusCode(), msg);
+                } else {
+                    pushTask.countDownLatchWithStatus(backendId, pushTabletId,
+                            new Status(taskStatus.getStatusCode(), msg));
+                }
+                AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             }
             return;
         }
@@ -367,10 +381,6 @@ public class MasterImpl {
             return;
         }
 
-        long tableId = pushTask.getTableId();
-        long partitionId = pushTask.getPartitionId();
-        long pushIndexId = pushTask.getIndexId();
-        long pushTabletId = pushTask.getTabletId();
         // push finish type:
         //                  numOfFinishTabletInfos  tabletId schemaHash
         // Normal:                     1                   /          /
@@ -468,7 +478,7 @@ public class MasterImpl {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
             if (pushTask.getPushType() == TPushType.DELETE) {
-                pushTask.countDownLatch(backendId, pushTabletId);
+                pushTask.countDownLatchWithStatus(backendId, pushTabletId, Status.CANCELLED);
             }
         } finally {
             olapTable.writeUnlock();
