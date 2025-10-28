@@ -91,7 +91,7 @@ struct FileCacheAllocatorBuilder {
     uint64_t _expiration_time;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache
-    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size) const;
+    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size, int64_t tablet_id) const;
 };
 
 struct KeyHash {
@@ -305,5 +305,7 @@ struct InconsistencyContext {
     std::vector<FileCacheInfo> infos_in_storage;
     std::vector<InconsistencyType> types;
 };
+
+std::optional<int64_t> get_tablet_id(std::string file_path);
 
 } // namespace doris::io

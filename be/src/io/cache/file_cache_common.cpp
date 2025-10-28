@@ -133,8 +133,8 @@ std::string UInt128Wrapper::to_string() const {
     return vectorized::get_hex_uint_lowercase(value_);
 }
 
-FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset,
-                                                                     size_t size) const {
+FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size,
+                                                                     int64_t tablet_id) const {
     CacheContext ctx;
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
@@ -183,6 +183,86 @@ std::string InconsistencyType::to_string() const {
     }
     result += "\n";
     return result;
+}
+
+std::optional<int64_t> get_tablet_id(std::string file_path) {
+    // Expected path formats:
+    // support both .dat and .idx file extensions
+    // support formate see ut. storage_resource_test:StorageResourceTest.ParseTabletIdFromPath
+
+    if (file_path.empty()) {
+        return std::nullopt;
+    }
+
+    // Find the position of "data/" in the path
+    std::string_view path_view = file_path;
+    std::string_view data_prefix = DATA_PREFIX;
+    size_t data_pos = path_view.find(data_prefix);
+    if (data_pos == std::string_view::npos) {
+        return std::nullopt;
+    }
+
+    // Extract the part after "data/"
+    path_view = path_view.substr(data_pos + data_prefix.length() + 1);
+
+    // Check if path ends with .dat or .idx
+    if (!path_view.ends_with(".dat") && !path_view.ends_with(".idx")) {
+        return std::nullopt;
+    }
+
+    // Count slashes in the remaining path
+    size_t slash_count = 0;
+    for (char c : path_view) {
+        if (c == '/') {
+            slash_count++;
+        }
+    }
+
+    // Split path by '/'
+    std::vector<std::string_view> parts;
+    size_t start = 0;
+    size_t pos = 0;
+    while ((pos = path_view.find('/', start)) != std::string_view::npos) {
+        if (pos > start) {
+            parts.push_back(path_view.substr(start, pos - start));
+        }
+        start = pos + 1;
+    }
+    if (start < path_view.length()) {
+        parts.push_back(path_view.substr(start));
+    }
+
+    if (parts.empty()) {
+        return std::nullopt;
+    }
+
+    // Determine path version based on slash count and extract tablet_id
+    // Version 0: {tablet_id}/{rowset_id}_{seg_id}.dat (1 slash)
+    // Version 1: {shard}/{tablet_id}/{rowset_id}/{seg_id}.dat (3 slashes)
+
+    if (slash_count == 1) {
+        // Version 0 format: parts[0] should be tablet_id
+        if (parts.size() >= 1) {
+            try {
+                int64_t tablet_id = std::stoll(std::string(parts[0]));
+                return tablet_id;
+            } catch (const std::exception&) {
+                // Not a valid number, return nullopt at last
+            }
+        }
+    } else if (slash_count == 3) {
+        // Version 1 format: parts[1] should be tablet_id (parts[0] is shard)
+        if (parts.size() >= 2) {
+            try {
+                int64_t tablet_id = std::stoll(std::string(parts[1]));
+                return tablet_id;
+            } catch (const std::exception&) {
+                // Not a valid number, return nullopt at last
+            }
+        }
+    }
+
+    return std::nullopt;
 }
 
 } // namespace doris::io
