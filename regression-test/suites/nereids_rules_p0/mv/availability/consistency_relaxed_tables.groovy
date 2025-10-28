@@ -79,11 +79,11 @@ suite("consistency_relaxed_tables") {
     """
 
     sql """
-    drop table if exists partsupp
+    drop table if exists partsupp_p
     """
 
         sql """
-    CREATE TABLE IF NOT EXISTS partsupp (
+    CREATE TABLE IF NOT EXISTS partsupp_p (
       ps_partkey     INTEGER NOT NULL,
       ps_suppkey     INTEGER NOT NULL,
       ps_availqty    INTEGER NOT NULL,
@@ -131,7 +131,7 @@ suite("consistency_relaxed_tables") {
     """
 
         sql """
-    insert into partsupp values
+    insert into partsupp_p values
     (2, 3, 9, 10.01, 'supply1'),
     (2, 3, 10, 11.01, 'supply2');
     """
@@ -139,12 +139,12 @@ suite("consistency_relaxed_tables") {
         multi_sql """
         analyze table lineitem_p with sync;
         analyze table orders_p with sync;
-        analyze table partsupp with sync;
+        analyze table partsupp_p with sync;
         """
 
         sql """alter table orders_p modify column o_comment set stats ('row_count'='13');"""
         sql """alter table lineitem_p modify column l_comment set stats ('row_count'='12');"""
-        sql """alter table partsupp modify column ps_partkey set stats ('row_count'='2');"""
+        sql """alter table partsupp_p modify column ps_partkey set stats ('row_count'='2');"""
     }
 
 
@@ -155,7 +155,7 @@ suite("consistency_relaxed_tables") {
     l_suppkey, sum(o_totalprice) as sum_total
     from lineitem_p
     left join orders_p on l_shipdate = o_orderdate
-    left join partsupp on l_partkey = ps_partkey and l_suppkey = ps_suppkey
+    left join partsupp_p on l_partkey = ps_partkey and l_suppkey = ps_suppkey
     group by
     l_shipdate,
     o_orderdate,
