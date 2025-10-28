@@ -661,6 +661,7 @@ public class SchemaTable extends Table {
                             builder().column("HASH", ScalarType.createStringType())
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TYPE", ScalarType.createStringType())
                                     .column("REMOTE_PATH", ScalarType.createStringType())
                                     .column("CACHE_PATH", ScalarType.createStringType())
                                     .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
