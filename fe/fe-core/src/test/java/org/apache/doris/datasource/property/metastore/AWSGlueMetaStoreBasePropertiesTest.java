@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.ExceptionChecker;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -48,17 +46,14 @@ public class AWSGlueMetaStoreBasePropertiesTest {
     void testValidPropertiesWithRegion() {
         Map<String, String> props = baseValidProps();
         props.put("glue.region", "us-east-1");
-        props.remove("glue.endpoint");
-        AWSGlueMetaStoreBaseProperties glueProps = AWSGlueMetaStoreBaseProperties.of(props);
-        Assertions.assertEquals("us-east-1", glueProps.glueRegion);
-        Assertions.assertTrue("https://glue.us-east-1.amazonaws.com".equals(glueProps.glueEndpoint));
         props.put("glue.endpoint", "https://glue.us-east-1.amazonaws.com.cn");
+        AWSGlueMetaStoreBaseProperties glueProps = AWSGlueMetaStoreBaseProperties.of(props);
+        Assertions.assertTrue("https://glue.us-east-1.amazonaws.com.cn".equals(glueProps.glueEndpoint));
+        Assertions.assertEquals("us-east-1", glueProps.glueRegion);
+        props.remove("glue.region");
         glueProps = AWSGlueMetaStoreBaseProperties.of(props);
         Assertions.assertTrue("https://glue.us-east-1.amazonaws.com.cn".equals(glueProps.glueEndpoint));
-        props.remove("glue.region");
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid AWS Glue endpoint format: 'https://glue.us-east-1.amazonaws.com.cn'. Expected format like 'https://glue.<region>.amazonaws.com'.",
-                () -> AWSGlueMetaStoreBaseProperties.of(props));
+        Assertions.assertEquals("us-east-1", glueProps.glueRegion);
     }
 
     @Test

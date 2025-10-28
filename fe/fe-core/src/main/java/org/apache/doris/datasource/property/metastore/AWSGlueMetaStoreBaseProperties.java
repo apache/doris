@@ -95,7 +95,7 @@ public class AWSGlueMetaStoreBaseProperties {
     private ParamRules buildRules() {
 
         return new ParamRules().requireTogether(new String[]{glueAccessKey, glueSecretKey},
-                "glue.access_key and glue.secret_key must be set together")
+                        "glue.access_key and glue.secret_key must be set together")
                 .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
                         "At least one of glue.access_key or glue.role_arn must be set")
                 .requireAtLeastOne(new String[]{glueEndpoint, glueRegion},
@@ -107,19 +107,18 @@ public class AWSGlueMetaStoreBaseProperties {
         if (StringUtils.isNotBlank(glueRegion) && StringUtils.isNotBlank(glueEndpoint)) {
             return;
         }
-        // construct endpoint from region
         if (StringUtils.isBlank(glueEndpoint) && StringUtils.isNotBlank(glueRegion)) {
-            glueEndpoint = String.format("https://glue.%s.amazonaws.com", glueRegion);
             return;
         }
-        // extract region from endpoint
+        // glue region is not set, try to extract from endpoint
         Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException(String.format(
-                    "Invalid AWS Glue endpoint format: '%s'. Expected format like 'https://glue.<region>.amazonaws"
-                            + ".com'.", glueEndpoint));
+        if (matcher.matches()) {
+            this.glueRegion = extractRegionFromEndpoint(matcher);
         }
-        this.glueRegion = extractRegionFromEndpoint(matcher);
+        if (StringUtils.isBlank(glueRegion)) {
+            //follow aws sdk default region
+            glueRegion = "us-east-1";
+        }
     }
 
     private String extractRegionFromEndpoint(Matcher matcher) {
