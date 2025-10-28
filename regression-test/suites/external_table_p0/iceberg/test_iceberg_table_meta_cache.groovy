@@ -40,7 +40,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             );
             """
             sql """switch ${catalog_name}"""
-            sql """drop database if exists test_iceberg_meta_cache_db"""
+            sql """drop database if exists test_iceberg_meta_cache_db CASCADE"""
             sql """create database test_iceberg_meta_cache_db"""
             sql """
                 CREATE TABLE test_iceberg_meta_cache_db.sales (
@@ -92,7 +92,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            sql """drop database if exists test_iceberg_meta_cache_db"""
+            sql """drop database if exists test_iceberg_meta_cache_db CASCADE"""
             sql """create database test_iceberg_meta_cache_db"""
             sql """
                 CREATE TABLE test_iceberg_meta_cache_db.sales (
@@ -129,7 +129,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            sql """drop database if exists test_iceberg_meta_cache_db"""
+            sql """drop database if exists test_iceberg_meta_cache_db CASCADE"""
             sql """create database test_iceberg_meta_cache_db"""
             sql """
                 CREATE TABLE test_iceberg_meta_cache_db.sales (
@@ -181,7 +181,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             );
             """
             sql """switch ${catalog_name_no_cache}"""
-            sql """drop database if exists test_iceberg_meta_cache_db"""
+            sql """drop database if exists test_iceberg_meta_cache_db CASCADE"""
             sql """create database test_iceberg_meta_cache_db"""
             sql """
                 CREATE TABLE test_iceberg_meta_cache_db.sales (
