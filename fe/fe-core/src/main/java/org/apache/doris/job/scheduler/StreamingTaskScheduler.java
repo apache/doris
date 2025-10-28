@@ -125,6 +125,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
         job.setLastScheduleTaskTimestamp(System.currentTimeMillis());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().addRunningTask(task);
+        // clear delay msg
+        job.setJobRuntimeMsg("");
         long start = System.currentTimeMillis();
         try {
             task.execute();
