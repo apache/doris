@@ -29,6 +29,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -1699,6 +1700,15 @@ TEST(VTimestampFunctionsTest, utc_time_test) {
         static_cast<void>(
                 check_function<DataTypeTimeV2, true>(func_name, input_types, data_set, 3));
     }
+}
+
+TEST(VTimestampFunctionsTest, utc_impl_function_name_test) {
+    EXPECT_STREQ("utc_timestamp", UtcImpl<PrimitiveType::TYPE_DATETIMEV2>::get_function_name());
+    EXPECT_STREQ("utc_date", UtcImpl<PrimitiveType::TYPE_DATEV2>::get_function_name());
+    EXPECT_STREQ("utc_time", UtcImpl<PrimitiveType::TYPE_TIMEV2>::get_function_name());
+    EXPECT_STREQ("utc_timestamp", UtcImpl<PrimitiveType::TYPE_DATETIMEV2>::name);
+    EXPECT_STREQ("utc_date", UtcImpl<PrimitiveType::TYPE_DATEV2>::name);
+    EXPECT_STREQ("utc_time", UtcImpl<PrimitiveType::TYPE_TIMEV2>::name);
 }
 
 } // namespace doris::vectorized
