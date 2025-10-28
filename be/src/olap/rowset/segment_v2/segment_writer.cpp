@@ -1043,7 +1043,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
                                                              cache_builder->_expiration_time == 0 &&
                                                              config::is_cloud_mode()) {
         auto size = *index_size + *segment_file_size;
-        auto holder = cache_builder->allocate_cache_holder(index_start, size);
+        auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
         for (auto& segment : holder->file_blocks) {
             static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
         }
