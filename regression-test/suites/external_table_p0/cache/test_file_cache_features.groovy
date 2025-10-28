@@ -239,3 +239,4 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
     sql """set global enable_file_cache=false"""
     return true
 }
+

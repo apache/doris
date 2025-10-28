@@ -92,3 +92,4 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
         sql """drop catalog if exists ${catalog_name}"""
     }
 }
+
