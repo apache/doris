@@ -217,9 +217,8 @@ private:
                             // {"b" : {"c" : 456}}
                             // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
                             // from "" which is empty path and root
-                            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                                    &src_sparse_data_values, lower_bound_index);
-                            root.insert(data.first, data.second);
+                            root.deserialize_from_sparse_column(&src_sparse_data_values,
+                                                                lower_bound_index);
                         }
                     }
                     if (root.size() == sparse_data_offsets.size()) {

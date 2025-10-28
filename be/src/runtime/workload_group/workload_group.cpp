@@ -414,6 +414,10 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     if (exec_thread_num <= 0) {
         exec_thread_num = CpuInfo::num_cores();
     }
+    int blocking_exec_thread_num = config::blocking_pipeline_executor_size;
+    if (blocking_exec_thread_num <= 0) {
+        blocking_exec_thread_num = CpuInfo::num_cores() * 2;
+    }
 
     int num_disk = 1;
     int num_cpus = 1;
@@ -484,6 +488,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .total_query_slot_count = total_query_slot_count,
             .slot_mem_policy = slot_mem_policy,
             .pipeline_exec_thread_num = exec_thread_num,
+            .blocking_pipeline_exec_thread_num = blocking_exec_thread_num,
             .max_flush_thread_num = max_flush_thread_num,
             .min_flush_thread_num = min_flush_thread_num};
 }
@@ -522,6 +527,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     uint64_t wg_id = wg_info->id;
     std::string wg_name = wg_info->name;
     int pipeline_exec_thread_num = wg_info->pipeline_exec_thread_num;
+    int blocking_exec_thread_num = wg_info->blocking_pipeline_exec_thread_num;
     int scan_thread_num = wg_info->scan_thread_num;
     int max_remote_scan_thread_num = wg_info->max_remote_scan_thread_num;
     int min_remote_scan_thread_num = wg_info->min_remote_scan_thread_num;
@@ -532,6 +538,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     if (_task_sched == nullptr) {
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
                 std::make_unique<pipeline::HybridTaskScheduler>(pipeline_exec_thread_num,
+                                                                blocking_exec_thread_num,
                                                                 "p_" + wg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
