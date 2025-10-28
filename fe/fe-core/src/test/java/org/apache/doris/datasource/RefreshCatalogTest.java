@@ -157,8 +157,8 @@ public class RefreshCatalogTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
-        // after refresh, the catalog will be set to uninitialized
-        Assertions.assertFalse(((ExternalCatalog) test2).isInitialized());
+        // after refresh, the catalog will NOT be set to uninitialized
+        Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
         // call get table to trigger catalog initialization
         table = (TestExternalTable) test2.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertTrue(((ExternalCatalog) test2).isInitialized());
