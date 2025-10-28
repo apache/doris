@@ -224,6 +224,60 @@ public class IcebergNereidsUtils {
     private static Object extractNereidsLiteralValue(
             Literal literal,
             Type icebergType) {
-        return literal.getValue();
+        Object raw = literal.getValue();
+        if (raw == null) {
+            return null;
+        }
+
+        // Normalize primitive wrapper types to what Iceberg expects for the target
+        // column type
+        try {
+            switch (icebergType.typeId()) {
+                case BOOLEAN:
+                    return (raw instanceof Boolean) ? raw : Boolean.valueOf(raw.toString());
+                case INTEGER:
+                    if (raw instanceof Integer) {
+                        return raw;
+                    }
+                    if (raw instanceof Number) {
+                        return ((Number) raw).intValue();
+                    }
+                    return Integer.valueOf(raw.toString());
+                case LONG:
+                    if (raw instanceof Long) {
+                        return raw;
+                    }
+                    if (raw instanceof Number) {
+                        return ((Number) raw).longValue();
+                    }
+                    return Long.valueOf(raw.toString());
+                case FLOAT:
+                    if (raw instanceof Float) {
+                        return raw;
+                    }
+                    if (raw instanceof Number) {
+                        return ((Number) raw).floatValue();
+                    }
+                    return Float.valueOf(raw.toString());
+                case DOUBLE:
+                    if (raw instanceof Double) {
+                        return raw;
+                    }
+                    if (raw instanceof Number) {
+                        return ((Number) raw).doubleValue();
+                    }
+                    return Double.valueOf(raw.toString());
+                case STRING:
+                    return raw.toString();
+                default:
+                    // For other types (DATE, DECIMAL, etc.), pass through as-is and let Iceberg
+                    // handle
+                    return raw;
+            }
+        } catch (Exception e) {
+            // Fallback to raw on any conversion issue; caller will decide if it's
+            // acceptable
+            return raw;
+        }
     }
 }
