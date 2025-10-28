@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import org.junit.jupiter.api.Assertions;
@@ -50,6 +51,12 @@ public class LargeIntLiteralTest {
         d1 = new LargeIntLiteral(new BigInteger("9223372036854775808"));
         LargeIntLiteral finalD1 = d1;
         Assertions.assertThrows(CastException.class, () -> finalD1.checkedCastTo(BigIntType.INSTANCE));
+
+        // to string
+        d1 = new LargeIntLiteral(new BigInteger("9223372036854775807"));
+        expression = d1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("9223372036854775807", ((StringLiteral) expression).value);
     }
 
     @Test

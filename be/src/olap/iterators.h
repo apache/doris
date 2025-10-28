@@ -25,6 +25,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
@@ -35,7 +36,6 @@
 
 namespace doris {
 
-class RowCursor;
 class Schema;
 class ColumnPredicate;
 
@@ -71,6 +71,22 @@ public:
         const RowCursor* upper_key = nullptr;
         // whether `upper_key` is included in the range
         bool include_upper;
+
+        uint64_t get_digest(uint64_t seed) const {
+            if (lower_key != nullptr) {
+                auto key_str = lower_key->to_string();
+                seed = HashUtil::hash64(key_str.c_str(), key_str.size(), seed);
+                seed = HashUtil::hash64(&include_lower, sizeof(include_lower), seed);
+            }
+
+            if (upper_key != nullptr) {
+                auto key_str = upper_key->to_string();
+                seed = HashUtil::hash64(key_str.c_str(), key_str.size(), seed);
+                seed = HashUtil::hash64(&include_upper, sizeof(include_upper), seed);
+            }
+
+            return seed;
+        }
     };
 
     // reader's key ranges, empty if not existed.
@@ -129,6 +145,12 @@ public:
 
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
+
+    // Cache for sparse column data to avoid redundant reads
+    // col_unique_id -> cached column_ptr
+    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
+
+    uint64_t condition_cache_digest = 0;
 };
 
 struct CompactionSampleInfo {

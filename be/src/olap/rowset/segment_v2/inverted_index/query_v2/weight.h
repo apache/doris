@@ -44,10 +44,30 @@ public:
     Weight() = default;
     virtual ~Weight() = default;
 
-    virtual ScorerPtr scorer(const QueryExecutionContext& context) = 0;
+    virtual ScorerPtr scorer(const QueryExecutionContext& context) { return scorer(context, {}); }
+
     virtual ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) {
         (void)binding_key;
         return scorer(context);
+    }
+
+protected:
+    std::shared_ptr<lucene::index::IndexReader> lookup_reader(
+            const std::wstring& field, const QueryExecutionContext& ctx,
+            const std::string& binding_key) const {
+        if (!binding_key.empty()) {
+            if (auto it = ctx.reader_bindings.find(binding_key); it != ctx.reader_bindings.end()) {
+                return it->second;
+            }
+        }
+        if (auto it = ctx.field_reader_bindings.find(field);
+            it != ctx.field_reader_bindings.end()) {
+            return it->second;
+        }
+        if (!ctx.readers.empty()) {
+            return ctx.readers.front();
+        }
+        return nullptr;
     }
 };
 using WeightPtr = std::shared_ptr<Weight>;

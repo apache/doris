@@ -192,7 +192,7 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(vectorized::Block& block);
+    void _serialize_block_to_row_column(const vectorized::Block& block);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,

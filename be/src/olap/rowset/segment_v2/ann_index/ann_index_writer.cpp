@@ -64,6 +64,8 @@ Status AnnIndexColumnWriter::init() {
     build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
     build_parameter.ef_construction = std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
     build_parameter.quantizer = FaissBuildParameter::string_to_quantizer(quantizer);
+    build_parameter.pq_m = std::stoi(get_or_default(properties, PQ_M, "8"));
+    build_parameter.pq_nbits = std::stoi(get_or_default(properties, PQ_NBITS, "8"));
 
     faiss_index->build(build_parameter);
 
@@ -104,7 +106,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     const float* p = reinterpret_cast<const float*>(value_ptr);
     // Train the index if needed
     // Faiss index will do nothing if index does not need train.
-    _vector_index->train(num_rows, p);
+    RETURN_IF_ERROR(_vector_index->train(num_rows, p));
     RETURN_IF_ERROR(_vector_index->add(num_rows, p));
 
     return Status::OK();

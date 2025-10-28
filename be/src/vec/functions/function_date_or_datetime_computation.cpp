@@ -64,6 +64,8 @@ using FunctionSecToTime = FunctionCurrentDateOrDateTime<SecToTimeImpl>;
 using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
 using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
+using FunctionPeriodAdd = FunctionNeedsToHandleNull<PeriodAddImpl, PrimitiveType::TYPE_BIGINT>;
+using FunctionPeriodDiff = FunctionNeedsToHandleNull<PeriodDiffImpl, PrimitiveType::TYPE_BIGINT>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateDiff>();
@@ -93,6 +95,9 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecToDateTime>();
     factory.register_function<FunctionMonthsBetween>();
     factory.register_function<FunctionTime>();
+    factory.register_function<FunctionGetFormat>();
+    factory.register_function<FunctionPeriodAdd>();
+    factory.register_function<FunctionPeriodDiff>();
 
     // alias
     factory.register_alias("days_add", "date_add");

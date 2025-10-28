@@ -285,6 +285,11 @@ public class FloatLiteralTest {
         FloatLiteral finalF9 = f1;
         Assertions.assertThrows(CastException.class, () -> finalF9.uncheckedCastTo(DateType.INSTANCE));
 
+        // to string
+        f1 = new FloatLiteral((float) 123.24500);
+        expression = f1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("123.245", ((StringLiteral) expression).value);
     }
 
     @Test

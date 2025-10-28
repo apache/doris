@@ -28,7 +28,7 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
@@ -89,7 +89,7 @@ private:
         indexwriter->setMergeFactor(1000000000);
         indexwriter->setUseCompoundFile(false);
 
-        auto* char_string_reader = _CLNEW lucene::util::SStringReader<char>;
+        auto char_string_reader = std::make_shared<lucene::util::SStringReader<char>>();
 
         auto* doc = _CLNEW lucene::document::Document();
         int32_t field_config = lucene::document::Field::STORE_NO;
@@ -114,7 +114,6 @@ private:
 
         _CLLDELETE(indexwriter);
         _CLLDELETE(doc);
-        _CLLDELETE(char_string_reader);
     }
 };
 
@@ -546,7 +545,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
     query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_AND);
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
                                                       StringHelper::to_wstring("apple")));
-    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    builder.add(std::make_shared<query_v2::BitSetQuery>(bm));
     auto q = builder.build();
 
     auto w = q->weight(false);
@@ -597,7 +596,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
     query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
                                                       StringHelper::to_wstring("apple")));
-    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    builder.add(std::make_shared<query_v2::BitSetQuery>(bm));
     auto q = builder.build();
 
     auto w = q->weight(false);

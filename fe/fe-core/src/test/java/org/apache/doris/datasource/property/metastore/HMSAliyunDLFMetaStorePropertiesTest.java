@@ -38,8 +38,8 @@ public class HMSAliyunDLFMetaStorePropertiesTest {
         props.put("dlf.access_key", "xxx");
         props.put("dlf.secret_key", "xxx");
         props.put("dlf.catalog_id", "5789");
-        HMSAliyunDLFMetaStoreProperties hmsAliyunDLFMetaStoreProperties =
-                (HMSAliyunDLFMetaStoreProperties) MetastoreProperties.create(props);
+        HiveAliyunDLFMetaStoreProperties hmsAliyunDLFMetaStoreProperties =
+                (HiveAliyunDLFMetaStoreProperties) MetastoreProperties.create(props);
         Assertions.assertEquals("xxx", hmsAliyunDLFMetaStoreProperties.getHiveConf().get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
         Assertions.assertEquals("xxx", hmsAliyunDLFMetaStoreProperties.getHiveConf().get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET));
         Assertions.assertEquals("5789", hmsAliyunDLFMetaStoreProperties.getHiveConf().get(DataLakeConfig.CATALOG_ID));

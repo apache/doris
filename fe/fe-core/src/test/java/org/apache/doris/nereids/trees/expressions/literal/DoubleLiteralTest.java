@@ -319,6 +319,12 @@ class DoubleLiteralTest {
         f1 = new DoubleLiteral(1000);
         DoubleLiteral finalF9 = f1;
         Assertions.assertThrows(CastException.class, () -> finalF9.uncheckedCastTo(DateType.INSTANCE));
+
+        // to string
+        f1 = new DoubleLiteral(123.24500);
+        expression = f1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("123.245", ((StringLiteral) expression).value);
     }
 
     @Test

@@ -544,7 +544,7 @@ Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const u
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
                                                const TabletColumn* column,
                                                std::unique_ptr<Field> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     //
     _tablet_column = column;
     _opts = opts;

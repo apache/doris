@@ -71,17 +71,10 @@ private:
 
 class ParquetBuildHelper {
 public:
-    static void build_schema_repetition_type(
-            parquet::Repetition::type& parquet_repetition_type,
-            const TParquetRepetitionType::type& column_repetition_type);
-
-    static void build_schema_data_type(parquet::Type::type& parquet_data_type,
-                                       const TParquetDataType::type& column_data_type);
-
-    static void build_compression_type(parquet::WriterProperties::Builder& builder,
+    static void build_compression_type(::parquet::WriterProperties::Builder& builder,
                                        const TParquetCompressionType::type& compression_type);
 
-    static void build_version(parquet::WriterProperties::Builder& builder,
+    static void build_version(::parquet::WriterProperties::Builder& builder,
                               const TParquetVersion::type& parquet_version);
 };
 
@@ -124,9 +117,9 @@ private:
     arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
-    std::shared_ptr<parquet::WriterProperties> _parquet_writer_properties;
-    std::shared_ptr<parquet::ArrowWriterProperties> _arrow_properties;
-    std::unique_ptr<parquet::arrow::FileWriter> _writer;
+    std::shared_ptr<::parquet::WriterProperties> _parquet_writer_properties;
+    std::shared_ptr<::parquet::ArrowWriterProperties> _arrow_properties;
+    std::unique_ptr<::parquet::arrow::FileWriter> _writer;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
     std::vector<std::string> _column_names;

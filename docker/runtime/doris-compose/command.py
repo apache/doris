@@ -462,6 +462,35 @@ class UpCommand(Command):
                 "Only use when creating new cluster and specify --remote-master-fe."
         )
 
+        parser.add_argument(
+            "--external-ms",
+            type=str,
+            help=
+            "Use external meta service cluster (specify cluster name). " \
+            "This cluster will not create its own MS/FDB/Recycler, but use the specified cluster's services. " \
+            "The external cluster must be a cloud cluster with MS/FDB already running. " \
+            "Example: --external-ms shared-meta. Only use when creating new cloud cluster."
+        )
+
+        parser.add_argument(
+            "--instance-id",
+            type=str,
+            help=
+            "Specify instance ID for cloud mode. If not specified, will auto-generate 'default_instance_id'. " \
+            "When using external MS with multiple clusters, each cluster should have a unique instance ID. " \
+            "Example: --instance-id prod_instance_1"
+        )
+
+        parser.add_argument(
+            "--cluster-snapshot",
+            type=str,
+            help=
+            "Cluster snapshot JSON content for FE-1 first startup in cloud mode only. " \
+            "The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh " \
+            "with --cluster_snapshot parameter. Only effective on first startup. " \
+            "Example: --cluster-snapshot '{\"instance_id\":\"instance_id_xxx\"}'"
+        )
+
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-metaservice-endpoint",
@@ -583,17 +612,29 @@ class UpCommand(Command):
 
             cloud_store_config = {}
             if args.cloud:
-                add_fdb_num = 1
-                if not args.add_ms_num:
-                    args.add_ms_num = 1
-                if not args.add_recycle_num:
-                    args.add_recycle_num = 1
+                external_ms_cluster = getattr(args, 'external_ms', None)
+                if external_ms_cluster:
+                    # Using the MS nodes from external cluster, no need to add FDB/MS/Recycler
+                    self._validate_external_ms_cluster(external_ms_cluster)
+                    add_fdb_num = 0
+                    args.add_ms_num = 0
+                    args.add_recycle_num = 0
+                    LOG.info(f"Using external MS cluster: {external_ms_cluster}")
+                else:
+                    add_fdb_num = 1
+                    if not args.add_ms_num:
+                        args.add_ms_num = 1
+                    if not args.add_recycle_num:
+                        args.add_recycle_num = 1
+                    external_ms_cluster = None
+
                 if not args.be_cluster:
                     args.be_cluster = "compute_cluster"
                 cloud_store_config = self._get_cloud_store_config()
             else:
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
+                external_ms_cluster = None
 
             if args.remote_master_fe:
                 if not args.local_network_ip:
@@ -609,13 +650,17 @@ class UpCommand(Command):
                 if args.cloud:
                     args.sql_mode_node_mgr = True
 
+            instance_id = getattr(args, 'instance_id', None)
+            cluster_snapshot = getattr(args, 'cluster_snapshot', '')
+
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
                 args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
-                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk)
+                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
+                external_ms_cluster, instance_id, cluster_snapshot)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -824,6 +869,70 @@ class UpCommand(Command):
                 "add_list": add_fdb_ids,
             },
         }
+
+    def _validate_external_ms_cluster(self, external_ms_cluster_name):
+        # 1. Is the external cluster exist?
+        try:
+            external_cluster = CLUSTER.Cluster.load(external_ms_cluster_name)
+        except Exception as e:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' not found. "
+                f"Please create it first with: "
+                f"python doris-compose.py up {external_ms_cluster_name} <image> --cloud --add-fe-num 0 --add-be-num 0"
+            ) from e
+
+        # 2. Is the external cluster a cloud cluster?
+        if not external_cluster.is_cloud:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' is not a cloud cluster. "
+                f"Only cloud clusters can be used as external MS."
+            )
+
+        # 3. Does the external cluster have MS and FDB nodes?
+        ms_group = external_cluster.get_group(CLUSTER.Node.TYPE_MS)
+        fdb_group = external_cluster.get_group(CLUSTER.Node.TYPE_FDB)
+
+        if ms_group.get_node_num() == 0:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' has no MS nodes. "
+                f"Please add MS nodes first."
+            )
+
+        if fdb_group.get_node_num() == 0:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' has no FDB nodes. "
+                f"Please add FDB nodes first."
+            )
+
+        # 4. Are the MS and FDB containers running?
+        containers = utils.get_doris_running_containers(external_ms_cluster_name)
+
+        ms_running = False
+        fdb_running = False
+        for container_name in containers.keys():
+            _, node_type, _ = utils.parse_service_name(container_name)
+            if node_type == CLUSTER.Node.TYPE_MS:
+                ms_running = True
+            elif node_type == CLUSTER.Node.TYPE_FDB:
+                fdb_running = True
+
+        if not ms_running:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' MS node is not running. "
+                f"Please start it with: python doris-compose.py start {external_ms_cluster_name}"
+            )
+
+        if not fdb_running:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' FDB node is not running. "
+                f"Please start it with: python doris-compose.py start {external_ms_cluster_name}"
+            )
+
+        LOG.info(utils.render_green(
+            f"✓ External MS cluster '{external_ms_cluster_name}' validation passed: "
+            f"MS={external_cluster.get_meta_server_addr()}, "
+            f"FDB={external_cluster.get_fdb_cluster()}"
+        ))
 
     def _get_cloud_store_config(self):
         example_cfg_file = os.path.join(CLUSTER.LOCAL_RESOURCE_PATH,
@@ -1394,9 +1503,9 @@ class ListCommand(Command):
                     if cluster and cluster.is_host_network():
                         node.ip = cluster.local_network_ip
                     else:
-                        node.ip = list(
-                            container.attrs["NetworkSettings"]["Networks"].
-                            values())[0]["IPAMConfig"]["IPv4Address"]
+                        network_name = utils.get_network_name(cluster.name)
+                        node.ip = container.attrs["NetworkSettings"]["Networks"][network_name] \
+                                ["IPAMConfig"]["IPv4Address"]
                     node.image = container.attrs["Config"]["Image"]
                     if not node.image:
                         node.image = ",".join(container.image.tags)

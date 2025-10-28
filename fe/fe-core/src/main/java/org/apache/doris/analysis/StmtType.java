@@ -38,6 +38,7 @@ public enum StmtType {
     INSTALL,
     KILL,
     LOAD,
+    MERGE_INTO,
     OTHER,
     OPTIMIZE,
     PAUSE,

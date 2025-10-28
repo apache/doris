@@ -31,11 +31,11 @@ std::vector<std::string> tokenize(const std::string& s, bool lowercase = false) 
         BasicAnalyzer analyzer;
         analyzer.set_lowercase(lowercase);
 
-        lucene::util::SStringReader<char> reader;
-        reader.init(s.data(), s.size(), false);
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reader->init(s.data(), s.size(), false);
 
-        std::unique_ptr<BasicTokenizer> tokenizer;
-        tokenizer.reset((BasicTokenizer*)analyzer.tokenStream(L"", &reader));
+        std::unique_ptr<inverted_index::BasicTokenizer> tokenizer;
+        tokenizer.reset((inverted_index::BasicTokenizer*)analyzer.tokenStream(L"", reader));
 
         Token t;
         while (tokenizer->next(&t)) {

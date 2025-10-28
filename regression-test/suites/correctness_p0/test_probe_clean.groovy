@@ -61,32 +61,11 @@ sql """
 insert into clearblocktable2 values(1,1,'2020-01-01');
 """
 
-sql """
-set enable_pipeline_x_engine=true, enable_pipeline_engine=true;
-"""
 qt_select_pipelineX """ 
 
 SELECT YEAR(ifnull(clearblocktable1.`col_date_undef_signed_not_null`, clearblocktable1.`col_date_undef_signed_not_null`)) AS field1 , 
 CASE  WHEN clearblocktable1.`col_int_undef_signed` != clearblocktable1.`col_int_undef_signed` * (8 + 1) THEN -5.2 ELSE clearblocktable1.`col_int_undef_signed` END AS field2 
 FROM clearblocktable1 INNER JOIN clearblocktable2 ON clearblocktable2.`col_int_undef_signed` = clearblocktable1.`col_int_undef_signed` WHERE clearblocktable1.`col_int_undef_signed_not_null` <> 7;
 
-"""
-
-sql """
-set enable_pipeline_x_engine=false,enable_pipeline_engine=true;
-"""
-qt_select_pipeline """ 
-
-SELECT YEAR(ifnull(clearblocktable1.`col_date_undef_signed_not_null`, clearblocktable1.`col_date_undef_signed_not_null`)) AS field1 , 
-CASE  WHEN clearblocktable1.`col_int_undef_signed` != clearblocktable1.`col_int_undef_signed` * (8 + 1) THEN -5.2 ELSE clearblocktable1.`col_int_undef_signed` END AS field2 
-FROM clearblocktable1 INNER JOIN clearblocktable2 ON clearblocktable2.`col_int_undef_signed` = clearblocktable1.`col_int_undef_signed` WHERE clearblocktable1.`col_int_undef_signed_not_null` <> 7;
-
-"""
-
-qt_select_non_pipeline """
-
-SELECT YEAR(ifnull(clearblocktable1.`col_date_undef_signed_not_null`, clearblocktable1.`col_date_undef_signed_not_null`)) AS field1 , 
-CASE  WHEN clearblocktable1.`col_int_undef_signed` != clearblocktable1.`col_int_undef_signed` * (8 + 1) THEN -5.2 ELSE clearblocktable1.`col_int_undef_signed` END AS field2 
-FROM clearblocktable1 INNER JOIN clearblocktable2 ON clearblocktable2.`col_int_undef_signed` = clearblocktable1.`col_int_undef_signed` WHERE clearblocktable1.`col_int_undef_signed_not_null` <> 7;
 """
 }

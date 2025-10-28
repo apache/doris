@@ -1482,7 +1482,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         assertRewriteExpression("nvl(NULL, 1)", "1");
         assertRewriteExpression("nvl(NULL, NULL)", "NULL");
-        assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "ifnull(IA, NULL)");
+        assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "IA");
+        assertRewriteAfterTypeCoercion("nvl(IA, IA)", "IA");
         assertRewriteAfterTypeCoercion("nvl(IA, 1)", "ifnull(IA, 1)");
 
         Expression foldNvl = executor.rewrite(
@@ -1490,6 +1491,33 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 context
         );
         Assertions.assertEquals(new DateTimeV2Literal(DateTimeV2Type.of(6), "2025-04-17"), foldNvl);
+    }
+
+    @Test
+    void testFoldNullIf() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        FoldConstantRule.INSTANCE
+                )
+        ));
+        assertRewriteAfterTypeCoercion("nullif(a, b)", "nullif(a, b)");
+        assertRewriteAfterTypeCoercion("nullif(a, a)", "null");
+        assertRewriteAfterTypeCoercion("nullif(a, null)", "a");
+        assertRewriteAfterTypeCoercion("nullif(null, a)", "null");
+        assertRewriteAfterTypeCoercion("nullif(1, 1)", "null");
+        assertRewriteAfterTypeCoercion("nullif(1, 2)", "1");
+    }
+
+    @Test
+    void testNonFoldable() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        FoldConstantRule.INSTANCE
+                )
+        ));
+        assertRewriteAfterTypeCoercion("random(0, 1)", "random(0, 1)");
+        assertRewriteAfterTypeCoercion("sum(1 + 2)", "sum(3)");
+        assertRewriteAfterTypeCoercion("explode([1, 2, 3])", "explode([1, 2, 3])");
     }
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {

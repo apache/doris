@@ -18,6 +18,10 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionDateOrDatetimeToString.cpp
 // and modified by Doris
 
+#include <unicode/dtfmtsym.h>
+#include <unicode/locid.h>
+#include <unicode/unistr.h>
+
 #include <cstddef>
 #include <memory>
 #include <utility>
@@ -75,6 +79,67 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
+    // In ICU, Week_array: {"", "Sunday", "Monday", ..., "Saturday"}, size = 8
+    // Month_array: {"January", "February", ..., "December"}, size = 12
+    static constexpr size_t DAY_NUM_IN_ICU = 8;
+    static constexpr size_t MONTH_NUM_IN_ICU = 12;
+    // day_names: {"Monday", ..., "Sunday"}
+    // month_names: {"", "January", ..., "December"}
+    struct LocaleDayMonthNameState {
+        std::string locale_name;
+        std::vector<std::string> day_name_storage {7};
+        std::vector<std::string> month_name_storage {13};
+        const char* day_names[7];
+        const char* month_names[13];
+    };
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+
+        auto state = std::make_shared<LocaleDayMonthNameState>();
+        state->locale_name = context->state()->lc_time_names();
+#ifdef BE_TEST
+        state->locale_name = "en_US";
+#endif
+        UErrorCode status = U_ZERO_ERROR;
+        icu::Locale locale(state->locale_name.c_str());
+        icu::DateFormatSymbols symbols(locale, status);
+        if (U_FAILURE(status)) [[unlikely]] {
+            return Status::FatalError("Failed to create ICU DateFormatSymbols for locale {}",
+                                      state->locale_name);
+        }
+
+        int32_t day_count, month_count;
+        const icu::UnicodeString* days = symbols.getWeekdays(day_count);
+        const icu::UnicodeString* months = symbols.getMonths(month_count);
+        if (month_count != MONTH_NUM_IN_ICU || day_count != DAY_NUM_IN_ICU) [[unlikely]] {
+            return Status::FatalError(
+                    "Wrong number of month or day names for locale {}: got {} months and {} days",
+                    state->locale_name, month_count, day_count - 1);
+        }
+        for (int i = 0; i < MONTH_NUM_IN_ICU; ++i) {
+            months[i].toUTF8String(state->month_name_storage[i + 1]);
+            state->month_names[i + 1] = state->month_name_storage[i + 1].c_str();
+        }
+
+        // In ICU, the first array is always like {"", "Sunday", "Monday", ..., "Saturday"}
+        // so here skip the first empty string and adjust the order of day names into {"Monday", ..., "Sunday"}
+        for (int i = 1; i < DAY_NUM_IN_ICU; ++i) {
+            if (i == 1) {
+                days[i].toUTF8String(state->day_name_storage[6]);
+                state->day_names[6] = state->day_name_storage[6].c_str();
+            } else {
+                days[i].toUTF8String(state->day_name_storage[i - 2]);
+                state->day_names[i - 2] = state->day_name_storage[i - 2].c_str();
+            }
+        }
+
+        context->set_function_state(scope, state);
+        return IFunction::open(context, scope);
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
@@ -102,11 +167,20 @@ private:
         res_offsets.resize(len);
 
         size_t offset = 0;
+        auto* state = reinterpret_cast<LocaleDayMonthNameState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        const char* const* names_ptr = nullptr;
+        if constexpr (std::is_same_v<Transform, DayNameImpl<Transform::OpArgType>>) {
+            names_ptr = state->day_names;
+        } else if constexpr (std::is_same_v<Transform, MonthNameImpl<Transform::OpArgType>>) {
+            names_ptr = state->month_names;
+        }
+
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
             const auto date_time_value = binary_cast<NativeType, DateType>(t);
-            res_offsets[i] =
-                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
+            res_offsets[i] = cast_set<UInt32>(
+                    Transform::execute(date_time_value, res_data, offset, names_ptr));
             DCHECK(date_time_value.is_valid_date());
         }
         res_data.resize(res_offsets[res_offsets.size() - 1]);

@@ -134,24 +134,25 @@ PhysicalResultSink
 -- !test_if_predicate --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = t2.d_int)) otherCondition=()
-----PhysicalOlapScan[extend_infer_t1(t1)]
-----filter(if(( not d_int IN (10, 20)), TRUE, FALSE))
+----filter((( not d_int IN (10, 20)) = TRUE))
+------PhysicalOlapScan[extend_infer_t1(t1)]
+----filter((( not d_int IN (10, 20)) = TRUE))
 ------PhysicalOlapScan[extend_infer_t1(t2)]
 
 -- !test_if_and_in_predicate --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = t2.d_int)) otherCondition=()
-----filter(( not (if((d_int = 5), TRUE, FALSE) = FALSE)))
+----filter(( not (((d_int = 5) <=> TRUE) = FALSE)))
 ------PhysicalOlapScan[extend_infer_t1(t1)]
-----filter(( not (if((d_int = 5), TRUE, FALSE) = FALSE)))
+----filter(( not (((d_int = 5) <=> TRUE) = FALSE)))
 ------PhysicalOlapScan[extend_infer_t1(t2)]
 
 -- !test_if_and_in_predicate_not --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = t2.d_int)) otherCondition=()
-----filter(( not (if((d_int = 5), TRUE, FALSE) = FALSE)))
+----filter(( not (((d_int = 5) <=> TRUE) = FALSE)))
 ------PhysicalOlapScan[extend_infer_t1(t1)]
-----filter(( not (if((d_int = 5), TRUE, FALSE) = FALSE)))
+----filter(( not (((d_int = 5) <=> TRUE) = FALSE)))
 ------PhysicalOlapScan[extend_infer_t1(t2)]
 
 -- !test_multi_slot_in_predicate1 --
@@ -172,8 +173,9 @@ PhysicalResultSink
 -- !test_case_when_predicate --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = t2.d_int)) otherCondition=()
-----PhysicalOlapScan[extend_infer_t1(t1)]
-----filter(CASE WHEN (d_int = 1) THEN TRUE WHEN (d_int = 2) THEN FALSE ELSE FALSE END)
+----filter(((t1.d_int = 1) = TRUE))
+------PhysicalOlapScan[extend_infer_t1(t1)]
+----filter(((t2.d_int = 1) = TRUE))
 ------PhysicalOlapScan[extend_infer_t1(t2)]
 
 -- !test_datetimev2_predicate --
