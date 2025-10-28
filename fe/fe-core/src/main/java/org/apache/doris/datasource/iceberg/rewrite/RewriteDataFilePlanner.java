@@ -57,7 +57,7 @@ public class RewriteDataFilePlanner {
     /**
      * Plan and organize file scan tasks into rewrite groups
      */
-    public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) throws UserException {
+    public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) {
         // Step 1: Plan FileScanTask from Iceberg table
         Iterable<FileScanTask> allTasks = planFileScanTasks(icebergTable);
 
@@ -76,29 +76,24 @@ public class RewriteDataFilePlanner {
     /**
      * Plan FileScanTask from Iceberg table
      */
-    private Iterable<FileScanTask> planFileScanTasks(Table icebergTable) throws UserException {
-        try {
-            // Create table scan with optional filters
-            TableScan tableScan = icebergTable.newScan();
+    private Iterable<FileScanTask> planFileScanTasks(Table icebergTable) {
+        // Create table scan with optional filters
+        TableScan tableScan = icebergTable.newScan();
 
-            // Apply WHERE condition if specified
-            if (parameters.hasWhereCondition()) {
-                org.apache.iceberg.expressions.Expression icebergFilter = IcebergNereidsUtils
+        // Apply WHERE condition if specified
+        if (parameters.hasWhereCondition()) {
+            try {
+                org.apache.iceberg.expressions.Expression nereidsExpression = IcebergNereidsUtils
                         .convertNereidsToIcebergExpression(
                                 parameters.getWhereCondition().get(), icebergTable.schema());
-                if (icebergFilter != null) {
-                    tableScan = tableScan.filter(icebergFilter);
-                    LOG.info("Applied WHERE condition filter: {}", icebergFilter);
-                } else {
-                    LOG.warn("Failed to convert WHERE condition to Iceberg expression: {}",
-                            parameters.getWhereCondition().get());
-                }
+                tableScan = tableScan.filter(nereidsExpression);
+                LOG.info("Applied WHERE condition filter: {}", parameters.getWhereCondition().get());
+            } catch (UserException e) {
+                LOG.warn("Failed to convert WHERE condition to Iceberg expression: {}",
+                        parameters.getWhereCondition().get());
             }
-
-            return tableScan.planFiles();
-        } catch (Exception e) {
-            throw new UserException("Failed to plan file scan tasks", e);
         }
+        return tableScan.planFiles();
     }
 
     /**

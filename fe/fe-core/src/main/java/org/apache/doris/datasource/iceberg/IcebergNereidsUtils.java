@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -49,9 +50,9 @@ public class IcebergNereidsUtils {
      * Convert Nereids Expression to Iceberg Expression
      */
     public static org.apache.iceberg.expressions.Expression convertNereidsToIcebergExpression(
-            Expression nereidsExpr, Schema schema) {
+            Expression nereidsExpr, Schema schema) throws UserException {
         if (nereidsExpr == null) {
-            return null;
+            throw new UserException("Nereids expression is null");
         }
 
         // Handle logical operators
@@ -63,12 +64,8 @@ public class IcebergNereidsUtils {
                     schema);
             if (left != null && right != null) {
                 return Expressions.and(left, right);
-            } else if (left != null) {
-                return left;
-            } else if (right != null) {
-                return right;
             }
-            return null;
+            throw new UserException("Failed to convert AND expression: one or both children are unsupported");
         }
 
         if (nereidsExpr instanceof Or) {
@@ -80,7 +77,7 @@ public class IcebergNereidsUtils {
             if (left != null && right != null) {
                 return Expressions.or(left, right);
             }
-            return null;
+            throw new UserException("Failed to convert OR expression: one or both children are unsupported");
         }
 
         if (nereidsExpr instanceof Not) {
@@ -90,7 +87,7 @@ public class IcebergNereidsUtils {
             if (child != null) {
                 return Expressions.not(child);
             }
-            return null;
+            throw new UserException("Failed to convert NOT expression: child is unsupported");
         }
 
         // Handle comparison operators
@@ -127,7 +124,8 @@ public class IcebergNereidsUtils {
             return convertNereidsInPredicate((InPredicate) nereidsExpr,
                     schema);
         }
-        return null;
+
+        throw new UserException("Unsupported expression type: " + nereidsExpr.getClass().getName());
     }
 
     /**
@@ -135,7 +133,7 @@ public class IcebergNereidsUtils {
      */
     private static org.apache.iceberg.expressions.Expression convertNereidsBinaryPredicate(
             Expression nereidsExpr, Schema schema,
-            BiFunction<String, Object, org.apache.iceberg.expressions.Expression> converter) {
+            BiFunction<String, Object, org.apache.iceberg.expressions.Expression> converter) throws UserException {
 
         // Extract slot reference and literal from the binary predicate
         SlotReference slotRef = null;
@@ -157,13 +155,13 @@ public class IcebergNereidsUtils {
         }
 
         if (slotRef == null || literal == null) {
-            return null;
+            throw new UserException("Binary predicate must be between a column and a literal");
         }
 
         String colName = slotRef.getName();
         NestedField nestedField = schema.caseInsensitiveFindField(colName);
         if (nestedField == null) {
-            return null;
+            throw new UserException("Column not found in Iceberg schema: " + colName);
         }
 
         colName = nestedField.name();
@@ -173,7 +171,7 @@ public class IcebergNereidsUtils {
             if (literal instanceof NullLiteral) {
                 return Expressions.isNull(colName);
             }
-            return null;
+            throw new UserException("Unsupported or null literal value for column: " + colName);
         }
 
         return converter.apply(colName, value);
@@ -183,21 +181,21 @@ public class IcebergNereidsUtils {
      * Convert Nereids IN predicate
      */
     private static org.apache.iceberg.expressions.Expression convertNereidsInPredicate(
-            InPredicate inPredicate, org.apache.iceberg.Schema schema) {
+            InPredicate inPredicate, Schema schema) throws UserException {
         if (inPredicate.children().size() < 2) {
-            return null;
+            throw new UserException("IN predicate requires at least one value");
         }
 
         org.apache.doris.nereids.trees.expressions.Expression left = inPredicate.child(0);
         if (!(left instanceof SlotReference)) {
-            return null;
+            throw new UserException("Left side of IN predicate must be a column");
         }
 
         SlotReference slotRef = (SlotReference) left;
         String colName = slotRef.getName();
         NestedField nestedField = schema.caseInsensitiveFindField(colName);
         if (nestedField == null) {
-            return null;
+            throw new UserException("Column not found in Iceberg schema: " + colName);
         }
 
         colName = nestedField.name();
@@ -206,13 +204,13 @@ public class IcebergNereidsUtils {
         for (int i = 1; i < inPredicate.children().size(); i++) {
             Expression child = inPredicate.child(i);
             if (!(child instanceof Literal)) {
-                return null;
+                throw new UserException("IN predicate values must be literals");
             }
 
             Object value = extractNereidsLiteralValue(
                     (Literal) child, nestedField.type());
             if (value == null) {
-                return null;
+                throw new UserException("Null or unsupported value in IN predicate for column: " + colName);
             }
             values.add(value);
         }

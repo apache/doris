@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -94,13 +95,14 @@ public class IcebergNereidsUtilsTest {
 
     @Test
     public void testConvertNereidsToIcebergExpression_NullInput() {
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils.convertNereidsToIcebergExpression(null,
-                testSchema);
-        Assertions.assertNull(result);
+            UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                    IcebergNereidsUtils.convertNereidsToIcebergExpression(null, testSchema);
+            });
+            Assertions.assertEquals("Nereids expression is null", exception.getMessage());
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_EqualTo() {
+    public void testConvertNereidsToIcebergExpression_EqualTo() throws UserException {
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(100);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -113,7 +115,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_GreaterThan() {
+    public void testConvertNereidsToIcebergExpression_GreaterThan() throws UserException {
         SlotReference slotRef = new SlotReference("age", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(18);
         GreaterThan greaterThan = new GreaterThan(slotRef, literal);
@@ -126,7 +128,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_GreaterThanEqual() {
+    public void testConvertNereidsToIcebergExpression_GreaterThanEqual() throws UserException {
         SlotReference slotRef = new SlotReference("age", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(18);
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotRef, literal);
@@ -139,7 +141,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_LessThan() {
+    public void testConvertNereidsToIcebergExpression_LessThan() throws UserException {
         SlotReference slotRef = new SlotReference("age", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(65);
         LessThan lessThan = new LessThan(slotRef, literal);
@@ -152,7 +154,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_LessThanEqual() {
+    public void testConvertNereidsToIcebergExpression_LessThanEqual() throws UserException {
         SlotReference slotRef = new SlotReference("age", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(65);
         LessThanEqual lessThanEqual = new LessThanEqual(slotRef, literal);
@@ -165,7 +167,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_And() {
+    public void testConvertNereidsToIcebergExpression_And() throws UserException {
         SlotReference slotRef1 = new SlotReference("age", IntegerType.INSTANCE, false);
         SlotReference slotRef2 = new SlotReference("salary", DoubleType.INSTANCE, false);
         IntegerLiteral literal1 = new IntegerLiteral(18);
@@ -185,7 +187,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_Or() {
+    public void testConvertNereidsToIcebergExpression_Or() throws UserException {
         SlotReference slotRef1 = new SlotReference("age", IntegerType.INSTANCE, false);
         SlotReference slotRef2 = new SlotReference("age", IntegerType.INSTANCE, false);
         IntegerLiteral literal1 = new IntegerLiteral(18);
@@ -205,7 +207,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_Not() {
+    public void testConvertNereidsToIcebergExpression_Not() throws UserException {
         SlotReference slotRef = new SlotReference("is_active", BooleanType.INSTANCE, false);
         BooleanLiteral literal = BooleanLiteral.of(true);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -220,7 +222,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_InPredicate() {
+    public void testConvertNereidsToIcebergExpression_InPredicate() throws UserException {
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         IntegerLiteral literal1 = new IntegerLiteral(1);
         IntegerLiteral literal2 = new IntegerLiteral(2);
@@ -239,7 +241,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_ComplexNested() {
+    public void testConvertNereidsToIcebergExpression_ComplexNested() throws UserException {
         // Test complex nested expression: (age > 18 AND salary >= 50000) OR (age < 65
         // AND salary < 100000)
         SlotReference ageRef = new SlotReference("age", IntegerType.INSTANCE, false);
@@ -263,7 +265,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_WithNullLiteral() {
+    public void testConvertNereidsToIcebergExpression_WithNullLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         NullLiteral nullLiteral = new NullLiteral();
         EqualTo equalTo = new EqualTo(slotRef, nullLiteral);
@@ -281,14 +283,14 @@ public class IcebergNereidsUtilsTest {
         IntegerLiteral literal = new IntegerLiteral(100);
         EqualTo equalTo = new EqualTo(slotRef, literal);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, testSchema);
+        });
+        Assertions.assertEquals("Column not found in Iceberg schema: non_existent_column", exception.getMessage());
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_CaseInsensitiveColumnName() {
+    public void testConvertNereidsToIcebergExpression_CaseInsensitiveColumnName() throws UserException {
         // Test case insensitive column name matching
         SlotReference slotRef = new SlotReference("ID", IntegerType.INSTANCE, false); // uppercase
         IntegerLiteral literal = new IntegerLiteral(100);
@@ -312,10 +314,10 @@ public class IcebergNereidsUtilsTest {
                 org.apache.doris.nereids.trees.expressions.Expression.class);
         Mockito.when(unsupportedExpr.children()).thenReturn(Arrays.asList(slotRef, literal));
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(unsupportedExpr, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(unsupportedExpr, testSchema);
+        });
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported expression type"));
     }
 
     @Test
@@ -326,10 +328,10 @@ public class IcebergNereidsUtilsTest {
         IntegerLiteral literal = new IntegerLiteral(100);
         EqualTo equalTo = new EqualTo(slotRef, literal);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, testSchema);
-
-        Assertions.assertNull(result);
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, testSchema);
+        });
+        Assertions.assertEquals("Test exception", exception.getMessage());
     }
 
     @Test
@@ -341,11 +343,11 @@ public class IcebergNereidsUtilsTest {
         // Create an AND with one null child
         And andExpr = new And(equalTo, null);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(andExpr, testSchema);
-
-        Assertions.assertNotNull(result);
-        Assertions.assertEquals(Expressions.equal("id", 100).toString(), result.toString());
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(andExpr, testSchema);
+        });
+        Assertions.assertEquals("Failed to convert AND expression: one or both children are unsupported",
+                        exception.getMessage());
     }
 
     @Test
@@ -357,10 +359,11 @@ public class IcebergNereidsUtilsTest {
         // Create an OR with one null child
         Or orExpr = new Or(equalTo, null);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils.convertNereidsToIcebergExpression(orExpr,
-                testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(orExpr, testSchema);
+        });
+        Assertions.assertEquals("Failed to convert OR expression: one or both children are unsupported",
+                        exception.getMessage());
     }
 
     @Test
@@ -368,10 +371,10 @@ public class IcebergNereidsUtilsTest {
         // Create a NOT with null child
         Not notExpr = new Not(null);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(notExpr, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(notExpr, testSchema);
+        });
+        Assertions.assertEquals("Failed to convert NOT expression: child is unsupported", exception.getMessage());
     }
 
     @Test
@@ -383,10 +386,10 @@ public class IcebergNereidsUtilsTest {
 
         InPredicate inPredicate = new InPredicate(slotRef, Arrays.asList(literal1, invalidSlot));
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(inPredicate, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(inPredicate, testSchema);
+        });
+        Assertions.assertEquals("IN predicate values must be literals", exception.getMessage());
     }
 
     @Test
@@ -397,10 +400,10 @@ public class IcebergNereidsUtilsTest {
 
         InPredicate inPredicate = new InPredicate(literal1, Arrays.asList(literal2));
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(inPredicate, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(inPredicate, testSchema);
+        });
+        Assertions.assertEquals("Left side of IN predicate must be a column", exception.getMessage());
     }
 
     @Test
@@ -410,10 +413,10 @@ public class IcebergNereidsUtilsTest {
 
         InPredicate inPredicate = new InPredicate(slotRef, Collections.emptyList());
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(inPredicate, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(inPredicate, testSchema);
+        });
+        Assertions.assertEquals("IN predicate requires at least one value", exception.getMessage());
     }
 
     @Test
@@ -423,10 +426,10 @@ public class IcebergNereidsUtilsTest {
         IntegerLiteral literal2 = new IntegerLiteral(200);
         EqualTo equalTo = new EqualTo(literal1, literal2);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, testSchema);
+        });
+        Assertions.assertEquals("Binary predicate must be between a column and a literal", exception.getMessage());
     }
 
     @Test
@@ -436,14 +439,14 @@ public class IcebergNereidsUtilsTest {
         SlotReference slotRef2 = new SlotReference("age", IntegerType.INSTANCE, false);
         EqualTo equalTo = new EqualTo(slotRef1, slotRef2);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, testSchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, testSchema);
+        });
+        Assertions.assertEquals("Binary predicate must be between a column and a literal", exception.getMessage());
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_StringLiteral() {
+    public void testConvertNereidsToIcebergExpression_StringLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("name", StringType.INSTANCE, false);
         StringLiteral literal = new StringLiteral("John");
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -456,7 +459,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_BooleanLiteral() {
+    public void testConvertNereidsToIcebergExpression_BooleanLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("is_active", BooleanType.INSTANCE, false);
         BooleanLiteral literal = BooleanLiteral.of(true);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -469,7 +472,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_DoubleLiteral() {
+    public void testConvertNereidsToIcebergExpression_DoubleLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("salary", DoubleType.INSTANCE, false);
         DoubleLiteral literal = new DoubleLiteral(50000.5);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -482,7 +485,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_FloatLiteral() {
+    public void testConvertNereidsToIcebergExpression_FloatLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("salary", FloatType.INSTANCE, false);
         FloatLiteral literal = new FloatLiteral(50000.5f);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -495,7 +498,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_BigIntLiteral() {
+    public void testConvertNereidsToIcebergExpression_BigIntLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("id", BigIntType.INSTANCE, false);
         BigIntLiteral literal = new BigIntLiteral(123456789L);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -508,7 +511,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_DecimalLiteral() {
+    public void testConvertNereidsToIcebergExpression_DecimalLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("salary", DecimalV2Type.SYSTEM_DEFAULT, false);
         DecimalLiteral literal = new DecimalLiteral(new BigDecimal("50000.50"));
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -523,7 +526,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_DateLiteral() {
+    public void testConvertNereidsToIcebergExpression_DateLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("birth_date", DateType.INSTANCE, false);
         DateLiteral literal = new DateLiteral("2023-01-01");
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -537,7 +540,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_CharLiteral() {
+    public void testConvertNereidsToIcebergExpression_CharLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("name", CharType.createCharType(1), false);
         CharLiteral literal = new CharLiteral("A", 1);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -550,7 +553,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_TinyIntLiteral() {
+    public void testConvertNereidsToIcebergExpression_TinyIntLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("age", TinyIntType.INSTANCE, false);
         TinyIntLiteral literal = new TinyIntLiteral((byte) 25);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -563,7 +566,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_SmallIntLiteral() {
+    public void testConvertNereidsToIcebergExpression_SmallIntLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("age", SmallIntType.INSTANCE, false);
         SmallIntLiteral literal = new SmallIntLiteral((short) 25);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -576,7 +579,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_VarcharLiteral() {
+    public void testConvertNereidsToIcebergExpression_VarcharLiteral() throws UserException {
         SlotReference slotRef = new SlotReference("name", VarcharType.SYSTEM_DEFAULT, false);
         StringLiteral literal = new StringLiteral("John Doe");
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -589,7 +592,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_MixedLiteralTypesInInPredicate() {
+    public void testConvertNereidsToIcebergExpression_MixedLiteralTypesInInPredicate() throws UserException {
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         IntegerLiteral literal1 = new IntegerLiteral(1);
         IntegerLiteral literal2 = new IntegerLiteral(2);
@@ -608,7 +611,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_DeeplyNestedExpression() {
+    public void testConvertNereidsToIcebergExpression_DeeplyNestedExpression() throws UserException {
         // Test deeply nested expression: NOT ((age > 18 AND salary >= 50000) OR (age <
         // 65 AND salary < 100000))
         SlotReference ageRef = new SlotReference("age", IntegerType.INSTANCE, false);
@@ -635,7 +638,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_AllComparisonOperators() {
+    public void testConvertNereidsToIcebergExpression_AllComparisonOperators() throws UserException {
         SlotReference slotRef = new SlotReference("age", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(25);
 
@@ -671,7 +674,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_ComplexInPredicate() {
+    public void testConvertNereidsToIcebergExpression_ComplexInPredicate() throws UserException {
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         List<Expression> literals = Arrays.asList(
                 new IntegerLiteral(1),
@@ -695,7 +698,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_StringInPredicate() {
+    public void testConvertNereidsToIcebergExpression_StringInPredicate() throws UserException {
         SlotReference slotRef = new SlotReference("name", StringType.INSTANCE, false);
         List<Expression> literals = Arrays.asList(
                 new StringLiteral("Alice"),
@@ -715,7 +718,7 @@ public class IcebergNereidsUtilsTest {
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_BooleanInPredicate() {
+    public void testConvertNereidsToIcebergExpression_BooleanInPredicate() throws UserException {
         SlotReference slotRef = new SlotReference("is_active", BooleanType.INSTANCE, false);
         List<Expression> literals = Arrays.asList(
                 BooleanLiteral.of(true),
@@ -741,10 +744,10 @@ public class IcebergNereidsUtilsTest {
 
         EqualTo equalTo = new EqualTo(slotRef, mockLiteral);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, testSchema);
-
-        Assertions.assertNull(result);
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, testSchema);
+        });
+        Assertions.assertEquals("Test exception", exception.getMessage());
     }
 
     @Test
@@ -756,14 +759,14 @@ public class IcebergNereidsUtilsTest {
 
         InPredicate inPredicate = new InPredicate(slotRef, Arrays.asList(mockLiteral));
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(inPredicate, testSchema);
-
-        Assertions.assertNull(result);
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(inPredicate, testSchema);
+        });
+        Assertions.assertEquals("Test exception", exception.getMessage());
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_AllLogicalOperators() {
+    public void testConvertNereidsToIcebergExpression_AllLogicalOperators() throws UserException {
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(100);
         EqualTo equalTo = new EqualTo(slotRef, literal);
@@ -797,10 +800,10 @@ public class IcebergNereidsUtilsTest {
         IntegerLiteral literal = new IntegerLiteral(100);
         EqualTo equalTo = new EqualTo(slotRef, literal);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, emptySchema);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, emptySchema);
+        });
+        Assertions.assertEquals("Column not found in Iceberg schema: id", exception.getMessage());
     }
 
     @Test
@@ -810,14 +813,14 @@ public class IcebergNereidsUtilsTest {
         IntegerLiteral literal = new IntegerLiteral(100);
         EqualTo equalTo = new EqualTo(slotRef, literal);
 
-        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
-                .convertNereidsToIcebergExpression(equalTo, null);
-
-        Assertions.assertNull(result);
+        UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, null);
+        });
+        Assertions.assertEquals("Column not found in Iceberg schema: id", exception.getMessage());
     }
 
     @Test
-    public void testConvertNereidsToIcebergExpression_AllSupportedExpressionTypes() {
+    public void testConvertNereidsToIcebergExpression_AllSupportedExpressionTypes() throws UserException {
         // Test all supported expression types in one comprehensive test
         SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
         IntegerLiteral literal = new IntegerLiteral(100);
@@ -843,5 +846,37 @@ public class IcebergNereidsUtilsTest {
         Assertions.assertNotNull(IcebergNereidsUtils.convertNereidsToIcebergExpression(andExpr, testSchema));
         Assertions.assertNotNull(IcebergNereidsUtils.convertNereidsToIcebergExpression(orExpr, testSchema));
         Assertions.assertNotNull(IcebergNereidsUtils.convertNereidsToIcebergExpression(notExpr, testSchema));
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_UnsupportedLiteralValue() {
+            // Test with unsupported literal value
+            SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
+            Literal mockLiteral = Mockito.mock(Literal.class);
+            Mockito.when(mockLiteral.getValue()).thenReturn(null);
+            Mockito.when(mockLiteral instanceof NullLiteral).thenReturn(false);
+
+            EqualTo equalTo = new EqualTo(slotRef, mockLiteral);
+
+            UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                    IcebergNereidsUtils.convertNereidsToIcebergExpression(equalTo, testSchema);
+            });
+            Assertions.assertEquals("Unsupported or null literal value for column: id", exception.getMessage());
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_InPredicateWithNullValue() {
+            // Test IN predicate with null value
+            SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
+            Literal mockLiteral = Mockito.mock(Literal.class);
+            Mockito.when(mockLiteral.getValue()).thenReturn(null);
+            Mockito.when(mockLiteral instanceof NullLiteral).thenReturn(false);
+
+            InPredicate inPredicate = new InPredicate(slotRef, Arrays.asList(mockLiteral));
+
+            UserException exception = Assertions.assertThrows(UserException.class, () -> {
+                    IcebergNereidsUtils.convertNereidsToIcebergExpression(inPredicate, testSchema);
+            });
+            Assertions.assertEquals("Null or unsupported value in IN predicate for column: id", exception.getMessage());
     }
 }
