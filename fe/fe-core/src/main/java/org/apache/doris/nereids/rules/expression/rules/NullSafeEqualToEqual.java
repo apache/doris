@@ -139,6 +139,7 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
             List<Expression> oldChildren = expression.children();
             ImmutableList.Builder<Expression> newChildrenBuilder
                     = ImmutableList.builderWithExpectedSize(oldChildren.size());
+            boolean changed = false;
             for (Expression child : expression.children()) {
                 // rewrite child to child <=> TRUE
                 Expression newChild = simplifySafeEqualTrue(child)
@@ -146,21 +147,13 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
                 if (newChild.getClass() == expression.getClass()) {
                     // flatten
                     newChildrenBuilder.addAll(newChild.children());
+                    changed = true;
                 } else {
+                    changed = changed || child != newChild;
                     newChildrenBuilder.add(newChild);
                 }
             }
-            List<Expression> newChildren = newChildrenBuilder.build();
-            boolean changed = newChildren.size() != oldChildren.size();
-            if (newChildren.size() == oldChildren.size()) {
-                for (int i = 0; i < newChildren.size(); i++) {
-                    if (newChildren.get(i) != oldChildren.get(i)) {
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-            return Optional.of(changed ? expression.withChildren(newChildren) : expression);
+            return Optional.of(changed ? expression.withChildren(newChildrenBuilder.build()) : expression);
         }
         return Optional.empty();
     }
