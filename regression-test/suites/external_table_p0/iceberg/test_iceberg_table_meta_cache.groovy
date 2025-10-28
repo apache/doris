@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_meta_cache", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,external_docker_doris") {
     String catalog_name = "test_iceberg_meta_cache"
     String catalog_name_no_cache = "test_iceberg_meta_no_cache"
 
