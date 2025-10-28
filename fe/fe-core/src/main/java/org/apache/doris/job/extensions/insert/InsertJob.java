@@ -568,6 +568,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         trow.addToColumnValue(new TCell().setStringVal(
                 loadStatistic == null ? FeConstants.null_string : loadStatistic.toJson()));
         trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         return trow;
     }
 
