@@ -111,6 +111,7 @@ std::mutex s_task_signatures_mtx;
 std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatures;
 
 std::atomic_ulong s_report_version(time(nullptr) * 100000);
+std::atomic<int64_t> s_tablet_report_failure_start_time(0);
 
 void increase_report_version() {
     s_report_version.fetch_add(1, std::memory_order_relaxed);
@@ -1179,13 +1180,21 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
         }
     }
 
-    if (report_version < s_report_version) {
+    if (report_version < s_report_version ||
+        UNLIKELY(config::enable_debug_points &&
+                 DebugPoints::instance()->is_enable(
+                         "WorkPoolReportTablet.report_tablet_callback.skip"))) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
         // report, and the report version has a small probability that it has not been updated in time. When FE
         // receives this report, it is possible to delete the new tablet.
         LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+        int64_t expected = 0;
+        int64_t current_time = time(nullptr);
+        s_tablet_report_failure_start_time.compare_exchange_strong(expected, current_time);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(
+                current_time - s_tablet_report_failure_start_time);
         return;
     }
 
@@ -1225,6 +1234,14 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;
+        int64_t expected = 0;
+        int64_t current_time = time(nullptr);
+        s_tablet_report_failure_start_time.compare_exchange_strong(expected, current_time);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(
+                current_time - s_tablet_report_failure_start_time);
+    } else {
+        s_tablet_report_failure_start_time.store(0);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(0);
     }
 }
 
@@ -1252,9 +1269,17 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
         }
     }
 
-    if (report_version < s_report_version) {
+    if (report_version < s_report_version ||
+        UNLIKELY(config::enable_debug_points &&
+                 DebugPoints::instance()->is_enable(
+                         "WorkPoolCloudReportTablet.report_tablet_callback.skip"))) {
         LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+        int64_t expected = 0;
+        int64_t current_time = time(nullptr);
+        s_tablet_report_failure_start_time.compare_exchange_strong(expected, current_time);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(
+                current_time - s_tablet_report_failure_start_time);
         return;
     }
 
@@ -1265,6 +1290,14 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;
+        int64_t expected = 0;
+        int64_t current_time = time(nullptr);
+        s_tablet_report_failure_start_time.compare_exchange_strong(expected, current_time);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(
+                current_time - s_tablet_report_failure_start_time);
+    } else {
+        s_tablet_report_failure_start_time.store(0);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(0);
     }
 }
 
