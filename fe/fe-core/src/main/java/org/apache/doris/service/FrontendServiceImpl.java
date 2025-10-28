@@ -3682,6 +3682,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         // tabletId -> BEId
+        // We cached the metadata for each transaction to maintain a consistent view of
+        // tablet replica distribution during the transaction's lifetime.
         Map<Long, Set<Long>> tabletMap = new HashMap<Long, Set<Long>>();
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
@@ -3714,16 +3716,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (!tabletMap.isEmpty()) {
-            if (Config.isCloudMode()) {
-                Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, tabletMap);
-            } else {
-                
-            }
+            Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, tabletMap);
         } else {
-            if (Config.isCloudMode()) {
-                tabletMap = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
-            } else {
-
+            tabletMap = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
+            // (Refrain) should not be empty or null here,
+            // cuz it must be either set in addPartition or fetched from the cached map.
+            if (tabletMap == null || tabletMap.isEmpty()) {
+                errorStatus.setErrorMsgs(Lists.newArrayList("tabletMap should not be empty or null."));
+                result.setStatus(errorStatus);
+                LOG.warn("get the tablet distribution error : {}", result);
+                return result;
             }
         }
 

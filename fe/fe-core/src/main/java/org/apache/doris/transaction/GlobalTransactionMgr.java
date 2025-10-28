@@ -102,12 +102,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         });
     }
 
+    // the caller will check the NULL val, so we do not need to handle it
     public Map<Long, Set<Long>> getAutoPartitionInfo(Long dbId, Long txnId) {
         Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
         Map<Long, Set<Long>> tabletMap = txnMap.get(txnId);
-        if (tabletMap == null) {
-            return new HashMap<>();
-        }
         return tabletMap; 
     }
 
