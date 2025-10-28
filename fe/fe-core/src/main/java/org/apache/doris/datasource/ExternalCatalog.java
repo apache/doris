@@ -368,7 +368,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetToUninitialized()));
+                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()));
         }
     }
 
@@ -575,28 +575,35 @@ public abstract class ExternalCatalog
             this.cachedConf = null;
         }
         onClose();
-
-        refreshOnlyCatalogCache(invalidCache);
+        onRefreshCache(invalidCache);
     }
 
-    // Only for hms event handling.
-    public void onRefreshCache() {
-        refreshOnlyCatalogCache(true);
+    /**
+     * Refresh both meta cache and catalog cache.
+     *
+     * @param invalidCache
+     */
+    public void onRefreshCache(boolean invalidCache) {
+        refreshMetaCacheOnly();
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+        }
     }
 
-    private void refreshOnlyCatalogCache(boolean invalidCache) {
+    /**
+     * Refresh meta cache only (database level cache), without invalidating catalog level cache.
+     * This method is safe to call within synchronized block.
+     */
+    private void refreshMetaCacheOnly() {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.resetToUninitialized();
+                    db.resetMetaToUninitialized();
                 }
             }
-        }
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
     }
 
@@ -1479,8 +1486,6 @@ public abstract class ExternalCatalog
     public void resetMetaCacheNames() {
         if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
             metaCache.resetNames();
-        } else {
-            resetToUninitialized(true);
         }
     }
 
