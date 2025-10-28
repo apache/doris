@@ -446,7 +446,7 @@ public class BindSink implements AnalysisRuleFactory {
                         if (column.getDefaultValueExpr() == null) {
                             columnToOutput.put(column.getName(),
                                     new Alias(Literal.of(column.getDefaultValue())
-                                            .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
+                                            .checkedCastWithStrictChecking(DataType.fromCatalogType(column.getType())),
                                             column.getName()));
                         } else {
                             Expression unboundDefaultValue = new NereidsParser().parseExpression(

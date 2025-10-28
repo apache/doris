@@ -20,23 +20,22 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
-#include <optional>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "roaring/roaring.hh"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class BitmapScorer final : public Scorer {
+class BitSetScorer final : public Scorer {
 public:
-    BitmapScorer(std::shared_ptr<roaring::Roaring> bitmap,
+    BitSetScorer(std::shared_ptr<roaring::Roaring> bitmap,
                  std::shared_ptr<roaring::Roaring> null_bitmap = nullptr)
-            : _bitmap(std::move(bitmap)),
+            : _bit_set(std::move(bitmap)),
               _null_bitmap(std::move(null_bitmap)),
-              _it(_bitmap->begin()) {
+              _it(_bit_set->begin()) {
         _doc = (_it.i.has_value) ? *_it : TERMINATED;
     }
-    ~BitmapScorer() override = default;
+    ~BitSetScorer() override = default;
 
     uint32_t advance() override {
         if (_doc == TERMINATED) {
@@ -70,7 +69,7 @@ public:
     uint32_t doc() const override { return _doc; }
 
     uint32_t size_hint() const override {
-        uint64_t card = _bitmap->cardinality();
+        uint64_t card = _bit_set->cardinality();
         return static_cast<uint32_t>(
                 std::min<uint64_t>(card, std::numeric_limits<uint32_t>::max()));
     }
@@ -87,10 +86,11 @@ public:
     }
 
 private:
-    std::shared_ptr<roaring::Roaring> _bitmap;
+    std::shared_ptr<roaring::Roaring> _bit_set;
     std::shared_ptr<roaring::Roaring> _null_bitmap;
     roaring::Roaring::const_iterator _it;
     uint32_t _doc = TERMINATED;
 };
+using BitSetScorerPtr = std::shared_ptr<BitSetScorer>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2
