@@ -490,13 +490,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(f, context);
         Assertions.assertEquals(new VarcharLiteral("73 11 30"), rewritten);
 
-        f = new FromUnixtime(DecimalLiteral.of(new BigDecimal("1761548288.000000")));
+        f = new FromUnixtime(DecimalLiteral.of(new BigDecimal("1761548288.100000")));
         rewritten = executor.rewrite(f, context);
-        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.000000"), rewritten);
+        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.100000"), rewritten);
 
-        f = new FromUnixtime(DecimalV3Literal.of(new BigDecimal("1761548288.000000")));
+        f = new FromUnixtime(DecimalV3Literal.of(new BigDecimal("1761548288.100000")));
         rewritten = executor.rewrite(f, context);
-        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.000000"), rewritten);
+        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.100000"), rewritten);
 
         UnixTimestamp ut = new UnixTimestamp(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
         rewritten = executor.rewrite(ut, context);

@@ -582,8 +582,10 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
 
+        BigDecimal decimalVal = second.getValue();
+        BigDecimal microSeconds = decimalVal.movePointRight(decimalVal.scale()).setScale(0, RoundingMode.DOWN);
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .plusSeconds(second.getValue().longValue())
+                .plus(microSeconds.longValue(), ChronoUnit.MICROS)
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
                 .atZoneSameInstant(DateUtils.getTimeZone());
@@ -607,9 +609,10 @@ public class DateTimeExtractAndTransform {
         if (second.getValue().signum() < 0) {
             throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
-
+        BigDecimal decimalVal = second.getValue();
+        BigDecimal microSeconds = decimalVal.movePointRight(decimalVal.scale()).setScale(0, RoundingMode.DOWN);
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .plusSeconds(second.getValue().longValue())
+                .plus(microSeconds.longValue(), ChronoUnit.MICROS)
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
                 .atZoneSameInstant(DateUtils.getTimeZone());

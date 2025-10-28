@@ -96,7 +96,7 @@ suite("one_key_range_part_update_test") {
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part_update WHERE dt = from_unixtime(unix_timestamp('2023-08-20 12:00:00'));")
-        contains "11/11 (p_min,p_202301,p_202302,p_202304,p_202305,p_202306,p_202308,p_202309,p_202310,p_202312,p_max)"
+        contains "1/11 (p_202308)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part_update WHERE date(dt) = '2023-08-05';")
