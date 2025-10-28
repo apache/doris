@@ -472,6 +472,7 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
 
 inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                            BufferWritable& bw) {
+    // todo: use state->timezone
     auto str = from.to_string(cctz::utc_time_zone(), scale);
     bw.write(str.data(), str.size());
 }
