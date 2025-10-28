@@ -22,7 +22,6 @@
 #include <string_view>
 
 #include "olap/rowset/segment_v2/inverted_index/token_stream.h"
-#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 
 namespace doris::segment_v2::inverted_index {
 

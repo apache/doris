@@ -610,7 +610,7 @@ public class InsertUtils {
                 return (NamedExpression) defualtValueExpression;
             } else {
                 return new Alias(Literal.of(column.getDefaultValue())
-                        .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
+                        .checkedCastWithStrictChecking(DataType.fromCatalogType(column.getType())),
                         column.getName());
             }
         } catch (org.apache.doris.common.AnalysisException e) {

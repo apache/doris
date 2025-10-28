@@ -33,6 +33,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/local_file_system.h"
+#include "olap/base_tablet.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -87,8 +88,10 @@ Status EngineStorageMigrationTask::_get_versions(int64_t start_version, int64_t*
                    << ", start_version=" << start_version << ", end_version=" << *end_version;
         return Status::OK();
     }
-    return _tablet->capture_consistent_rowsets_unlocked(Version(start_version, *end_version),
-                                                        consistent_rowsets);
+    auto ret = DORIS_TRY(_tablet->capture_consistent_rowsets_unlocked(
+            Version(start_version, *end_version), CaptureRowsetOps {}));
+    *consistent_rowsets = std::move(ret.rowsets);
+    return Status::OK();
 }
 
 bool EngineStorageMigrationTask::_is_timeout() {

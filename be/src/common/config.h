@@ -1045,6 +1045,7 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
+DECLARE_mInt32(cold_data_compaction_score_threshold);
 
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
@@ -1121,6 +1122,7 @@ DECLARE_Bool(enable_graceful_exit_check);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
+DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
@@ -1629,6 +1631,7 @@ DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
+DECLARE_mBool(enable_fetch_rowsets_from_peer_replicas);
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
@@ -1661,6 +1664,10 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
+
+DECLARE_mString(binary_plain_encoding_default_impl);
+
+DECLARE_mBool(integer_type_default_use_plain_encoding);
 
 #ifdef BE_TEST
 // test s3

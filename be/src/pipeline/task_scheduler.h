@@ -80,10 +80,11 @@ private:
 
 class HybridTaskScheduler MOCK_REMOVE(final) : public TaskScheduler {
 public:
-    HybridTaskScheduler(int core_num, std::string name,
+    HybridTaskScheduler(int exec_thread_num, int blocking_exec_thread_num, std::string name,
                         std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : _blocking_scheduler(core_num * 2, name + "_blocking_scheduler", cgroup_cpu_ctl),
-              _simple_scheduler(core_num, name + "_simple_scheduler", cgroup_cpu_ctl) {}
+            : _blocking_scheduler(blocking_exec_thread_num, name + "_blocking_scheduler",
+                                  cgroup_cpu_ctl),
+              _simple_scheduler(exec_thread_num, name + "_simple_scheduler", cgroup_cpu_ctl) {}
 
     Status submit(PipelineTaskSPtr task) override;
 
