@@ -144,38 +144,20 @@ public:
             }
             p += AVX2_BYTES;
 #elif defined(__ARM_FEATURE_SVE)
-            const auto ch8 = static_cast<uint8_t>(ch);
+            const auto size = static_cast<size_t>(end - begin);
             const size_t vl = svcntb();
-            while (p > begin) {
-                auto n = static_cast<size_t>(p - begin);
-                size_t blk = n < vl ? n : vl;
-                const unsigned char* block = p - blk;
-
-                svbool_t pg = svwhilelt_b8((size_t)0, blk);
-                svuint8_t v = svld1_u8(pg, block);
-                svbool_t neq = svcmpne_n_u8(pg, v, ch8);
-                if (svptest_any(pg, neq)) {
-                    break;
+            if (size >= vl) {
+                const auto* const sve_begin = end - (size / vl) * vl;
+                svbool_t pg = svptrue_b8();
+                for (p = end - vl; p >= sve_begin; p -= vl) {
+                    svuint8_t v = svld1_u8(pg, p);
+                    svbool_t neq = svcmpne_n_u8(pg, v, static_cast<uint8_t>(ch));
+                    if (svptest_any(pg, neq)) {
+                        break;
+                    }
                 }
-                p = block;
+                p += vl;
             }
-            // Solution 2
-            // const auto size = static_cast<size_t>(end - begin);
-            // const auto ch8 = static_cast<uint8_t>(ch);
-            // const size_t vl = svcntb();
-            // if (size >= vl) {
-            //     const auto* const sve_begin = end - (size / vl) * vl;
-            //     svbool_t pg = svptrue_b8();
-            //     for (p = end - vl; p >= sve_begin; p -= vl) {
-            //         svuint8_t v = svld1_u8(pg, p);
-            //         // if any byte != ch in this block, stop
-            //         svbool_t neq = svcmpne_n_u8(pg, v, ch8);
-            //         if (svptest_any(pg, neq)) {
-            //             break;
-            //         }
-            //     }
-            //     p += vl;
-            // }
 #endif
             for (; (p - 1) >= begin && *(p - 1) == ch; p--) {
             }
@@ -218,11 +200,11 @@ public:
             }
 #elif defined(__ARM_FEATURE_SVE)
             const auto size = static_cast<size_t>(end - begin);
-            const size_t VL = svcntb();
-            if (size >= VL) {
-                const auto* const sve_end = begin + (size / VL) * VL;
+            const size_t vl = svcntb();
+            if (size >= vl) {
+                const auto* const sve_end = begin + (size / vl) * vl;
                 svbool_t pg = svptrue_b8();
-                for (; p < sve_end; p += VL) {
+                for (; p < sve_end; p += vl) {
                     svuint8_t v = svld1_u8(pg, p);
                     svbool_t eq = svcmpne_n_u8(pg, v, static_cast<uint8_t>(ch));
                     if (svptest_any(pg, eq)) {
