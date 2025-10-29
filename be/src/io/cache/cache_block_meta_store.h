@@ -103,18 +103,11 @@ public:
     // Clear all records from rocksdb and the async queue
     void clear();
 
-    // Force close the rocksdb connection and release locks
-    void force_close();
-
     // Get the approximate size of the write queue
     size_t get_write_queue_size() const;
 
 private:
     void async_write_worker();
-    std::string serialize_key(const BlockMetaKey& key) const;
-    std::string serialize_value(const BlockMeta& meta) const;
-    BlockMetaKey deserialize_key(const std::string& key_str) const;
-    BlockMeta deserialize_value(const std::string& value_str) const;
 
     std::string _db_path;
     std::unique_ptr<rocksdb::DB> _db;
@@ -134,5 +127,10 @@ private:
 
     std::unique_ptr<ThreadPool> _thread_pool;
 };
+
+std::string serialize_key(const BlockMetaKey& key);
+std::string serialize_value(const BlockMeta& meta);
+BlockMetaKey deserialize_key(const std::string& key_str);
+BlockMeta deserialize_value(const std::string& value_str);
 
 } // namespace doris::io
