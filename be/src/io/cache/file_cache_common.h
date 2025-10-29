@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "common/config.h"
 #include "io/io_common.h"
 #include "vec/common/uint128.h"
 
@@ -151,7 +152,9 @@ struct CacheContext {
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
         } else {
-            cache_type = FileCacheType::NORMAL;
+            cache_type = doris::config::enable_normal_queue_cold_hot_separation
+                                 ? FileCacheType::COLD_NORMAL
+                                 : FileCacheType::NORMAL;
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
         is_warmup = io_context->is_warmup;

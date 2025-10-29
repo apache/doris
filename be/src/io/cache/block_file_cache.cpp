@@ -476,18 +476,28 @@ void BlockFileCache::use_cell(FileBlockCell& cell, FileBlocks* result, bool move
     /// Move to the end of the queue. The iterator remains valid.
     if (cell.queue_iterator && move_iter_flag) {
         if (cell.file_block->cache_type() == FileCacheType::COLD_NORMAL) {
-            queue.remove(*cell.queue_iterator, cache_lock);
-            _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
-                                              cell.file_block->get_hash_value(),
-                                              cell.file_block->offset(), cell.size());
-            auto& normal_queue = get_queue(FileCacheType::NORMAL);
-            cell.queue_iterator =
-                    normal_queue.add(cell.file_block->_key.hash, cell.file_block->_key.offset,
-                                     cell.size(), cache_lock);
-            _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
-                                              cell.file_block->get_hash_value(),
-                                              cell.file_block->offset(), cell.size());
-            cell.file_block->set_cache_type(FileCacheType::NORMAL);
+            auto now_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch())
+                                    .count();
+            if (now_time - cell.atime > config::normal_queue_cold_time_ms) {
+                queue.remove(*cell.queue_iterator, cache_lock);
+                _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
+                                                  cell.file_block->get_hash_value(),
+                                                  cell.file_block->offset(), cell.size());
+                auto& normal_queue = get_queue(FileCacheType::NORMAL);
+                cell.queue_iterator =
+                        normal_queue.add(cell.file_block->_key.hash, cell.file_block->_key.offset,
+                                         cell.size(), cache_lock);
+                _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
+                                                  cell.file_block->get_hash_value(),
+                                                  cell.file_block->offset(), cell.size());
+                cell.file_block->set_cache_type(FileCacheType::NORMAL);
+            } else {
+                queue.move_to_end(*cell.queue_iterator, cache_lock);
+                _lru_recorder->record_queue_event(
+                        cell.file_block->cache_type(), CacheLRULogType::MOVETOBACK,
+                        cell.file_block->_key.hash, cell.file_block->_key.offset, cell.size());
+            }
         } else {
             queue.move_to_end(*cell.queue_iterator, cache_lock);
             _lru_recorder->record_queue_event(
@@ -939,66 +949,9 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
-        st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL);
-    } else if (context.cache_type != FileCacheType::TTL && context.expiration_time != 0) {
-        st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
-    }
-    if (!st.ok()) {
-        LOG(WARNING) << "Cannot change cache type. expiration_time=" << context.expiration_time
-                     << " cache_type=" << cache_type_to_string(context.cache_type)
-                     << " error=" << st.msg();
-    }
-
-    if (config::enable_normal_queue_cold_hot_separation &&
-        cell.file_block->cache_type() == FileCacheType::NORMAL) {
-        cell.file_block->set_cache_type(FileCacheType::COLD_NORMAL);
-    }
-
-    auto& queue = get_queue(cell.file_block->cache_type());
-    cell.queue_iterator = queue.add(hash, offset, size, cache_lock);
-    _lru_recorder->record_queue_event(cell.file_block->cache_type(), CacheLRULogType::ADD,
-                                      cell.file_block->get_hash_value(), cell.file_block->offset(),
-                                      cell.size());
-
-    if (cell.file_block->cache_type() == FileCacheType::TTL) {
-        if (_key_to_time.find(hash) == _key_to_time.end()) {
-            _key_to_time[hash] = context.expiration_time;
-            _time_to_key.insert(std::make_pair(context.expiration_time, hash));
-        }
-        _cur_ttl_size += cell.size();
-    }
-    auto [it, _] = offsets.insert(std::make_pair(offset, std::move(cell)));
-    _cur_cache_size += size;
-    return &(it->second);
-}
-
-FileBlockCell* BlockFileCache::add_cell_directly(const UInt128Wrapper& hash,
-                                                 const CacheContext& context, size_t offset,
-                                                 size_t size, FileBlock::State state,
-                                                 std::lock_guard<std::mutex>& cache_lock) {
-    /// Create a file block cell and put it in `files` map by [hash][offset].
-    if (size == 0) {
-        return nullptr; /// Empty files are not cached.
-    }
-
-    auto& offsets = _files[hash];
-    auto itr = offsets.find(offset);
-    if (itr != offsets.end()) {
-        VLOG_DEBUG << "Cache already exists for hash: " << hash.to_string()
-                   << ", offset: " << offset << ", size: " << size
-                   << ".\nCurrent cache structure: " << dump_structure_unlocked(hash, cache_lock);
-        return &(itr->second);
-    }
-
-    FileCacheKey key;
-    key.hash = hash;
-    key.offset = offset;
-    key.meta.type = context.cache_type;
-    key.meta.expiration_time = context.expiration_time;
-    FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
-    Status st;
-    if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
-        st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL);
+        st = cell.file_block->change_cache_type_between_ttl_and_others(
+                config::enable_normal_queue_cold_hot_separation ? FileCacheType::COLD_NORMAL
+                                                                : FileCacheType::NORMAL);
     } else if (context.cache_type != FileCacheType::TTL && context.expiration_time != 0) {
         st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
     }
@@ -1187,7 +1140,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                query_context->get_max_cache_size()) {
         return try_reserve_for_lru(hash, query_context, context, offset, size, cache_lock);
     }
-    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
     auto& queue = get_queue(context.cache_type);
@@ -1407,6 +1360,8 @@ std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
         return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL};
     case FileCacheType::NORMAL:
         return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::INDEX};
+    case FileCacheType::COLD_NORMAL:
+        return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::INDEX};
     case FileCacheType::DISPOSABLE:
         return {FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::INDEX};
     default:
@@ -1425,6 +1380,9 @@ std::vector<FileCacheType> BlockFileCache::get_other_cache_type(FileCacheType cu
                 FileCacheType::TTL};
     case FileCacheType::NORMAL:
         return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::INDEX,
+                FileCacheType::TTL};
+    case FileCacheType::COLD_NORMAL:
+        return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::INDEX,
                 FileCacheType::TTL};
     case FileCacheType::DISPOSABLE:
         return {FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::INDEX,
@@ -1473,7 +1431,8 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
             size_t cell_size = cell->size();
             DCHECK(entry_size == cell_size);
 
-            if (cell->atime == 0 ? true : cell->atime + queue.get_hot_data_interval() > cur_time) {
+            if (cell->atime == 0 ? true
+                                 : cell->atime + queue.get_hot_data_interval() * 1000 > cur_time) {
                 break;
             }
 
@@ -1554,12 +1513,6 @@ bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, 
     size_t cur_queue_max_size = cur_queue.get_max_size();
     // Hit the soft limit by self, cannot remove from other queues
     if (_cur_cache_size + size > _capacity && cur_queue_size + size > cur_queue_max_size) {
-        if (config::enable_normal_queue_cold_hot_separation &&
-            cur_cache_type == FileCacheType::NORMAL) {
-            return try_reserve_from_other_queue_by_size(FileCacheType::NORMAL,
-                                                        {FileCacheType::COLD_NORMAL}, size,
-                                                        cache_lock, evict_in_advance);
-        }
         return false;
     }
     return try_reserve_from_other_queue_by_size(cur_cache_type, other_cache_types, size, cache_lock,
@@ -1571,7 +1524,7 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
                                          const CacheContext& context, size_t offset, size_t size,
                                          std::lock_guard<std::mutex>& cache_lock,
                                          bool evict_in_advance) {
-    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
     if (!try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock,
@@ -2395,7 +2348,7 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
 
 std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>>
 BlockFileCache::get_hot_blocks_meta(const UInt128Wrapper& hash) const {
-    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
     SCOPED_CACHE_LOCK(_mutex, this);
@@ -2407,7 +2360,8 @@ BlockFileCache::get_hot_blocks_meta(const UInt128Wrapper& hash) const {
                 if (cell->file_block->cache_type() == FileCacheType::TTL ||
                     (cell->atime != 0 &&
                      cur_time - cell->atime <
-                             get_queue(cell->file_block->cache_type()).get_hot_data_interval())) {
+                             get_queue(cell->file_block->cache_type()).get_hot_data_interval() *
+                                     1000)) {
                     blocks_meta.emplace_back(pair.first, cell->size(),
                                              cell->file_block->cache_type(),
                                              cell->file_block->expiration_time());

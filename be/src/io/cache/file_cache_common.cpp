@@ -37,7 +37,7 @@ std::string cache_type_to_surfix(FileCacheType type) {
     case FileCacheType::TTL:
         return "_ttl";
     case FileCacheType::COLD_NORMAL:
-        return "";
+        return "_cold_normal";
     }
     return "";
 }
@@ -49,6 +49,8 @@ FileCacheType surfix_to_cache_type(const std::string& str) {
         return FileCacheType::DISPOSABLE;
     } else if (str == "ttl") {
         return FileCacheType::TTL;
+    } else if (str == "cold_normal") {
+        return FileCacheType::COLD_NORMAL;
     }
     DCHECK(false) << "The string is " << str;
     return FileCacheType::DISPOSABLE;

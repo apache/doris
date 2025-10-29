@@ -489,7 +489,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
                 return;
             }
             // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-            _mgr->add_cell_directly(hash, ctx, offset, size, FileBlock::State::DOWNLOADED,
+            _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED,
                                     cache_lock);
         }
         in.close();

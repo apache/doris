@@ -631,7 +631,8 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
     if (expiration_time > 0) {
         *cache_type = FileCacheType::TTL;
     } else if (*cache_type == FileCacheType::TTL && expiration_time == 0) {
-        *cache_type = FileCacheType::NORMAL;
+        *cache_type = config::enable_normal_queue_cold_hot_separation ? FileCacheType::COLD_NORMAL
+                                                                      : FileCacheType::NORMAL;
     }
 
     if (!parsed) {
@@ -672,7 +673,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             }
             // if the file is tmp, it means it is the old file and it should be removed
             if (!args.is_tmp) {
-                _mgr->add_cell_directly(args.hash, args.ctx, args.offset, args.size,
+                _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
                                         FileBlock::State::DOWNLOADED, cache_lock);
                 return;
             }
@@ -887,7 +888,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
                 }
             } else {
                 context_original.cache_type = cache_type;
-                mgr->add_cell_directly(key.hash, context_original, offset, size,
+                mgr->add_cell(key.hash, context_original, offset, size,
                                        FileBlock::State::DOWNLOADED, cache_lock);
             }
         }

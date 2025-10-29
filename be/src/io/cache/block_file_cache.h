@@ -84,8 +84,9 @@ struct FileBlockCell {
     std::optional<LRUQueue::Iterator> queue_iterator;
 
     mutable int64_t atime {0};
+
     void update_atime() const {
-        atime = std::chrono::duration_cast<std::chrono::seconds>(
+        atime = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now().time_since_epoch())
                         .count();
     }
@@ -356,11 +357,6 @@ private:
     virtual FileBlockCell* add_cell(const UInt128Wrapper& hash, const CacheContext& context,
                                     size_t offset, size_t size, FileBlock::State state,
                                     std::lock_guard<std::mutex>& cache_lock);
-
-    virtual FileBlockCell* add_cell_directly(const UInt128Wrapper& hash,
-                                             const CacheContext& context, size_t offset,
-                                             size_t size, FileBlock::State state,
-                                             std::lock_guard<std::mutex>& cache_lock);
 
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
