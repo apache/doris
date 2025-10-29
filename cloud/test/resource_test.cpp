@@ -512,7 +512,7 @@ static void create_instance_with_obj_info(MetaServiceProxy* meta_service,
                                           const std::string& instance_id,
                                           const std::string& source_instance_id,
                                           const std::string& user_id, const std::string& ak,
-                                          const std::string& sk) {
+                                          const std::string& sk, bool enable_snapshot = true) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
 
@@ -524,6 +524,8 @@ static void create_instance_with_obj_info(MetaServiceProxy* meta_service,
         snapshot_version = next_test_snapshot_versionstamp();
         instance.set_source_snapshot_id(snapshot_version->to_string());
     }
+
+    instance.set_snapshot_switch_status(enable_snapshot ? SNAPSHOT_SWITCH_ON : SNAPSHOT_SWITCH_OFF);
 
     auto* obj_info = instance.add_obj_info();
     obj_info->set_user_id(user_id);
@@ -742,6 +744,50 @@ TEST(AkSkCascadeTest, NoChildrenInstance) {
 
     // Verify only parent updated
     verify_instance_aksk(meta_service.get(), "single_inst", "new_ak_single", cipher_sk);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Snapshot disabled should skip cascading to derived instances
+TEST(AkSkCascadeTest, SnapshotDisabledSkipsCascade) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Parent keeps snapshot disabled; child is a derived instance
+    create_instance_with_obj_info(meta_service.get(), "parent_snapshot_off", "", "user1", "old_ak",
+                                  "old_sk", /*enable_snapshot=*/false);
+    create_instance_with_obj_info(meta_service.get(), "child_snapshot_off", "parent_snapshot_off",
+                                  "user1", "old_ak", "old_sk");
+
+    UpdateAkSkRequest req;
+    req.set_instance_id("parent_snapshot_off");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user1");
+    bucket_user->set_ak("new_ak_disabled");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Parent updated, child stays untouched because snapshot is off
+    verify_instance_aksk(meta_service.get(), "parent_snapshot_off", "new_ak_disabled", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "child_snapshot_off", "old_ak", "old_sk");
 
     sp->disable_processing();
     sp->clear_all_call_backs();
