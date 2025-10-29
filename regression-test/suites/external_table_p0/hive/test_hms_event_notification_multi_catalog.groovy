@@ -664,7 +664,6 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
         } finally {
         }
     }
-    }
 }
 
 

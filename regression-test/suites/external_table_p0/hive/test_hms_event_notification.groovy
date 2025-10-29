@@ -380,7 +380,6 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
-        }
     }
 }
 
