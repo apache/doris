@@ -95,7 +95,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
-import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
@@ -298,7 +297,6 @@ import org.apache.thrift.TException;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -3750,7 +3748,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     //    BE id -> path hash
                     // 2. We cached the metadata for each transaction to maintain a consistent view of
                     //    tablet replica distribution during the transaction's lifetime.
-                    Multimap<Long, Long> bePathsMap = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
+                    Multimap<Long, Long> bePathsMap = Env.getCurrentGlobalTransactionMgr()
+                            .getAutoPartitionInfo(dbId, txnId);
                     if (bePathsMap == null) {
                         try {
                             if (Config.isCloudMode() && request.isSetBeEndpoint()) {
@@ -3768,7 +3767,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             return result;
                         }
                     } else {
-                        LOG.info("The same partition has been created, so we read the tablet replica distribution from cache");
+                        LOG.info("The same partition has been created, "
+                                + "so we read the tablet replica distribution from cache");
                     }
 
                     if (bePathsMap.keySet().size() < quorum) {
