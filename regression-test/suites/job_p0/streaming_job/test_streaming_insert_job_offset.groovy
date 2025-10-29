@@ -160,12 +160,12 @@ suite("test_streaming_insert_job_offset") {
         PAUSE JOB where jobname =  '${jobName}'
     """
     def pausedJobStatus = sql """
-        select status from jobs("type"="insert") where Name='${jobName}'
+        select status, SucceedTaskCount + FailedTaskCount + CanceledTaskCount  from jobs("type"="insert") where Name='${jobName}'
     """
     assert pausedJobStatus.get(0).get(0) == "PAUSED"
 
-    def pauseShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-    assert pauseShowTask.size() == 0
+    def pauseShowTask = sql """select count(1) from tasks("type"="insert") where JobName='${jobName}'"""
+    assert pauseShowTask.get(0).get(0) == pausedJobStatus.get(0).get(1)
 
     def jobInfo = sql """
         select currentOffset, endoffset, loadStatistic, properties from jobs("type"="insert") where Name='${jobName}'
