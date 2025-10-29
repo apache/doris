@@ -252,6 +252,19 @@ public:
     virtual TxnErrorCode commit() = 0;
 
     /**
+     * Issue a watch on `key`, it will commit the txn and wait until the watch is triggered.
+     *
+     * A watch’s behavior is relative to the transaction that created it. A watch will report a change in
+     * relation to the key’s value as readable by that transaction. The initial value used for comparison
+     * is either that of the transaction’s read version or the value as modified by the transaction itself
+     * prior to the creation of the watch. If the value changes and then changes back to its initial value,
+     * the watch might not report the change.
+     *
+     * @return TXN_OK for success otherwise error
+     */
+    virtual TxnErrorCode watch_key(std::string_view key) = 0;
+
+    /**
      * Gets the read version used by the txn.
      * Note that it does not make any sense we call this function before
      * any `Transaction::get()` is called.
@@ -789,6 +802,8 @@ public:
      *@return TXN_OK for success, TXN_CONFLICT for conflict, otherwise for error
      */
     TxnErrorCode commit() override;
+
+    TxnErrorCode watch_key(std::string_view key) override;
 
     TxnErrorCode get_read_version(int64_t* version) override;
     TxnErrorCode get_committed_version(int64_t* version) override;
