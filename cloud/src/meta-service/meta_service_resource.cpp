@@ -1813,8 +1813,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
 
     // Cascade update to derived instances using separate transactions
     // update_ak_sk is idempotent, so it's safe to use independent transactions
-    const bool snapshot_enabled = instance.snapshot_switch_status() == SNAPSHOT_SWITCH_ON;
-    if (!snapshot_enabled) {
+    if (!(instance.snapshot_switch_status() == SNAPSHOT_SWITCH_ON)) {
         LOG(INFO) << "snapshot disabled for instance_id=" << instance_id
                   << ", skip cascade updating derived instances";
         return;
