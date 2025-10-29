@@ -59,10 +59,12 @@ struct InvalidType;
 template <typename Op, typename Name, PrimitiveType param_type>
 class FunctionUnaryArithmetic : public IFunction {
     using DataType = typename PrimitiveTypeTraits<param_type>::DataType;
-    const bool allow_decimal =
-            Name::name == "abs" || Name::name == "negative" || Name::name == "positive";
-    const bool not_variadic = Name::name == "degree" || Name::name == "radian" ||
-                              Name::name == "sign" || Name::name == "signbit";
+    static constexpr bool allow_decimal = std::string_view(Name::name) == "abs" ||
+                                          std::string_view(Name::name) == "negative" ||
+                                          std::string_view(Name::name) == "positive";
+    static constexpr bool not_variadic =
+            std::string_view(Name::name) == "degree" || std::string_view(Name::name) == "radian" ||
+            std::string_view(Name::name) == "sign" || std::string_view(Name::name) == "signbit";
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
@@ -81,14 +83,14 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     bool is_variadic() const override {
-        if (not_variadic) {
+        if constexpr (not_variadic) {
             return false;
         }
         return true;
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if (not_variadic) {
+        if constexpr (not_variadic) {
             return {};
         }
         return {std::make_shared<DataType>()};
@@ -100,7 +102,7 @@ public:
             using DataType = std::decay_t<decltype(type)>;
 
             if constexpr (IsDataTypeDecimal<DataType>) {
-                if (!allow_decimal) return false;
+                if constexpr (!allow_decimal) return false;
                 result = std::make_shared<DataType>(type.get_precision(), type.get_scale());
             } else {
                 result = std::make_shared<typename PrimitiveTypeTraits<Op::ResultType>::DataType>();
