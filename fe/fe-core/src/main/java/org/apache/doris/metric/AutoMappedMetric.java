@@ -38,4 +38,7 @@ public class AutoMappedMetric<M> {
         return nameToMetric;
     }
 
+    public void remove(String name) {
+        nameToMetric.remove(name);
+    }
 }
