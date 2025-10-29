@@ -232,7 +232,7 @@ QueryContext::~QueryContext() {
     file_scan_range_params_map.clear();
     obj_pool.clear();
     if (_merge_controller_handler) {
-        _merge_controller_handler->release_undone_filters(this);
+        // _merge_controller_handler->release_undone_filters(this);
     }
     _merge_controller_handler.reset();
 
