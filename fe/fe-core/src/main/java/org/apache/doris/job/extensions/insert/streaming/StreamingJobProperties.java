@@ -22,6 +22,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.JobProperties;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import lombok.Data;
 import org.json.simple.JSONObject;
@@ -117,22 +118,20 @@ public class StreamingJobProperties implements JobProperties {
         }
     }
 
-    public SessionVariable getSessionVariable(SessionVariable originSessionVar) throws JobException {
-        SessionVariable sessionVariable = new SessionVariable();
+    public SessionVariable getSessionVariable(SessionVariable sessionVariable) throws JobException {
+        SessionVariable defaultSessionVar = VariableMgr.getDefaultSessionVariable();
+
+        // override with job default session var
+        if (sessionVariable.getInsertTimeoutS() != defaultSessionVar.getInsertTimeoutS()) {
+            sessionVariable.setInsertTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
+        }
+        if (sessionVariable.getQueryTimeoutS() != defaultSessionVar.getQueryTimeoutS()) {
+            sessionVariable.setQueryTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
+        }
+
         Map<String, String> sessionVarMap = parseSessionVarMap();
         if (!sessionVarMap.isEmpty()) {
             try {
-                // copy ctx session var
-                sessionVariable.readFromJson(originSessionVar.toJson().toJSONString());
-
-                // override with job session var
-                if (sessionVariable.getInsertTimeoutS() < DEFAULT_JOB_INSERT_TIMEOUT) {
-                    sessionVariable.setInsertTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
-                }
-                if (sessionVariable.getQueryTimeoutS() < DEFAULT_JOB_INSERT_TIMEOUT) {
-                    sessionVariable.setQueryTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
-                }
-
                 // override session var for sessionVarMap
                 sessionVariable.readFromMap(sessionVarMap);
             } catch (Exception e) {
