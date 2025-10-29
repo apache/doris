@@ -55,10 +55,8 @@ private:
 
 class FSFileCacheStorage : public FileCacheStorage {
 public:
-    /// use version 2 when USE_CACHE_VERSION2 = true, while use version 1 if false
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
-    static constexpr bool USE_CACHE_VERSION2 = true;
     static constexpr int KEY_PREFIX_LENGTH = 3;
 
     FSFileCacheStorage() = default;
@@ -75,17 +73,17 @@ public:
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 
-    [[nodiscard]] static std::string get_path_in_local_cache(const std::string& dir, size_t offset,
-                                                             FileCacheType type,
-                                                             bool is_tmp = false);
+    [[nodiscard]] static std::string get_path_in_local_cache_v3(const std::string& dir,
+                                                                size_t offset, bool is_tmp = false);
 
-    [[nodiscard]] static std::string get_path_in_local_cache_old_ttl_format(const std::string& dir,
-                                                                            size_t offset,
-                                                                            FileCacheType type,
-                                                                            bool is_tmp = false);
+    [[nodiscard]] std::string get_path_in_local_cache_v3(const UInt128Wrapper&) const;
 
-    [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
-                                                      uint64_t expiration_time) const;
+    [[nodiscard]] static std::string get_path_in_local_cache_v2(const std::string& dir,
+                                                                size_t offset, FileCacheType type,
+                                                                bool is_tmp = false);
+
+    [[nodiscard]] std::string get_path_in_local_cache_v2(const UInt128Wrapper&,
+                                                         uint64_t expiration_time) const;
 
     FileCacheStorageType get_type() override { return DISK; }
 
@@ -110,8 +108,11 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
-    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
-            const std::string& dir, size_t offset);
+private:
+    // Helper function to count files in cache directory using statfs
+    size_t estimate_file_count_from_statfs() const;
+    void load_cache_info_into_memory_from_fs(BlockFileCache* _mgr) const;
+    void load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const;
 
     Status get_file_cache_infos(std::vector<FileCacheInfo>& infos,
                                 std::lock_guard<std::mutex>& cache_lock) const override;

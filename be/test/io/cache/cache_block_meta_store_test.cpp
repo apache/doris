@@ -55,7 +55,7 @@ protected:
 TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
-    BlockMeta meta1(1, 1024);
+    BlockMeta meta1(1, 1024, 3600);
 
     // Test put operation
     meta_store_->put(key1, meta1);
@@ -67,6 +67,7 @@ TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     BlockMeta result = meta_store_->get(key1);
     EXPECT_EQ(result.type, meta1.type);
     EXPECT_EQ(result.size, meta1.size);
+    EXPECT_EQ(result.ttl, meta1.ttl);
 
     // Test non-existent key
     uint128_t hash2 = (static_cast<uint128_t>(999) << 64) | 999;
@@ -74,6 +75,7 @@ TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     BlockMeta non_existent_result = meta_store_->get(non_existent_key);
     EXPECT_EQ(non_existent_result.type, 0);
     EXPECT_EQ(non_existent_result.size, 0);
+    EXPECT_EQ(non_existent_result.ttl, 0);
 }
 
 TEST_F(CacheBlockMetaStoreTest, MultiplePutsAndGets) {
@@ -85,7 +87,7 @@ TEST_F(CacheBlockMetaStoreTest, MultiplePutsAndGets) {
     for (int i = 0; i < num_keys; ++i) {
         uint128_t hash = (static_cast<uint128_t>(i) << 64) | (i * 100);
         keys.emplace_back(1, UInt128Wrapper(hash), i * 1024);
-        metas.emplace_back(i % 3, 1024 * (i + 1));
+        metas.emplace_back(i % 3, 1024 * (i + 1), 3600 + i * 100);
         meta_store_->put(keys[i], metas[i]);
     }
 
@@ -97,6 +99,7 @@ TEST_F(CacheBlockMetaStoreTest, MultiplePutsAndGets) {
         BlockMeta result = meta_store_->get(keys[i]);
         EXPECT_EQ(result.type, metas[i].type);
         EXPECT_EQ(result.size, metas[i].size);
+        EXPECT_EQ(result.ttl, metas[i].ttl);
     }
 }
 
@@ -110,7 +113,7 @@ TEST_F(CacheBlockMetaStoreTest, RangeQuery) {
             uint128_t hash =
                     (static_cast<uint128_t>(tablet_id * 100 + i) << 64) | (tablet_id * 200 + i);
             BlockMetaKey key(tablet_id, UInt128Wrapper(hash), i * 1024);
-            BlockMeta meta(i % 2, 2048 * (i + 1));
+            BlockMeta meta(i % 2, 2048 * (i + 1), 3600 + i * 100);
             meta_store_->put(key, meta);
         }
     }
@@ -146,7 +149,7 @@ TEST_F(CacheBlockMetaStoreTest, RangeQuery) {
 TEST_F(CacheBlockMetaStoreTest, DeleteOperation) {
     uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
-    BlockMeta meta1(1, 1024);
+    BlockMeta meta1(1, 1024, 3600);
 
     // Put then delete
     meta_store_->put(key1, meta1);
@@ -169,7 +172,7 @@ TEST_F(CacheBlockMetaStoreTest, DeleteOperation) {
 TEST_F(CacheBlockMetaStoreTest, SerializationDeserialization) {
     uint128_t hash3 = (static_cast<uint128_t>(456789) << 64) | 987654;
     BlockMetaKey original_key(123, UInt128Wrapper(hash3), 1024);
-    BlockMeta original_meta(2, 4096);
+    BlockMeta original_meta(2, 4096, 7200);
 
     // Test round-trip through put and get operations
     meta_store_->put(original_key, original_meta);
@@ -178,6 +181,7 @@ TEST_F(CacheBlockMetaStoreTest, SerializationDeserialization) {
     BlockMeta retrieved = meta_store_->get(original_key);
     EXPECT_EQ(retrieved.type, original_meta.type);
     EXPECT_EQ(retrieved.size, original_meta.size);
+    EXPECT_EQ(retrieved.ttl, original_meta.ttl);
 
     // Test non-existent key
     uint128_t hash4 = (static_cast<uint128_t>(999999) << 64) | 888888;
@@ -207,7 +211,7 @@ TEST_F(CacheBlockMetaStoreTest, ConcurrencyTest) {
             size_t offset = i * 1024;
 
             BlockMetaKey key(tablet_id, UInt128Wrapper(hash_value), offset);
-            BlockMeta meta(thread_id % 3, 2048);
+            BlockMeta meta(thread_id % 3, 2048, 3600 + thread_id * 100 + i);
 
             // Put operation
             meta_store_->put(key, meta);
@@ -253,6 +257,7 @@ TEST_F(CacheBlockMetaStoreTest, ConcurrencyTest) {
             BlockMetaKey key(thread_id + 1, UInt128Wrapper(hash), i * 1024);
             BlockMeta result = meta_store_->get(key);
             EXPECT_GE(result.size, 0);
+            EXPECT_GE(result.ttl, 0);
         }
     }
 }
@@ -262,7 +267,7 @@ TEST_F(CacheBlockMetaStoreTest, IteratorValidity) {
     for (int i = 0; i < 5; ++i) {
         uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
         BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
-        BlockMeta meta(i % 2, 2048 * (i + 1));
+        BlockMeta meta(i % 2, 2048 * (i + 1), 3600 + i * 100);
         meta_store_->put(key, meta);
     }
 
@@ -306,14 +311,16 @@ TEST_F(CacheBlockMetaStoreTest, KeyToString) {
 }
 
 TEST_F(CacheBlockMetaStoreTest, BlockMetaEquality) {
-    BlockMeta meta1(1, 1024);
-    BlockMeta meta2(1, 1024);
-    BlockMeta meta3(2, 1024);
-    BlockMeta meta4(1, 2048);
+    BlockMeta meta1(1, 1024, 3600);
+    BlockMeta meta2(1, 1024, 3600);
+    BlockMeta meta3(2, 1024, 3600);
+    BlockMeta meta4(1, 2048, 3600);
+    BlockMeta meta5(1, 1024, 7200);
 
     EXPECT_TRUE(meta1 == meta2);
     EXPECT_FALSE(meta1 == meta3);
     EXPECT_FALSE(meta1 == meta4);
+    EXPECT_FALSE(meta1 == meta5);
 }
 
 TEST_F(CacheBlockMetaStoreTest, BlockMetaKeyEquality) {
@@ -339,7 +346,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearAllRecords) {
     for (int i = 0; i < num_records; ++i) {
         uint128_t hash = (static_cast<uint128_t>(i) << 64) | (i * 100);
         BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
-        BlockMeta meta(i % 3, 2048 * (i + 1));
+        BlockMeta meta(i % 3, 2048 * (i + 1), 3600 + i * 100);
 
         keys.push_back(key);
         meta_store_->put(key, meta);
@@ -353,6 +360,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearAllRecords) {
         BlockMeta result = meta_store_->get(keys[i]);
         EXPECT_EQ(result.type, i % 3);
         EXPECT_EQ(result.size, 2048 * (i + 1));
+        EXPECT_EQ(result.ttl, 3600 + i * 100);
     }
 
     // Clear all records
@@ -380,7 +388,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearWithPendingAsyncOperations) {
     // Add a record
     uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
-    BlockMeta meta1(1, 1024);
+    BlockMeta meta1(1, 1024, 3600);
     meta_store_->put(key1, meta1);
 
     // Immediately clear without waiting for async operation
@@ -401,7 +409,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearAndThenAddNewRecords) {
     // Add initial records
     uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
-    BlockMeta meta1(1, 1024);
+    BlockMeta meta1(1, 1024, 3600);
     meta_store_->put(key1, meta1);
 
     // Wait for async operation
@@ -414,7 +422,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearAndThenAddNewRecords) {
     // Add new records after clear
     uint128_t hash2 = (static_cast<uint128_t>(789) << 64) | 123;
     BlockMetaKey key2(2, UInt128Wrapper(hash2), 1024);
-    BlockMeta meta2(2, 2048);
+    BlockMeta meta2(2, 2048, 7200);
     meta_store_->put(key2, meta2);
 
     // Wait for async operation
@@ -424,11 +432,13 @@ TEST_F(CacheBlockMetaStoreTest, ClearAndThenAddNewRecords) {
     BlockMeta result1 = meta_store_->get(key1);
     EXPECT_EQ(result1.type, 0);
     EXPECT_EQ(result1.size, 0);
+    EXPECT_EQ(result1.ttl, 0);
 
     // Verify new record is present
     BlockMeta result2 = meta_store_->get(key2);
     EXPECT_EQ(result2.type, 2);
     EXPECT_EQ(result2.size, 2048);
+    EXPECT_EQ(result2.ttl, 7200);
 }
 
 TEST_F(CacheBlockMetaStoreTest, ClearMultipleTimes) {
@@ -437,7 +447,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearMultipleTimes) {
     // Add a record
     uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key(1, UInt128Wrapper(hash), 0);
-    BlockMeta meta(1, 1024);
+    BlockMeta meta(1, 1024, 3600);
     meta_store_->put(key, meta);
 
     // Wait for async operation
@@ -455,6 +465,7 @@ TEST_F(CacheBlockMetaStoreTest, ClearMultipleTimes) {
     BlockMeta result = meta_store_->get(key);
     EXPECT_EQ(result.type, 0);
     EXPECT_EQ(result.size, 0);
+    EXPECT_EQ(result.ttl, 0);
 }
 
 TEST_F(CacheBlockMetaStoreTest, ClearEmptyStore) {
@@ -472,6 +483,152 @@ TEST_F(CacheBlockMetaStoreTest, ClearEmptyStore) {
     BlockMeta result = meta_store_->get(key);
     EXPECT_EQ(result.type, 0);
     EXPECT_EQ(result.size, 0);
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetAllRecords) {
+    // Add records from multiple tablets
+    const int num_tablets = 3;
+    const int blocks_per_tablet = 4;
+    int total_records = num_tablets * blocks_per_tablet;
+
+    for (int tablet_id = 1; tablet_id <= num_tablets; ++tablet_id) {
+        for (int i = 0; i < blocks_per_tablet; ++i) {
+            uint128_t hash =
+                    (static_cast<uint128_t>(tablet_id * 100 + i) << 64) | (tablet_id * 200 + i);
+            BlockMetaKey key(tablet_id, UInt128Wrapper(hash), i * 1024);
+            BlockMeta meta(i % 2, 2048 * (i + 1), 3600 + i * 100);
+            meta_store_->put(key, meta);
+        }
+    }
+
+    // Wait for async operations
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Test get_all method
+    auto iterator = meta_store_->get_all();
+    ASSERT_TRUE(iterator != nullptr);
+
+    int count = 0;
+    std::set<int64_t> tablet_ids_found;
+    std::set<size_t> offsets_found;
+
+    while (iterator->valid()) {
+        BlockMetaKey key = iterator->key();
+        BlockMeta value = iterator->value();
+
+        // Verify key fields
+        EXPECT_GT(key.tablet_id, 0);
+        EXPECT_GE(key.offset, 0);
+        EXPECT_TRUE(key.hash.value() > 0);
+
+        // Verify value fields
+        EXPECT_TRUE(value.type == 0 || value.type == 1);
+        EXPECT_GT(value.size, 0);
+        EXPECT_GT(value.ttl, 0);
+
+        // Track what we found
+        tablet_ids_found.insert(key.tablet_id);
+        offsets_found.insert(key.offset);
+
+        iterator->next();
+        count++;
+    }
+
+    // Verify we found all records
+    EXPECT_EQ(count, total_records);
+
+    // Verify we found records from all tablets
+    EXPECT_EQ(tablet_ids_found.size(), num_tablets);
+    for (int tablet_id = 1; tablet_id <= num_tablets; ++tablet_id) {
+        EXPECT_TRUE(tablet_ids_found.find(tablet_id) != tablet_ids_found.end());
+    }
+
+    // Verify we found various offsets
+    EXPECT_GE(offsets_found.size(), blocks_per_tablet);
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetAllEmptyStore) {
+    // Test get_all on empty store
+    auto iterator = meta_store_->get_all();
+    ASSERT_TRUE(iterator != nullptr);
+
+    // Should be invalid immediately
+    EXPECT_FALSE(iterator->valid());
+
+    // Calling next should not crash
+    iterator->next();
+    EXPECT_FALSE(iterator->valid());
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetAllAfterClear) {
+    // Add some records
+    for (int i = 0; i < 5; ++i) {
+        uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
+        BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
+        BlockMeta meta(i % 2, 2048 * (i + 1), 3600 + i * 100);
+        meta_store_->put(key, meta);
+    }
+
+    // Wait for async operations
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify records are present
+    auto iterator1 = meta_store_->get_all();
+    int count_before = 0;
+    while (iterator1->valid()) {
+        count_before++;
+        iterator1->next();
+    }
+    EXPECT_EQ(count_before, 5);
+
+    // Clear all records
+    meta_store_->clear();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify no records after clear
+    auto iterator2 = meta_store_->get_all();
+    int count_after = 0;
+    while (iterator2->valid()) {
+        count_after++;
+        iterator2->next();
+    }
+    EXPECT_EQ(count_after, 0);
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetAllIteratorValidity) {
+    // Add multiple records
+    for (int i = 0; i < 10; ++i) {
+        uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
+        BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
+        BlockMeta meta(i % 3, 2048 * (i + 1), 3600 + i * 100);
+        meta_store_->put(key, meta);
+    }
+
+    // Wait for async operations
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Test iterator validity and navigation
+    auto iterator = meta_store_->get_all();
+    ASSERT_TRUE(iterator != nullptr);
+
+    int count = 0;
+    while (iterator->valid()) {
+        BlockMetaKey key = iterator->key();
+        BlockMeta value = iterator->value();
+
+        // Verify consistency between key and value
+        EXPECT_GE(key.offset, 0);
+        EXPECT_GT(value.size, 0);
+
+        // The offset should correspond to the index
+        EXPECT_EQ(key.offset, count * 1024);
+
+        iterator->next();
+        count++;
+    }
+
+    EXPECT_EQ(count, 10);
+    EXPECT_FALSE(iterator->valid());
 }
 
 } // namespace doris::io

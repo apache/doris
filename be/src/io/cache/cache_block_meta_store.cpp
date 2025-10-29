@@ -153,6 +153,54 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
     return std::make_unique<RocksDBIterator>(iter, prefix);
 }
 
+std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
+    class RocksDBFullIterator : public BlockMetaIterator {
+    public:
+        RocksDBFullIterator(rocksdb::Iterator* iter) : _iter(iter) { _iter->SeekToFirst(); }
+
+        ~RocksDBFullIterator() override { delete _iter; }
+
+        bool valid() const override { return _iter->Valid(); }
+
+        void next() override { _iter->Next(); }
+
+        BlockMetaKey key() const override {
+            std::string key_str = _iter->key().ToString();
+            // Key format: "tabletid_hashstring_offset"
+            size_t pos1 = key_str.find('_');
+            size_t pos2 = key_str.find('_', pos1 + 1);
+
+            int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
+            std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
+            size_t offset = std::stoull(key_str.substr(pos2 + 1));
+
+            // Convert hash string back to UInt128Wrapper
+            uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
+
+            return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+        }
+
+        BlockMeta value() const override {
+            std::string value_str = _iter->value().ToString();
+            // Assuming value format is "type:size:ttl"
+            size_t pos1 = value_str.find(':');
+            size_t pos2 = value_str.find(':', pos1 + 1);
+
+            int type = std::stoi(value_str.substr(0, pos1));
+            size_t size = std::stoull(value_str.substr(pos1 + 1, pos2 - pos1 - 1));
+            uint64_t ttl = std::stoull(value_str.substr(pos2 + 1));
+
+            return BlockMeta(type, size, ttl);
+        }
+
+    private:
+        rocksdb::Iterator* _iter;
+    };
+
+    rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
+    return std::make_unique<RocksDBFullIterator>(iter);
+}
+
 void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     std::string key_str = serialize_key(key);
 
@@ -243,10 +291,12 @@ std::string CacheBlockMetaStore::serialize_key(const BlockMetaKey& key) const {
     return fmt::format("{}_{}_{}", key.tablet_id, key.hash.to_string(), key.offset);
 }
 
+//TODO(zhengyu): use pb
 std::string CacheBlockMetaStore::serialize_value(const BlockMeta& meta) const {
-    return fmt::format("{}:{}", meta.type, meta.size);
+    return fmt::format("{}:{}:{}", meta.type, meta.size, meta.ttl);
 }
 
+//TODO(zhengyu): use pb
 BlockMetaKey CacheBlockMetaStore::deserialize_key(const std::string& key_str) const {
     // Key format: "tabletid_hashstring_offset"
     size_t pos1 = key_str.find('_');
@@ -264,11 +314,14 @@ BlockMetaKey CacheBlockMetaStore::deserialize_key(const std::string& key_str) co
 }
 
 BlockMeta CacheBlockMetaStore::deserialize_value(const std::string& value_str) const {
-    // Value format: "type:size"
-    size_t pos = value_str.find(':');
-    int type = std::stoi(value_str.substr(0, pos));
-    size_t size = std::stoull(value_str.substr(pos + 1));
-    return BlockMeta(type, size);
+    // Value format: "type:size:ttl"
+    size_t pos1 = value_str.find(':');
+    size_t pos2 = value_str.find(':', pos1 + 1);
+
+    int type = std::stoi(value_str.substr(0, pos1));
+    size_t size = std::stoull(value_str.substr(pos1 + 1, pos2 - pos1 - 1));
+    uint64_t ttl = std::stoull(value_str.substr(pos2 + 1));
+    return BlockMeta(type, size, ttl);
 }
 
 } // namespace doris::io
