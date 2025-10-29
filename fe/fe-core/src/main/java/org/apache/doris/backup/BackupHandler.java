@@ -224,6 +224,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                            "Failed to create repository: " + st.getErrMsg());
         }
+        //fixme why ping again? it has pinged in addAndInitRepoIfNotExist
         if (!repo.ping()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                     "Failed to create repository: failed to connect to the repo");
