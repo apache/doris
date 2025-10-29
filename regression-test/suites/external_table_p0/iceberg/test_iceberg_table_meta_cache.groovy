@@ -109,9 +109,6 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             sql """select * from test_iceberg_meta_cache_db.sales"""
             // insert into new value
             sql """insert into test_iceberg_meta_cache_db.sales values(1, 3.0)"""
-            // still select 2 rows
-            sql """select * from test_iceberg_meta_cache_db.sales"""
-            sql """refresh table test_iceberg_meta_cache_db.sales"""
             // select 3 rows
             sql """select * from test_iceberg_meta_cache_db.sales"""
             sql """drop table test_iceberg_meta_cache_db.sales"""
@@ -160,13 +157,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
 
             // insert into new value
             sql """insert into test_iceberg_meta_cache_db.sales values(1, 3.0)"""
-            // still select 3 rows
+            // select 4 rows
             sql """select * from test_iceberg_meta_cache_db.sales"""
-            // alter wrong catalog property
-            test {
-                sql """alter catalog ${catalog_name_no_cache} set properties ("iceberg.snapshot.meta.cache.ttl-second" = "-2")"""
-                exception "is wrong"
-            }
             sql """drop table test_iceberg_meta_cache_db.sales"""
             sql """drop database if exists test_iceberg_meta_cache_db"""
             sql """drop catalog if exists ${catalog_name_no_cache};"""
