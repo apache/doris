@@ -326,9 +326,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                                     .map(ConnectContext::getExecTimeoutS)
                                     .orElse(Config.insert_load_default_timeout_second);
                 break;
-            case INGESTION:
-                timeout = Config.ingestion_load_default_timeout_second;
-                break;
             default:
                 break;
         }
