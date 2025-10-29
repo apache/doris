@@ -108,7 +108,9 @@ public enum SchemaTableType {
     SCH_BLACKHOLE("BLACKHOLE", "BLACKHOLE",
             TSchemaTableType.SCH_BLACKHOLE),
     SCH_COLUMN_DATA_SIZES("COLUMN_DATA_SIZES", "COLUMN_DATA_SIZES",
-            TSchemaTableType.SCH_COLUMN_DATA_SIZES);
+            TSchemaTableType.SCH_COLUMN_DATA_SIZES),
+    SCH_BACKENDS("BACKENDS", "BACKENDS", TSchemaTableType.SCH_BACKENDS),
+    SCH_FRONTENDS("FRONTENDS", "FRONTENDS", TSchemaTableType.SCH_FRONTENDS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 
