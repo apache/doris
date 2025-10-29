@@ -122,10 +122,10 @@ public class StreamingJobProperties implements JobProperties {
         SessionVariable defaultSessionVar = VariableMgr.getDefaultSessionVariable();
 
         // override with job default session var
-        if (sessionVariable.getInsertTimeoutS() != defaultSessionVar.getInsertTimeoutS()) {
+        if (sessionVariable.getInsertTimeoutS() == defaultSessionVar.getInsertTimeoutS()) {
             sessionVariable.setInsertTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
         }
-        if (sessionVariable.getQueryTimeoutS() != defaultSessionVar.getQueryTimeoutS()) {
+        if (sessionVariable.getQueryTimeoutS() == defaultSessionVar.getQueryTimeoutS()) {
             sessionVariable.setQueryTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
         }
 
