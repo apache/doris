@@ -435,7 +435,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(daySecondAdd, context);
         Assertions.assertEquals(daySecondAdd, rewritten);
         daySecondAdd = new DaySecondAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 0),
-                new VarcharLiteral("0 -1:1:1"));
+                new VarcharLiteral("-1 -1:1:1"));
         rewritten = executor.rewrite(daySecondAdd, context);
         Assertions.assertEquals(daySecondAdd, rewritten);
     }
