@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_timestamptz_storage") {
+suite("test_timestamptz_storage_dup_key") {
     sql "set time_zone = '+08:00'; "
 
     sql """
