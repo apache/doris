@@ -29,14 +29,24 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.types.Types.TimestampType;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
@@ -223,61 +233,116 @@ public class IcebergNereidsUtils {
      */
     private static Object extractNereidsLiteralValue(
             Literal literal,
-            Type icebergType) {
-        Object raw = literal.getValue();
-        if (raw == null) {
-            return null;
-        }
-
-        // Normalize primitive wrapper types to what Iceberg expects for the target
-        // column type
+            Type icebergType) throws UserException {
         try {
+            Object raw = literal.getValue();
+            if (raw == null) {
+                if (literal instanceof NullLiteral) {
+                    return null;
+                }
+                throw new UserException("Literal value is null: " + literal);
+            }
+
             switch (icebergType.typeId()) {
                 case BOOLEAN:
-                    return (raw instanceof Boolean) ? raw : Boolean.valueOf(raw.toString());
-                case INTEGER:
-                    if (raw instanceof Integer) {
-                        return raw;
+                    if (literal instanceof BooleanLiteral) {
+                        return ((BooleanLiteral) literal).getValue();
                     }
+                    // try to convert to boolean
+                    return Boolean.valueOf(raw.toString());
+                case STRING:
+                    return literal.getStringValue();
+                case INTEGER:
                     if (raw instanceof Number) {
                         return ((Number) raw).intValue();
                     }
-                    return Integer.valueOf(raw.toString());
+                    // try to convert to integer
+                    return Integer.parseInt(literal.getStringValue());
+
                 case LONG:
-                    if (raw instanceof Long) {
-                        return raw;
+                case TIME:
+                    if (raw instanceof Number) {
+                        return ((Number) raw).longValue();
+                    }
+                    // try to convert to long
+                    return Long.parseLong(literal.getStringValue());
+                case FLOAT:
+                    if (raw instanceof Number) {
+                        return ((Number) raw).floatValue();
+                    }
+                    // try to convert to float
+                    return Float.parseFloat(literal.getStringValue());
+                case DOUBLE:
+                    if (raw instanceof Number) {
+                        return ((Number) raw).doubleValue();
+                    }
+                    // try to convert to double
+                    return Double.parseDouble(literal.getStringValue());
+                case DECIMAL:
+                    if (literal instanceof DecimalV3Literal) {
+                        return ((DecimalV3Literal) literal)
+                                .getValue();
+                    }
+                    if (literal instanceof DecimalLiteral) {
+                        return ((DecimalLiteral) literal).getValue();
+                    }
+                    // try parse from string/number
+                    return new BigDecimal(literal.getStringValue());
+                case DATE:
+                    if (literal instanceof DateLiteral) {
+                        return ((DateLiteral) literal)
+                                .getStringValue();
+                    }
+                    // accept string value for date
+                    return literal.getStringValue();
+                case TIMESTAMP:
+                case TIMESTAMP_NANO: {
+                    // Iceberg expects microseconds since epoch. Honor with/without zone semantics.
+                    if (literal instanceof DateTimeLiteral
+                            || literal instanceof DateLiteral) {
+                        LocalDateTime ldt;
+                        long microSecond = 0L;
+                        if (literal instanceof DateTimeLiteral) {
+                            DateTimeLiteral dt = (DateTimeLiteral) literal;
+                            ldt = dt.toJavaDateType();
+                            microSecond = dt.getMicroSecond();
+                        } else {
+                            DateLiteral d = (DateLiteral) literal;
+                            ldt = d.toJavaDateType();
+                            microSecond = 0L;
+                        }
+                        TimestampType ts = (TimestampType) icebergType;
+                        ZoneId zone = ts.shouldAdjustToUTC()
+                                ? DateUtils.getTimeZone()
+                                : ZoneId.of("UTC");
+                        long epochMicros = ldt.atZone(zone).toInstant().toEpochMilli() * 1000L + microSecond;
+                        return epochMicros;
+                    }
+                    // String literal accepted for timestamp
+                    if (raw instanceof String) {
+                        try {
+                            return Long.parseLong((String) raw);
+                        } catch (Exception e) {
+                            return literal.getStringValue();
+                        }
                     }
                     if (raw instanceof Number) {
                         return ((Number) raw).longValue();
                     }
-                    return Long.valueOf(raw.toString());
-                case FLOAT:
-                    if (raw instanceof Float) {
-                        return raw;
-                    }
-                    if (raw instanceof Number) {
-                        return ((Number) raw).floatValue();
-                    }
-                    return Float.valueOf(raw.toString());
-                case DOUBLE:
-                    if (raw instanceof Double) {
-                        return raw;
-                    }
-                    if (raw instanceof Number) {
-                        return ((Number) raw).doubleValue();
-                    }
-                    return Double.valueOf(raw.toString());
-                case STRING:
-                    return raw.toString();
-                default:
-                    // For other types (DATE, DECIMAL, etc.), pass through as-is and let Iceberg
-                    // handle
+                    throw new UserException("Failed to convert timestamp literal to long: " + raw);
+                }
+                case UUID:
+                case FIXED:
+                case BINARY:
+                case GEOMETRY:
+                case GEOGRAPHY:
+                    // Pass through as bytes/strings where possible
                     return raw;
+                default:
+                    throw new UserException("Unsupported literal type: " + icebergType.typeId());
             }
         } catch (Exception e) {
-            // Fallback to raw on any conversion issue; caller will decide if it's
-            // acceptable
-            return raw;
+            throw new UserException("Failed to extract literal value: " + e.getMessage());
         }
     }
 }
