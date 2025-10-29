@@ -1089,7 +1089,7 @@ public class OlapScanNode extends ScanNode {
                     getExplainString(rewrittenProjectList)).append("\n");
         }
 
-        printNestedColumns(output, prefix);
+        printNestedColumns(output, prefix, getTupleDesc());
 
         return output.toString();
     }
