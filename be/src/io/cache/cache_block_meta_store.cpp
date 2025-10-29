@@ -370,46 +370,14 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
         }
 
         BlockMeta deserialize_value(const std::string& value_str) const {
-            // Value format: "type:size:ttl"
-            if (value_str.empty()) {
-                LOG(WARNING) << "Failed to deserialize empty value string";
-                return BlockMeta();
+            // Parse as protobuf format
+            doris::io::cache::BlockMetaPb pb;
+            if (pb.ParseFromString(value_str)) {
+                return BlockMeta(pb.type(), pb.size(), pb.ttl());
             }
 
-            size_t pos1 = value_str.find(':');
-            if (pos1 == std::string::npos || pos1 == 0) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str
-                             << " - missing first colon";
-                return BlockMeta();
-            }
-
-            size_t pos2 = value_str.find(':', pos1 + 1);
-            if (pos2 == std::string::npos || pos2 == pos1 + 1) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str
-                             << " - missing second colon";
-                return BlockMeta();
-            }
-
-            try {
-                std::string type_str = value_str.substr(0, pos1);
-                std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
-                std::string ttl_str = value_str.substr(pos2 + 1);
-
-                if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
-                    LOG(WARNING) << "Failed to deserialize value: " << value_str
-                                 << " - empty field(s)";
-                    return BlockMeta();
-                }
-
-                int type = std::stoi(type_str);
-                size_t size = std::stoull(size_str);
-                uint64_t ttl = std::stoull(ttl_str);
-                return BlockMeta(type, size, ttl);
-            } catch (const std::exception& e) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str
-                             << ", error: " << e.what();
-                return BlockMeta();
-            }
+            LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
+            return BlockMeta();
         }
 
         rocksdb::Iterator* _rocksdb_iter;
@@ -636,46 +604,14 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         }
 
         BlockMeta deserialize_value(const std::string& value_str) const {
-            // Value format: "type:size:ttl"
-            if (value_str.empty()) {
-                LOG(WARNING) << "Failed to deserialize empty value string";
-                return BlockMeta();
+            // Parse as protobuf format
+            doris::io::cache::BlockMetaPb pb;
+            if (pb.ParseFromString(value_str)) {
+                return BlockMeta(pb.type(), pb.size(), pb.ttl());
             }
 
-            size_t pos1 = value_str.find(':');
-            if (pos1 == std::string::npos || pos1 == 0) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str
-                             << " - missing first colon";
-                return BlockMeta();
-            }
-
-            size_t pos2 = value_str.find(':', pos1 + 1);
-            if (pos2 == std::string::npos || pos2 == pos1 + 1) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str
-                             << " - missing second colon";
-                return BlockMeta();
-            }
-
-            try {
-                std::string type_str = value_str.substr(0, pos1);
-                std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
-                std::string ttl_str = value_str.substr(pos2 + 1);
-
-                if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
-                    LOG(WARNING) << "Failed to deserialize value: " << value_str
-                                 << " - empty field(s)";
-                    return BlockMeta();
-                }
-
-                int type = std::stoi(type_str);
-                size_t size = std::stoull(size_str);
-                uint64_t ttl = std::stoull(ttl_str);
-                return BlockMeta(type, size, ttl);
-            } catch (const std::exception& e) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str
-                             << ", error: " << e.what();
-                return BlockMeta();
-            }
+            LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
+            return BlockMeta();
         }
 
         rocksdb::Iterator* _rocksdb_iter;
@@ -802,9 +738,9 @@ std::string CacheBlockMetaStore::serialize_key(const BlockMetaKey& key) const {
 //TODO(zhengyu): use pb
 std::string CacheBlockMetaStore::serialize_value(const BlockMeta& meta) const {
     doris::io::cache::BlockMetaPb pb;
-    if (meta.type != 0) pb.set_type(meta.type);
-    if (meta.size != 0) pb.set_size(meta.size);
-    if (meta.ttl != 0) pb.set_ttl(meta.ttl);
+    pb.set_type(meta.type);
+    pb.set_size(meta.size);
+    pb.set_ttl(meta.ttl);
 
     std::string result;
     pb.SerializeToString(&result);
@@ -829,50 +765,14 @@ BlockMetaKey CacheBlockMetaStore::deserialize_key(const std::string& key_str) co
 }
 
 BlockMeta CacheBlockMetaStore::deserialize_value(const std::string& value_str) const {
-    // First try to parse as protobuf (new format)
+    // Parse as protobuf format
     doris::io::cache::BlockMetaPb pb;
     if (pb.ParseFromString(value_str)) {
-        return BlockMeta(pb.has_type() ? pb.type() : 0, pb.has_size() ? pb.size() : 0,
-                         pb.has_ttl() ? pb.ttl() : 0);
+        return BlockMeta(pb.type(), pb.size(), pb.ttl());
     }
 
-    // Fallback to old string format for backward compatibility
-    // Value format: "type:size:ttl"
-    if (value_str.empty()) {
-        LOG(WARNING) << "Failed to deserialize empty value string";
-        return BlockMeta();
-    }
-
-    size_t pos1 = value_str.find(':');
-    if (pos1 == std::string::npos || pos1 == 0) {
-        LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
-        return BlockMeta();
-    }
-
-    size_t pos2 = value_str.find(':', pos1 + 1);
-    if (pos2 == std::string::npos || pos2 == pos1 + 1) {
-        LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
-        return BlockMeta();
-    }
-
-    try {
-        std::string type_str = value_str.substr(0, pos1);
-        std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
-        std::string ttl_str = value_str.substr(pos2 + 1);
-
-        if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
-            LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
-            return BlockMeta();
-        }
-
-        int type = std::stoi(type_str);
-        size_t size = std::stoull(size_str);
-        uint64_t ttl = std::stoull(ttl_str);
-        return BlockMeta(type, size, ttl);
-    } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to deserialize value: " << value_str << ", error: " << e.what();
-        return BlockMeta();
-    }
+    LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
+    return BlockMeta();
 }
 
 } // namespace doris::io
