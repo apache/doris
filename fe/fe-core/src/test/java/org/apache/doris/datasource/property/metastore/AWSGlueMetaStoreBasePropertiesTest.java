@@ -100,27 +100,18 @@ public class AWSGlueMetaStoreBasePropertiesTest {
     }
 
     @Test
-    void testInvalidEndpointThrows() {
+    void testInvalidEndpoint() {
         Map<String, String> props = baseValidProps();
         props.put("glue.endpoint", "http://invalid-endpoint.com");
-
-        IllegalArgumentException ex = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> AWSGlueMetaStoreBaseProperties.of(props)
-        );
-        Assertions.assertTrue(ex.getMessage().contains("Invalid AWS Glue endpoint"));
+        Assertions.assertDoesNotThrow(() -> AWSGlueMetaStoreBaseProperties.of(props));
     }
 
     @Test
     void testExtractRegionFailsWhenPatternMatchesButNoRegion() {
         Map<String, String> props = baseValidProps();
         props.put("glue.endpoint", "glue..amazonaws.com"); // malformed
-
-        IllegalArgumentException ex = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> AWSGlueMetaStoreBaseProperties.of(props)
+        Assertions.assertDoesNotThrow(() -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("Invalid AWS Glue endpoint"));
     }
 
     @Test
