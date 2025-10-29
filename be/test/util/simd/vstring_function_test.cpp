@@ -50,8 +50,8 @@ TEST(VStringFunctionsTest, Utf8ByteLengthTable) {
 }
 
 TEST(VStringFunctionsTest, Rtrim) {
-    StringRef removeChr(" ");
-    StringRef removeStr("abc");
+    StringRef remove_chr(" ");
+    StringRef remove_str("abc");
     std::string str;
     const unsigned char* begin = nullptr;
     const unsigned char* end = nullptr;
@@ -66,54 +66,54 @@ TEST(VStringFunctionsTest, Rtrim) {
     // remove str
     // positive
     set_ptrs("hello worldabcabcabc");
-    res = VStringFunctions::rtrim<false>(begin, end, removeStr);
+    res = VStringFunctions::rtrim<false>(begin, end, remove_str);
     EXPECT_EQ(11, res - begin);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(begin), "hello world", 11));
     // negative
     set_ptrs("hello worldabcaab");
-    res = VStringFunctions::rtrim<false>(begin, end, removeStr);
+    res = VStringFunctions::rtrim<false>(begin, end, remove_str);
     EXPECT_EQ(end, res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(begin), "hello worldabcaab", 17));
 
     // remove chr
     // no blank
     set_ptrs("hello worldaaa");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(14, res - begin);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(begin), "hello worldaaa", 14));
     // empty string
     set_ptrs("");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(end, res);
     EXPECT_EQ(begin, res);
     // less than 16 blanks
     set_ptrs("hello world       ");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(11, res - begin);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(begin), "hello world", 11));
     // more than 16 blanks
     set_ptrs("hello world                                     ");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(11, res - begin);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(begin), "hello world", 11));
     // all are blanks, less than 16 blanks
     set_ptrs("       ");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(begin, res);
     // all are blanks, more than 16 blanks
     set_ptrs("                  ");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(begin, res);
     // src less than 16 length
     set_ptrs("hello worldabc");
-    res = VStringFunctions::rtrim<true>(begin, end, removeChr);
+    res = VStringFunctions::rtrim<true>(begin, end, remove_chr);
     EXPECT_EQ(14, res - begin);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(begin), "hello worldabc", 14));
 }
 
 TEST(VStringFunctionsTest, Ltrim) {
-    StringRef removeChr(" ");
-    StringRef removeStr("abc");
+    StringRef remove_chr(" ");
+    StringRef remove_str("abc");
     std::string str;
     const unsigned char* begin = nullptr;
     const unsigned char* end = nullptr;
@@ -128,47 +128,47 @@ TEST(VStringFunctionsTest, Ltrim) {
     // remove str
     // positive
     set_ptrs("abcabcabchello world");
-    res = VStringFunctions::ltrim<false>(begin, end, removeStr);
+    res = VStringFunctions::ltrim<false>(begin, end, remove_str);
     EXPECT_EQ(11, end - res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(res), "hello world", 11));
     // negative
     set_ptrs("aababchello world");
-    res = VStringFunctions::ltrim<false>(begin, end, removeStr);
+    res = VStringFunctions::ltrim<false>(begin, end, remove_str);
     EXPECT_EQ(begin, res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(res), "aababchello world", 17));
 
     // remove chr
     // no blank
     set_ptrs("aaahello world");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(14, end - res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(res), "aaahello world", 14));
     // empty string
     set_ptrs("");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(end, res);
     EXPECT_EQ(begin, res);
     // less than 16 blanks
     set_ptrs("       hello world");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(11, end - res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(res), "hello world", 11));
     // more than 16 blanks
     set_ptrs("                 hello world");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(11, end - res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(res), "hello world", 11));
     // all are blanks, less than 16 blanks
     set_ptrs("       ");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(end, res);
     // all are blanks, more than 16 blanks
     set_ptrs("                  ");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(end, res);
     // src less than 16 length
     set_ptrs("abchello world");
-    res = VStringFunctions::ltrim<true>(begin, end, removeChr);
+    res = VStringFunctions::ltrim<true>(begin, end, remove_chr);
     EXPECT_EQ(14, end - res);
     EXPECT_EQ(0, strncmp(reinterpret_cast<const char*>(res), "abchello world", 14));
 }
