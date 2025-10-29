@@ -442,6 +442,7 @@ struct TRuntimeFilterParams {
   // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
+  // keep 2/3/4/5 unset if BE is not used for merge 
   // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
@@ -488,6 +489,9 @@ struct TQueryGlobals {
   4: optional bool load_zero_tolerance = false
 
   5: optional i32 nano_seconds
+
+  // Locale name used for month/day names formatting, e.g. en_US
+  6: optional string lc_time_names
 }
 
 

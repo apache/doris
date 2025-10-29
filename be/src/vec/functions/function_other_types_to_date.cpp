@@ -44,6 +44,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -62,6 +63,7 @@
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -379,6 +381,91 @@ private:
     }
 };
 
+struct MakeTimeImpl {
+    static constexpr auto name = "maketime";
+    using DateValueType = PrimitiveTypeTraits<PrimitiveType::TYPE_TIMEV2>::CppType;
+    using NativeType = PrimitiveTypeTraits<PrimitiveType::TYPE_TIMEV2>::CppNativeType;
+    static bool is_variadic() { return false; }
+    static size_t get_number_of_arguments() { return 3; }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeTimeV2>());
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t input_rows_count) {
+        DCHECK_EQ(arguments.size(), 3);
+        auto res_col = ColumnTimeV2::create(input_rows_count);
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_data = res_col->get_data();
+
+        ColumnPtr arg_col[3];
+        bool is_const[3];
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(arg_col[i], is_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto& hour_data = assert_cast<const ColumnInt64*>(arg_col[0].get())->get_data();
+        const auto& min_data = assert_cast<const ColumnInt64*>(arg_col[1].get())->get_data();
+        if (const auto* sec_col = check_and_get_column<ColumnFloat64>(arg_col[2].get())) {
+            for (int i = 0; i < input_rows_count; ++i) {
+                int64_t hour = hour_data[index_check_const(i, is_const[0])];
+                int64_t minute = min_data[index_check_const(i, is_const[1])];
+                double sec = sec_col->get_element(index_check_const(i, is_const[2]));
+                if (!check_and_set_time_value(hour, minute, sec)) {
+                    res_data[i] = 0;
+                    res_null_map->get_data()[i] = 1;
+                    continue;
+                }
+                execute_single(hour, minute, sec, res_data, i);
+            }
+        } else {
+            const auto& sec_data = assert_cast<const ColumnInt64*>(arg_col[2].get())->get_data();
+            for (int i = 0; i < input_rows_count; ++i) {
+                int64_t hour = hour_data[index_check_const(i, is_const[0])];
+                int64_t minute = min_data[index_check_const(i, is_const[1])];
+                double sec = static_cast<double>(sec_data[index_check_const(i, is_const[2])]);
+                if (!check_and_set_time_value(hour, minute, sec)) {
+                    res_data[i] = 0;
+                    res_null_map->get_data()[i] = 1;
+                    continue;
+                }
+                execute_single(hour, minute, sec, res_data, i);
+            }
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_col), std::move(res_null_map)));
+        return Status::OK();
+    }
+
+private:
+    static bool check_and_set_time_value(int64_t& hour, int64_t& minute, double& sec) {
+        static constexpr int MAX_HOUR_FOR_MAKETIME = 838;
+        if (minute < 0 || minute >= 60 || sec < 0 || sec >= 60) {
+            return false;
+        }
+
+        // Avoid overflow in `execute_single`
+        // the case {838, 59, 59.999999} will be slove in `TimeValue::from_double_with_limit`
+        if (std::abs(hour) > MAX_HOUR_FOR_MAKETIME) {
+            hour = hour > 0 ? MAX_HOUR_FOR_MAKETIME : -MAX_HOUR_FOR_MAKETIME;
+            minute = sec = 59;
+        }
+        return true;
+    }
+
+    static void execute_single(int64_t hour, int64_t minute, double sec,
+                               PaddedPODArray<double>& res_data, size_t row) {
+        // Round sec to 6 decimal places (microsecond precision)
+        double total_sec =
+                std::abs(hour) * 3600 + minute * 60 + std::round(sec * 1000000.0) / 1000000.0;
+
+        res_data[row] = TimeValue::from_double_with_limit(total_sec * (hour < 0 ? -1 : 1));
+    }
+};
+
 struct DateTruncState {
     using Callback_function = std::function<void(const ColumnPtr&, ColumnPtr& res, size_t)>;
     Callback_function callback_function;
@@ -534,7 +621,7 @@ public:
         }
 
         // Wrap result in nullable column only if input has nullable arguments
-        if (block.get_by_position(arguments[0]).type->is_nullable()) {
+        if (block.get_by_position(result).type->is_nullable()) {
             block.replace_by_position(result,
                                       ColumnNullable::create(std::move(res_column),
                                                              std::move(result_null_map_column)));
@@ -1360,6 +1447,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionStrToDatetime>();
     factory.register_function<FunctionMakeDate>();
+    factory.register_function<FunctionOtherTypesToDateType<MakeTimeImpl>>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetimeV2>();

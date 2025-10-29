@@ -125,7 +125,7 @@ public class ThriftPlansBuilder {
             // so we can merge and send multiple fragment to a backend use one rpc
             for (Entry<DistributedPlanWorker, TPipelineFragmentParams> kv : workerToCurrentFragment.entrySet()) {
                 TPipelineFragmentParamsList fragments = fragmentsGroupByWorker.computeIfAbsent(
-                        kv.getKey(), w -> beToThrift(runtimeFiltersThriftBuilder,
+                        kv.getKey(), w -> beToThrift(kv.getKey(), runtimeFiltersThriftBuilder,
                                 topNFilterThriftSupplier));
                 fragments.addToParamsList(kv.getValue());
             }
@@ -298,18 +298,23 @@ public class ThriftPlansBuilder {
     }
 
     private static TPipelineFragmentParamsList beToThrift(
+            DistributedPlanWorker worker,
             RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder,
             Supplier<List<TTopnFilterDesc>> topNFilterThriftSupplier) {
         TPipelineFragmentParamsList beParam = new TPipelineFragmentParamsList();
         TRuntimeFilterInfo runtimeFilterInfo = new TRuntimeFilterInfo();
         runtimeFilterInfo.setTopnFilterDescs(topNFilterThriftSupplier.get());
 
-        // set for runtime filter
         TRuntimeFilterParams runtimeFilterParams = new TRuntimeFilterParams();
         runtimeFilterParams.setRuntimeFilterMergeAddr(runtimeFiltersThriftBuilder.mergeAddress);
+        if (worker.host().equals(runtimeFiltersThriftBuilder.mergeAddress.getHostname())
+                && worker.brpcPort() == runtimeFiltersThriftBuilder.mergeAddress.getPort()) {
+            // only set following information for merge BE node
+            runtimeFiltersThriftBuilder.populateRuntimeFilterParams(runtimeFilterParams);
+        }
         runtimeFilterInfo.setRuntimeFilterParams(runtimeFilterParams);
-        runtimeFiltersThriftBuilder.setRuntimeFilterThriftParams(runtimeFilterParams);
         beParam.setRuntimeFilterInfo(runtimeFilterInfo);
+
         return beParam;
     }
 

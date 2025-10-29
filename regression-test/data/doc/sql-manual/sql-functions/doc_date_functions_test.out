@@ -227,6 +227,138 @@ Sunday
 -- !dayname_3 --
 \N
 
+-- !dayname_zh_cn --
+星期日
+
+-- !dayname_zh_tw --
+星期五
+
+-- !dayname_zh_hk --
+星期日
+
+-- !dayname_fr_fr --
+vendredi
+
+-- !dayname_fr_be --
+lundi
+
+-- !dayname_fr_ca --
+samedi
+
+-- !dayname_de_de --
+Donnerstag
+
+-- !dayname_de_at --
+Samstag
+
+-- !dayname_de_ch --
+Samstag
+
+-- !dayname_ja_jp --
+土曜日
+
+-- !dayname_ko_kr --
+일요일
+
+-- !dayname_es_es --
+domingo
+
+-- !dayname_es_mx --
+domingo
+
+-- !dayname_es_ar --
+miércoles
+
+-- !dayname_ru_ru --
+четверг
+
+-- !dayname_ru_ua --
+вторник
+
+-- !dayname_it_it --
+sabato
+
+-- !dayname_it_ch --
+mercoledì
+
+-- !dayname_ar_sa --
+الاثنين
+
+-- !dayname_ar_ae --
+الجمعة
+
+-- !dayname_ar_eg --
+السبت
+
+-- !dayname_en_us --
+Monday
+
+-- !dayname_en_gb --
+Sunday
+
+-- !dayname_en_au --
+Thursday
+
+-- !dayname_en_ca --
+Monday
+
+-- !dayname_pt_br --
+quinta-feira
+
+-- !dayname_pt_pt --
+domingo
+
+-- !dayname_nl_nl --
+donderdag
+
+-- !dayname_nl_be --
+donderdag
+
+-- !dayname_sv_se --
+tisdag
+
+-- !dayname_no_no --
+fredag
+
+-- !dayname_da_dk --
+søndag
+
+-- !dayname_fi_fi --
+maanantaina
+
+-- !dayname_pl_pl --
+czwartek
+
+-- !dayname_cs_cz --
+čtvrtek
+
+-- !dayname_hu_hu --
+kedd
+
+-- !dayname_th_th --
+วันอาทิตย์
+
+-- !dayname_vi_vn --
+Thứ Hai
+
+-- !dayname_tr_tr --
+Çarşamba
+
+-- !dayname_el_gr --
+Σάββατο
+
+-- !dayname_he_il --
+יום ראשון
+
+-- !dayname_hi_in --
+गुरुवार
+
+-- !dayname_id_id --
+Selasa
+
+-- !dayname_ms_my --
+Sabtu
+
 -- !dayofweek_1 --
 3
 
@@ -811,6 +943,225 @@ July
 
 -- !monthname_3 --
 \N
+
+-- !monthname_zh_cn --
+七月
+
+-- !monthname_zh_tw --
+7月
+
+-- !monthname_zh_hk --
+7月
+
+-- !monthname_fr_fr --
+juillet
+
+-- !monthname_fr_be --
+juillet
+
+-- !monthname_fr_ca --
+juillet
+
+-- !monthname_fr_ch --
+juillet
+
+-- !monthname_de_de --
+Juli
+
+-- !monthname_de_at --
+Juli
+
+-- !monthname_de_ch --
+Juli
+
+-- !monthname_ja_jp --
+7月
+
+-- !monthname_ko_kr --
+7월
+
+-- !monthname_es_es --
+julio
+
+-- !monthname_es_mx --
+julio
+
+-- !monthname_es_ar --
+julio
+
+-- !monthname_es_co --
+julio
+
+-- !monthname_it_it --
+luglio
+
+-- !monthname_it_ch --
+luglio
+
+-- !monthname_ru_ru --
+июля
+
+-- !monthname_ru_ua --
+июля
+
+-- !monthname_ar_sa --
+يوليو
+
+-- !monthname_ar_ae --
+يوليو
+
+-- !monthname_ar_eg --
+يوليو
+
+-- !monthname_ar_jo --
+تموز
+
+-- !monthname_en_us --
+July
+
+-- !monthname_en_gb --
+July
+
+-- !monthname_en_au --
+July
+
+-- !monthname_en_ca --
+July
+
+-- !monthname_pt_br --
+julho
+
+-- !monthname_pt_pt --
+julho
+
+-- !monthname_nl_nl --
+juli
+
+-- !monthname_nl_be --
+juli
+
+-- !monthname_sv_se --
+juli
+
+-- !monthname_sv_fi --
+juli
+
+-- !monthname_no_no --
+juli
+
+-- !monthname_nb_no --
+juli
+
+-- !monthname_da_dk --
+juli
+
+-- !monthname_fi_fi --
+heinäkuuta
+
+-- !monthname_pl_pl --
+lipca
+
+-- !monthname_cs_cz --
+července
+
+-- !monthname_sk_sk --
+júla
+
+-- !monthname_hu_hu --
+július
+
+-- !monthname_ro_ro --
+iulie
+
+-- !monthname_bg_bg --
+юли
+
+-- !monthname_hr_hr --
+srpnja
+
+-- !monthname_sl_si --
+julij
+
+-- !monthname_sr_rs --
+јул
+
+-- !monthname_mk_mk --
+јули
+
+-- !monthname_sq_al --
+korrik
+
+-- !monthname_th_th --
+กรกฎาคม
+
+-- !monthname_vi_vn --
+tháng 7
+
+-- !monthname_tr_tr --
+Temmuz
+
+-- !monthname_el_gr --
+Ιουλίου
+
+-- !monthname_he_il --
+יולי
+
+-- !monthname_hi_in --
+जुलाई
+
+-- !monthname_gu_in --
+જુલાઈ
+
+-- !monthname_ta_in --
+ஜூலை
+
+-- !monthname_te_in --
+జులై
+
+-- !monthname_id_id --
+Juli
+
+-- !monthname_ms_my --
+Julai
+
+-- !monthname_lt_lt --
+liepos
+
+-- !monthname_lv_lv --
+jūlijs
+
+-- !monthname_et_ee --
+juuli
+
+-- !monthname_is_is --
+júlí
+
+-- !monthname_fo_fo --
+juli
+
+-- !monthname_be_by --
+ліпеня
+
+-- !monthname_uk_ua --
+липня
+
+-- !monthname_mn_mn --
+долоодугаар сар
+
+-- !monthname_ur_pk --
+جولائی
+
+-- !monthname_ca_es --
+de juliol
+
+-- !monthname_eu_es --
+uztailak
+
+-- !monthname_gl_es --
+xullo
+
+-- !monthname_rm_ch --
+da fanadur
 
 -- !months_add_1 --
 2020-02-29
@@ -1618,4 +1969,30 @@ July
 
 -- !yearweek_5 --
 202352
+
+-- !maketime_test_1 --
+12:15:30.000000
+111:00:23.123457
+838:59:59.000000
+-838:59:59.000000
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !maketime_test_2 --
+12:15:25
+111:00:25
+838:59:59
+-838:59:59
+\N
+14:51:25
+\N
+\N
+01:02:25
+\N
+07:23:25
 

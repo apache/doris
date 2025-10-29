@@ -40,6 +40,10 @@ under the License.
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>

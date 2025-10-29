@@ -2034,5 +2034,20 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT SOUNDEX('Zhang')")
     testFoldConst("SELECT SOUNDEX('Wang')")
     testFoldConst("SELECT SOUNDEX(NULL)")
+
+    testFoldConst("SELECT IS_UUID('6ccd780c-baba-1026-9564-5b8c656024db')")
+    testFoldConst("SELECT IS_UUID('6ccd780c-baba-1026-9564-5b8c656024dbaaaa')")
+    testFoldConst("SELECT IS_UUID('6ccd780c-baba-1026-9564-5b8c656024gg')")
+    testFoldConst("SELECT IS_UUID('6ccd780-cbaba-1026-9564-5b8c656024db')")
+    testFoldConst("SELECT IS_UUID('6ccd780-cbaba-1026-95645-b8c656024db')")
+    testFoldConst("SELECT IS_UUID('6ccd780-cbaba-1026-95645-b8c65602')")
+    testFoldConst("SELECT IS_UUID('{6ccd780c-baba-1026-9564-5b8c656024db}')")
+    testFoldConst("SELECT IS_UUID('{6ccd780c-baba-1026-95645b8c656024db}')")
+    testFoldConst("SELECT IS_UUID('{6ccd780c-baba-1026-95645-b8c656024db}')")
+    testFoldConst("SELECT IS_UUID('6ccd780c-baba-1026-95645-b8c656024db}')")
+    testFoldConst("SELECT IS_UUID('6ccd780cbaba102695645b8c656024db')")
+    testFoldConst("SELECT IS_UUID('6ccd780cbaba102695645b8c656024dz')")
+    testFoldConst("SELECT IS_UUID('6ccd780cbaba102')")
+    testFoldConst("SELECT IS_UUID(NULL)")
 }
 

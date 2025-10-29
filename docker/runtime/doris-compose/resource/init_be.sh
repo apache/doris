@@ -73,7 +73,7 @@ add_cloud_be() {
     lock_cluster
 
     output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/add_cluster?token=greedisgood9999" \
-        -d '{"instance_id": "default_instance_id",
+        -d '{"instance_id": "'"${INSTANCE_ID}"'",
         "cluster": {
         "type": "COMPUTE",
         "cluster_name": "'"${cluster_name}"'",
@@ -87,7 +87,7 @@ add_cloud_be() {
     # cluster has exists
     if [ "$code" == "ALREADY_EXISTED" ]; then
         output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/add_node?token=greedisgood9999" \
-            -d '{"instance_id": "default_instance_id",
+            -d '{"instance_id": "'"${INSTANCE_ID}"'",
             "cluster": {
             "type": "COMPUTE",
             "cluster_name": "'"${cluster_name}"'",
@@ -107,7 +107,7 @@ add_cloud_be() {
     fi
 
     output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_cluster?token=greedisgood9999" \
-        -d '{"instance_id": "default_instance_id",
+        -d '{"instance_id": "'"${INSTANCE_ID}"'",
             "cloud_unique_id": "'"${CLOUD_UNIQUE_ID}"'",
             "cluster_name": "'"${cluster_name}"'",
             "cluster_id": "'"${cluster_id}"'"

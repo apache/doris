@@ -26,7 +26,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/string_view.h"
+#include "vec/common/string_container.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -36,7 +36,7 @@ private:
     friend class COWHelper<IColumn, ColumnVarbinary>;
 
 public:
-    using Container = PaddedPODArray<doris::StringView>;
+    using Container = PaddedPODArray<doris::StringContainer>;
     ColumnVarbinary() = default;
     ColumnVarbinary(const size_t n) : _data(n) {}
 
@@ -73,7 +73,7 @@ public:
     char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {
-        auto value = vectorized::get<const doris::StringView&>(x);
+        auto value = vectorized::get<const doris::StringContainer&>(x);
         insert_data(value.data(), value.size());
     }
 
@@ -84,7 +84,7 @@ public:
     }
 
     void insert_data(const char* pos, size_t length) override {
-        if (length <= doris::StringView::kInlineSize) {
+        if (length <= doris::StringContainer::kInlineSize) {
             insert_inline_data(pos, length);
         } else {
             insert_to_buffer(pos, length);
@@ -92,16 +92,16 @@ public:
     }
 
     void insert_inline_data(const char* pos, size_t length) {
-        DCHECK(length <= doris::StringView::kInlineSize);
-        _data.push_back(doris::StringView(pos, cast_set<uint32_t>(length)));
+        DCHECK(length <= doris::StringContainer::kInlineSize);
+        _data.push_back(doris::StringContainer(pos, cast_set<uint32_t>(length)));
     }
 
     void insert_to_buffer(const char* pos, size_t length) {
         const char* dst = _arena.insert(pos, length);
-        _data.push_back(doris::StringView(dst, cast_set<uint32_t>(length)));
+        _data.push_back(doris::StringContainer(dst, cast_set<uint32_t>(length)));
     }
 
-    void insert_default() override { _data.push_back(doris::StringView()); }
+    void insert_default() override { _data.push_back(doris::StringContainer()); }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
                    int /*nan_direction_hint*/) const override {
@@ -131,7 +131,7 @@ public:
     size_t allocated_bytes() const override { return _data.allocated_bytes() + _arena.size(); }
 
     size_t byte_size() const override {
-        size_t bytes = _data.size() * sizeof(doris::StringView);
+        size_t bytes = _data.size() * sizeof(doris::StringContainer);
         return bytes + _arena.used_size();
     }
 

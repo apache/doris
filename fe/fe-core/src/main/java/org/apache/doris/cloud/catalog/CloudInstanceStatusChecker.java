@@ -59,9 +59,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         try {
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get from ms response {}", response);
-            }
             if (!isResponseValid(response)) {
                 return;
             }
@@ -472,6 +469,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             // in fe mem, but not in meta server
             if (!msVirtualClusters.contains(computeGroup.getId())) {
                 LOG.info("virtual compute group {} will be removed.", computeGroup.getName());
+                MetricRepo.unregisterCloudMetrics(computeGroup.getId(), computeGroup.getName(),
+                        Collections.emptyList());
                 cloudSystemInfoService.removeComputeGroup(computeGroup.getId(), computeGroup.getName());
                 // cancel invalid job
                 if (!computeGroup.getPolicy().getCacheWarmupJobIds().isEmpty()) {

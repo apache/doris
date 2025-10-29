@@ -30,17 +30,17 @@ namespace doris::vectorized {
 constexpr auto SIZE_OF_UINT = sizeof(uint32_t);
 
 struct VarBinaryOP {
-    static void check_and_insert_data(doris::StringView& sView, const char* data, uint32_t len,
+    static void check_and_insert_data(doris::StringContainer& sView, const char* data, uint32_t len,
                                       bool before_is_inline) {
         if (before_is_inline) {
             sView.set_size(len);
         } else {
-            sView = doris::StringView(data, len);
+            sView = doris::StringContainer(data, len);
         }
     }
 
     static std::pair<bool, char*> alloc(ColumnVarbinary* res_col, size_t index, uint32_t len) {
-        bool is_inline = StringView::isInline(len);
+        bool is_inline = StringContainer::isInline(len);
         char* dst = nullptr;
         if (is_inline) {
             dst = reinterpret_cast<char*>(&(res_col->get_data()[index])) + SIZE_OF_UINT;
@@ -90,7 +90,7 @@ private:
         res->get_data().reserve(size);
 
         for (size_t i = 0; i < size; ++i) {
-            doris::StringView binary = binarys->get_data()[index_check_const<binary_const>(i)];
+            doris::StringContainer binary = binarys->get_data()[index_check_const<binary_const>(i)];
             int binary_size = static_cast<int>(binary.size());
 
             int start_value = start->get_data()[index_check_const<start_const>(i)];

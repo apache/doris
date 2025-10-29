@@ -332,6 +332,11 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     @Override
+    protected String castValueToString() {
+        return getStringValue();
+    }
+
+    @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
             return this;

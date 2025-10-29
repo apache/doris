@@ -204,14 +204,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
-        if (useMetaCache.get()) {
-            if (isInitialized()) {
-                metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                        Util.genIdByName(name, db.getFullName()));
-            }
-        } else {
-            dbNameToId.put(dbName, dbId);
-            idToDb.put(dbId, db);
+        if (isInitialized()) {
+            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                    Util.genIdByName(name, db.getFullName()));
         }
     }
 

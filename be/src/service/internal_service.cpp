@@ -54,6 +54,9 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -152,6 +155,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
+
+static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
 
 bthread_key_t btls_key;
 
@@ -1656,6 +1661,14 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
+    // Temporary code for debugging; it will be removed in the future.
+    CHECK(request->IsInitialized());
+    for (int i = 0; i < request->blocks_size(); ++i) {
+        CHECK(request->blocks(i).IsInitialized());
+    }
+    if (request->has_block()) {
+        CHECK(request->block().IsInitialized());
+    }
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done, wait_for_worker);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
@@ -2318,5 +2331,68 @@ void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController*
                                                                            request->version_id());
     st.to_protobuf(response->mutable_status());
 }
+
+void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* controller,
+                                          const PGetTabletRowsetsRequest* request,
+                                          PGetTabletRowsetsResponse* response,
+                                          google::protobuf::Closure* done) {
+    DCHECK(config::is_cloud_mode());
+    auto start_time = GetMonoTimeMicros();
+    Defer defer {
+            [&]() { g_process_remote_fetch_rowsets_latency << GetMonoTimeMicros() - start_time; }};
+    brpc::ClosureGuard closure_guard(done);
+    LOG(INFO) << "process get tablet rowsets, request=" << request->ShortDebugString();
+    if (!request->has_tablet_id() || !request->has_version_start() || !request->has_version_end()) {
+        Status::InvalidArgument("missing params tablet/version_start/version_end")
+                .to_protobuf(response->mutable_status());
+        return;
+    }
+    CloudStorageEngine& storage = ExecEnv::GetInstance()->storage_engine().to_cloud();
+
+    auto maybe_tablet =
+            storage.tablet_mgr().get_tablet(request->tablet_id(), /*warmup data*/ false,
+                                            /*syn_delete_bitmap*/ false, /*delete_bitmap*/ nullptr,
+                                            /*local_only*/ true);
+    if (!maybe_tablet) {
+        maybe_tablet.error().to_protobuf(response->mutable_status());
+        return;
+    }
+    auto tablet = maybe_tablet.value();
+    Result<CaptureRowsetResult> ret;
+    {
+        std::shared_lock l(tablet->get_header_lock());
+        ret = tablet->capture_consistent_rowsets_unlocked(
+                {request->version_start(), request->version_end()},
+                CaptureRowsetOps {.enable_fetch_rowsets_from_peers = false});
+    }
+    if (!ret) {
+        ret.error().to_protobuf(response->mutable_status());
+        return;
+    }
+    auto rowsets = std::move(ret.value().rowsets);
+    for (const auto& rs : rowsets) {
+        RowsetMetaPB meta;
+        rs->rowset_meta()->to_rowset_pb(&meta);
+        response->mutable_rowsets()->Add(std::move(meta));
+    }
+    if (request->has_delete_bitmap_keys()) {
+        DCHECK(tablet->enable_unique_key_merge_on_write());
+        auto delete_bitmap = std::move(ret.value().delete_bitmap);
+        auto keys_pb = request->delete_bitmap_keys();
+        size_t len = keys_pb.rowset_ids().size();
+        DCHECK_EQ(len, keys_pb.segment_ids().size());
+        DCHECK_EQ(len, keys_pb.versions().size());
+        std::set<DeleteBitmap::BitmapKey> keys;
+        for (size_t i = 0; i < len; ++i) {
+            RowsetId rs_id;
+            rs_id.init(keys_pb.rowset_ids(i));
+            keys.emplace(rs_id, keys_pb.segment_ids(i), keys_pb.versions(i));
+        }
+        auto diffset = delete_bitmap->diffset(keys).to_pb();
+        *response->mutable_delete_bitmap() = std::move(diffset);
+    }
+    Status::OK().to_protobuf(response->mutable_status());
+}
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

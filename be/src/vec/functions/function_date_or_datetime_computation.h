@@ -58,6 +58,7 @@
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
@@ -971,18 +972,50 @@ struct TimestampToDateTime : IFunction {
     }
 };
 
-struct UtcTimestampImpl {
-    static constexpr PrimitiveType ReturnType = TYPE_DATETIME;
-    static constexpr auto name = "utc_timestamp";
+template <PrimitiveType UTCType>
+struct UtcImpl {
+    static constexpr PrimitiveType ReturnType = UTCType;
+
+    static constexpr const char* get_function_name() {
+        if constexpr (ReturnType == TYPE_DATETIMEV2 || ReturnType == TYPE_DATETIME) {
+            return "utc_timestamp";
+        } else if constexpr (ReturnType == TYPE_DATEV2 || ReturnType == TYPE_DATE) {
+            return "utc_date";
+        } else if constexpr (ReturnType == TYPE_TIMEV2) {
+            return "utc_time";
+        }
+    }
+
+    static constexpr auto name = get_function_name();
+
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        auto col_to = ColumnDateTimeV2::create();
+        int scale = 0;
+        if (arguments.size() == 1) {
+            // the precision must be const, which is checked in fe.
+            const auto* col = assert_cast<const ColumnInt32*>(
+                    block.get_by_position(arguments[0]).column.get());
+            scale = col->get_element(0);
+        }
+        auto col_to = PrimitiveTypeTraits<ReturnType>::ColumnType::create();
         DateV2Value<DateTimeV2ValueType> dtv;
-        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000, "+00:00")) {
-            auto date_packed_int = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv);
-            col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
+        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                              context->state()->nano_seconds(), "+00:00", scale)) {
+            if constexpr (ReturnType == TYPE_DATETIMEV2) {
+                auto date_packed_int = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv);
+                col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
+            } else if constexpr (ReturnType == TYPE_DATEV2) {
+                DateV2Value<DateV2ValueType> dv;
+                dv.assign_from(dtv);
+                auto date_packed_int = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
+                col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
+            } else if constexpr (ReturnType == TYPE_TIMEV2) {
+                double time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
+                                                   dtv.microsecond());
+                col_to->insert_data(reinterpret_cast<char*>(&time), 0);
+            }
         } else {
-            uint64_t invalid_val = 0;
+            typename PrimitiveTypeTraits<ReturnType>::ColumnItemType invalid_val = 0;
             col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
         }
         block.get_by_position(result).column =
@@ -1376,6 +1409,95 @@ private:
     static constexpr auto DATE_NAME = "DATE";
     static constexpr auto DATETIME_NAME = "DATETIME";
     static constexpr auto TIME_NAME = "TIME";
+};
+
+class PeriodHelper {
+public:
+    // For two digit year, 70-99 -> 1970-1999, 00-69 -> 2000-2069
+    // this rule is same as MySQL
+    static constexpr int YY_PART_YEAR = 70;
+    static Status valid_period(int64_t period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            return Status::InvalidArgument("Period function got invalid period: {}", period);
+        }
+        return Status::OK();
+    }
+
+    static int64_t check_and_convert_period_to_month(uint64_t period) {
+        THROW_IF_ERROR(valid_period(period));
+        uint64_t year = period / 100;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 12LL + (period % 100) - 1;
+    }
+
+    static int64_t convert_month_to_period(uint64_t month) {
+        uint64_t year = month / 12;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
+    }
+};
+
+class PeriodAddImpl {
+public:
+    static constexpr auto name = "period_add";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t months = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::convert_month_to_period(
+                    PeriodHelper::check_and_convert_period_to_month(period) + months));
+        }
+    }
+};
+class PeriodDiffImpl {
+public:
+    static constexpr auto name = "period_diff";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period1 = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t period2 = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::check_and_convert_period_to_month(period1) -
+                                  PeriodHelper::check_and_convert_period_to_month(period2));
+        }
+    }
 };
 
 #include "common/compile_check_avoid_end.h"

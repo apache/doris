@@ -54,6 +54,7 @@
 #include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/condition_cache.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
@@ -620,6 +621,9 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(condition_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::condition_cache_limit;
 
+    // Initialize encoding info resolver
+    _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
+
     // init orc memory pool
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
     _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
@@ -802,6 +806,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_condition_cache);
+    SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);

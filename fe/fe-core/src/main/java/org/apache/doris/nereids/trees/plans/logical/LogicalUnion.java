@@ -227,7 +227,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         final Optional<ExpressionRewriteContext> context = ConnectContext.get() == null ? Optional.empty()
-                : Optional.of(new ExpressionRewriteContext(CascadesContext.initContext(
+                : Optional.of(new ExpressionRewriteContext(this, CascadesContext.initContext(
                         ConnectContext.get().getStatementContext(), this, PhysicalProperties.ANY)));
         for (int i = 0; i < getOutputs().size(); i++) {
             Optional<Literal> value = Optional.empty();
