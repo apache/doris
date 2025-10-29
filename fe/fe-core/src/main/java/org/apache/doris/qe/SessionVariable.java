@@ -898,7 +898,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
-    public static final String MERGE_IO_READ_SLICE_SIZE = "merge_io_read_slice_size";
+    public static final String MERGE_IO_READ_SLICE_SIZE_BYTES = "merge_io_read_slice_size_bytes";
 
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
@@ -2630,9 +2630,10 @@ public class SessionVariable implements Serializable, Writable {
     public int aggPhase = 0;
 
 
-    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE, description = {"调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
+    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = {
+            "调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
             "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
-    public int mergeReadSliceSize = 8388608;
+    public int mergeReadSliceSizeBytes = 8388608;
 
     @VariableMgr.VarAttr(name = FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
             checker = "checkFileCacheQueryLimitPercent",
@@ -4884,7 +4885,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
-        tResult.setMergeReadSliceSize(mergeReadSliceSize);
+        tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
 
         if (policyFileCacheQueryLimitPercent >= 0) {
             tResult.setFileCacheQueryLimitPercent((policyFileCacheQueryLimitPercent % 100 == 0)

@@ -357,7 +357,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : boundSink.getTargetTable().getFullSchema()) {
-            if (column.getGeneratedColumnInfo() != null) {
+            if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
             } else if (column.isMaterializedViewColumn()) {
@@ -843,7 +843,7 @@ public class BindSink implements AnalysisRuleFactory {
                         ++extraColumnsNum;
                         processedColsName.add(col.getName());
                     }
-                } else if (col.getGeneratedColumnInfo() != null) {
+                } else if (col.isGeneratedColumn()) {
                     ++extraColumnsNum;
                     processedColsName.add(col.getName());
                 }

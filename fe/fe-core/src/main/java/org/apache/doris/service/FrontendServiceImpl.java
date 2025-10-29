@@ -2775,29 +2775,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend;
-                if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+                List<Backend> backends;
+                if (Config.isCloudMode()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
-                    // On the cloud, the PrimaryBackend of a tablet indicates the BE where the tablet is stably located,
-                    // while the SecondBackend refers to a BE selected by a new hash when the PrimaryBackend
-                    // is temporarily unavailable. Once the PrimaryBackend recovers,
-                    // the system will switch back to using it. During the preheating phase,
-                    // data needs to be synchronized downstream, which requires a stable BE,
-                    // so the PrimaryBackend is used in this case.
-                    backend = cloudReplica.getPrimaryBackend(clusterId, true);
+                    if (!request.isSetWarmUpJobId()) {
+                        backends = cloudReplica.getAllPrimaryBes();
+                    } else {
+                        // On the cloud, the PrimaryBackend of a tablet
+                        // indicates the BE where the tablet is stably located,
+                        // while the SecondBackend refers to a BE selected by a new hash when the PrimaryBackend
+                        // is temporarily unavailable. Once the PrimaryBackend recovers,
+                        // the system will switch back to using it. During the preheating phase,
+                        // data needs to be synchronized downstream, which requires a stable BE,
+                        // so the PrimaryBackend is used in this case.
+                        Backend backend = cloudReplica.getPrimaryBackend(clusterId, true);
+                        backends = Lists.newArrayList(backend);
+                    }
                 } else {
-                    backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                    backends = Lists.newArrayList(backend);
                 }
-                if (backend != null) {
-                    TReplicaInfo replicaInfo = new TReplicaInfo();
-                    replicaInfo.setHost(backend.getHost());
-                    replicaInfo.setBePort(backend.getBePort());
-                    replicaInfo.setHttpPort(backend.getHttpPort());
-                    replicaInfo.setBrpcPort(backend.getBrpcPort());
-                    replicaInfo.setIsAlive(backend.isAlive());
-                    replicaInfo.setBackendId(backend.getId());
-                    replicaInfo.setReplicaId(replica.getId());
-                    replicaInfos.add(replicaInfo);
+                for (Backend backend : backends) {
+                    if (backend != null) {
+                        TReplicaInfo replicaInfo = new TReplicaInfo();
+                        replicaInfo.setHost(backend.getHost());
+                        replicaInfo.setBePort(backend.getBePort());
+                        replicaInfo.setHttpPort(backend.getHttpPort());
+                        replicaInfo.setBrpcPort(backend.getBrpcPort());
+                        replicaInfo.setReplicaId(replica.getId());
+                        replicaInfos.add(replicaInfo);
+                    }
                 }
             }
             tabletReplicaInfos.put(tabletId, replicaInfos);
