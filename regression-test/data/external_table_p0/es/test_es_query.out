@@ -611,6 +611,12 @@ string_ignore_above_10	text_ignore_above_10
 4444
 4444
 
+-- !sql_7_39 --
+id	int	Yes	true	\N	
+user_info	json	Yes	true	\N	
+
+-- !sql_7_40 --
+
 -- !sql_7_50 --
 value1	value2
 
@@ -1420,6 +1426,12 @@ string_ignore_above_10	text_ignore_above_10
 3333
 4444
 4444
+
+-- !sql_7_39 --
+id	int	Yes	true	\N	
+user_info	json	Yes	true	\N	
+
+-- !sql_7_40 --
 
 -- !sql_7_50 --
 value1	value2
