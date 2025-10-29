@@ -604,20 +604,28 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
 
     // Path exists, proceed with variant logic.
     vectorized::PathInData relative_path = path->copy_pop_front();
-    int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
+    int32_t unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
 
     // Find the reader for the base variant column.
     if (!_column_uid_to_footer_ordinal.contains(unique_id)) {
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
-    std::shared_ptr<ColumnReader> reader;
+    std::shared_ptr<ColumnReader> v_reader;
+
+    // try to get the reader from cache and return it's data type
+    // usually when leaf node is in cache
+    if (_column_reader_cache->get_path_column_reader(unique_id, relative_path, &v_reader,
+                                                     nullptr)) {
+        return v_reader->get_vec_data_type();
+    }
+
     // get the parent variant column reader
     OlapReaderStatistics stats;
     // If status is not ok, it will throw exception(data corruption)
-    THROW_IF_ERROR(get_column_reader(unique_id, &reader, &stats));
-    DCHECK(reader != nullptr);
-    const auto* variant_reader = static_cast<const VariantColumnReader*>(reader.get());
+    THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
+    DCHECK(v_reader != nullptr);
+    const auto* variant_reader = static_cast<const VariantColumnReader*>(v_reader.get());
 
     // Find the specific node within the variant structure using the relative path.
     const auto* node = variant_reader->get_subcolumn_meta_by_path(relative_path);
