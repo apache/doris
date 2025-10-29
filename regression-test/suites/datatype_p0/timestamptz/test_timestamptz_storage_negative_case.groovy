@@ -57,4 +57,23 @@ suite("test_timestamptz_storage_negative_case") {
         """
         exception "Aggregate type BITMAP_UNION"
     }
+
+    sql """
+        CREATE TABLE `timestamptz_storage_agg_key_negative_case` (
+          `ts_tz` TIMESTAMPTZ
+        ) 
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // sum
+    test {
+        sql """ select sum(ts_tz) from timestamptz_storage_agg_key_negative_case; """
+        exception "sum requires"
+    }
+    // avg
+    test {
+        sql """ select avg(ts_tz) from timestamptz_storage_agg_key_negative_case; """
+        exception "avg requires"
+    }
 }
