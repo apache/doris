@@ -448,6 +448,18 @@ public class MetaServiceClient {
                 .resetRlProgress(request);
     }
 
+    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(Cloud.ResetStreamingJobOffsetRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.ResetStreamingJobOffsetRequest.Builder builder =
+                    Cloud.ResetStreamingJobOffsetRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .resetStreamingJobOffset(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .resetStreamingJobOffset(request);
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
