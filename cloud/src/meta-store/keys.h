@@ -461,6 +461,7 @@ std::string stats_key_prefix(std::string_view instance_id);
 std::string meta_key_prefix(std::string_view instance_id);
 std::string data_key_prefix(std::string_view instance_id);
 std::string log_key_prefix(std::string_view instance_id);
+std::string snapshot_key_prefix(std::string_view instance_id);
 
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }

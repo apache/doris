@@ -628,6 +628,14 @@ std::string log_key_prefix(std::string_view instance_id) {
     return out;
 }
 
+std::string snapshot_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, &out); // "snapshot"
+    encode_bytes(instance_id, &out);         // instance_id
+    return out;
+}
+
 //==============================================================================
 // Version keys
 //==============================================================================
