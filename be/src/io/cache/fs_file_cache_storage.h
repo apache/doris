@@ -89,6 +89,9 @@ public:
 
     FileCacheStorageType get_type() override { return DISK; }
 
+    // Get the meta store instance (only available for DISK storage type)
+    CacheBlockMetaStore* get_meta_store() { return _meta_store.get(); }
+
 private:
     void remove_old_version_directories();
 

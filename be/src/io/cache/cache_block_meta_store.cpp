@@ -18,6 +18,7 @@
 #include "io/cache/cache_block_meta_store.h"
 
 #include <butil/logging.h>
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
@@ -35,6 +36,12 @@
 
 namespace doris::io {
 
+const std::string FILE_CACHE_META_COLUMN_FAMILY = "file_cache_meta";
+
+// bvar metrics for rocksdb operation failures
+bvar::Adder<uint64_t> g_rocksdb_write_failed_num("file_cache_meta_rocksdb_write_failed_num");
+bvar::Adder<uint64_t> g_rocksdb_delete_failed_num("file_cache_meta_rocksdb_delete_failed_num");
+
 CacheBlockMetaStore::CacheBlockMetaStore(const std::string& db_path, size_t queue_size)
         : _db_path(db_path), _write_queue(queue_size) {
     auto status = init();
@@ -48,8 +55,15 @@ CacheBlockMetaStore::~CacheBlockMetaStore() {
     }
 
     if (_db) {
+        if (_file_cache_meta_cf_handle) {
+            _db->DestroyColumnFamilyHandle(_file_cache_meta_cf_handle.release());
+        }
         _db->Close();
     }
+}
+
+size_t CacheBlockMetaStore::get_write_queue_size() const {
+    return _write_queue.size_approx();
 }
 
 Status CacheBlockMetaStore::init() {
@@ -67,12 +81,31 @@ Status CacheBlockMetaStore::init() {
     table_options.block_size = 16 * 1024;
     _options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
+    // Create column family descriptors
+    std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+    // Default column family is required
+    column_families.emplace_back(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions());
+    // File cache meta column family
+    column_families.emplace_back(FILE_CACHE_META_COLUMN_FAMILY, rocksdb::ColumnFamilyOptions());
+
+    std::vector<rocksdb::ColumnFamilyHandle*> handles;
     rocksdb::DB* db_ptr = nullptr;
-    rocksdb::Status status = rocksdb::DB::Open(_options, _db_path, &db_ptr);
+    rocksdb::Status status =
+            rocksdb::DB::Open(_options, _db_path, column_families, &handles, &db_ptr);
     if (!status.ok()) {
         return Status::InternalError("Failed to open rocksdb: {}", status.ToString());
     }
     _db.reset(db_ptr);
+
+    // Store the file_cache_meta column family handle
+    // handles[0] is default column family, handles[1] is file_cache_meta
+    if (handles.size() >= 2) {
+        _file_cache_meta_cf_handle.reset(handles[1]);
+        // Close default column family handle as we won't use it
+        _db->DestroyColumnFamilyHandle(handles[0]);
+    } else {
+        return Status::InternalError("Failed to get file_cache_meta column family handle");
+    }
 
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
 
@@ -157,14 +190,13 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
     // If not found in queue, query rocksdb with proper locking
     std::string value_str;
     rocksdb::Status status;
-    {
-        std::lock_guard<std::mutex> lock(_db_mutex);
-        if (!_db) {
-            LOG(WARNING) << "Database not initialized, cannot get key";
-            return std::nullopt;
-        }
-        status = _db->Get(rocksdb::ReadOptions(), key_str, &value_str);
+
+    if (!_db) {
+        LOG(WARNING) << "Database not initialized, cannot get key";
+        return std::nullopt;
     }
+    status =
+            _db->Get(rocksdb::ReadOptions(), _file_cache_meta_cf_handle.get(), key_str, &value_str);
 
     if (status.ok()) {
         return deserialize_value(value_str);
@@ -393,7 +425,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
         LOG(WARNING) << "Database not initialized, cannot create iterator";
         return nullptr;
     }
-    rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
+    rocksdb::Iterator* iter =
+            _db->NewIterator(rocksdb::ReadOptions(), _file_cache_meta_cf_handle.get());
     return std::make_unique<MergedIterator>(iter, std::move(tablet_ops), prefix);
 }
 
@@ -626,7 +659,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         LOG(WARNING) << "Database not initialized, cannot create iterator";
         return nullptr;
     }
-    rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
+    rocksdb::Iterator* iter =
+            _db->NewIterator(rocksdb::ReadOptions(), _file_cache_meta_cf_handle.get());
     if (!iter) {
         LOG(WARNING) << "Failed to create rocksdb iterator in get_all()";
         return nullptr;
@@ -659,17 +693,15 @@ void CacheBlockMetaStore::clear() {
     }
 
     // Delete all records from rocksdb
-    {
-        std::lock_guard<std::mutex> lock(_db_mutex);
-        if (_db) {
-            // Use DeleteRange to delete all keys
-            rocksdb::Slice start = "";
-            rocksdb::Slice end = "\xff\xff\xff\xff"; // Maximum byte sequence
-            rocksdb::Status status = _db->DeleteRange(rocksdb::WriteOptions(),
-                                                      _db->DefaultColumnFamily(), start, end);
-            if (!status.ok()) {
-                LOG(WARNING) << "Failed to delete range from rocksdb: " << status.ToString();
-            }
+
+    if (_db) {
+        // Use DeleteRange to delete all keys
+        rocksdb::Slice start = "";
+        rocksdb::Slice end = "\xff\xff\xff\xff"; // Maximum byte sequence
+        rocksdb::Status status = _db->DeleteRange(rocksdb::WriteOptions(),
+                                                  _file_cache_meta_cf_handle.get(), start, end);
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to delete range from rocksdb: " << status.ToString();
         }
     }
 
@@ -679,11 +711,11 @@ void CacheBlockMetaStore::clear() {
 }
 
 void CacheBlockMetaStore::async_write_worker() {
+    Thread::set_self_name("cache_block_meta_store_async_write_worker");
     while (!_stop_worker.load(std::memory_order_acquire)) {
         WriteOperation op;
 
         if (_write_queue.try_dequeue(op)) {
-            std::lock_guard<std::mutex> lock(_db_mutex);
             rocksdb::Status status;
 
             if (!_db) {
@@ -692,25 +724,31 @@ void CacheBlockMetaStore::async_write_worker() {
             }
 
             if (op.type == OperationType::PUT) {
-                status = _db->Put(rocksdb::WriteOptions(), op.key, op.value);
+                status = _db->Put(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(), op.key,
+                                  op.value);
             } else if (op.type == OperationType::DELETE) {
-                status = _db->Delete(rocksdb::WriteOptions(), op.key);
+                status = _db->Delete(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(),
+                                     op.key);
             }
 
             if (!status.ok()) {
                 LOG(WARNING) << "Failed to " << (op.type == OperationType::PUT ? "write" : "delete")
                              << " to rocksdb: " << status.ToString();
+                if (op.type == OperationType::PUT) {
+                    g_rocksdb_write_failed_num << 1;
+                } else {
+                    g_rocksdb_delete_failed_num << 1;
+                }
             }
         } else {
             // Queue is empty, sleep briefly
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
     // Process remaining tasks in the queue
     WriteOperation op;
     while (_write_queue.try_dequeue(op)) {
-        std::lock_guard<std::mutex> lock(_db_mutex);
         rocksdb::Status status;
 
         if (!_db) {
@@ -719,9 +757,10 @@ void CacheBlockMetaStore::async_write_worker() {
         }
 
         if (op.type == OperationType::PUT) {
-            status = _db->Put(rocksdb::WriteOptions(), op.key, op.value);
+            status = _db->Put(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(), op.key,
+                              op.value);
         } else if (op.type == OperationType::DELETE) {
-            status = _db->Delete(rocksdb::WriteOptions(), op.key);
+            status = _db->Delete(rocksdb::WriteOptions(), _file_cache_meta_cf_handle.get(), op.key);
         }
 
         if (!status.ok()) {

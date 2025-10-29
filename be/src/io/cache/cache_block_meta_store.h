@@ -106,6 +106,9 @@ public:
     // Force close the rocksdb connection and release locks
     void force_close();
 
+    // Get the approximate size of the write queue
+    size_t get_write_queue_size() const;
+
 private:
     void async_write_worker();
     std::string serialize_key(const BlockMetaKey& key) const;
@@ -116,6 +119,7 @@ private:
     std::string _db_path;
     std::unique_ptr<rocksdb::DB> _db;
     rocksdb::Options _options;
+    std::unique_ptr<rocksdb::ColumnFamilyHandle> _file_cache_meta_cf_handle;
 
     enum class OperationType { PUT, DELETE };
     struct WriteOperation {
@@ -126,7 +130,6 @@ private:
     moodycamel::ConcurrentQueue<WriteOperation> _write_queue;
     std::atomic<bool> _stop_worker {false};
     std::thread _write_thread;
-    std::mutex _db_mutex;
     std::mutex _queue_mutex;
 
     std::unique_ptr<ThreadPool> _thread_pool;
