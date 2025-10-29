@@ -49,7 +49,6 @@ public class CatalogConnectivityTestCoordinator {
     private final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     private String warehouseLocation;
-    private StorageProperties matchedObjectStorage;
 
     public CatalogConnectivityTestCoordinator(
             String catalogName,
@@ -70,8 +69,9 @@ public class CatalogConnectivityTestCoordinator {
         testMetadataService();
 
         // 2. Test object storage for warehouse (if applicable)
-        if (shouldTestObjectStorage()) {
-            testObjectStorageForWarehouse();
+        StorageProperties testObjectStorageProperties = getTestObjectStorageProperties();
+        if (testObjectStorageProperties != null) {
+            testObjectStorageForWarehouse(testObjectStorageProperties);
         }
 
         // 3. Test explicitly configured HDFS (if applicable)
@@ -109,21 +109,21 @@ public class CatalogConnectivityTestCoordinator {
      * Check if object storage test should be performed.
      * Also caches the matched storage for later use in testObjectStorageForWarehouse().
      */
-    private boolean shouldTestObjectStorage() {
+    private StorageProperties getTestObjectStorageProperties() {
         if (StringUtils.isBlank(this.warehouseLocation)) {
             LOG.debug("Skip object storage test: no warehouse location from metadata service for catalog '{}'",
                     catalogName);
-            return false;
+            return null;
         }
 
-        this.matchedObjectStorage = findMatchingObjectStorage(this.warehouseLocation);
-        if (this.matchedObjectStorage == null) {
+        StorageProperties matchedObjectStorage = findMatchingObjectStorage(this.warehouseLocation);
+        if (matchedObjectStorage == null) {
             LOG.debug("Skip object storage test: no storage configured for warehouse '{}' in catalog '{}'",
                     this.warehouseLocation, catalogName);
-            return false;
+            return null;
         }
 
-        return true;
+        return matchedObjectStorage;
     }
 
     /**
@@ -132,11 +132,11 @@ public class CatalogConnectivityTestCoordinator {
      *
      * @throws DdlException if test fails
      */
-    private void testObjectStorageForWarehouse() throws DdlException {
+    private void testObjectStorageForWarehouse(StorageProperties testObjectStorageProperties) throws DdlException {
         LOG.info("Testing {} connectivity for warehouse '{}' in catalog '{}'",
-                this.matchedObjectStorage.getStorageName(), this.warehouseLocation, catalogName);
+                testObjectStorageProperties.getStorageName(), this.warehouseLocation, catalogName);
 
-        StorageConnectivityTester tester = createStorageTester(this.matchedObjectStorage, this.warehouseLocation);
+        StorageConnectivityTester tester = createStorageTester(testObjectStorageProperties, this.warehouseLocation);
 
         // Test FE connection
         try {
