@@ -40,7 +40,8 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         'cumulative_compaction_min_deltas=5',
-        'cache_read_from_peer_expired_seconds=100'
+        'cache_read_from_peer_expired_seconds=100',
+        'enable_cache_read_from_peer=true'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -67,38 +68,47 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
+        sql """set enable_file_cache=true"""
         sql """CREATE TABLE $table (
-            `k1` int(11) NULL,
-            `v1` VARCHAR(2048)
+                `id` BIGINT,
+                `deleted` TINYINT,
+                `type` String,
+                `author` String,
+                `timestamp` DateTimeV2,
+                `comment` String,
+                `dead` TINYINT,
+                `parent` BIGINT,
+                `poll` BIGINT,
+                `children` Array<BIGINT>,
+                `url` String,
+                `score` INT,
+                `title` String,
+                `parts` Array<INT>,
+                `descendants` INT,
+                INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for comment'
             )
-            DUPLICATE KEY(`k1`)
-            COMMENT 'OLAP'
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 2
-            PROPERTIES (
-            "replication_num"="1"
-            );
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2 
+            PROPERTIES ("replication_num" = "1");
         """
         sql """
-            insert into $table values (10, '1'), (20, '2')
+            insert into $table values  (344083, 1, 'comment', 'spez', '2008-10-26 13:49:29', 'Stay tuned...',  0, 343906, 0, [31, 454446], '', 0, '', [], 0), (33, 0, 'comment', 'spez', '2006-10-10 23:50:40', 'winnar winnar chicken dinnar!',  0, 31, 0, [34, 454450], '', 0, '', [], 0);
         """
         sql """
-            insert into $table values (30, '3'), (40, '4')
+            insert into $table values  (44, 1, 'comment', 'spez', '2006-10-11 23:00:48', 'Welcome back, Randall',  0, 43, 0, [454465], '', 0, '', [], 0), (46, 0, 'story', 'goldfish', '2006-10-11 23:39:28', '',  0, 0, 0, [454470], 'http://www.rentometer.com/', 0, ' VCs Prefer to Fund Nearby Firms - New York Times', [], 0);
         """
         sql """
-            insert into $table values (50, '5'), (60, '6')
+            insert into $table values  (344089, 1, 'comment', 'spez', '2008-10-26 13:49:29', 'Stay tuned...',  0, 343906, 0, [31, 454446], '', 0, '', [], 0), (33, 0, 'comment', 'spez', '2006-10-10 23:50:40', 'winnar winnar chicken dinnar!',  0, 31, 0, [34, 454450], '', 0, '', [], 0);
         """
         sql """
-            insert into $table values (70, '7'), (80, '8')
+            insert into $table values  (449, 1, 'comment', 'spez', '2006-10-11 23:00:48', 'Welcome back, Randall',  0, 43, 0, [454465], '', 0, '', [], 0), (469, 0, 'story', 'goldfish', '2006-10-11 23:39:28', '',  0, 0, 0, [454470], 'http://www.rentometer.com/', 0, ' VCs Prefer to Fund Nearby Firms - New York Times', [], 0);
         """
         sql """
-            insert into $table values (90, '9'), (100, '10')
+            insert into $table values  (344084, 1, 'comment', 'spez', '2008-10-26 13:49:29', 'Stay tuned...',  0, 343906, 0, [31, 454446], '', 0, '', [], 0), (33, 0, 'comment', 'spez', '2006-10-10 23:50:40', 'winnar winnar chicken dinnar!',  0, 31, 0, [34, 454450], '', 0, '', [], 0);
         """
-
         sql """
-            insert into $table values (90, '9'), (100, '10')
+            insert into $table values  (849, 1, 'comment', 'spez', '2006-10-11 23:00:48', 'Welcome back, Randall',  0, 43, 0, [454465], '', 0, '', [], 0), (869, 0, 'story', 'goldfish', '2006-10-11 23:39:28', '',  0, 0, 0, [454470], 'http://www.rentometer.com/', 0, ' VCs Prefer to Fund Nearby Firms - New York Times', [], 0);
         """
-
-
         // trigger compaction to generate some cache files
         trigger_and_wait_compaction(table, "cumulative")
         sleep(5 * 1000)
@@ -177,7 +187,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         collectDirs(dataPath)
         logger.info("BE {} file_cache subdirs: {}", newAddBe.Host, subDirs)
 
-        // check new be not have version 2,3,4 cache file
+        // check new be not have version 7 cache file
         newAddBeCacheDir.each { hashFile ->
             assertFalse(subDirs.any { subDir -> subDir.startsWith(hashFile) }, 
             "Expected cache file pattern ${hashFile} should not found in BE ${newAddBe.Host}'s file_cache directory. " + 
@@ -185,11 +195,30 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         }
 
         // The query triggers reading the file cache from the peer
-        sql """select * from $table"""
+        profile("test_balance_warm_up_with_compaction_use_peer_cache_profile") {
+            sql """ set enable_profile = true;"""
+            sql """ set profile_level = 2;"""
+            run {
+                sql """/* test_balance_warm_up_with_compaction_use_peer_cache_profile */ SELECT count() FROM $table WHERE comment MATCH_ALL 'Welcome'"""
+                sleep(1000)
+            }
+
+            check { profileString, exception ->
+                log.info(profileString)
+                // Use a regular expression to match the numeric value inside parentheses after "NumPeerIOTotal:"
+                def matcher = (profileString =~ /-  InvertedIndexNumPeerIOTotal:\s+(\d+)/)
+                def total = 0
+                while (matcher.find()) {
+                    total += matcher.group(1).toInteger()
+                    logger.info("InvertedIndexNumPeerIOTotal: {}", matcher.group(1))
+                }
+                assertTrue(total > 0)
+            } 
+        }
         subDirs.clear()
         collectDirs(dataPath)
         logger.info("after query, BE {} file_cache subdirs: {}", newAddBe.Host, subDirs) 
-        // peer read cache, so it should have version 2,3,4 cache file
+        // peer read cache, so it should have version 7 cache file
         newAddBeCacheDir.each { hashFile ->
             assertTrue(subDirs.any { subDir -> subDir.startsWith(hashFile) }, 
             "Expected cache file pattern ${hashFile} should found in BE ${newAddBe.Host}'s file_cache directory. " + 
