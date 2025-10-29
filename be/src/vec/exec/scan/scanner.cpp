@@ -231,14 +231,15 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
 }
 
 Status Scanner::close(RuntimeState* state) {
-    bool expected = false;
-    if (!_is_closed.compare_exchange_strong(expected, true)) {
-        return Status::OK();
-    }
 #ifndef BE_TEST
     COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
 #endif
     return Status::OK();
+}
+
+bool Scanner::_try_close() {
+    bool expected = false;
+    return _is_closed.compare_exchange_strong(expected, true);
 }
 
 void Scanner::_collect_profile_before_close() {

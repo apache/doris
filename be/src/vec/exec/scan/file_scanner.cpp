@@ -1714,8 +1714,7 @@ Status FileScanner::_init_expr_ctxes() {
 }
 
 Status FileScanner::close(RuntimeState* state) {
-    bool expected = false;
-    if (!_is_closed.compare_exchange_strong(expected, true)) {
+    if (!_try_close()) {
         return Status::OK();
     }
 

@@ -106,6 +106,11 @@ protected:
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 
+    // Check if scanner is already closed, if not, mark it as closed.
+    // Returns true if the scanner was successfully marked as closed (first time).
+    // Returns false if the scanner was already closed.
+    bool _try_close();
+
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
