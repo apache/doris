@@ -3687,52 +3687,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("send create partition error status: {}", result);
             return result;
         }
-        // tabletId -> BEId
-        // We cached the metadata for each transaction to maintain a consistent view of
-        // tablet replica distribution during the transaction's lifetime.
-        Map<Long, Set<Long>> tabletMap = new HashMap<Long, Set<Long>>();
+
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                PartitionPersistInfo info = Env.getCurrentEnv().addPartition(db, olapTable.getName(),
-                        addPartitionClause, false, 0, true);
-                if (info == null) {
-                    // this means the partition is already created, for this partition
-                } else {
-                    // Write the mapping information between the newly created tablets and backend IDs
-                    // into the autoPartitionInfo of the transaction.
-                    Partition partition = info.getPartition();
-                    for (MaterializedIndex index : partition.getMaterializedIndices(
-                            MaterializedIndex.IndexExtState.ALL)) {
-                        for (Tablet tablet : index.getTablets()) {
-                            Set<Long> backendIds = new HashSet<Long>();
-                            for (Replica replica : tablet.getReplicas()) {
-                                backendIds.add(replica.getBackendIdWithoutException());
-                            }
-                            tabletMap.put(tablet.getId(), backendIds);
-                        }
-                    }
-                }
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
                         Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
                 result.setStatus(errorStatus);
                 LOG.warn("send create partition error status: {}", result);
-                return result;
-            }
-        }
-
-        if (!tabletMap.isEmpty()) {
-            Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, tabletMap);
-        } else {
-            tabletMap = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
-            // (Refrain) should not be empty or null here,
-            // cuz it must be either set in addPartition or fetched from the cached map.
-            if (tabletMap == null || tabletMap.isEmpty()) {
-                errorStatus.setErrorMsgs(Lists.newArrayList("tabletMap should not be empty or null."));
-                result.setStatus(errorStatus);
-                LOG.warn("get the tablet distribution error : {}", result);
                 return result;
             }
         }
@@ -3780,30 +3745,47 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
-                    // (Refrain) Can we make sure the BEs are alive here ?
-                    // Here, the BE (Backend) nodes we get fall into two cases:
-                    // 1. If the tablet was created in addPartition above, the status of its BE replica
-                    //    has already been checked.
-                    // 2. If another createPartition operation ran concurrently and created the tablet,
-                    //    its BE replica status was also checked at that time.
-                    Set<Long> nodeSet = tabletMap.get(tablet.getId());
-                    Long[] nodes = nodeSet != null ? nodeSet.toArray(new Long[0]) : new Long[0];
-
-                    if (nodes.length < quorum) {
-                        LOG.warn("auto go quorum exception");
+                    // 1. We should ensure the replica backend is alive
+                    //    otherwise, there will be a 'unknown node id, id=xxx' error for stream load
+                    //    BE id -> path hash
+                    // 2. We cached the metadata for each transaction to maintain a consistent view of
+                    //    tablet replica distribution during the transaction's lifetime.
+                    Multimap<Long, Long> bePathsMap = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
+                    if (bePathsMap == null) {
+                        try {
+                            if (Config.isCloudMode() && request.isSetBeEndpoint()) {
+                                bePathsMap = ((CloudTablet) tablet)
+                                        .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                            } else {
+                                bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                            }
+                            Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, bePathsMap);
+                            LOG.info("Frist createPartition RPC received, cache the tablet replica distribution");
+                        } catch (UserException ex) {
+                            errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                            result.setStatus(errorStatus);
+                            LOG.warn("send create partition error status: {}", result);
+                            return result;
+                        }
+                    } else {
+                        LOG.info("The same partition has been created, so we read the tablet replica distribution from cache");
                     }
 
+                    if (bePathsMap.keySet().size() < quorum) {
+                        LOG.warn("auto go quorum exception");
+                    }
                     if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
                         Random random = new SecureRandom();
                         Long masterNode = nodes[random.nextInt(nodes.length)];
-                        Set<Long> slaveNodeSet = new HashSet<>(Arrays.asList(nodes));
-                        slaveNodeSet.remove(masterNode);
+                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        slaveBePathsMap.removeAll(masterNode);
                         tablets.add(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(Sets.newHashSet(masterNode))));
                         slaveTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(slaveNodeSet)));
+                                Lists.newArrayList(slaveBePathsMap.keySet())));
                     } else {
-                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(Arrays.asList(nodes))));
+                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
                     }
                 }
             }

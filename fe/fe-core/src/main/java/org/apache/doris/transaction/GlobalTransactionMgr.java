@@ -49,6 +49,8 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -89,9 +91,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     // To distinguish the idempotence of the createPartition RPC during incremental partition creation
     // for automatic partitioned tables, record the dbId -> txnId -> tabletId -> BE id
-    private Map<Long, Map<Long, Map<Long, Set<Long>>>> autoPartitionInfo = Maps.newConcurrentMap();
+    private Map<Long, Map<Long, Multimap<Long, Long>>> autoPartitionInfo = Maps.newConcurrentMap();
 
-    public void recordAutoPartitionInfo(Long dbId, Long txnId, Map<Long, Set<Long>> tabletMap) {
+    public void recordAutoPartitionInfo(Long dbId, Long txnId, Multimap<Long, Long> tabletMap) {
         autoPartitionInfo.compute(dbId, (k, v) -> {
             if (v == null) {
                 v = Maps.newConcurrentMap();
@@ -102,14 +104,14 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     // the caller will check the NULL val, so we do not need to handle it
-    public Map<Long, Set<Long>> getAutoPartitionInfo(Long dbId, Long txnId) {
-        Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
-        Map<Long, Set<Long>> tabletMap = txnMap.get(txnId);
+    public Multimap<Long, Long> getAutoPartitionInfo(Long dbId, Long txnId) {
+        Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
+        Multimap<Long, Long> tabletMap = txnMap.get(txnId);
         return tabletMap;
     }
 
     public void clearAutoPartitionInfo(Long dbId, Long txnId) {
-        Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
+        Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
         if (txnMap != null) {
             txnMap.remove(txnId);
             if (txnMap.isEmpty()) {
