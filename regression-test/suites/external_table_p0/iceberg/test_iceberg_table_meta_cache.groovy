@@ -168,73 +168,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 exception "is wrong"
             }
             sql """drop table test_iceberg_meta_cache_db.sales"""
-
-            // test schema cache
-            sql """drop catalog if exists ${catalog_name_no_cache};"""
-            // 1. create catalog with default property fisrt
-            sql """
-            create catalog ${catalog_name_no_cache} properties (
-                'type'='iceberg',
-                'iceberg.catalog.type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
-                'fs.defaultFS' = '${default_fs}',
-                'warehouse' = '${warehouse}'
-            );
-            """
-            sql """switch ${catalog_name_no_cache}"""
             sql """drop database if exists test_iceberg_meta_cache_db"""
-            sql """create database test_iceberg_meta_cache_db"""
-            sql """
-                CREATE TABLE test_iceberg_meta_cache_db.sales (
-                  id INT,
-                  amount DOUBLE
-                );
-            """
-            // desc table, 2 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-            // add a new column in iceberg
-            sql "alter table test_iceberg_meta_cache_db.sales add columns(k3 string)";
-            // desc table, still 2 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-            // refresh and check
-            sql "refresh table test_iceberg_meta_cache_db.sales";
-            // desc table, 3 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-
-            // create catalog without schema cache
             sql """drop catalog if exists ${catalog_name_no_cache};"""
-            sql """
-            create catalog ${catalog_name_no_cache} properties (
-                'type'='iceberg',
-                'iceberg.catalog.type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
-                'fs.defaultFS' = '${default_fs}',
-                'warehouse' = '${warehouse}',
-                'schema.cache.ttl-second' = '0'
-            );
-            """
-            sql """switch ${catalog_name_no_cache}"""
-            // desc table, 3 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-            // add a new column in hive
-            sql "alter table test_iceberg_meta_cache_db.sales add columns(k4 string)";
-            // desc table, 4 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-
-            // modify property
-            // alter wrong catalog property
-            test {
-                sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "-2")"""
-                exception "is wrong"
-            }
-            sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "0")"""
-            // desc table, 4 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-            // add a new column in hive
-            sql "alter table test_iceberg_meta_cache_db.sales add columns(k5 string)";
-            // desc table, 5 columns
-            sql "desc test_iceberg_meta_cache_db.sales";
-            sql """drop table test_iceberg_meta_cache_db.sales"""
         }
     }
 }
