@@ -48,13 +48,13 @@
 1	GET /french/images/nav_venue_off.gif HTTP/1.0
 
 -- !sql --
-["foo", "bar"]
+[{\n        "token": "foo"\n    }, {\n        "token": "bar"\n    }]
 
 -- !sql --
-["foo"]
+[{\n        "token": "foo"\n    }]
 
 -- !sql --
-["bar"]
+[{\n        "token": "bar"\n    }]
 
 -- !sql --
 1	FOO BAR
