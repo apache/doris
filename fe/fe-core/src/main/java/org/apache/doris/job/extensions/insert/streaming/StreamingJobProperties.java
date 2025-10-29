@@ -123,6 +123,7 @@ public class StreamingJobProperties implements JobProperties {
         if (!sessionVarMap.isEmpty()) {
             try {
                 sessionVariable.setInsertTimeoutS(DEFAULT_INSERT_TIMEOUT);
+                sessionVariable.setQueryTimeoutS(DEFAULT_INSERT_TIMEOUT);
                 sessionVariable.readFromMap(sessionVarMap);
             } catch (Exception e) {
                 throw new JobException("Invalid session variable, " + e.getMessage());
