@@ -935,7 +935,7 @@ Result<TColumnAccessPaths> ColumnIterator::_get_sub_access_paths(
                     Status::InternalError("Invalid access path for struct column: path is empty"));
         }
 
-        if (name_path.data_access_path.path[0] != _column_name) {
+        if (!StringCaseEqual()(name_path.data_access_path.path[0], _column_name)) {
             return ResultError(Status::InternalError(
                     R"(Invalid access path for column: expected name "{}", got "{}")", _column_name,
                     name_path.data_access_path.path[0]));
@@ -1329,7 +1329,7 @@ Status StructFileColumnIterator::set_access_paths(
 
         if (!no_predicate_sub_column) {
             for (const auto& paths : sub_predicate_access_paths) {
-                if (paths.data_access_path.path[0] == name) {
+                if (!StringCaseEqual()(paths.data_access_path.path[0], name)) {
                     sub_predicate_access_paths_of_this.emplace_back(paths);
                 }
             }
