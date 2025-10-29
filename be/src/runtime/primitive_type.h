@@ -28,7 +28,7 @@
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
-#include "vec/common/string_view.h"
+#include "vec/common/string_container.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -634,15 +634,15 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARBINARY> {
-    using CppType = doris::StringView;
+    using CppType = doris::StringContainer;
     using StorageFieldType = CppType;
-    using CppNativeType = doris::StringView;
-    using ColumnItemType = doris::StringView;
+    using CppNativeType = doris::StringContainer;
+    using ColumnItemType = doris::StringContainer;
     using DataType = vectorized::DataTypeVarbinary;
     using ColumnType = vectorized::ColumnVarbinary;
-    using NearestFieldType = doris::StringView;
-    using AvgNearestFieldType = doris::StringView;
-    using AvgNearestFieldType256 = doris::StringView;
+    using NearestFieldType = doris::StringContainer;
+    using AvgNearestFieldType = doris::StringContainer;
+    using AvgNearestFieldType256 = doris::StringContainer;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARBINARY;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARBINARY;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARBINARY;
