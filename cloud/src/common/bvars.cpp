@@ -163,6 +163,7 @@ bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
 bvar::LatencyRecorder g_bvar_txn_kv_range_get("txn_kv", "range_get");
 bvar::LatencyRecorder g_bvar_txn_kv_put("txn_kv", "put");
 bvar::LatencyRecorder g_bvar_txn_kv_commit("txn_kv", "commit");
+bvar::LatencyRecorder g_bvar_txn_kv_watch_key("txn_kv", "watch_key");
 bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_key("txn_kv", "atomic_set_ver_key");
 bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_value("txn_kv", "atomic_set_ver_value");
 bvar::LatencyRecorder g_bvar_txn_kv_atomic_add("txn_kv", "atomic_add");
