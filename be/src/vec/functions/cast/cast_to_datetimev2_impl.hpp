@@ -661,7 +661,7 @@ FRAC:
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
         }
         SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
-        res.year());
+                                 res.year());
         static_cast<void>(skip_any_whitespace(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
                                  "invalid datetime string '{}', extra characters after timezone",
