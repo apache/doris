@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -175,7 +176,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     if (arg instanceof Literal) {
                         continue;
                     }
-                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class)) {
+                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
                         needPushDownSelfExprs.add(arg);
                     } else {
                         needPushDownInputs.add(arg);

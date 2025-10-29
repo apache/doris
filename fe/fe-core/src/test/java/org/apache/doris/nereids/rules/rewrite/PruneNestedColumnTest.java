@@ -429,6 +429,33 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testAggregate() throws Exception {
+        assertColumn("select count(struct_element(s, 'city')) from tbl",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testJoin() throws Exception {
+        assertColumns("select 100 from tbl t1 join tbl t2 on struct_element(t1.s, 'city')=struct_element(t2.s, 'city')",
+                ImmutableList.of(
+                        Triple.of(
+                                "struct<city:text>",
+                                ImmutableList.of(path("s", "city")),
+                                ImmutableList.of()
+                        ),
+                        Triple.of(
+                                "struct<city:text>",
+                                ImmutableList.of(path("s", "city")),
+                                ImmutableList.of()
+                        )
+                )
+        );
+    }
+
+    @Test
     public void testPushDownThroughWindow() {
         PlanChecker.from(connectContext)
                 .analyze("select struct_element(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t)a")

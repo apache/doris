@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -50,24 +51,27 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
-/** PushDownNestedColumnThroughJoin */
-public class PushDownNestedColumn implements RewriteRuleFactory {
+/** push down project if the expression instance of PreferPushDownProject */
+public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_JOIN.build(
-                logicalProject(logicalJoin()).thenApply(this::defaultPushDown)
+            RuleType.PUSH_DOWN_PROJECT_THROUGH_JOIN.build(
+                logicalJoin().thenApply(this::pushDownJoinExpressions)
             ),
-            RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_WINDOW.build(
-                logicalProject(logicalWindow()).thenApply(this::defaultPushDown)
+            RuleType.PUSH_DOWN_PROJECT_THROUGH_JOIN.build(
+                logicalProject(logicalJoin()).thenApply(this::defaultPushDownProject)
             ),
-            RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_PARTITION_TOP_N.build(
-                logicalProject(logicalPartitionTopN()).thenApply(this::defaultPushDown)
+            RuleType.PUSH_DOWN_PROJECT_THROUGH_WINDOW.build(
+                logicalProject(logicalWindow()).thenApply(this::defaultPushDownProject)
             ),
-            // RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_DEFER_MATERIALIZE_TOP_N.build(
-            //     logicalProject(logicalDeferMaterializeTopN()).thenApply(this::defaultPushDown)
+            RuleType.PUSH_DOWN_PROJECT_THROUGH_PARTITION_TOP_N.build(
+                logicalProject(logicalPartitionTopN()).thenApply(this::defaultPushDownProject)
+            ),
+            // RuleType.PUSH_DOWN_PROJECT_THROUGH_DEFER_MATERIALIZE_TOP_N.build(
+            //     logicalProject(logicalDeferMaterializeTopN()).thenApply(this::defaultPushDownProject)
             // ),
-            RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_UNION.build(
+            RuleType.PUSH_DOWN_PROJECT_THROUGH_UNION.build(
                 logicalProject(
                         logicalUnion().when(u -> u.getQualifier() == Qualifier.ALL)
                 ).thenApply(this::pushThroughUnion)
@@ -75,7 +79,86 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
         );
     }
 
-    private <C extends LogicalPlan> Plan defaultPushDown(MatchingContext<LogicalProject<C>> ctx) {
+    private Plan pushDownJoinExpressions(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
+        LogicalJoin<Plan, Plan> join = ctx.root;
+        Optional<Pair<List<Expression>, Map<Integer, List<NamedExpression>>>> rewriteHashJoinConjunctsResult
+                = pushDownProjectInExpressions(join, join.getHashJoinConjuncts(), ctx.statementContext);
+        Optional<Pair<List<Expression>, Map<Integer, List<NamedExpression>>>> rewriteOtherJoinConjunctsResult
+                = pushDownProjectInExpressions(join, join.getOtherJoinConjuncts(), ctx.statementContext);
+        if (!rewriteHashJoinConjunctsResult.isPresent() && !rewriteOtherJoinConjunctsResult.isPresent()) {
+            return join;
+        }
+
+        List<Expression> newHashJoinConjuncts = rewriteHashJoinConjunctsResult.isPresent()
+                ? rewriteHashJoinConjunctsResult.get().first : join.getHashJoinConjuncts();
+        List<Expression> newOtherJoinConjuncts = rewriteOtherJoinConjunctsResult.isPresent()
+                ? rewriteOtherJoinConjunctsResult.get().first : join.getOtherJoinConjuncts();
+
+        List<List<NamedExpression>> pushedOutput = new ArrayList<>();
+        pushedOutput.add(new ArrayList<>(join.left().getOutput()));
+        pushedOutput.add(new ArrayList<>(join.right().getOutput()));
+
+        if (rewriteHashJoinConjunctsResult.isPresent()) {
+            pushedOutput.get(0).addAll(rewriteHashJoinConjunctsResult.get().second.get(0));
+            pushedOutput.get(1).addAll(rewriteHashJoinConjunctsResult.get().second.get(1));
+        }
+        if (rewriteOtherJoinConjunctsResult.isPresent()) {
+            pushedOutput.get(0).addAll(rewriteOtherJoinConjunctsResult.get().second.get(0));
+            pushedOutput.get(1).addAll(rewriteOtherJoinConjunctsResult.get().second.get(1));
+        }
+
+        Plan newLeft = join.left();
+        Plan newRight = join.right();
+        if (pushedOutput.get(0).size() != newLeft.getOutput().size()) {
+            newLeft = new LogicalProject<>(pushedOutput.get(0), newLeft);
+        }
+        if (pushedOutput.get(1).size() != newRight.getOutput().size()) {
+            newRight = new LogicalProject<>(pushedOutput.get(1), newRight);
+        }
+
+        return join.withJoinConjuncts(
+                newHashJoinConjuncts, newOtherJoinConjuncts,
+                join.getMarkJoinConjuncts(), join.getJoinReorderContext()
+        ).withChildren(newLeft, newRight);
+    }
+
+    // return:
+    //   key: rewrite the PreferPushDownProject to slot
+    //   value: the pushed down project outputs which contains the Alias(PreferPushDownProject)
+    private Optional<Pair<List<Expression>, Map<Integer, List<NamedExpression>>>> pushDownProjectInExpressions(
+            Plan plan, Collection<Expression> expressions, StatementContext context) {
+
+        boolean changed = false;
+        Map<Integer, List<NamedExpression>> childIndexToPushedAlias = new LinkedHashMap<>();
+        List<Expression> newExpressions = new ArrayList<>();
+        for (Expression expression : expressions) {
+            Expression newExpression = expression.rewriteDownShortCircuit(e -> {
+                if (e instanceof PreferPushDownProject) {
+                    List<Plan> children = plan.children();
+                    for (int i = 0; i < children.size(); i++) {
+                        Plan child = children.get(i);
+                        if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                            Alias alias = new Alias(context.getNextExprId(), e);
+                            Slot slot = alias.toSlot();
+                            List<NamedExpression> namedExpressions
+                                    = childIndexToPushedAlias.computeIfAbsent(i, k -> new ArrayList<>());
+                            namedExpressions.add(alias);
+                            return slot;
+                        }
+                    }
+                }
+                return e;
+            });
+            newExpressions.add(newExpression);
+            changed |= newExpression != expression;
+        }
+        if (changed) {
+            return Optional.of(Pair.of(newExpressions, childIndexToPushedAlias));
+        }
+        return Optional.empty();
+    }
+
+    private <C extends LogicalPlan> Plan defaultPushDownProject(MatchingContext<LogicalProject<C>> ctx) {
         if (!ctx.connectContext.getSessionVariable().enablePruneNestedColumns) {
             return ctx.root;
         }
