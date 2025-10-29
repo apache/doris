@@ -1144,6 +1144,7 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
+DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
