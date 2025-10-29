@@ -244,7 +244,9 @@ Status Scanner::close(RuntimeState* state) {
 void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
-    if (!_state->enable_profile() && !_is_load) return;
+    if (!_is_load) {
+        return;
+    }
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
