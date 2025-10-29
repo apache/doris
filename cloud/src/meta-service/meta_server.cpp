@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/metric.h"
+#include "common/bvars.h"
 #include "common/network_util.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
