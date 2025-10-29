@@ -55,7 +55,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "util/date_func.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -148,13 +147,13 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
     TColumn k6;
     k6.column_name = "k6";
     k6.__set_is_key(true);
-    k6.column_type.type = TPrimitiveType::DATEV2;
+    k6.column_type.type = TPrimitiveType::DATE;
     request->tablet_schema.columns.push_back(k6);
 
     TColumn k7;
     k7.column_name = "k7";
     k7.__set_is_key(true);
-    k7.column_type.type = TPrimitiveType::DATETIMEV2;
+    k7.column_type.type = TPrimitiveType::DATETIME;
     request->tablet_schema.columns.push_back(k7);
 
     TColumn k8;
@@ -223,14 +222,14 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
     TColumn v6;
     v6.column_name = "v6";
     v6.__set_is_key(false);
-    v6.column_type.type = TPrimitiveType::DATEV2;
+    v6.column_type.type = TPrimitiveType::DATE;
     v6.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v6);
 
     TColumn v7;
     v7.column_name = "v7";
     v7.__set_is_key(false);
-    v7.column_type.type = TPrimitiveType::DATETIMEV2;
+    v7.column_type.type = TPrimitiveType::DATETIME;
     v7.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v7);
 
@@ -296,7 +295,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     TColumn v1;
     v1.column_name = "v1";
     v1.__set_is_key(false);
-    v1.column_type.type = TPrimitiveType::DATETIMEV2;
+    v1.column_type.type = TPrimitiveType::DATETIME;
     v1.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v1);
 
@@ -330,9 +329,9 @@ static TDescriptorTable create_descriptor_tablet() {
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("k5").column_pos(4).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("k6").column_pos(5).build());
+            TSlotDescriptorBuilder().type(TYPE_DATE).column_name("k6").column_pos(5).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIMEV2).column_name("k7").column_pos(6).build());
+            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("k7").column_pos(6).build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().string_type(4).column_name("k8").column_pos(7).build());
     tuple_builder.add_slot(
@@ -373,13 +372,13 @@ static TDescriptorTable create_descriptor_tablet() {
                                    .nullable(false)
                                    .build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                   .type(TYPE_DATEV2)
+                                   .type(TYPE_DATE)
                                    .column_name("v6")
                                    .column_pos(16)
                                    .nullable(false)
                                    .build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                   .type(TYPE_DATETIMEV2)
+                                   .type(TYPE_DATETIME)
                                    .column_name("v7")
                                    .column_pos(17)
                                    .nullable(false)
@@ -422,7 +421,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                   .type(TYPE_DATETIMEV2)
+                                   .type(TYPE_DATETIME)
                                    .column_name("v1")
                                    .column_pos(2)
                                    .nullable(false)
@@ -452,10 +451,10 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     int16_t c2 = k2;
     columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-    DateV2Value<DateTimeV2ValueType> c3;
+    VecDateTimeValue c3;
     c3.from_date_str("2020-07-16 19:39:43", 19);
-    uint64_t c3_int = c3.to_date_int_val();
-    columns[2]->insert_data((const char*)&c3_int, sizeof(c3_int));
+    int64_t c3_int = c3.to_int64();
+    columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
     DateV2Value<DateV2ValueType> c4;
     c4.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
@@ -579,14 +578,14 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t k5 = -90000;
         columns[4]->insert_data((const char*)&k5, sizeof(k5));
 
-        DateV2Value<DateV2ValueType> k6;
+        VecDateTimeValue k6;
         k6.from_date_str("2048-11-10", 10);
-        uint32_t k6_int = k6.to_date_int_val();
+        auto k6_int = k6.to_int64();
         columns[5]->insert_data((const char*)&k6_int, sizeof(k6_int));
 
-        DateV2Value<DateTimeV2ValueType> k7;
+        VecDateTimeValue k7;
         k7.from_date_str("2636-08-16 19:39:43", 19);
-        uint64_t k7_int = k7.to_date_int_val();
+        auto k7_int = k7.to_int64();
         columns[6]->insert_data((const char*)&k7_int, sizeof(k7_int));
 
         columns[7]->insert_data("abcd", 4);
@@ -616,14 +615,14 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t v5 = -90000;
         columns[15]->insert_data((const char*)&v5, sizeof(v5));
 
-        DateV2Value<DateV2ValueType> v6;
+        VecDateTimeValue v6;
         v6.from_date_str("2048-11-10", 10);
-        uint32_t v6_int = v6.to_date_int_val();
+        auto v6_int = v6.to_int64();
         columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
 
-        DateV2Value<DateTimeV2ValueType> v7;
+        VecDateTimeValue v7;
         v7.from_date_str("2636-08-16 19:39:43", 19);
-        uint64_t v7_int = v7.to_date_int_val();
+        auto v7_int = v7.to_int64();
         columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
 
         columns[18]->insert_data("abcd", 4);

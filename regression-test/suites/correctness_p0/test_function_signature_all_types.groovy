@@ -15,7 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_function_signature_all_types") {
+suite("test_function_signature_all_types", 'nonConcurrent') {
+    // Save and set config to allow DATE V1 creation
+    def configResult = sql "SHOW FRONTEND CONFIG LIKE 'disable_datev1'"
+    logger.info("configResult: ${configResult}")
+    assert configResult.size() == 1
+    
+    def originDisableDatev1 = configResult[0][1]
+    logger.info("disable_datev1: $originDisableDatev1")
+    
+    sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'false')"
+    logger.info("set disable_datev1 to false")
+    
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -37,13 +48,14 @@ suite("test_function_signature_all_types") {
             k9 CHAR(10),
             k10 VARCHAR(100),
             k11 STRING,
-            k12 DATE,
-            k13 DATETIME,
+            k12 DATEV1,
+            k13 DATETIMEV1,
             k14 DATEV2,
             k15 DATETIMEV2,
             k16 BOOLEAN
         ) DUPLICATE KEY(k1)
         PARTITION BY RANGE(k12) (
+            PARTITION p202312 VALUES [('2023-12-01'), ('2024-01-01')),
             PARTITION p202401 VALUES [('2024-01-01'), ('2024-02-01')),
             PARTITION p202402 VALUES [('2024-02-01'), ('2024-03-01')),
             PARTITION p202403 VALUES [('2024-03-01'), ('2024-04-01'))
@@ -57,51 +69,52 @@ suite("test_function_signature_all_types") {
     // 插入测试数据
     sql """
         INSERT INTO test_sig_all_types VALUES
-        (1, 10, 100, 1000, 10000, 1.1, 10.01, 100.12, 'char', 'varchar', 'string', '2024-01-01', '2024-01-01 10:00:00', '2024-01-01', '2024-01-01 10:00:00', true),
-        (-2, -20, -200, -2000, -20000, -2.2, -20.02, -200.24, 'test', 'test2', 'test3', '2024-02-01', '2024-02-01 11:00:00', '2024-02-01', '2024-02-01 11:00:00', false),
-        (3, 30, 300, 3000, 30000, 3.3, 30.03, 300.36, 'abc', 'def', 'ghi', '2024-03-01', '2024-03-01 12:00:00', '2024-03-01', '2024-03-01 12:00:00', true)
+        (0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 'zero', 'zero', 'zero', '2023-12-15', '2023-12-15 00:00:00', '2023-12-15', '2023-12-15 00:00:00', false),
+        (1, 10, 100, 1000, 10000, 1.1, 10.01, 100.12, 'char', 'varchar', 'string', '2024-01-05', '2024-01-05 10:00:00', '2024-01-05', '2024-01-05 10:00:00', true),
+        (-2, -20, -200, -2000, -20000, -2.2, -20.02, -200.24, 'test', 'test2', 'test3', '2024-02-05', '2024-02-05 11:00:00', '2024-02-05', '2024-02-05 11:00:00', false),
+        (3, 30, 300, 3000, 30000, 3.3, 30.03, 300.36, 'abc', 'def', 'ghi', '2024-03-05', '2024-03-05 12:00:00', '2024-03-05', '2024-03-05 12:00:00', true)
     """
 
     // Verify partition and bucket usage
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-01-01'")
-        contains("partitions=1/3")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-01-05'")
+        contains("partitions=1/4")
     }
     
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 BETWEEN '2024-01-01' AND '2024-03-01'")
-        contains("partitions=3/3")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 BETWEEN '2024-01-05' AND '2024-03-05'")
+        contains("partitions=3/4")
     }
     
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-02-01'")
-        contains("partitions=1/3")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-02-05'")
+        contains("partitions=1/4")
     }
     
     // Test single bucket scan with bucket field condition
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-02-01' AND k13 = '2024-02-01 11:00:00'")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-02-05' AND k13 = '2024-02-05 11:00:00'")
         contains("tablets=1/3")
     }
     
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k13 = '2024-02-01 11:00:00'")
-        contains("partitions=3/3")
-        contains("tablets=3/9")
+        sql("SELECT * FROM test_sig_all_types WHERE k13 = '2024-02-05 11:00:00'")
+        contains("partitions=4/4")
+        contains("tablets=4/12")
     }
 
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-01-01'")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-01-05'")
         contains("tablets=3/3")
     }
     
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 BETWEEN '2024-01-01' AND '2024-03-01'")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 BETWEEN '2024-01-05' AND '2024-03-05'")
         contains("tablets=9/9")
     }
     
     explain {
-        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-02-01'")
+        sql("SELECT * FROM test_sig_all_types WHERE k12 = '2024-02-05'")
         contains("tablets=3/3")
     }
 
@@ -471,4 +484,342 @@ suite("test_function_signature_all_types") {
     sql """
         DROP TABLE IF EXISTS test_sig_all_types
     """
+    
+    // ========== Additional DATEV1 Tests ==========
+    
+    // Test 1: DATEV1 as List Partition key
+    sql """
+        DROP TABLE IF EXISTS test_datev1_list_partitionv3
+    """
+    sql """
+        CREATE TABLE test_datev1_list_partitionv3 (
+            id INT,
+            dt DATEV1,
+            value VARCHAR(100)
+        ) DUPLICATE KEY(id)
+        PARTITION BY LIST(dt) (
+            PARTITION p1 VALUES IN ('2024-01-15', '2024-01-16', '2024-01-17'),
+            PARTITION p2 VALUES IN ('2024-02-15', '2024-02-16', '2024-02-17'),
+            PARTITION p3 VALUES IN ('2024-03-15', '2024-03-16', '2024-03-17')
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_list_partitionv3 VALUES
+        (1, '2024-01-17', 'jan1'),
+        (2, '2024-02-16', 'feb1'),
+        (3, '2024-03-16', 'mar1')
+    """
+    qt_datev1_list_partition "SELECT * FROM test_datev1_list_partition ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_list_partition"
+    
+    // Test 2: DATEV1 as bucketing key
+    sql """
+        DROP TABLE IF EXISTS test_datev1_bucket
+    """
+    sql """
+        CREATE TABLE test_datev1_bucket (
+            id INT,
+            dt DATEV1,
+            value VARCHAR(100)
+        ) DUPLICATE KEY(id, dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_bucket VALUES
+        (1, '2024-01-15', 'val1'),
+        (2, '2024-02-16', 'val2'),
+        (3, '2024-03-16', 'val3')
+    """
+    explain {
+        sql("SELECT * FROM test_datev1_bucket WHERE dt = '2024-02-15'")
+        contains("tablets=1/3")
+    }
+    qt_datev1_bucket "SELECT * FROM test_datev1_bucket ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_bucket"
+    
+    // Test 3: DATEV1 as single column in UNIQUE KEY model
+    sql """
+        DROP TABLE IF EXISTS test_datev1_single_unique
+    """
+    sql """
+        CREATE TABLE test_datev1_single_unique (
+            dt DATEV1,
+            value VARCHAR(100)
+        ) UNIQUE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_single_unique VALUES
+        ('2024-01-15', 'val1'),
+        ('2024-02-15', 'val2'),
+        ('2024-03-15', 'val3')
+    """
+    sql """
+        INSERT INTO test_datev1_single_unique VALUES
+        ('2024-01-15', 'updated_val1')
+    """
+    qt_datev1_single_unique "SELECT * FROM test_datev1_single_unique ORDER BY dt"
+    sql "DROP TABLE IF EXISTS test_datev1_single_unique"
+    
+    // Test 4: DATEV1 as part of multi-column UNIQUE KEY model
+    sql """
+        DROP TABLE IF EXISTS test_datev1_multi_unique
+    """
+    sql """
+        CREATE TABLE test_datev1_multi_unique (
+            id INT,
+            dt DATEV1,
+            value VARCHAR(100)
+        ) UNIQUE KEY(id, dt)
+        DISTRIBUTED BY HASH(id, dt) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_multi_unique VALUES
+        (1, '2024-01-15', 'val1'),
+        (1, '2024-02-15', 'val2'),
+        (2, '2024-01-15', 'val3')
+    """
+    sql """
+        INSERT INTO test_datev1_multi_unique VALUES
+        (1, '2024-01-15', 'updated_val1')
+    """
+    qt_datev1_multi_unique "SELECT * FROM test_datev1_multi_unique ORDER BY id, dt"
+    sql "DROP TABLE IF EXISTS test_datev1_multi_unique"
+    
+    // Test 4.5: DATEV1 as single column in PRIMARY KEY model (Merge-on-Write)
+    sql """
+        DROP TABLE IF EXISTS test_datev1_single_pk
+    """
+    sql """
+        CREATE TABLE test_datev1_single_pk (
+            dt DATEV1 NOT NULL,
+            value VARCHAR(100)
+        ) UNIQUE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_datev1_single_pk VALUES
+        ('2024-01-15', 'val1'),
+        ('2024-02-15', 'val2'),
+        ('2024-03-15', 'val3')
+    """
+    sql """
+        INSERT INTO test_datev1_single_pk VALUES
+        ('2024-01-15', 'updated_val1')
+    """
+    qt_datev1_single_pk "SELECT * FROM test_datev1_single_pk ORDER BY dt"
+    sql "DROP TABLE IF EXISTS test_datev1_single_pk"
+    
+    // Test 4.6: DATEV1 as part of multi-column PRIMARY KEY model (Merge-on-Write)
+    sql """
+        DROP TABLE IF EXISTS test_datev1_multi_pk
+    """
+    sql """
+        CREATE TABLE test_datev1_multi_pk (
+            id INT NOT NULL,
+            dt DATEV1 NOT NULL,
+            value VARCHAR(100)
+        ) UNIQUE KEY(id, dt)
+        DISTRIBUTED BY HASH(id, dt) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_datev1_multi_pk VALUES
+        (1, '2024-01-15', 'val1'),
+        (1, '2024-02-15', 'val2'),
+        (2, '2024-01-15', 'val3')
+    """
+    sql """
+        INSERT INTO test_datev1_multi_pk VALUES
+        (1, '2024-01-15', 'updated_val1')
+    """
+    qt_datev1_multi_pk "SELECT * FROM test_datev1_multi_pk ORDER BY id, dt"
+    sql "DROP TABLE IF EXISTS test_datev1_multi_pk"
+    
+    // Test 5: DATEV1 as single AGG key
+    sql """
+        DROP TABLE IF EXISTS test_datev1_single_agg
+    """
+    sql """
+        CREATE TABLE test_datev1_single_agg (
+            dt DATEV1,
+            value INT SUM
+        ) AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_single_agg VALUES
+        ('2024-01-15', 10),
+        ('2024-01-15', 20),
+        ('2024-02-15', 30)
+    """
+    qt_datev1_single_agg "SELECT * FROM test_datev1_single_agg ORDER BY dt"
+    sql "DROP TABLE IF EXISTS test_datev1_single_agg"
+    
+    // Test 6: DATEV1 as part of multi-column AGG key
+    sql """
+        DROP TABLE IF EXISTS test_datev1_multi_agg
+    """
+    sql """
+        CREATE TABLE test_datev1_multi_agg (
+            id INT,
+            dt DATEV1,
+            value INT SUM
+        ) AGGREGATE KEY(id, dt)
+        DISTRIBUTED BY HASH(id, dt) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_multi_agg VALUES
+        (1, '2024-01-15', 10),
+        (1, '2024-01-15', 20),
+        (1, '2024-02-15', 30),
+        (2, '2024-01-15', 40)
+    """
+    qt_datev1_multi_agg "SELECT * FROM test_datev1_multi_agg ORDER BY id, dt"
+    sql "DROP TABLE IF EXISTS test_datev1_multi_agg"
+    
+    // Test 7: DATEV1 as join key with STRING, check common type
+    sql """
+        DROP TABLE IF EXISTS test_datev1_join_left
+    """
+    sql """
+        DROP TABLE IF EXISTS test_datev1_join_right
+    """
+    sql """
+        CREATE TABLE test_datev1_join_left (
+            id INT,
+            dt DATEV1,
+            value VARCHAR(100)
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE test_datev1_join_right (
+            id INT,
+            dt_str STRING,
+            info VARCHAR(100)
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_join_left VALUES
+        (1, '2024-01-15', 'left1'),
+        (2, '2024-02-15', 'left2'),
+        (3, '2024-03-15', 'left3')
+    """
+    sql """
+        INSERT INTO test_datev1_join_right VALUES
+        (1, '2024-01-15', 'right1'),
+        (2, '2024-02-15', 'right2'),
+        (4, '2024-04-15', 'right4')
+    """
+    qt_datev1_join "SELECT l.id, l.dt, l.value, r.info FROM test_datev1_join_left l JOIN test_datev1_join_right r ON l.dt = r.dt_str ORDER BY l.id"
+    sql "DROP TABLE IF EXISTS test_datev1_join_left"
+    sql "DROP TABLE IF EXISTS test_datev1_join_right"
+    
+    // Test 8: DATEV1 in predicates for filtering and pruning
+    sql """
+        DROP TABLE IF EXISTS test_datev1_predicate
+    """
+    sql """
+        CREATE TABLE test_datev1_predicate (
+            id INT,
+            dt DATEV1,
+            value VARCHAR(100)
+        ) DUPLICATE KEY(id)
+        PARTITION BY RANGE(dt) (
+            PARTITION p1 VALUES [('2024-01-01'), ('2024-02-01')),
+            PARTITION p2 VALUES [('2024-02-01'), ('2024-03-01')),
+            PARTITION p3 VALUES [('2024-03-01'), ('2024-04-01'))
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_predicate VALUES
+        (1, '2024-01-15', 'val1'),
+        (2, '2024-02-15', 'val2'),
+        (3, '2024-03-15', 'val3')
+    """
+    // Test equal predicate
+    explain {
+        sql("SELECT * FROM test_datev1_predicate WHERE dt = '2024-02-15'")
+        contains("partitions=1/3")
+    }
+    // Test range predicate
+    explain {
+        sql("SELECT * FROM test_datev1_predicate WHERE dt >= '2024-02-01' AND dt < '2024-03-01'")
+        contains("partitions=1/3")
+    }
+    // Test IN predicate
+    explain {
+        sql("SELECT * FROM test_datev1_predicate WHERE dt IN ('2024-01-15', '2024-03-15')")
+        contains("partitions=2/3")
+    }
+    qt_datev1_predicate_eq "SELECT * FROM test_datev1_predicate WHERE dt = '2024-02-15' ORDER BY id"
+    qt_datev1_predicate_range "SELECT * FROM test_datev1_predicate WHERE dt >= '2024-02-01' AND dt < '2024-03-01' ORDER BY id"
+    qt_datev1_predicate_in "SELECT * FROM test_datev1_predicate WHERE dt IN ('2024-01-15', '2024-03-15') ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_predicate"
+    
+    // Test 9: DATEV1 in complex types (ARRAY with DATEV1 elements)
+    sql """
+        DROP TABLE IF EXISTS test_datev1_array
+    """
+    sql """
+        CREATE TABLE test_datev1_array (
+            id INT,
+            date_arr ARRAY<DATEV1>
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_array VALUES
+        (1, ['2024-01-01', '2024-01-02', '2024-01-03']),
+        (2, ['2024-02-01', '2024-02-02']),
+        (3, ['2024-03-01'])
+    """
+    qt_datev1_array "SELECT id, array_size(date_arr) as size, date_arr FROM test_datev1_array ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_array"
+    
+    // Test 10: DATEV1 in MAP type
+    sql """
+        DROP TABLE IF EXISTS test_datev1_map
+    """
+    sql """
+        CREATE TABLE test_datev1_map (
+            id INT,
+            date_map MAP<STRING, DATEV1>
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_map VALUES
+        (1, {'start': '2024-01-01', 'end': '2024-01-31'}),
+        (2, {'start': '2024-02-01', 'end': '2024-02-29'}),
+        (3, {'start': '2024-03-01', 'end': '2024-03-31'})
+    """
+    qt_datev1_map "SELECT id, map_size(date_map) as size FROM test_datev1_map ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_map"
+    
+    // Restore config
+    sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = '${originDisableDatev1}')"
+    logger.info("restore disable_datev1 to ${originDisableDatev1}")
 }

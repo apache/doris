@@ -137,7 +137,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     v1.column_name = "v1";
     v1.__set_is_key(false);
     k1.__set_col_unique_id(2);
-    v1.column_type.type = TPrimitiveType::DATETIMEV2;
+    v1.column_type.type = TPrimitiveType::DATETIME;
     v1.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v1);
 
@@ -167,7 +167,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                   .type(TYPE_DATETIMEV2)
+                                   .type(TYPE_DATETIME)
                                    .column_name("v1")
                                    .column_pos(2)
                                    .nullable(false)
@@ -197,10 +197,10 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     int16_t c2 = k2;
     columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-    DateV2Value<DateTimeV2ValueType> c3;
-    c3.unchecked_set_time(2020, 7, 16, 19, 39, 43, 0);
-    uint64_t c3_int = c3.to_date_int_val();
-    columns[2]->insert_data((const char*)&c3_int, sizeof(c3_int));
+    VecDateTimeValue c3;
+    c3.from_date_str("2020-07-16 19:39:43", 19);
+    int64_t c3_int = c3.to_int64();
+    columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
     DateV2Value<DateV2ValueType> c4;
     c4.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);

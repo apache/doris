@@ -58,10 +58,11 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
-#include "util/date_func.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 class OlapMeta;
@@ -277,7 +278,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     TColumn v1;
     v1.column_name = "v1";
     v1.__set_is_key(false);
-    v1.column_type.type = TPrimitiveType::DATETIMEV2;
+    v1.column_type.type = TPrimitiveType::DATETIME;
     v1.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v1);
 }
@@ -297,7 +298,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
                                    .nullable(false)
                                    .build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                   .type(TYPE_DATETIMEV2)
+                                   .type(TYPE_DATETIME)
                                    .column_name("v1")
                                    .column_pos(3)
                                    .nullable(false)
@@ -345,10 +346,10 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
         int32_t c3 = 1;
         columns[2]->insert_data((const char*)&c3, sizeof(c2));
 
-        DateV2Value<DateTimeV2ValueType> c4;
+        VecDateTimeValue c4;
         c4.from_date_str("2020-07-16 19:39:43", 19);
-        uint64_t c4_int = c4.to_date_int_val();
-        columns[3]->insert_data((const char*)&c4_int, sizeof(c4_int));
+        int64_t c4_int = c4.to_int64();
+        columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 
         st = delta_writer->write(&block, {0});
         ASSERT_EQ(Status::OK(), st);
