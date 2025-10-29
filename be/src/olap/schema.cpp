@@ -82,6 +82,8 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
         }
         _cols[cid] = FieldFactory::create(*cols[cid]);
 
+        DCHECK(_cols[cid] != nullptr) << cols[cid]->name();
+
         _col_offsets[cid] = offset;
         // Plus 1 byte for null byte
         offset += _cols[cid]->size() + 1;
