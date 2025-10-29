@@ -111,7 +111,7 @@ Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _iterator_dir_retry_cnt = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_fs_storage_iterator_dir_retry_cnt");
     _cache_base_path = _mgr->_cache_base_path;
-    _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta", 1000);
+    _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta", 10000);
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
         try {
             auto mem_tracker = MemTrackerLimiter::create_shared(
@@ -432,7 +432,8 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
 
     if (version == "1.0") {
         LOG(ERROR) << "Cache version upgrade issue: Cannot upgrade directly from 1.0 to 3.0.Please "
-                      "upgrade to 2.0 first,or clear the file cache directory to start anew "
+                      "upgrade to 2.0 first (>= doris-3.0.0),or clear the file cache directory to "
+                      "start anew "
                       "(LOSING ALL THE CACHE).";
         exit(-1);
     } else if (version == "2.0") {

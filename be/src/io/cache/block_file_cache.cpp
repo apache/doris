@@ -240,6 +240,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_disk_limit_mode", 0);
     _need_evict_cache_in_advance_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_need_evict_cache_in_advance", 0);
+    _meta_store_write_queue_size_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_meta_store_write_queue_size", 0);
 
     _cache_lock_wait_time_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
@@ -2012,6 +2014,18 @@ void BlockFileCache::run_background_monitor() {
                     _disposable_queue.get_capacity(cache_lock));
             _cur_disposable_queue_element_count_metrics->set_value(
                     _disposable_queue.get_elements_num(cache_lock));
+
+            // Update meta store write queue size if storage is FSFileCacheStorage
+            if (_storage->get_type() == FileCacheStorageType::DISK) {
+                auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get());
+                if (fs_storage != nullptr) {
+                    auto* meta_store = fs_storage->get_meta_store();
+                    if (meta_store != nullptr) {
+                        _meta_store_write_queue_size_metrics->set_value(
+                                meta_store->get_write_queue_size());
+                    }
+                }
+            }
 
             if (_num_read_blocks->get_value() > 0) {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /

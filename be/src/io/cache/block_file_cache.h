@@ -554,6 +554,7 @@ private:
     std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _meta_store_write_queue_size_metrics;
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
