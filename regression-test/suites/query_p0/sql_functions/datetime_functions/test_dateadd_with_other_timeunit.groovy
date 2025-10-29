@@ -35,12 +35,25 @@ suite("test_dateadd_with_other_timeunit") {
                 "storage_format" = "V2"
             )
         """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03", "2025-09-08"), ("2025-10-24 01:02:03.4567", "2025-10-24"); """
+    sql """ insert into ${tableName} values ("2025-10-29 10:10:10", "2025-10-29"), ("2025-10-24 01:02:03.4567", "2025-10-24"); """
     
-    testFoldConst """ select date_add("2019-08-01 13:21:03", INTERVAL "1 1:1:1" DAY_SECOND); """
-    testFoldConst """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1" DAY_SECOND); """
-    testFoldConst """ select date_add("2019-08-01", INTERVAL "1 1:1:1" DAY_SECOND); """
-    testFoldConst """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1:-1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1:-1:-1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:-1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:-1:-1" DAY_SECOND); """
+
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 -1:-1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 -1:-1:-1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 -1:-1:1" DAY_SECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 -1:-1:-1" DAY_SECOND); """
 
     qt_sql """ select date_add(test_datetime, INTERVAL "1 1:1:1" DAY_SECOND) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL " 1  1 : 1 : 1 " DAY_SECOND) result from ${tableName}; """
@@ -48,11 +61,17 @@ suite("test_dateadd_with_other_timeunit") {
     qt_sql """ select date_add(test_date, INTERVAL "1 1:1:1" DAY_SECOND) result from ${tableName}; """
     qt_sql """ select date_add(test_date, INTERVAL " 1  1 : 1 : 1 " DAY_SECOND) result from ${tableName}; """
 
-    qt_sql """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1 43" DAY_SECOND); """
-    qt_sql """ select date_add("2019-08-01 13:21:03", INTERVAL "-1 -1:1:1xxx" DAY_SECOND); """
-    qt_sql """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1 34" DAY_SECOND); """
-    qt_sql """ select date_add("2019-08-01", INTERVAL "-1 -1:1:1xx" DAY_SECOND); """
-
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1 1:1:1" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1 1:1:-1" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 1:1:1" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:-1:1" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:-1:-1" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:1:1 43" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1:1:1xxx" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1:1:1.1234" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1 34" DAY_SECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1:1:1xx" DAY_SECOND); """
 
     test {
         sql """ select date_add(test_datetime, INTERVAL '1' DAY_SECOND) result from ${tableName}; """

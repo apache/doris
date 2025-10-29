@@ -151,6 +151,7 @@ struct AddDaySecondImpl {
     }
 
     static long parse_time_string_to_seconds(IntervalNativeType time_str_ref) {
+        bool is_negative = false;
         auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
         // string format: "d h:m:s"
         size_t space_pos = time_str.find_first_of(' ');
@@ -168,6 +169,10 @@ struct AddDaySecondImpl {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid days format in '{}'",
                             std::string_view {time_str.data, time_str.size});
         }
+        if (days < 0) {
+            is_negative = true;
+        }
+
         // hour:minute:second
         StringRef time_hour_str = time_str.substring(space_pos + 1);
         size_t colon1 = time_hour_str.find_first_of(':');
@@ -204,7 +209,13 @@ struct AddDaySecondImpl {
                             std::string_view {time_str.data, time_str.size});
         }
 
-        return days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds;
+        long part0 = days * 24 * 3600;
+        // NOTE: Compatible with MySQL
+        long part1 = std::abs(hours) * 3600 + std::abs(minutes) * 60 + std::abs(seconds);
+        if (is_negative) {
+            part1 *= -1;
+        }
+        return part0 + part1;
     }
 };
 
