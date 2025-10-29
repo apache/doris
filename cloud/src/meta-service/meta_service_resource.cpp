@@ -232,13 +232,11 @@ static int collect_direct_derived_instances(TxnKv* txn_kv, const std::string& so
     }
 
     constexpr Versionstamp kMinVersionstamp = Versionstamp::min();
-    constexpr Versionstamp kMaxVersionstamp = Versionstamp::max();
 
     std::string key_start =
             versioned::snapshot_reference_key_prefix(source_instance_id, kMinVersionstamp);
     std::string key_end =
-            versioned::snapshot_reference_key_prefix(source_instance_id, kMaxVersionstamp);
-    key_end.push_back('\xff');
+            versioned::snapshot_reference_key_prefix(source_instance_id + '\x00', kMinVersionstamp);
     std::string current_start = key_start;
 
     std::unique_ptr<RangeGetIterator> it;
@@ -1822,7 +1820,13 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         return;
     }
 
-    LOG(INFO) << "Found " << cascade_instance_ids.size() << " derived instances to cascade update";
+    std::string cascade_ids_str;
+    for (size_t i = 0; i < cascade_instance_ids.size(); ++i) {
+        if (i > 0) cascade_ids_str += ", ";
+        cascade_ids_str += cascade_instance_ids[i];
+    }
+    LOG(INFO) << "Found " << cascade_instance_ids.size()
+              << " derived instances to cascade update: [" << cascade_ids_str << "]";
 
     for (const auto& cascade_id : cascade_instance_ids) {
         // Use a separate transaction for each derived instance
