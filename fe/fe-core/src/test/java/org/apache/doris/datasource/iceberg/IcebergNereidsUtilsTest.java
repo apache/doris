@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -89,7 +90,11 @@ public class IcebergNereidsUtilsTest {
                 Types.NestedField.required(3, "age", Types.IntegerType.get()),
                 Types.NestedField.required(4, "salary", Types.DoubleType.get()),
                 Types.NestedField.required(5, "is_active", Types.BooleanType.get()),
-                Types.NestedField.required(6, "birth_date", Types.DateType.get()));
+                Types.NestedField.required(6, "birth_date", Types.DateType.get()),
+                Types.NestedField.required(7, "event_time_tz", Types.TimestampType.withZone()),
+                Types.NestedField.required(8, "event_time_ntz", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(9, "dec_col", Types.DecimalType.of(10, 2)),
+                Types.NestedField.required(10, "time_col", Types.TimeType.get()));
     }
 
     @Test
@@ -401,6 +406,97 @@ public class IcebergNereidsUtilsTest {
                 .convertNereidsToIcebergExpression(equalTo, testSchema);
 
         Assertions.assertNotNull(result);
+        Assertions.assertEquals(Expressions.equal("birth_date", "2023-01-01").toString(), result.toString());
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_TimestampWithZoneMicros() throws UserException {
+        org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal literal =
+                new org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal(
+                        org.apache.doris.nereids.types.DateTimeV2Type.forTypeFromString("2023-01-02 03:04:05.123456"),
+                        2023, 1, 2, 3, 4, 5, 123456);
+        EqualTo equalTo = new EqualTo(new SlotReference("event_time_tz",
+                org.apache.doris.nereids.types.DateTimeV2Type.forTypeFromString("2023-01-02 03:04:05.123456"), false),
+                literal);
+
+        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
+                .convertNereidsToIcebergExpression(equalTo, testSchema);
+
+        Assertions.assertNotNull(result);
+        java.time.ZoneId zone = org.apache.doris.nereids.util.DateUtils.getTimeZone();
+        java.time.LocalDateTime ldt = java.time.LocalDateTime.of(2023, 1, 2, 3, 4, 5, 123456000);
+        long expectedMicros = ldt.atZone(zone).toInstant().toEpochMilli() * 1000L + 123456;
+        Assertions.assertEquals(Expressions.equal("event_time_tz", expectedMicros).toString(), result.toString());
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_TimestampWithoutZoneMicros() throws UserException {
+        org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral literal =
+                new org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral(2023, 1, 2, 3, 4, 5);
+        EqualTo equalTo = new EqualTo(new SlotReference("event_time_ntz",
+                org.apache.doris.nereids.types.DateTimeType.INSTANCE, false), literal);
+
+        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
+                .convertNereidsToIcebergExpression(equalTo, testSchema);
+
+        Assertions.assertNotNull(result);
+        java.time.ZoneId zone = java.time.ZoneId.of("UTC");
+        java.time.LocalDateTime ldt = java.time.LocalDateTime.of(2023, 1, 2, 3, 4, 5, 0);
+        long expectedMicros = ldt.atZone(zone).toInstant().toEpochMilli() * 1000L;
+        Assertions.assertEquals(Expressions.equal("event_time_ntz", expectedMicros).toString(), result.toString());
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_DecimalMapping() throws UserException {
+        SlotReference slotRef = new SlotReference("dec_col", DecimalV2Type.SYSTEM_DEFAULT, false);
+        DecimalLiteral literal = new DecimalLiteral(new BigDecimal("12.34"));
+        EqualTo equalTo = new EqualTo(slotRef, literal);
+
+        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
+                .convertNereidsToIcebergExpression(equalTo, testSchema);
+
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.toString().contains("12.34"));
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_DecimalV3Mapping() throws UserException {
+        SlotReference slotRef = new SlotReference("dec_col", DecimalV2Type.SYSTEM_DEFAULT, false);
+        DecimalV3Literal literal =
+                new DecimalV3Literal(new BigDecimal("99.990"));
+        EqualTo equalTo = new EqualTo(slotRef, literal);
+
+        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
+                .convertNereidsToIcebergExpression(equalTo, testSchema);
+
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.toString().contains("99.99"));
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_TimeAsLong() throws UserException {
+        SlotReference slotRef = new SlotReference("time_col", IntegerType.INSTANCE, false);
+        // use a numeric literal to represent micros since midnight
+        BigIntLiteral literal = new BigIntLiteral(12_345_678L);
+        EqualTo equalTo = new EqualTo(slotRef, literal);
+
+        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
+                .convertNereidsToIcebergExpression(equalTo, testSchema);
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(Expressions.equal("time_col", 12_345_678L).toString(), result.toString());
+    }
+
+    @Test
+    public void testConvertNereidsToIcebergExpression_StringToIntParsing() throws UserException {
+        SlotReference slotRef = new SlotReference("id", IntegerType.INSTANCE, false);
+        StringLiteral literal = new StringLiteral("123");
+        EqualTo equalTo = new EqualTo(slotRef, literal);
+
+        org.apache.iceberg.expressions.Expression result = IcebergNereidsUtils
+                .convertNereidsToIcebergExpression(equalTo, testSchema);
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(Expressions.equal("id", 123).toString(), result.toString());
     }
 
     @Test
