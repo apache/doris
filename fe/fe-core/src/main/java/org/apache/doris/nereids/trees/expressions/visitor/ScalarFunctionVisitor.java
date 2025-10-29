@@ -317,6 +317,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -356,6 +357,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
@@ -371,6 +373,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -1781,6 +1785,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(murmurHash364, context);
     }
 
+    default R visitMurmurHash364V2(MurmurHash364V2 murmurHash364V2, C context) {
+        return visitScalarFunction(murmurHash364V2, context);
+    }
+
     default R visitXxHash32(XxHash32 xxHash32, C context) {
         return visitScalarFunction(xxHash32, context);
     }
@@ -2618,11 +2626,23 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(makeSet, context);
     }
 
+    default R visitMakeTime(MakeTime makeTime, C context) {
+        return visitScalarFunction(makeTime, context);
+    }
+
     default R visitExportSet(ExportSet exportSet, C context) {
         return visitScalarFunction(exportSet, context);
     }
 
     default R visitGetFormat(GetFormat getFormat, C context) {
         return visitScalarFunction(getFormat, context);
+    }
+
+    default R visitPeriodAdd(PeriodAdd periodAdd, C context) {
+        return visitScalarFunction(periodAdd, context);
+    }
+
+    default R visitPeriodDiff(PeriodDiff periodDiff, C context) {
+        return visitScalarFunction(periodDiff, context);
     }
 }
