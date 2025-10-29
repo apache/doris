@@ -581,7 +581,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public boolean registerTable(TableIf tableIf) {
         makeSureInitialized();
-        long tableId = tableIf.getId();
         String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
