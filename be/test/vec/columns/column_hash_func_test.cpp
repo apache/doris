@@ -240,7 +240,7 @@ TEST(HashFuncTest, StructTypeTestWithSepcificValueCrcHash) {
     dataTypes.push_back(n1);
     dataTypes.push_back(s1);
 
-    Tuple t;
+    Struct t;
     t.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(1)));
     t.push_back(vectorized::Field::create_field<TYPE_STRING>("hello"));
 

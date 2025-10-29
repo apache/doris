@@ -508,7 +508,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ErrorCases) {
 
     // Test with unsupported types (should throw exception)
     {
-        Field tuple_field = Field::create_field<TYPE_STRUCT>(Tuple());
+        Field tuple_field = Field::create_field<TYPE_STRUCT>(Struct());
 
         EXPECT_THROW(
                 {
