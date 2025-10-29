@@ -56,6 +56,8 @@ public class ColumnType {
         DECIMAL32(4),
         DECIMAL64(8),
         DECIMAL128(16),
+        IPV4(4),
+        IPV6(16),
         STRING(-1),
         ARRAY(-1),
         MAP(-1),
@@ -153,6 +155,18 @@ public class ColumnType {
 
     public boolean isArray() {
         return type == Type.ARRAY;
+    }
+
+    public boolean isIpv4() {
+        return type == Type.IPV4;
+    }
+
+    public boolean isIpv6() {
+        return type == Type.IPV6;
+    }
+
+    public boolean isIp() {
+        return isIpv4() || isIpv6();
     }
 
     public boolean isMap() {
@@ -286,6 +300,12 @@ public class ColumnType {
                 break;
             case "double":
                 type = Type.DOUBLE;
+                break;
+            case "ipv4":
+                type = Type.IPV4;
+                break;
+            case "ipv6":
+                type = Type.IPV6;
                 break;
             case "datev1":
                 type = Type.DATE;
