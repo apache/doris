@@ -137,8 +137,8 @@ private:
     const bool _is_key;
     const std::vector<std::string> _column_paths;
 
-    const TColumnAccessPaths _all_access_paths;
-    const TColumnAccessPaths _predicate_access_paths;
+    TColumnAccessPaths _all_access_paths;
+    TColumnAccessPaths _predicate_access_paths;
 
     const bool _is_auto_increment;
     const std::string _col_default_value;

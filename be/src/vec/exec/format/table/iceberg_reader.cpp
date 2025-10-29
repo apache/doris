@@ -497,8 +497,7 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
     auto process_access_paths = [](const FieldSchema* parquet_field,
                                    const std::vector<TColumnAccessPath>& access_paths,
                                    std::set<uint64_t>& out_ids) {
-        if (!parquet_field) return;
-        if (access_paths.empty()) return;
+        bool access_paths_empty = access_paths.empty();
 
         std::vector<std::vector<std::string>> paths;
         bool has_top_level_only = false;
@@ -511,7 +510,6 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
             } else {
                 continue;
             }
-            DCHECK(path.size() >= 1);
             std::vector<std::string> remaining_path;
             if (path.size() > 1) {
                 remaining_path.assign(path.begin() + 1, path.end());
@@ -525,7 +523,7 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
             paths.push_back(std::move(remaining_path));
         }
 
-        if (has_top_level_only) {
+        if (has_top_level_only || access_paths_empty) {
             uint64_t start_id = parquet_field->get_column_id();
             uint64_t max_column_id = parquet_field->get_max_column_id();
             for (uint64_t id = start_id; id <= max_column_id; ++id) {
@@ -562,15 +560,11 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
         // complex types:
 
         // collect and process all_access_paths -> column_ids
-        if (!all_access_paths.empty()) {
-            process_access_paths(field_schema, all_access_paths, column_ids);
-        }
+        process_access_paths(field_schema, all_access_paths, column_ids);
 
         // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        if (!predicate_access_paths.empty()) {
-            process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
-        }
+        process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
     }
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
 }
@@ -697,8 +691,7 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
     auto process_access_paths = [](const orc::Type* orc_field,
                                    const std::vector<TColumnAccessPath>& access_paths,
                                    std::set<uint64_t>& out_ids) {
-        if (!orc_field) return;
-        if (access_paths.empty()) return;
+        bool access_paths_empty = access_paths.empty();
 
         std::vector<std::vector<std::string>> paths;
         bool has_top_level_only = false;
@@ -711,7 +704,6 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
             } else {
                 continue;
             }
-            DCHECK(path.size() >= 1);
             std::vector<std::string> remaining_path;
             if (path.size() > 1) {
                 remaining_path.assign(path.begin() + 1, path.end());
@@ -725,7 +717,7 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
             paths.push_back(std::move(remaining_path));
         }
 
-        if (has_top_level_only) {
+        if (has_top_level_only || access_paths_empty) {
             uint64_t start_id = orc_field->getColumnId();
             uint64_t max_column_id = orc_field->getMaximumColumnId();
             for (uint64_t id = start_id; id <= max_column_id; ++id) {
@@ -760,15 +752,11 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
         // nested types:
 
         // collect and process all_access_paths -> column_ids
-        if (!all_access_paths.empty()) {
-            process_access_paths(orc_field, all_access_paths, column_ids);
-        }
+        process_access_paths(orc_field, all_access_paths, column_ids);
 
         // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        if (!predicate_access_paths.empty()) {
-            process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
-        }
+        process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
