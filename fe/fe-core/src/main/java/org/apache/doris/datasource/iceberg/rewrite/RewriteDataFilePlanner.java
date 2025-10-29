@@ -57,20 +57,24 @@ public class RewriteDataFilePlanner {
     /**
      * Plan and organize file scan tasks into rewrite groups
      */
-    public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) {
-        // Step 1: Plan FileScanTask from Iceberg table
-        Iterable<FileScanTask> allTasks = planFileScanTasks(icebergTable);
+    public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) throws UserException {
+        try {
+            // Step 1: Plan FileScanTask from Iceberg table
+            Iterable<FileScanTask> allTasks = planFileScanTasks(icebergTable);
 
-        // Step 2: Filter files based on rewrite criteria (matching Iceberg logic)
-        Iterable<FileScanTask> filteredTasks = parameters.isRewriteAll() ? allTasks : filterFiles(allTasks);
+            // Step 2: Filter files based on rewrite criteria (matching Iceberg logic)
+            Iterable<FileScanTask> filteredTasks = parameters.isRewriteAll() ? allTasks : filterFiles(allTasks);
 
-        // Step 3: Group tasks by partition
-        Iterable<RewriteDataGroup> groupedTasks = groupTasksByPartition(filteredTasks);
+            // Step 3: Group tasks by partition
+            Iterable<RewriteDataGroup> groupedTasks = groupTasksByPartition(filteredTasks);
 
-        // Step 4: Filter groups based on parameters
-        Iterable<RewriteDataGroup> filteredGroups = parameters.isRewriteAll() ? groupedTasks
-                : filterGroups(groupedTasks);
-        return Lists.newArrayList(filteredGroups);
+            // Step 4: Filter groups based on parameters
+            Iterable<RewriteDataGroup> filteredGroups = parameters.isRewriteAll() ? groupedTasks
+                    : filterGroups(groupedTasks);
+            return Lists.newArrayList(filteredGroups);
+        } catch (Exception e) {
+            throw new UserException("Failed to plan file scan tasks: " + e.getMessage(), e);
+        }
     }
 
     /**
