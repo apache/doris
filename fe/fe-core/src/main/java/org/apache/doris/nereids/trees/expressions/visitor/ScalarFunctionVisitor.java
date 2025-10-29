@@ -268,6 +268,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -1489,6 +1490,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIsNan(IsNan isNan, C context) {
         return visitScalarFunction(isNan, context);
+    }
+
+    default R visitIsUuid(IsUuid isUuid, C context) {
+        return visitScalarFunction(isUuid, context);
     }
 
     default R visitIsInf(IsInf isInf, C context) {

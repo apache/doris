@@ -15,20 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load;
+#pragma once
 
-public enum EtlJobType {
-    INSERT,
-    BROKER,
-    DELETE,
-    @Deprecated
-    SPARK,
-    COPY,
-    LOCAL_FILE,
-    // create by job scheduler,inner use
-    @Deprecated
-    INSERT_JOB,
-    @Deprecated
-    INGESTION,
-    UNKNOWN
-}
+#include <gen_cpp/FrontendService_types.h>
+
+#include <vector>
+
+#include "common/status.h"
+#include "exec/schema_scanner.h"
+
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
+class SchemaLoadJobScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaLoadJobScanner);
+
+public:
+    SchemaLoadJobScanner();
+    ~SchemaLoadJobScanner() override;
+
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+
+private:
+    Status _fill_block_impl(vectorized::Block* block);
+
+    TFetchLoadJobResult _result;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+};
+
+} // namespace doris
