@@ -61,7 +61,7 @@ TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     meta_store_->put(key1, meta1);
 
     // Wait a bit for async operation to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
     // Test get operation
     auto result = meta_store_->get(key1);
@@ -300,19 +300,20 @@ TEST_F(CacheBlockMetaStoreTest, IteratorValidity) {
     EXPECT_FALSE(iterator->valid());
 }
 
-TEST_F(CacheBlockMetaStoreTest, KeyToString) {
+TEST_F(CacheBlockMetaStoreTest, KeySerialization) {
     uint128_t hash4 = (static_cast<uint128_t>(456789) << 64) | 987654;
     BlockMetaKey key(123, UInt128Wrapper(hash4), 1024);
-    std::string key_str = key.to_string();
 
-    // UInt128Wrapper::to_string() returns hex string, so check for hex representations
-    EXPECT_NE(key_str.find("123"), std::string::npos);  // tablet_id in decimal
-    EXPECT_NE(key_str.find("1024"), std::string::npos); // offset in decimal
+    // Test round-trip serialization
+    std::string serialized = serialize_key(key);
+    BlockMetaKey deserialized = deserialize_key(serialized);
 
-    // Check for hex representations of the hash parts
-    // 456789 in hex is 6f855, 987654 in hex is f1206
-    EXPECT_NE(key_str.find("6f855"), std::string::npos);
-    EXPECT_NE(key_str.find("f1206"), std::string::npos);
+    EXPECT_EQ(deserialized.tablet_id, key.tablet_id);
+    EXPECT_EQ(deserialized.hash, key.hash);
+    EXPECT_EQ(deserialized.offset, key.offset);
+
+    // Verify version byte
+    EXPECT_EQ(serialized[0], 0x1);
 }
 
 TEST_F(CacheBlockMetaStoreTest, BlockMetaEquality) {

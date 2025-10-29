@@ -31,6 +31,10 @@
 #include <sstream>
 
 #include "common/status.h"
+#include "olap/field.h"
+#include "olap/field.h" // For OLAP_FIELD_TYPE_BIGINT
+#include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "util/threadpool.h"
 #include "vec/common/hex.h"
 
@@ -155,8 +159,11 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
 }
 
 std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet_id) {
-    // we trade accurate for clean code. so we ignore pending operations in the write queue
-    std::string prefix = std::to_string(tablet_id) + "_";
+    // Generate prefix using new serialization format
+    std::string prefix;
+    prefix.push_back(0x1); // version byte
+    auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    tablet_id_coder->full_encode_ascending(&tablet_id, &prefix);
 
     class RocksDBIterator : public BlockMetaIterator {
     public:
@@ -167,30 +174,48 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
 
         ~RocksDBIterator() override { delete _iter; }
 
-        bool valid() const override { return _iter->Valid() && _iter->key().starts_with(_prefix); }
+        bool valid() const override {
+            if (!_iter->Valid()) return false;
+            Slice key_slice(_iter->key().data(), _prefix.size());
+            return key_slice.compare(Slice(_prefix)) == 0;
+        }
 
         void next() override { _iter->Next(); }
 
         BlockMetaKey key() const override {
             std::string key_str = _iter->key().ToString();
-            // Key format: "tabletid_hashstring_offset"
-            size_t pos1 = key_str.find('_');
-            if (pos1 == std::string::npos) {
+            Slice slice(key_str);
+
+            // Check version byte
+            if (slice.size < 1 || slice.data[0] != 0x1) {
+                LOG(WARNING) << "Invalid key version in range_get";
                 return BlockMetaKey();
             }
+            slice.remove_prefix(1); // skip version byte
 
-            size_t pos2 = key_str.find('_', pos1 + 1);
-            if (pos2 == std::string::npos) {
-                return BlockMetaKey();
-            }
+            auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
+            int64_t tablet_id;
+            uint64_t hash_high, hash_low;
+            size_t offset;
 
-            int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
-            std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
-            size_t offset = std::stoull(key_str.substr(pos2 + 1));
-            // Convert hash string back to UInt128Wrapper
-            // Using unhex_uint to parse hex string to uint128_t
-            uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
-            return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+            Status st = tablet_id_coder->decode_ascending(&slice, sizeof(int64_t),
+                                                          reinterpret_cast<uint8_t*>(&tablet_id));
+            if (!st.ok()) return BlockMetaKey();
+
+            st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
+                                                   reinterpret_cast<uint8_t*>(&hash_high));
+            if (!st.ok()) return BlockMetaKey();
+
+            st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
+                                                   reinterpret_cast<uint8_t*>(&hash_low));
+            if (!st.ok()) return BlockMetaKey();
+
+            st = tablet_id_coder->decode_ascending(&slice, sizeof(size_t),
+                                                   reinterpret_cast<uint8_t*>(&offset));
+            if (!st.ok()) return BlockMetaKey();
+
+            uint128_t hash = (static_cast<uint128_t>(hash_high) << 64) | hash_low;
+            return BlockMetaKey(tablet_id, UInt128Wrapper(hash), offset);
         }
 
         BlockMeta value() const override {
@@ -233,23 +258,7 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
 
         BlockMetaKey key() const override {
             std::string key_str = _iter->key().ToString();
-            // Key format: "tabletid_hashstring_offset"
-            size_t pos1 = key_str.find('_');
-            if (pos1 == std::string::npos) {
-                return BlockMetaKey();
-            }
-
-            size_t pos2 = key_str.find('_', pos1 + 1);
-            if (pos2 == std::string::npos) {
-                return BlockMetaKey();
-            }
-
-            int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
-            std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
-            size_t offset = std::stoull(key_str.substr(pos2 + 1));
-            // Convert hash string back to UInt128Wrapper
-            uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
-            return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+            return deserialize_key(key_str);
         }
 
         BlockMeta value() const override {
@@ -375,7 +384,24 @@ void CacheBlockMetaStore::async_write_worker() {
 }
 
 std::string serialize_key(const BlockMetaKey& key) {
-    return fmt::format("{}_{}_{}", key.tablet_id, key.hash.to_string(), key.offset);
+    std::string result;
+    // Add version byte
+    result.push_back(0x1);
+
+    // Encode tablet_id using KeyCoderTraits
+    auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    tablet_id_coder->full_encode_ascending(&key.tablet_id, &result);
+
+    // Encode hash high and low parts
+    uint64_t hash_high = key.hash.high();
+    uint64_t hash_low = key.hash.low();
+    tablet_id_coder->full_encode_ascending(&hash_high, &result);
+    tablet_id_coder->full_encode_ascending(&hash_low, &result);
+
+    // Encode offset
+    tablet_id_coder->full_encode_ascending(&key.offset, &result);
+
+    return result;
 }
 
 std::string serialize_value(const BlockMeta& meta) {
@@ -390,19 +416,39 @@ std::string serialize_value(const BlockMeta& meta) {
 }
 
 BlockMetaKey deserialize_key(const std::string& key_str) {
-    // Key format: "tabletid_hashstring_offset"
-    size_t pos1 = key_str.find('_');
-    size_t pos2 = key_str.find('_', pos1 + 1);
+    // New key format: [version][encoded tablet_id][encoded hash_high][encoded hash_low][encoded offset]
+    Slice slice(key_str);
 
-    int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
-    std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
-    size_t offset = std::stoull(key_str.substr(pos2 + 1));
+    // Check version byte
+    if (slice.size < 1 || slice.data[0] != 0x1) {
+        LOG(WARNING) << "Invalid key, expected prefix 0x1";
+        return BlockMetaKey(); // Invalid version
+    }
+    slice.remove_prefix(1); // skip version byte
 
-    // Convert hash string back to UInt128Wrapper
-    // Using unhex_uint to parse hex string to uint128_t
-    uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
+    auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    int64_t tablet_id;
+    uint64_t hash_high, hash_low;
+    size_t offset;
 
-    return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+    Status st = tablet_id_coder->decode_ascending(&slice, sizeof(int64_t),
+                                                  reinterpret_cast<uint8_t*>(&tablet_id));
+    if (!st.ok()) return BlockMetaKey();
+
+    st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
+                                           reinterpret_cast<uint8_t*>(&hash_high));
+    if (!st.ok()) return BlockMetaKey();
+
+    st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
+                                           reinterpret_cast<uint8_t*>(&hash_low));
+    if (!st.ok()) return BlockMetaKey();
+
+    st = tablet_id_coder->decode_ascending(&slice, sizeof(size_t),
+                                           reinterpret_cast<uint8_t*>(&offset));
+    if (!st.ok()) return BlockMetaKey();
+
+    uint128_t hash = (static_cast<uint128_t>(hash_high) << 64) | hash_low;
+    return BlockMetaKey(tablet_id, UInt128Wrapper(hash), offset);
 }
 
 BlockMeta deserialize_value(const std::string& value_str) {
