@@ -47,7 +47,7 @@ public class StreamingJobProperties implements JobProperties {
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
     public static final long DEFAULT_MAX_S3_BATCH_BYTES = 10 * 1024 * 1024 * 1024L; // 10GB
-    public static final int DEFAULT_INSERT_TIMEOUT = 30 * 60; // 30min
+    public static final int DEFAULT_JOB_INSERT_TIMEOUT = 30 * 60; // 30min
 
 
     private final Map<String, String> properties;
@@ -117,12 +117,23 @@ public class StreamingJobProperties implements JobProperties {
         }
     }
 
-    public SessionVariable getSessionVariable() throws JobException {
+    public SessionVariable getSessionVariable(SessionVariable originSessionVar) throws JobException {
         SessionVariable sessionVariable = new SessionVariable();
         Map<String, String> sessionVarMap = parseSessionVarMap();
         if (!sessionVarMap.isEmpty()) {
             try {
-                sessionVariable.setInsertTimeoutS(DEFAULT_INSERT_TIMEOUT);
+                // copy ctx session var
+                sessionVariable.readFromJson(originSessionVar.toJson().toJSONString());
+
+                // override with job session var
+                if (sessionVariable.getInsertTimeoutS() < DEFAULT_JOB_INSERT_TIMEOUT) {
+                    sessionVariable.setInsertTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
+                }
+                if (sessionVariable.getQueryTimeoutS() < DEFAULT_JOB_INSERT_TIMEOUT) {
+                    sessionVariable.setQueryTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
+                }
+
+                // override session var for sessionVarMap
                 sessionVariable.readFromMap(sessionVarMap);
             } catch (Exception e) {
                 throw new JobException("Invalid session variable, " + e.getMessage());
