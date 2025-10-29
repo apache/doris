@@ -91,6 +91,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_get_streaming_task_commit_attach("ms", "get_streaming_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_delete_streaming_job("ms", "delete_streaming_job");
+BvarLatencyRecorderWithTag g_bvar_ms_reset_streaming_job_offset("ms", "reset_streaming_job_offset");
 BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id("ms", "get_txn_id");
 BvarLatencyRecorderWithTag g_bvar_ms_start_tablet_job("ms", "start_tablet_job");
@@ -388,6 +389,10 @@ mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_counter("rpc_kv_get_
 mBvarInt64Adder g_bvar_rpc_kv_get_streaming_task_commit_attach_get_counter("rpc_kv_get_streaming_task_commit_attach_get_counter",{"instance_id"});
 // delete_streaming_job
 mBvarInt64Adder g_bvar_rpc_kv_delete_streaming_job_del_counter("rpc_kv_delete_streaming_job_del_counter",{"instance_id"});
+// reset_streaming_job_offset
+mBvarInt64Adder g_bvar_rpc_kv_reset_streaming_job_offset_get_counter("rpc_kv_reset_streaming_job_offset_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_reset_streaming_job_offset_put_counter("rpc_kv_reset_streaming_job_offset_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_reset_streaming_job_offset_del_counter("rpc_kv_reset_streaming_job_offset_del_counter",{"instance_id"});
 // reset_rl_progress
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_counter("rpc_kv_reset_rl_progress_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_counter("rpc_kv_reset_rl_progress_put_counter",{"instance_id"});
@@ -584,6 +589,10 @@ mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_bytes("rpc_kv_get_rl
 mBvarInt64Adder g_bvar_rpc_kv_get_streaming_task_commit_attach_get_bytes("rpc_kv_get_streaming_task_commit_attach_get_bytes",{"instance_id"});
 // delete_streaming_job
 mBvarInt64Adder g_bvar_rpc_kv_delete_streaming_job_del_bytes("rpc_kv_delete_streaming_job_del_bytes",{"instance_id"});
+// reset_streaming_job_offset
+mBvarInt64Adder g_bvar_rpc_kv_reset_streaming_job_offset_get_bytes("rpc_kv_reset_streaming_job_offset_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_reset_streaming_job_offset_put_bytes("rpc_kv_reset_streaming_job_offset_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_reset_streaming_job_offset_del_bytes("rpc_kv_reset_streaming_job_offset_del_bytes",{"instance_id"});
 // reset_rl_progress
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_bytes("rpc_kv_reset_rl_progress_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_bytes("rpc_kv_reset_rl_progress_put_bytes",{"instance_id"});
