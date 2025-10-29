@@ -260,7 +260,7 @@ struct GroupArraySetOpStringBaseData {
         HybridSetBase::IteratorBase* it = this->set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const std::string*>(it->get_value());
-            buf.write(value->data(), value->size());
+            buf.write_binary(*value);
             it->next();
         }
     }
