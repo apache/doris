@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/string_view.h"
+#include "vec/common/string_container.h"
 
 namespace doris {
 
-bool StringView::operator==(const StringView& other) const {
+bool StringContainer::operator==(const StringContainer& other) const {
     // Compare lengths and first 4 characters.
     if (size_and_prefix_as_int64() != other.size_and_prefix_as_int64()) {
         return false;
@@ -34,7 +34,7 @@ bool StringView::operator==(const StringView& other) const {
     return memcmp(value_.data + kPrefixSize, other.value_.data + kPrefixSize,
                   size_ - kPrefixSize) == 0;
 }
-int32_t StringView::compare(const StringView& other) const {
+int32_t StringContainer::compare(const StringContainer& other) const {
     if (prefix_as_int() != other.prefix_as_int()) {
         // The result is decided on prefix. The shorter will be less because the
         // prefix is padded with zeros.
