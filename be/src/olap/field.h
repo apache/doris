@@ -52,11 +52,17 @@ public:
               _unique_id(column.unique_id()),
               _parent_unique_id(column.parent_unique_id()),
               _is_extracted_column(column.is_extracted_column()),
-              _path(column.path_info_ptr()) {}
+              _path(column.path_info_ptr()) {
+        DCHECK(_type_info != nullptr) << column.name() << " , " << (int)column.type() << " , "
+                                      << column.is_agg_state_type();
+    }
 
     virtual ~Field() = default;
 
-    size_t size() const { return _type_info->size(); }
+    size_t size() const {
+        DCHECK(_type_info != nullptr);
+        return _type_info->size();
+    }
     size_t length() const { return _length; }
     size_t field_size() const { return size() + 1; }
     size_t index_size() const { return _index_size; }
