@@ -1098,7 +1098,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                     continue;
                 }
                 inverted_indexs = assert_cast<VariantColumnReader*>(column_reader.get())
-                                          ->find_subcolumn_tablet_indexes(column.suffix_path());
+                                          ->find_subcolumn_tablet_indexes(
+                                                  column, column_reader->get_vec_data_type());
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
             else {

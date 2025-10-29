@@ -234,6 +234,8 @@ public:
 
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
+    vectorized::DataTypePtr get_vec_data_type() { return _data_type; }
+
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
@@ -298,6 +300,8 @@ private:
     io::FileReaderSPtr _file_reader;
 
     DictEncodingType _dict_encoding_type;
+
+    vectorized::DataTypePtr _data_type;
 
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.

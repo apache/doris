@@ -27,10 +27,12 @@
 #include <vector>
 
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/variant_statistics.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_object.h"
+#include "util/once.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/json/path_in_data.h"
 
@@ -38,6 +40,7 @@ namespace doris {
 
 class TabletIndex;
 class StorageReadOptions;
+class TabletSchema;
 
 namespace segment_v2 {
 
@@ -70,7 +73,8 @@ public:
 
     int64_t get_metadata_size() const override;
 
-    std::vector<const TabletIndex*> find_subcolumn_tablet_indexes(const std::string&);
+    std::vector<const TabletIndex*> find_subcolumn_tablet_indexes(
+            const TabletColumn& target_column, const vectorized::DataTypePtr& data_type);
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
@@ -80,16 +84,36 @@ public:
         return _subcolumns_meta_info.get();
     }
 
-    void get_subcolumns_types(
-            std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
-                               vectorized::PathInData::Hash>* subcolumns_types) const;
+    // Get the types of all subcolumns in the variant column.
+    // Currenly only used for compaction read.This function will load all external meta if not loaded.
+    Status get_subcolumns_types(std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
+                                                   vectorized::PathInData::Hash>* subcolumns_types);
 
-    void get_typed_paths(std::unordered_set<std::string>* typed_paths) const;
+    // Get the typed paths in the variant column.
+    // Currenly only used for compaction read.This function will load all external meta if not loaded.
+    Status get_typed_paths(std::unordered_set<std::string>* typed_paths);
 
-    void get_nested_paths(std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>*
-                                  nested_paths) const;
+    // Get the nested paths in the variant column.
+    // Currenly only used for compaction read.This function will load all external meta if not loaded.
+    Status get_nested_paths(
+            std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>* nested_paths);
+
+    // Try create a ColumnReader from externalized meta (path -> ColumnMetaPB bytes) if present.
+    Status create_reader_from_external_meta(const std::string& path,
+                                            const ColumnReaderOptions& opts,
+                                            const io::FileReaderSPtr& file_reader,
+                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
 
 private:
+    // Ensure external meta is loaded only once across concurrent callers.
+    Status _load_external_meta_once() {
+        return _load_external_meta_once_call.call(
+                [&] { return _load_subcolumns_from_external_meta(); });
+    }
+    // Load all ColumnMeta from external meta index and populate `_subcolumns_meta_info`.
+    // It only updates the subcolumns meta tree (types and ordinals for leaves). Root reader
+    // and on-disk readers are not created here.
+    Status _load_subcolumns_from_external_meta();
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
@@ -114,11 +138,27 @@ private:
     std::shared_ptr<ColumnReader> _sparse_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
-    // key: subcolumn path, value: subcolumn indexes
-    std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
+    std::shared_ptr<TabletSchema> _tablet_schema;
     // variant_sparse_column_statistics_size
     size_t _variant_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
+
+    // Externalized meta index (optional): keys (path) and values (ColumnMetaPB bytes)
+    std::unique_ptr<IndexedColumnReader> _ext_meta_key_reader;
+    std::unique_ptr<IndexedColumnReader> _ext_meta_val_reader;
+
+    io::FileReaderSPtr _segment_file_reader;
+    uint64_t _num_rows {0};
+    uint32_t _root_unique_id {0};
+
+    bool _ext_meta_loaded = false;
+
+    Status _try_build_external_meta_readers(const SegmentFooterPB& footer,
+                                            const io::FileReaderSPtr& file_reader);
+    Status _lookup_external_meta_by_path(const std::string& path, ColumnMetaPB* out_meta);
+
+    // call-once guard for loading external subcolumns
+    DorisCallOnce<Status> _load_external_meta_once_call;
 };
 
 class VariantRootColumnIterator : public ColumnIterator {

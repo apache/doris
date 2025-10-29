@@ -759,8 +759,8 @@ Status aggregate_path_to_stats(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -798,8 +798,8 @@ Status aggregate_variant_extended_info(
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
+            auto* variant_column_reader =
+                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -818,15 +818,18 @@ Status aggregate_variant_extended_info(
             //2. agg path -> schema
             auto& paths_types =
                     (*uid_to_variant_extended_info)[column->unique_id()].path_to_data_types;
-            variant_column_reader->get_subcolumns_types(&paths_types);
+            RETURN_IF_ERROR(variant_column_reader->get_subcolumns_types(&paths_types));
+            VLOG_DEBUG << "path_to_data_types size: " << paths_types.size();
 
             // 3. extract typed paths
             auto& typed_paths = (*uid_to_variant_extended_info)[column->unique_id()].typed_paths;
-            variant_column_reader->get_typed_paths(&typed_paths);
+            RETURN_IF_ERROR(variant_column_reader->get_typed_paths(&typed_paths));
+            VLOG_DEBUG << "typed_paths size: " << typed_paths.size();
 
             // 4. extract nested paths
             auto& nested_paths = (*uid_to_variant_extended_info)[column->unique_id()].nested_paths;
-            variant_column_reader->get_nested_paths(&nested_paths);
+            RETURN_IF_ERROR(variant_column_reader->get_nested_paths(&nested_paths));
+            VLOG_DEBUG << "nested_paths size: " << nested_paths.size();
         }
     }
     return Status::OK();
@@ -1490,9 +1493,12 @@ TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetShare
                 }
 
                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                const auto* subcolumn_meta_info =
-                        assert_cast<VariantColumnReader*>(column_reader.get())
-                                ->get_subcolumns_meta_info();
+                auto* variant_column_reader =
+                        assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                if (!st.ok()) {
+                    return base_schema;
+                }
+                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
                 for (const auto& entry : *subcolumn_meta_info) {
                     if (entry->path.empty()) {
                         continue;

@@ -299,6 +299,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         _meta_children_column_type = (FieldType)meta.children_columns(0).type();
     }
+    _data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
