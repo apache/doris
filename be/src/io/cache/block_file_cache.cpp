@@ -481,9 +481,9 @@ void BlockFileCache::use_cell(FileBlockCell& cell, FileBlocks* result, bool move
                                     .count();
             if (now_time - cell.atime > config::normal_queue_cold_time_ms) {
                 queue.remove(*cell.queue_iterator, cache_lock);
-                _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
-                                                  cell.file_block->get_hash_value(),
-                                                  cell.file_block->offset(), cell.size());
+                _lru_recorder->record_queue_event(
+                        FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
+                        cell.file_block->get_hash_value(), cell.file_block->offset(), cell.size());
                 auto& normal_queue = get_queue(FileCacheType::NORMAL);
                 cell.queue_iterator =
                         normal_queue.add(cell.file_block->_key.hash, cell.file_block->_key.offset,
