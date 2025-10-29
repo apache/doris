@@ -181,6 +181,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
         // check the meta store to see the content
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             // Check if storage is FSFileCacheStorage before accessing _meta_store
             auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             ASSERT_NE(fs_storage, nullptr)
@@ -242,6 +243,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
         // check the meta store to see the content
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             ASSERT_NE(fs_storage, nullptr)
                     << "Expected FSFileCacheStorage but got different storage type";
@@ -298,6 +300,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
         // check meta store
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache2._storage.get());
             ASSERT_NE(fs_storage, nullptr)
                     << "Expected FSFileCacheStorage but got different storage type";
@@ -368,6 +371,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
         // check the meta
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache2._storage.get());
             ASSERT_NE(fs_storage, nullptr)
                     << "Expected FSFileCacheStorage but got different storage type";
@@ -394,6 +398,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
         // check the meta
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache2._storage.get());
             ASSERT_NE(fs_storage, nullptr)
                     << "Expected FSFileCacheStorage but got different storage type";
