@@ -207,6 +207,7 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
     ++committed_version_;
 
     int16_t seq = 0;
+    std::set<std::string> modified_keys; // Track which keys were modified
     for (const auto& vec : op_list) {
         const auto& [op_type, k, v] = vec;
         LogItem log_item {op_type, committed_version_, k, v};
@@ -214,18 +215,21 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         switch (op_type) {
         case memkv::ModifyOpType::PUT: {
             mem_kv_[k].push_front(Version {committed_version_, v});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::ATOMIC_SET_VER_KEY: {
             std::string ver_key(k);
             gen_version_timestamp(committed_version_, seq, &ver_key);
             mem_kv_[ver_key].push_front(Version {committed_version_, v});
+            modified_keys.insert(ver_key);
             break;
         }
         case memkv::ModifyOpType::ATOMIC_SET_VER_VAL: {
             std::string ver_val(v);
             gen_version_timestamp(committed_version_, seq, &ver_val);
             mem_kv_[k].push_front(Version {committed_version_, ver_val});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::ATOMIC_ADD: {
@@ -239,10 +243,12 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
             int64_t res = *(int64_t*)org_val.data() + *(int64_t*)v.data();
             std::memcpy(org_val.data(), &res, 8);
             mem_kv_[k].push_front(Version {committed_version_, org_val});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::REMOVE: {
             mem_kv_[k].push_front(Version {committed_version_, std::nullopt});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::REMOVE_RANGE: {
@@ -250,6 +256,7 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
             auto end_iter = mem_kv_.lower_bound(v);
             while (begin_iter != end_iter) {
                 mem_kv_[begin_iter->first].push_front(Version {committed_version_, std::nullopt});
+                modified_keys.insert(begin_iter->first);
                 begin_iter++;
             }
             break;
@@ -257,6 +264,11 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         default:
             break;
         }
+    }
+
+    // Trigger watches for all modified keys
+    for (const auto& key : modified_keys) {
+        trigger_watches(key);
     }
 
     *committed_version = committed_version_;
@@ -314,6 +326,51 @@ std::unique_ptr<FullRangeGetIterator> MemTxnKv::full_range_get(std::string begin
                                                                FullRangeGetOptions opts) {
     return std::make_unique<memkv::FullRangeGetIterator>(std::move(begin), std::move(end),
                                                          std::move(opts));
+}
+
+void MemTxnKv::register_watch(const std::string& key, std::shared_ptr<WatchInfo> watch_info) {
+    std::lock_guard<std::mutex> l(lock_);
+    watches_[key].push_back(std::move(watch_info));
+}
+
+void MemTxnKv::trigger_watches(const std::string& key) {
+    // Must be called with lock_ held
+    auto it = watches_.find(key);
+    if (it == watches_.end()) {
+        return;
+    }
+
+    // Get the current version for this key
+    int64_t current_version = -1;
+    auto kv_it = mem_kv_.find(key);
+    if (kv_it != mem_kv_.end() && !kv_it->second.empty()) {
+        current_version = kv_it->second.front().commit_version;
+    }
+
+    // Trigger and remove watches where the version has changed
+    std::vector<std::shared_ptr<WatchInfo>> to_trigger;
+    auto& watch_list = it->second;
+    for (auto iter = watch_list.begin(); iter != watch_list.end();) {
+        auto& watch = *iter;
+        // Trigger if the current version is greater than the watch version
+        // This means the key has been modified since the watch was set
+        if (current_version > watch->watch_version) {
+            to_trigger.push_back(watch);
+            iter = watch_list.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
+
+    if (watch_list.empty()) {
+        watches_.erase(it);
+    }
+
+    for (auto& watch : to_trigger) {
+        std::lock_guard<std::mutex> watch_lock(watch->mutex);
+        watch->triggered = true;
+        watch->cv.notify_all();
+    }
 }
 
 } // namespace doris::cloud
@@ -676,6 +733,44 @@ TxnErrorCode Transaction::get_committed_version(int64_t* version) {
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::watch_key(std::string_view key) {
+    std::string k(key.data(), key.size());
+
+    // Commit the transaction
+    auto commit_code = commit();
+    if (commit_code != TxnErrorCode::TXN_OK) {
+        return commit_code;
+    }
+
+    int64_t watch_version = read_version_;
+    auto watch_info = std::make_shared<MemTxnKv::WatchInfo>();
+    watch_info->watch_version = watch_version;
+
+    // Register the watch and check if the key has already changed
+    // This is done atomically to avoid race condition
+    {
+        std::lock_guard<std::mutex> l(kv_->lock_);
+
+        // Check if the key has been modified after our watch version
+        auto kv_it = kv_->mem_kv_.find(k);
+        if (kv_it != kv_->mem_kv_.end() && !kv_it->second.empty()) {
+            const auto& latest_version = kv_it->second.front();
+            if (latest_version.commit_version > watch_version) {
+                // Key has already changed, return immediately without blocking
+                return TxnErrorCode::TXN_OK;
+            }
+        }
+
+        // Register the watch only if the key hasn't changed yet
+        kv_->watches_[k].push_back(watch_info);
+    }
+
+    // Wait for the watch to be triggered
+    std::unique_lock<std::mutex> watch_lock(watch_info->mutex);
+    watch_info->cv.wait(watch_lock, [&watch_info] { return watch_info->triggered; });
+
+    return TxnErrorCode::TXN_OK;
+}
 TxnErrorCode Transaction::abort() {
     return TxnErrorCode::TXN_OK;
 }

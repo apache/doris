@@ -266,7 +266,10 @@ public class CopyIntoInfo {
                     analyzer, context, cascadesContext);
         }
 
-        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
+        String compression = copyIntoProperties.getCompression();
+        if (compression != null) {
+            dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, compression);
+        }
         dataDescription = new DataDescription(tableNameInfo.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
             legacyColumnMappingList, legacyFileFilterExpr, null, LoadTask.MergeType.APPEND, null,

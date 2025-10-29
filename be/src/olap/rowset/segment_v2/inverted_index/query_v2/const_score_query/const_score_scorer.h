@@ -17,29 +17,27 @@
 
 #pragma once
 
-#include <memory>
-
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_weight.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
-#include "roaring/roaring.hh"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class BitmapQuery : public Query {
+template <typename ScorerPtrT>
+class ConstScoreScorer : public Scorer {
 public:
-    explicit BitmapQuery(std::shared_ptr<roaring::Roaring> bitmap) : _bitmap(std::move(bitmap)) {}
-    BitmapQuery(const roaring::Roaring& bitmap)
-            : _bitmap(std::make_shared<roaring::Roaring>(bitmap)) {}
-    ~BitmapQuery() override = default;
+    ConstScoreScorer(ScorerPtrT scorer) : _scorer(std::move(scorer)) {}
+    ~ConstScoreScorer() override = default;
 
-    WeightPtr weight(bool /*enable_scoring*/) override {
-        return std::make_shared<BitmapWeight>(_bitmap);
-    }
+    uint32_t advance() override { return _scorer->advance(); }
+    uint32_t seek(uint32_t target) override { return _scorer->seek(target); }
+    uint32_t doc() const override { return _scorer->doc(); }
+    uint32_t size_hint() const override { return _scorer->size_hint(); }
+
+    float score() override { return _score; }
 
 private:
-    std::shared_ptr<roaring::Roaring> _bitmap;
-};
+    ScorerPtrT _scorer;
 
-using BitmapQueryPtr = std::shared_ptr<BitmapQuery>;
+    float _score = 1.0F;
+};
 
 } // namespace doris::segment_v2::inverted_index::query_v2

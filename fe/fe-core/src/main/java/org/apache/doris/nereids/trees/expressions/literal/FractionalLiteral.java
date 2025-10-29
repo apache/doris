@@ -106,7 +106,7 @@ public abstract class FractionalLiteral extends NumericLiteral {
         return super.uncheckedCastTo(targetType);
     }
 
-    protected String castToString() {
+    protected String castValueToString() {
         Object object = getValue();
         if (object instanceof BigDecimal) {
             return getStringValue();

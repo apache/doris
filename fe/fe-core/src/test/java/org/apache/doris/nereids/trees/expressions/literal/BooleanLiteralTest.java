@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -28,7 +29,9 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -107,5 +110,26 @@ public class BooleanLiteralTest {
         expression = aFalse.uncheckedCastTo(LargeIntType.INSTANCE);
         Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
         Assertions.assertEquals(0, ((LargeIntLiteral) expression).getValue().intValue());
+
+        expression = aTrue.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("1", ((StringLiteral) expression).getValue());
+        expression = aFalse.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("0", ((StringLiteral) expression).getValue());
+
+        expression = aTrue.uncheckedCastTo(CharType.SYSTEM_DEFAULT);
+        Assertions.assertInstanceOf(CharLiteral.class, expression);
+        Assertions.assertEquals("1", ((CharLiteral) expression).getValue());
+        expression = aFalse.uncheckedCastTo(CharType.SYSTEM_DEFAULT);
+        Assertions.assertInstanceOf(CharLiteral.class, expression);
+        Assertions.assertEquals("0", ((CharLiteral) expression).getValue());
+
+        expression = aTrue.uncheckedCastTo(VarcharType.SYSTEM_DEFAULT);
+        Assertions.assertInstanceOf(VarcharLiteral.class, expression);
+        Assertions.assertEquals("1", ((VarcharLiteral) expression).getValue());
+        expression = aFalse.uncheckedCastTo(VarcharType.SYSTEM_DEFAULT);
+        Assertions.assertInstanceOf(VarcharLiteral.class, expression);
+        Assertions.assertEquals("0", ((VarcharLiteral) expression).getValue());
     }
 }

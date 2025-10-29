@@ -290,6 +290,11 @@ public class TimeV2Literal extends Literal {
         return sb.toString();
     }
 
+    @Override
+    protected String castValueToString() {
+        return getStringValue();
+    }
+
     public static boolean isDateOutOfRange(LocalDateTime dateTime) {
         return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }

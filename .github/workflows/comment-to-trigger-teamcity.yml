@@ -404,7 +404,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip performance"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x

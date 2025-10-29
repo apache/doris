@@ -897,7 +897,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_char as BOOLEAN) = TRUE))
+--------filter(cast(d_char as BOOLEAN))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type92 --
@@ -909,7 +909,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_varchar as BOOLEAN) = TRUE))
+--------filter(cast(d_varchar as BOOLEAN))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type93 --
@@ -921,7 +921,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(d_string as BOOLEAN) = TRUE))
+--------filter(cast(d_string as BOOLEAN))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type96 --

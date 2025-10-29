@@ -156,17 +156,9 @@ public:
         std::string encoded_max_value;
         bool has_null;
         bool is_all_null;
-    };
-
-    enum OP {
-        EQ,
-        LT,
-        LE,
-        GT,
-        GE,
-        IS_NULL,
-        IS_NOT_NULL,
-        IN,
+        const FieldSchema* col_schema;
+        const cctz::time_zone* ctz;
+        std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func;
     };
 
     static Status get_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
@@ -394,56 +386,6 @@ public:
         }
 
         return Status::OK();
-    }
-
-    static bool check_can_filter(OP op, const std::vector<Field>& literal_values,
-                                 const ColumnStat& column_stat, const FieldSchema* col_schema,
-                                 const cctz::time_zone* ctz) {
-        Field min_field;
-        Field max_field;
-        if (!ParquetPredicate::get_min_max_value(col_schema, column_stat.encoded_min_value,
-                                                 column_stat.encoded_max_value, *ctz, &min_field,
-                                                 &max_field)) {
-            return false;
-        };
-
-        switch (op) {
-        case ParquetPredicate::OP::EQ:
-        case ParquetPredicate::OP::IN: {
-            for (const auto& in_value : literal_values) {
-                if (in_value.is_null() && column_stat.has_null) {
-                    return false;
-                }
-                if (min_field <= in_value && in_value <= max_field) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        case ParquetPredicate::OP::LT: {
-            DCHECK(!literal_values[0].is_null());
-            return min_field >= literal_values[0];
-        }
-        case ParquetPredicate::OP::LE: {
-            DCHECK(!literal_values[0].is_null());
-            return min_field > literal_values[0];
-        }
-        case ParquetPredicate::OP::GT: {
-            DCHECK(!literal_values[0].is_null());
-            return max_field <= literal_values[0];
-        }
-        case ParquetPredicate::OP::GE: {
-            DCHECK(!literal_values[0].is_null());
-            return max_field < literal_values[0];
-        }
-        case ParquetPredicate::OP::IS_NULL: {
-            return !column_stat.has_null;
-        }
-        case ParquetPredicate::OP::IS_NOT_NULL: {
-            return column_stat.is_all_null;
-        }
-        }
-        return false;
     }
 };
 #include "common/compile_check_end.h"

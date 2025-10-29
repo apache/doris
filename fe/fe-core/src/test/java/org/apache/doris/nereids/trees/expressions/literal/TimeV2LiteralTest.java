@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -151,6 +153,25 @@ public class TimeV2LiteralTest {
         Assertions.assertThrows(AnalysisException.class, () -> {
             new TimeV2Literal(TimeV2Type.of(0), "-839:59:59");
         });
+    }
+
+    @Test
+    public void testUncheckedCast() {
+        // to string
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(0), "12:12:12");
+        Expression expression = literal.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("12:12:12", ((StringLiteral) expression).value);
+
+        literal = new TimeV2Literal(TimeV2Type.of(0), "0");
+        expression = literal.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("00:00:00", ((StringLiteral) expression).value);
+
+        literal = new TimeV2Literal(TimeV2Type.of(3), "0");
+        expression = literal.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("00:00:00.000", ((StringLiteral) expression).value);
     }
 
 }

@@ -561,6 +561,21 @@ class FE(Node):
             "is_cloud_follower"] = self.cluster.is_cloud and self.cluster.fe_follower
         super().init()
 
+    def init_conf(self):
+        # Call parent's init_conf first
+        super().init_conf()
+
+        # Write cluster_snapshot.json for FE-1 in cloud mode only
+        if self.id == 1 and self.cluster.is_cloud and self.cluster.cluster_snapshot:
+            conf_dir = os.path.join(self.get_path(), "conf")
+            snapshot_file = os.path.join(conf_dir, "cluster_snapshot.json")
+            try:
+                with open(snapshot_file, "w") as f:
+                    f.write(self.cluster.cluster_snapshot)
+                LOG.info(f"Written cluster snapshot to {snapshot_file}")
+            except Exception as e:
+                LOG.warning(f"Failed to write cluster snapshot file: {e}")
+
     def get_add_init_config(self):
         cfg = super().get_add_init_config()
         if self.cluster.fe_config:
@@ -607,6 +622,8 @@ class FE(Node):
 
     def docker_env(self):
         envs = super().docker_env()
+        if self.cluster.is_rollback:
+            envs["ROLLBACK"] = 1
         # Create instance when using external MS cluster, and pass cloud store config
         if self.cluster.external_ms_cluster:
             envs["AUTO_CREATE_INSTANCE"] = 1
@@ -617,6 +634,11 @@ class FE(Node):
             envs["INSTANCE_ID"] = self.cluster.instance_id
             if self.meta["is_cloud_follower"]:
                 envs["IS_FE_FOLLOWER"] = 1
+            # Add CLUSTER_SNAPSHOT_FILE env var for FE-1 if the file exists
+            if self.id == 1:
+                snapshot_file = os.path.join(self.get_path(), "conf", "cluster_snapshot.json")
+                if os.path.exists(snapshot_file):
+                    envs["CLUSTER_SNAPSHOT_FILE"] = "./conf/cluster_snapshot.json"
         envs["MY_QUERY_PORT"] = self.meta["ports"]["query_port"]
         envs["MY_EDITLOG_PORT"] = self.meta["ports"]["edit_log_port"]
         return envs
@@ -632,6 +654,8 @@ class FE(Node):
         }
 
     def cloud_unique_id(self):
+        if self.cluster.is_rollback:
+            return "1:{}:sql_server_{}".format(self.cluster.instance_id, self.id)
         return "{}_sql_server_{}".format(self.cluster.name, self.id)
 
     def start_script(self):
@@ -729,6 +753,8 @@ class BE(Node):
 
     def docker_env(self):
         envs = super().docker_env()
+        if self.cluster.is_rollback:
+            envs["ROLLBACK"] = 1
         envs["MY_HEARTBEAT_PORT"] = self.meta["ports"][
             "heartbeat_service_port"]
         if self.cluster.is_cloud:
@@ -748,6 +774,8 @@ class BE(Node):
         }
 
     def cloud_unique_id(self):
+        if self.cluster.is_rollback:
+            return "1:{}:compute_node_{}".format(self.cluster.instance_id, self.id)
         return "{}_compute_node_{}".format(self.cluster.name, self.id)
 
     def docker_home_dir(self):
@@ -861,7 +889,7 @@ class Cluster(object):
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
                  extra_hosts, coverage_dir, cloud_store_config,
                  sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
-                 external_ms_cluster, instance_id):
+                 external_ms_cluster, instance_id, cluster_snapshot=""):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -884,6 +912,9 @@ class Cluster(object):
         self.instance_id = instance_id
         if not self.instance_id:
             self.instance_id = f"instance_{name}" if self.external_ms_cluster else "default_instance_id"
+        # cluster_snapshot is not persisted to meta, only used during cluster creation
+        self.cluster_snapshot = cluster_snapshot
+        self.is_rollback = False
         self.groups = {
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
@@ -903,7 +934,7 @@ class Cluster(object):
             fe_follower, be_disks, be_cluster, reg_be, extra_hosts,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
             be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
-            external_ms_cluster, instance_id):
+            external_ms_cluster, instance_id, cluster_snapshot=""):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -918,7 +949,8 @@ class Cluster(object):
                               be_disks, be_cluster, reg_be, extra_hosts,
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
-                              be_cluster_id, tde_ak, tde_sk, external_ms_cluster, instance_id)
+                              be_cluster_id, tde_ak, tde_sk, external_ms_cluster,
+                              instance_id, cluster_snapshot)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()

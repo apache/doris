@@ -139,7 +139,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 } catch (MetastoreNotificationFetchException e) {
                     LOG.warn("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
-                    hmsExternalCatalog.onRefreshCache();
+                    hmsExternalCatalog.onRefreshCache(true);
                     updateLastSyncedEventId(hmsExternalCatalog, -1);
                     LOG.warn("Failed to process hive metastore [{}] events .",
                             hmsExternalCatalog.getName(), ex);
