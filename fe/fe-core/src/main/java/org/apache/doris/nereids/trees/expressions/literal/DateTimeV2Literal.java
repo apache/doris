@@ -237,9 +237,21 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
         try {
             long days = Long.parseLong(day);
+            boolean dayPositive = days >= 0;
+
             long hours = Long.parseLong(hourMinuteSecond[0]);
             long minutes = Long.parseLong(hourMinuteSecond[1]);
             long seconds = Long.parseLong(hourMinuteSecond[2]);
+
+            if (dayPositive) {
+                hours = Math.abs(hours);
+                minutes = Math.abs(minutes);
+                seconds = Math.abs(seconds);
+            } else {
+                hours = -Math.abs(hours);
+                minutes = -Math.abs(minutes);
+                seconds = -Math.abs(seconds);
+            }
 
             return fromJavaDateType(toJavaDateType()
                 .plusDays(days)
