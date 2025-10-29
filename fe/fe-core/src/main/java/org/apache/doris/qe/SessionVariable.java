@@ -26,7 +26,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -1150,7 +1149,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
-    public String timeZone = TimeUtils.getSystemTimeZone().getID();
+    public String timeZone = "+00:00";
 
     @VariableMgr.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResult = true,
             setter = "setLcTimeNames")
@@ -3531,7 +3530,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String getTimeZone() {
-        return timeZone;
+        return "+00:00";
     }
 
     public void setTimeZone(String timeZone) {

@@ -128,7 +128,11 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             }
         }
 
-        DCHECK(function != nullptr);
+        if (function == nullptr) {
+            throw doris::Exception(Status::InternalError(
+                    fmt::format("column get aggregate function failed, column={}",
+                                _tablet_schema->column(cid).name())));
+        }
         _agg_functions[cid] = function;
     }
 
