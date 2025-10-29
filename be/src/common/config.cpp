@@ -1627,7 +1627,7 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
-DEFINE_mString(binary_plain_encoding_default_impl, "v2");
+DEFINE_mString(binary_plain_encoding_default_impl, "v1");
 DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
     return config == "v1" || config == "v2";
 });
