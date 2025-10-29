@@ -45,7 +45,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_dict_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_prefix_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/bitshuffle_page_test.cpp
@@ -113,7 +112,7 @@ add_executable(doris_be_test ${UT_FILES})
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
     -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
-
+target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h)
 if (OS_MACOSX AND ARCH_ARM)
     find_program(DSYMUTIL NAMES dsymutil)
     message(STATUS "dsymutil found: ${DSYMUTIL}")

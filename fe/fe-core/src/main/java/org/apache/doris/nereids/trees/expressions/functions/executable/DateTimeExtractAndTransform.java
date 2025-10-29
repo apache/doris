@@ -45,7 +45,9 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -711,6 +713,34 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * time transformation function: maketime
+     */
+    @ExecFunction(name = "maketime")
+    public static Expression makeTime(BigIntLiteral hour, BigIntLiteral minute, DoubleLiteral second) {
+        long hourValue = hour.getValue();
+        long minuteValue = minute.getValue();
+        double secondValue = second.getValue();
+
+        if (minuteValue < 0 || minuteValue >= 60 || secondValue < 0 || secondValue >= 60) {
+            return new NullLiteral(TimeV2Type.INSTANCE);
+        }
+        if (Math.abs(hourValue) > 838) {
+            hourValue = hourValue > 0 ? 838 : -838;
+            minuteValue = 59;
+            secondValue = 59;
+        } else if (Math.abs(hourValue) == 838 && secondValue > 59) {
+            secondValue = 59;
+        }
+
+        double totalSeconds = Math.abs(hourValue) * 3600 + minuteValue * 60
+                + Math.round(secondValue * 1000000.0) / 1000000.0;
+        if (hourValue < 0) {
+            totalSeconds = -totalSeconds;
+        }
+        return new TimeV2Literal(totalSeconds);
+    }
+
+    /**
      * date transformation function: str_to_date
      */
     @ExecFunction(name = "str_to_date")
@@ -1025,40 +1055,55 @@ public class DateTimeExtractAndTransform {
         return new TinyIntLiteral((byte) date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
+    /**
+     * Get locale from session variable lc_time_names, fallback to default if not available
+     */
+    private static Locale getSessionLocale() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable() != null) {
+            String lcTimeNames = ctx.getSessionVariable().getLcTimeNames();
+            if (lcTimeNames != null && !lcTimeNames.isEmpty()) {
+                String[] parts = lcTimeNames.split("_");
+                return new Locale(parts[0], parts[1]);
+            }
+        }
+        return Locale.getDefault();
+    }
+
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "from_second")
@@ -1421,5 +1466,46 @@ public class DateTimeExtractAndTransform {
         }
 
         return new VarcharLiteral(result);
+    }
+
+    /**
+     * date transform function period_add
+     */
+    @ExecFunction(name = "period_add")
+    public static Expression periodAdd(BigIntLiteral period, BigIntLiteral months) {
+        return new BigIntLiteral(convertMonthToPeriod(
+                checkAndConvertPeriodToMonth(period.getValue()) + months.getValue()));
+    }
+
+    /**
+     * date transform function period_diff
+     */
+    @ExecFunction(name = "period_diff")
+    public static Expression periodDiff(BigIntLiteral period1, BigIntLiteral period2) {
+        return new BigIntLiteral(checkAndConvertPeriodToMonth(
+                period1.getValue()) - checkAndConvertPeriodToMonth(period2.getValue()));
+    }
+
+    private static void validatePeriod(long period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            throw new AnalysisException("Period function got invalid period: " + period);
+        }
+    }
+
+    private static long checkAndConvertPeriodToMonth(long period) {
+        validatePeriod(period);
+        long year = period / 100;
+        if (year < 100) {
+            year += (year >= 70) ? 1900 : 2000;
+        }
+        return year * 12L + (period % 100) - 1;
+    }
+
+    private static long convertMonthToPeriod(long month) {
+        long year = month / 12;
+        if (year < 100) {
+            year += (year >= 70) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
     }
 }

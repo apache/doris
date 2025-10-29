@@ -25,6 +25,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <unistd.h>
 
 #include <cstdlib>
@@ -1064,8 +1065,8 @@ TEST_F(TestDeleteHandler, ValueWithQuote) {
 
     add_delete_predicate(del_predicate, 2);
 
-    auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
-    EXPECT_EQ(Status::OK(), res);
+    EXPECT_ANY_THROW(
+            auto st = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5));
 }
 
 TEST_F(TestDeleteHandler, ValueWithoutQuote) {
@@ -1076,8 +1077,8 @@ TEST_F(TestDeleteHandler, ValueWithoutQuote) {
 
     add_delete_predicate(del_predicate, 2);
 
-    auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
-    EXPECT_EQ(Status::OK(), res);
+    EXPECT_ANY_THROW(
+            auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5));
 }
 
 TEST_F(TestDeleteHandler, InitSuccess) {
