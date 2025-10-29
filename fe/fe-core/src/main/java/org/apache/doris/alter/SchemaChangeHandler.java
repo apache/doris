@@ -1395,6 +1395,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
+        // if not explicitly specified in ALTER statement, use the current storage format of the table
+        if (!propertyMap.containsKey("storage_format")) {
+            storageFormat = olapTable.getStorageFormat();
+        }
+
         // property store_row_column && row_store_columns
         // eg. "store_row_column" = "true"
         // eg. "row_store_columns" = "k1, k2"
@@ -1662,14 +1667,7 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
         schemaChangeJob.setEnableUniqueKeySkipBitmapInfo(enableUniqueKeySkipBitmap,
                 hasEnableUniqueKeySkipBitmapChanged);
-
-        // If StorageFormat is set to TStorageFormat.V2
-        // which will create tablet with preferred_rowset_type set to BETA
-        // for both base table and rollup index
-        if (hasIndexChange) {
-            // only V2 support index, so if there is index changed, storage format must be V2
-            storageFormat = TStorageFormat.V2;
-        }
+        // set storage format of schema change job
         schemaChangeJob.setStorageFormat(storageFormat);
 
         // the following operations are done outside the 'for indices' loop

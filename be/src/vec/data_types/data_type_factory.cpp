@@ -384,6 +384,18 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_INT:
         result = std::make_shared<vectorized::DataTypeInt32>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+        result = std::make_shared<vectorized::DataTypeUInt8>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+        result = std::make_shared<vectorized::DataTypeUInt16>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
+        result = std::make_shared<vectorized::DataTypeUInt32>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+        result = std::make_shared<vectorized::DataTypeUInt64>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         result = std::make_shared<vectorized::DataTypeFloat32>();
         break;

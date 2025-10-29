@@ -362,7 +362,6 @@ public class CreateReplicaTask extends AgentTask {
                 }
             }
             tSchema.setIndexes(tIndexes);
-            storageFormat = TStorageFormat.V2;
         }
 
         if (bfColumns != null) {

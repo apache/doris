@@ -2635,6 +2635,15 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
+    @VariableMgr.VarAttr(
+            name = "random_use_v3_storage_format",
+            fuzzy = true,
+            description = {
+                    "In fuzzy tests, randomly use V3 storage_format (ext_meta) for some tables.",
+                    "Only takes effect when user does not explicitly specify storage_format."}
+    )
+    public boolean randomUseV3StorageFormat = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     @SuppressWarnings("checkstyle:Indentation")
@@ -2656,6 +2665,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultEnableTypedPathsToSparse = random.nextBoolean();
+        this.randomUseV3StorageFormat = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;

@@ -69,7 +69,6 @@ struct Slice;
 struct StringRef;
 
 namespace segment_v2 {
-
 class EncodingInfo;
 class ColumnIterator;
 class BloomFilterIndexReader;
@@ -81,7 +80,6 @@ class InvertedIndexFileReader;
 class PageDecoder;
 class RowRanges;
 class ZoneMapIndexReader;
-struct VariantStatistics;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -133,10 +131,7 @@ public:
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                          uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::shared_ptr<ColumnReader>* reader);
-    static Status create(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
-                         uint32_t column_id, uint64_t num_rows,
-                         const io::FileReaderSPtr& file_reader,
-                         std::shared_ptr<ColumnReader>* reader);
+
     static Status create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                const io::FileReaderSPtr& file_reader,
                                std::shared_ptr<ColumnReader>* reader);
@@ -149,10 +144,7 @@ public:
     static Status create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                    std::shared_ptr<ColumnReader>* reader);
-    static Status create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
-                                 uint32_t column_id, uint64_t num_rows,
-                                 const io::FileReaderSPtr& file_reader,
-                                 std::shared_ptr<ColumnReader>* reader);
+
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
     static bool is_compaction_reader_type(ReaderType type);
@@ -234,11 +226,15 @@ public:
 
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
+    vectorized::DataTypePtr get_vec_data_type() { return _data_type; }
+
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
 
 private:
+    friend class VariantColumnReader;
+
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
@@ -298,6 +294,8 @@ private:
     io::FileReaderSPtr _file_reader;
 
     DictEncodingType _dict_encoding_type;
+
+    vectorized::DataTypePtr _data_type;
 
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.

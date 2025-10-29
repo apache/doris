@@ -16,23 +16,24 @@
 // under the License.
 
 suite("regression_test_variant_agg"){
-    sql """DROP TABLE IF EXISTS var_agg"""
+    // sql """DROP TABLE IF EXISTS var_agg"""
 
-    int max_subcolumns_count = Math.floor(Math.random() * 10) + 1
-    def var = "variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
-    if (max_subcolumns_count % 2 == 0) {
-        var = "variant <'d' : int, 'b.f' : int, 'xxxx' : string, 'point' : bigint, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
-    }
-    sql """
-        CREATE TABLE IF NOT EXISTS var_agg (
-                k bigint,
-                v ${var},
-                s bigint sum
-            )
-            AGGREGATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 4
-            properties("replication_num" = "1", "disable_auto_compaction" = "true");
-    """
+    // int max_subcolumns_count = Math.floor(Math.random() * 10) + 1
+    // def var = "variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
+    // if (max_subcolumns_count % 2 == 0) {
+    //     var = "variant <'d' : int, 'b.f' : int, 'xxxx' : string, 'point' : bigint, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
+    // }
+    // sql """
+    //     CREATE TABLE IF NOT EXISTS var_agg (
+    //             k bigint,
+    //             v ${var},
+    //             s bigint sum
+    //         )
+    //         AGGREGATE KEY(`k`)
+    //         DISTRIBUTED BY HASH(k) BUCKETS 4
+    //         properties("replication_num" = "1", "disable_auto_compaction" = "true");
+    // """
+sql "alter table var_agg add column s bigint sum;"
     sql """insert into var_agg values (1,  '[1]', 1),(1,  '{"a" : 1}', 1);"""
     sql """insert into var_agg values (2,  '[2]', 2),(1,  '{"a" : [[[1]]]}', 2);"""
     sql """insert into var_agg values (3,  '3', 3),(1,  '{"a" : 1}', 3), (1,  '{"a" : [1]}', 3);"""

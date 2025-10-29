@@ -342,6 +342,7 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->CopyFrom(in.cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->set_is_external_segment_meta_used_default(in.is_external_segment_meta_used_default());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
@@ -372,6 +373,7 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->Swap(in.mutable_cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->set_is_external_segment_meta_used_default(in.is_external_segment_meta_used_default());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
@@ -415,6 +417,7 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->CopyFrom(in.cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->set_is_external_segment_meta_used_default(in.is_external_segment_meta_used_default());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
@@ -446,6 +449,7 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->Swap(in.mutable_cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->set_is_external_segment_meta_used_default(in.is_external_segment_meta_used_default());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());

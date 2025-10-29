@@ -79,6 +79,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
@@ -88,6 +89,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -104,7 +107,6 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
-
     public static final String ENGINE_OLAP = "olap";
     public static final String ENGINE_JDBC = "jdbc";
     public static final String ENGINE_ELASTICSEARCH = "elasticsearch";
@@ -113,6 +115,8 @@ public class CreateTableInfo {
     public static final String ENGINE_BROKER = "broker";
     public static final String ENGINE_HIVE = "hive";
     public static final String ENGINE_ICEBERG = "iceberg";
+
+    private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
     private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
@@ -382,6 +386,19 @@ public class CreateTableInfo {
         if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             boolean enableDuplicateWithoutKeysByDefault = false;
             properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
+
+            // In fuzzy tests, randomly set storage_format=V3 (ext_meta) for some tables.
+            SessionVariable sv = ctx.getSessionVariable();
+            boolean randomUseV3 =
+                    sv != null && sv.randomUseV3StorageFormat && Config.use_fuzzy_session_variable;
+            if (randomUseV3
+                    && properties != null
+                    && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V3");
+                LOG.info("Randomly set storage_format=V3 for table {}.{} in fuzzy mode (session={})",
+                         dbName, tableName,
+                         ctx != null ? ctx.getSessionId() : "<null>");
+            }
             try {
                 if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =
