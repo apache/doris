@@ -3697,7 +3697,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 PartitionPersistInfo info = Env.getCurrentEnv().addPartition(db, olapTable.getName(),
                         addPartitionClause, false, 0, true);
                 if (info == null) {
-                    // this means this partition already created, for this partition
+                    // this means the partition is already created, for this partition
                 } else {
                     // Write the mapping information between the newly created tablets and backend IDs
                     // into the autoPartitionInfo of the transaction.

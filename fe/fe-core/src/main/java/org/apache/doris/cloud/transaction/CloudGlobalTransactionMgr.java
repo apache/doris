@@ -1714,6 +1714,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
+        clearAutoPartitionInfo(dbId, transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 
