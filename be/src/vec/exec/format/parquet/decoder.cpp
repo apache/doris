@@ -43,12 +43,22 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new ByteArrayPlainDecoder());
             break;
         case tparquet::Type::INT32:
+            decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT32>());
+            break;
         case tparquet::Type::INT64:
+            decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT64>());
+            break;
         case tparquet::Type::INT96:
+            decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT96>());
+            break;
         case tparquet::Type::FLOAT:
+            decoder.reset(new FixLengthDictDecoder<tparquet::Type::FLOAT>());
+            break;
         case tparquet::Type::DOUBLE:
+            decoder.reset(new FixLengthDictDecoder<tparquet::Type::DOUBLE>());
+            break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new FixLengthPlainDecoder());
+            decoder.reset(new FixLengthDictDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY>());
             break;
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
