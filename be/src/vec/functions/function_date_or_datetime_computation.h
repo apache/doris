@@ -972,18 +972,50 @@ struct TimestampToDateTime : IFunction {
     }
 };
 
-struct UtcTimestampImpl {
-    static constexpr PrimitiveType ReturnType = TYPE_DATETIME;
-    static constexpr auto name = "utc_timestamp";
+template <PrimitiveType UTCType>
+struct UtcImpl {
+    static constexpr PrimitiveType ReturnType = UTCType;
+
+    static constexpr const char* get_function_name() {
+        if constexpr (ReturnType == TYPE_DATETIMEV2 || ReturnType == TYPE_DATETIME) {
+            return "utc_timestamp";
+        } else if constexpr (ReturnType == TYPE_DATEV2 || ReturnType == TYPE_DATE) {
+            return "utc_date";
+        } else if constexpr (ReturnType == TYPE_TIMEV2) {
+            return "utc_time";
+        }
+    }
+
+    static constexpr auto name = get_function_name();
+
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        auto col_to = ColumnDateTimeV2::create();
+        int scale = 0;
+        if (arguments.size() == 1) {
+            // the precision must be const, which is checked in fe.
+            const auto* col = assert_cast<const ColumnInt32*>(
+                    block.get_by_position(arguments[0]).column.get());
+            scale = col->get_element(0);
+        }
+        auto col_to = PrimitiveTypeTraits<ReturnType>::ColumnType::create();
         DateV2Value<DateTimeV2ValueType> dtv;
-        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000, "+00:00")) {
-            auto date_packed_int = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv);
-            col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
+        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                              context->state()->nano_seconds(), "+00:00", scale)) {
+            if constexpr (ReturnType == TYPE_DATETIMEV2) {
+                auto date_packed_int = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv);
+                col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
+            } else if constexpr (ReturnType == TYPE_DATEV2) {
+                DateV2Value<DateV2ValueType> dv;
+                dv.assign_from(dtv);
+                auto date_packed_int = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
+                col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
+            } else if constexpr (ReturnType == TYPE_TIMEV2) {
+                double time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
+                                                   dtv.microsecond());
+                col_to->insert_data(reinterpret_cast<char*>(&time), 0);
+            }
         } else {
-            uint64_t invalid_val = 0;
+            typename PrimitiveTypeTraits<ReturnType>::ColumnItemType invalid_val = 0;
             col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
         }
         block.get_by_position(result).column =
