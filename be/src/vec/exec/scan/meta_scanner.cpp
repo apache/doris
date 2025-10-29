@@ -521,6 +521,10 @@ Status MetaScanner::_build_partition_values_metadata_request(
 
 Status MetaScanner::close(RuntimeState* state) {
     VLOG_CRITICAL << "MetaScanner::close";
+    bool expected = false;
+    if (!_is_closed.compare_exchange_strong(expected, true)) {
+        return Status::OK();
+    }
     if (_reader) {
         RETURN_IF_ERROR(_reader->close());
     }

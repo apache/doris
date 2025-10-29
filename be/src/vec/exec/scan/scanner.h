@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <vector>
 
 #include "common/status.h"
@@ -196,7 +197,7 @@ protected:
     Block _input_block;
 
     bool _is_open = false;
-    bool _is_closed = false;
+    std::atomic<bool> _is_closed {false};
     bool _need_to_close = false;
     Status _status;
 

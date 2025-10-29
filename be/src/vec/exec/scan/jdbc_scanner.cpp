@@ -188,6 +188,10 @@ void JdbcScanner::_update_profile() {
 }
 
 Status JdbcScanner::close(RuntimeState* state) {
+    bool expected = false;
+    if (!_is_closed.compare_exchange_strong(expected, true)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(Scanner::close(state));
     RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();
