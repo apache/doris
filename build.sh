@@ -204,6 +204,7 @@ else
             ;;
         --cloud)
             BUILD_CLOUD=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --broker)
@@ -977,8 +978,9 @@ fi
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
     rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
-    # FIXME: If hadoop dependencies are required, building cloud module must be done after building FE first
-    # to ensure hadoop-deps jar packages are available in ${DORIS_HOME}/fe/be-java-extensions/hadoop-deps/target/lib
+    # If hadoop dependencies are required, building cloud module must be done after building be-java-extensions first
+    # so when running ./build.sh --cloud,we also build be-java-extensions automatically.
+    # If hadoop-depencies are not needed, you can disable it explicitly, by setting DISABLE_BE_JAVA_EXTENSIONS during the build.
     HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
     if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
         mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
