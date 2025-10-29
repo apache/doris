@@ -813,7 +813,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left", "strleft"),
-            scalar(Length.class, "length"),
+            scalar(Length.class, "length", "octet_length"),
             scalar(Crc32.class, "crc32"),
             scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
