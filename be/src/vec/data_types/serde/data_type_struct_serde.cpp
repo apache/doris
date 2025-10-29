@@ -664,6 +664,8 @@ void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
         if (idx != 0) {
             bw.write(", ", 2);
         }
+        std::string col_name = "\"" + elem_names[idx] + "\":";
+        bw.write(col_name.c_str(), col_name.length());
         elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw);
     }
     bw.write("}", 1);
