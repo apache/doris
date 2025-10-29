@@ -26,21 +26,19 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class TermWeight : public Weight {
 public:
-    TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term,
-               std::string logical_field = {})
+    TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term)
             : _context(std::move(context)),
               _field(std::move(field)),
-              _term(std::move(term)),
-              _logical_field(std::move(logical_field)) {}
+              _term(std::move(term)) {}
     ~TermWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto reader = lookup_reader(_field, ctx, binding_key);
-        auto field_name =
-                _logical_field.empty() ? std::string(_field.begin(), _field.end()) : _logical_field;
+        auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
         auto make_scorer = [&](auto segment_postings) -> ScorerPtr {
             using PostingsT = decltype(segment_postings);
-            return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings), field_name);
+            return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings),
+                                                           logical_field);
         };
 
         if (!reader) {
@@ -66,7 +64,6 @@ private:
 
     std::wstring _field;
     std::wstring _term;
-    std::string _logical_field;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

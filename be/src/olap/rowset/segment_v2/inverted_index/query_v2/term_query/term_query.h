@@ -24,24 +24,18 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class TermQuery : public Query {
 public:
-    TermQuery(IndexQueryContextPtr context, std::wstring field, std::wstring term,
-              std::string logical_field = {})
-            : _context(std::move(context)),
-              _field(std::move(field)),
-              _term(std::move(term)),
-              _logical_field(std::move(logical_field)) {}
+    TermQuery(IndexQueryContextPtr context, std::wstring field, std::wstring term)
+            : _context(std::move(context)), _field(std::move(field)), _term(std::move(term)) {}
     ~TermQuery() override = default;
 
     WeightPtr weight() override {
-        return std::make_shared<TermWeight>(std::move(_context), std::move(_field),
-                                            std::move(_term), _logical_field);
+        return std::make_shared<TermWeight>(std::move(_context), std::move(_field), std::move(_term));
     }
 
 private:
     IndexQueryContextPtr _context;
     std::wstring _field;
     std::wstring _term;
-    std::string _logical_field;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

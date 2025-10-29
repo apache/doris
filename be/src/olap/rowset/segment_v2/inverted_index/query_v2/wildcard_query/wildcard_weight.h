@@ -28,26 +28,27 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class WildcardWeight : public Weight {
 public:
-    WildcardWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern,
-                   bool enable_scoring)
+    WildcardWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern)
             : _context(std::move(context)),
               _field(std::move(field)),
-              _pattern(std::move(pattern)),
-              _enable_scoring(enable_scoring) {}
+              _pattern(std::move(pattern)) {}
 
     ~WildcardWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         std::string regex_pattern = wildcard_to_regex(_pattern);
-        auto regexp_weight = std::make_shared<RegexpWeight>(
-                _context, std::move(_field), std::move(regex_pattern), _enable_scoring);
+        auto regexp_weight = std::make_shared<RegexpWeight>(_context, std::move(_field),
+                                                            std::move(regex_pattern));
         return regexp_weight->scorer(ctx, binding_key);
     }
 
 private:
     std::string wildcard_to_regex(const std::string& pattern) {
         std::string escaped = RE2::QuoteMeta(pattern);
+        // Replace wildcard characters with regex equivalents
+        // * -> .* (zero or more of any character)
         escaped = std::regex_replace(escaped, std::regex(R"(\\\*)"), ".*");
+        // ? -> . (exactly one of any character)
         escaped = std::regex_replace(escaped, std::regex(R"(\\\?)"), ".");
         return "^" + escaped + "$";
     }
@@ -56,7 +57,6 @@ private:
 
     std::wstring _field;
     std::string _pattern;
-    bool _enable_scoring = false;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

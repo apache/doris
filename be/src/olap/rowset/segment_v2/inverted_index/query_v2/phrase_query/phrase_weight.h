@@ -18,6 +18,9 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/const_score_query/const_score_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/null_bitmap_fetcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
@@ -27,22 +30,34 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class PhraseWeight : public Weight {
 public:
-    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<std::wstring> terms,
-                 SimilarityPtr similarity, bool enable_scoring)
-            : _context(std::move(context)),
-              _field(std::move(field)),
-              _terms(std::move(terms)),
-              _similarity(std::move(similarity)),
-              _enable_scoring(enable_scoring) {}
+    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<std::wstring> terms)
+            : _context(std::move(context)), _field(std::move(field)), _terms(std::move(terms)) {}
     ~PhraseWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
-        auto scorer = phrase_scorer(ctx, binding_key);
-        if (scorer) {
-            return scorer;
-        } else {
-            return std::make_shared<EmptyScorer>();
+        auto phrase = phrase_scorer(ctx, binding_key);
+        auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
+        auto null_bitmap = FieldNullBitmapFetcher::fetch(ctx, logical_field);
+
+        auto doc_bitset = std::make_shared<roaring::Roaring>();
+        if (phrase) {
+            uint32_t doc = phrase->doc();
+            if (doc == TERMINATED) {
+                doc = phrase->advance();
+            }
+            while (doc != TERMINATED) {
+                doc_bitset->add(doc);
+                doc = phrase->advance();
+            }
         }
+
+        auto bit_set =
+                std::make_shared<BitSetScorer>(std::move(doc_bitset), std::move(null_bitmap));
+        if (!phrase) {
+            return bit_set;
+        }
+        // Wrap with const score for consistency with other non-scoring paths
+        return std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(std::move(bit_set));
     }
 
 private:
@@ -57,8 +72,7 @@ private:
         for (size_t offset = 0; offset < _terms.size(); ++offset) {
             const auto& term = _terms[offset];
             auto t = make_term_ptr(_field.c_str(), term.c_str());
-            auto iter = make_term_positions_ptr(reader.get(), t.get(), _enable_scoring,
-                                                _context->io_ctx);
+            auto iter = make_term_positions_ptr(reader.get(), t.get(), _context->io_ctx);
             if (iter) {
                 auto segment_postings =
                         std::make_shared<SegmentPostings<TermPositionsPtr>>(std::move(iter));
@@ -67,15 +81,13 @@ private:
                 return nullptr;
             }
         }
-        return PhraseScorer<PositionPostings>::create(term_postings_list, _similarity, 0);
+        return PhraseScorer<PositionPostings>::create(term_postings_list, 0);
     }
 
     IndexQueryContextPtr _context;
 
     std::wstring _field;
     std::vector<std::wstring> _terms;
-    SimilarityPtr _similarity;
-    bool _enable_scoring = false;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

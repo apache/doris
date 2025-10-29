@@ -31,9 +31,9 @@ public:
               _pattern(std::move(pattern)) {}
     ~RegexpQuery() override = default;
 
-    WeightPtr weight(bool enable_scoring) override {
+    WeightPtr weight() override {
         return std::make_shared<RegexpWeight>(std::move(_context), std::move(_field),
-                                              std::move(_pattern), enable_scoring);
+                                              std::move(_pattern));
     }
 
 private:
