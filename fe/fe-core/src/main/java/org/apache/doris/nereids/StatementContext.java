@@ -1013,7 +1013,6 @@ public class StatementContext implements Closeable {
         return isInsert;
     }
 
-
     public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
         return mvRefreshPredicates;
     }
