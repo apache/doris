@@ -149,8 +149,12 @@ PipelineFragmentContext::~PipelineFragmentContext() {
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id);
     _release_resource();
-    _runtime_state.reset();
-    _query_ctx.reset();
+    {
+        // The memory released by the query end is recorded in the query mem tracker.
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
+        _runtime_state.reset();
+        _query_ctx.reset();
+    }
 }
 
 bool PipelineFragmentContext::is_timeout(timespec now) const {
@@ -2089,9 +2093,9 @@ void PipelineFragmentContext::_release_resource() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
-    for (size_t i = 0; i < _tasks.size(); i++) {
-        if (!_tasks[i].empty()) {
-            _call_back(_tasks[i].front().first->runtime_state(), &st);
+    for (auto& _task : _tasks) {
+        if (!_task.empty()) {
+            _call_back(_task.front().first->runtime_state(), &st);
         }
     }
     _tasks.clear();
