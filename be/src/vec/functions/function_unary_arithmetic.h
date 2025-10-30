@@ -58,7 +58,7 @@ struct InvalidType;
 
 template <typename Op, typename Name, PrimitiveType param_type>
 class FunctionUnaryArithmetic : public IFunction {
-    using DataType = typename PrimitiveTypeTraits<param_type>::DataType;
+    using ResultDataType = typename PrimitiveTypeTraits<param_type>::DataType;
     static constexpr bool allow_decimal = std::string_view(Name::name) == "abs" ||
                                           std::string_view(Name::name) == "negative" ||
                                           std::string_view(Name::name) == "positive";
@@ -68,7 +68,7 @@ class FunctionUnaryArithmetic : public IFunction {
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
-        if (const auto* data_type = typeid_cast<const DataType*>(type)) {
+        if (const auto* data_type = typeid_cast<const ResultDataType*>(type)) {
             return f(*data_type);
         }
         return false;
@@ -93,17 +93,17 @@ public:
         if constexpr (not_variadic) {
             return {};
         }
-        return {std::make_shared<DataType>()};
+        return {std::make_shared<ResultDataType>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr result;
         bool valid = cast_type(arguments[0].get(), [&](const auto& type) {
-            using DecayedDataType = std::decay_t<decltype(type)>;
+            using DataType = std::decay_t<decltype(type)>;
 
-            if constexpr (IsDataTypeDecimal<DecayedDataType>) {
+            if constexpr (IsDataTypeDecimal<DataType>) {
                 if constexpr (!allow_decimal) return false;
-                result = std::make_shared<DecayedDataType>(type.get_precision(), type.get_scale());
+                result = std::make_shared<DataType>(type.get_precision(), type.get_scale());
             } else {
                 result = std::make_shared<typename PrimitiveTypeTraits<Op::ResultType>::DataType>();
             }
@@ -121,31 +121,31 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         bool valid =
                 cast_type(block.get_by_position(arguments[0]).type.get(), [&](const auto& type) {
-                    using DecayedDataType = std::decay_t<decltype(type)>;
+                    using DataType = std::decay_t<decltype(type)>;
 
-                    if constexpr (IsDataTypeDecimal<DecayedDataType>) {
+                    if constexpr (IsDataTypeDecimal<DataType>) {
                         if (allow_decimal) {
-                            if (auto col = check_and_get_column<ColumnDecimal<DecayedDataType::PType>>(
+                            if (auto col = check_and_get_column<ColumnDecimal<DataType::PType>>(
                                         block.get_by_position(arguments[0]).column.get())) {
                                 auto col_res =
                                         PrimitiveTypeTraits<Op::ResultType>::ColumnType::create(
                                                 0, type.get_scale());
                                 auto& vec_res = col_res->get_data();
                                 vec_res.resize(col->get_data().size());
-                                UnaryOperationImpl<DecayedDataType::PType, Op>::vector(col->get_data(),
+                                UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
                                                                                 vec_res);
                                 block.replace_by_position(result, std::move(col_res));
                                 return true;
                             }
                         }
                     } else {
-                        if (auto col = check_and_get_column<ColumnVector<DecayedDataType::PType>>(
+                        if (auto col = check_and_get_column<ColumnVector<DataType::PType>>(
                                     block.get_by_position(arguments[0]).column.get())) {
                             auto col_res =
                                     PrimitiveTypeTraits<Op::ResultType>::ColumnType::create();
                             auto& vec_res = col_res->get_data();
                             vec_res.resize(col->get_data().size());
-                            UnaryOperationImpl<DecayedDataType::PType, Op>::vector(col->get_data(),
+                            UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
                                                                             vec_res);
                             block.replace_by_position(result, std::move(col_res));
                             return true;
