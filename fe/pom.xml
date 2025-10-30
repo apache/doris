@@ -324,7 +324,7 @@ under the License.
         <maxcompute.version>0.49.0-public</maxcompute.version>
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
          https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <arrow.version>18.3.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -1486,43 +1486,9 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
-                <artifactId>arrow-vector</artifactId>
+                <artifactId>arrow-bom</artifactId>
                 <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>arrow-memory-netty</artifactId>
-                <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>arrow-memory-netty-buffer-patch</artifactId>
-                <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>flight-core</artifactId>
-                <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>flight-sql</artifactId>
-                <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>flight-sql-jdbc-driver</artifactId>
-                <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>arrow-memory-core</artifactId>
-                <version>${arrow.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.arrow</groupId>
-                <artifactId>arrow-jdbc</artifactId>
-                <version>${arrow.version}</version>
+                <type>pom</type>
             </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>
