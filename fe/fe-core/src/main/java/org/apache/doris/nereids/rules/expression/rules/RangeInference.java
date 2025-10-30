@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -139,6 +140,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     @Override
+    public ValueDesc visitNot(Not not, ExpressionRewriteContext context) {
+        ValueDesc childValue = not.child().accept(this, context);
+        if (childValue instanceof DiscreteValue) {
+            return new NotDiscreteValue(context, childValue.getReference(), ((DiscreteValue) childValue).values);
+        } else {
+            return new UnknownValue(context, not);
+        }
+    }
+
+    @Override
     public ValueDesc visitAnd(And and, ExpressionRewriteContext context) {
         return simplify(context, ExpressionUtils.extractConjunction(and), true);
     }
@@ -227,16 +238,40 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             mergeDiscreteValue = new DiscreteValue(context, reference, discreteValues);
         }
 
+        ValueDesc mergeRangeDiscreteValue = null;
         if (mergeRangeValue != null && mergeDiscreteValue != null) {
-            ValueDesc combineValue = mergeRangeValue.intersect(mergeDiscreteValue);
-            if (combineValue instanceof EmptyValue) {
-                return combineValue;
-            }
-            result.add(combineValue);
+            mergeRangeDiscreteValue = mergeRangeValue.intersect(mergeDiscreteValue);
         } else if (mergeRangeValue != null) {
-            result.add(mergeRangeValue);
+            mergeRangeDiscreteValue = mergeRangeValue;
         } else if (mergeDiscreteValue != null) {
-            result.add(mergeDiscreteValue);
+            mergeRangeDiscreteValue = mergeDiscreteValue;
+        }
+        if (mergeRangeDiscreteValue instanceof EmptyValue) {
+            return mergeRangeDiscreteValue;
+        } else if (mergeRangeDiscreteValue != null) {
+            result.add(mergeRangeDiscreteValue);
+        }
+
+        if (!collector.notDiscreteValues.isEmpty()) {
+            Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
+            for (NotDiscreteValue notDiscreteValue : collector.notDiscreteValues) {
+                mergeNotDiscreteValues.addAll(notDiscreteValue.values);
+            }
+            if (mergeRangeDiscreteValue != null) {
+                final ValueDesc inValue = mergeRangeDiscreteValue;
+                mergeNotDiscreteValues.removeIf(value -> {
+                    if (inValue instanceof DiscreteValue) {
+                        return !((DiscreteValue) inValue).values.contains(value);
+                    } else if (inValue instanceof RangeValue) {
+                        return !((RangeValue) inValue).range.contains(value);
+                    } else {
+                        return false;
+                    }
+                });
+            }
+            if (!mergeNotDiscreteValues.isEmpty()) {
+                result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
+            }
         }
         result.addAll(collector.compoundValues);
         result.addAll(collector.unknownValues);
@@ -261,7 +296,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // then cause dead loop.
         Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
         for (DiscreteValue discreteValue : collector.discreteValues) {
-            discreteValues.addAll(discreteValue.getValues());
+            discreteValues.addAll(discreteValue.values);
         }
 
         // for 'a > 8 or a = 8', then range (8, +00) can convert to [8, +00)
@@ -291,6 +326,21 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
             result.add(new RangeValue(context, reference, range));
         }
+
+        if (!collector.notDiscreteValues.isEmpty()) {
+            Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
+            mergeNotDiscreteValues.addAll(collector.notDiscreteValues.get(0).values);
+            for (int i = 1; i < collector.notDiscreteValues.size(); i++) {
+                mergeNotDiscreteValues.retainAll(collector.notDiscreteValues.get(i).values);
+            }
+            mergeNotDiscreteValues.removeIf(
+                    value -> discreteValues.contains(value) || rangeSet.contains(value));
+            if (mergeNotDiscreteValues.isEmpty()) {
+                return new RangeValue(context, reference, Range.all());
+            }
+            result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
+        }
+
         result.addAll(collector.compoundValues);
         result.addAll(collector.unknownValues);
 
@@ -307,11 +357,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
     /** value desc visitor */
     public interface ValueDescVisitor<R, C> {
+        R visitEmptyValue(EmptyValue emptyValue, C context);
+
         R visitRangeValue(RangeValue rangeValue, C context);
 
         R visitDiscreteValue(DiscreteValue discreteValue, C context);
 
-        R visitEmptyValue(EmptyValue emptyValue, C context);
+        R visitNotDiscreteValue(NotDiscreteValue notDiscreteValue, C context);
 
         R visitCompoundValue(CompoundValue compoundValue, C context);
 
@@ -322,6 +374,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         boolean hasEmptyValue = false;
         List<RangeValue> rangeValues = Lists.newArrayList();
         List<DiscreteValue> discreteValues = Lists.newArrayList();
+        List<NotDiscreteValue> notDiscreteValues = Lists.newArrayList();
         List<CompoundValue> compoundValues = Lists.newArrayList();
         List<UnknownValue> unknownValues = Lists.newArrayList();
 
@@ -332,6 +385,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 rangeValues.add((RangeValue) value);
             } else if (value instanceof DiscreteValue) {
                 discreteValues.add((DiscreteValue) value);
+            } else if (value instanceof NotDiscreteValue) {
+                notDiscreteValues.add((NotDiscreteValue) value);
             } else if (value instanceof CompoundValue) {
                 compoundValues.add((CompoundValue) value);
             } else {
@@ -473,6 +528,26 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         public String toString() {
             return values.toString();
+        }
+    }
+
+    /**
+     * use `Set` to wrap `InPredicate`
+     * for example:
+     * a not in (1,2,3) => [1,2,3]
+     */
+    public static class NotDiscreteValue extends ValueDesc {
+        final Set<ComparableLiteral> values;
+
+        public NotDiscreteValue(ExpressionRewriteContext context,
+                Expression reference, Set<ComparableLiteral> values) {
+            super(context, reference);
+            this.values = values;
+        }
+
+        @Override
+        protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
+            return visitor.visitNotDiscreteValue(this, context);
         }
     }
 
