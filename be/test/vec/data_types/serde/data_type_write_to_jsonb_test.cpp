@@ -188,7 +188,7 @@ TEST(DataTypeWritToJsonb, test_struct) {
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
                     *col_struct_to, writer.getValue(), params));
             std::cout << type->to_string(*col_struct_to, 0) << std::endl;
-            EXPECT_EQ("{1, \"hello\"}", type->to_string(*col_struct_to, 0));
+            EXPECT_EQ("{\"int_col\":1, \"string_col\":\"hello\"}", type->to_string(*col_struct_to, 0));
         }
 
         {
@@ -199,7 +199,7 @@ TEST(DataTypeWritToJsonb, test_struct) {
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
                     *col_struct_to, writer.getValue(), params));
             std::cout << type->to_string(*col_struct_to, 0) << std::endl;
-            EXPECT_EQ("{2, \"world\"}", type->to_string(*col_struct_to, 0));
+            EXPECT_EQ("{\"int_col\":2, \"string_col\":\"world\"}", type->to_string(*col_struct_to, 0));
         }
 
         {
@@ -210,7 +210,7 @@ TEST(DataTypeWritToJsonb, test_struct) {
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
                     *col_struct_to, writer.getValue(), params));
             std::cout << type->to_string(*col_struct_to, 0) << std::endl;
-            EXPECT_EQ("{3, null}", type->to_string(*col_struct_to, 0));
+            EXPECT_EQ("{\"int_col\":3, \"string_col\":null}", type->to_string(*col_struct_to, 0));
         }
 
         {
@@ -221,7 +221,7 @@ TEST(DataTypeWritToJsonb, test_struct) {
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
                     *col_struct_to, writer.getValue(), params));
             std::cout << type->to_string(*col_struct_to, 0) << std::endl;
-            EXPECT_EQ("{null, \"vectorized\"}", type->to_string(*col_struct_to, 0));
+            EXPECT_EQ("{\"int_col\":null, \"string_col\":\"vectorized\"}", type->to_string(*col_struct_to, 0));
         }
 
         {
@@ -232,7 +232,7 @@ TEST(DataTypeWritToJsonb, test_struct) {
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
                     *col_struct_to, writer.getValue(), params));
             std::cout << type->to_string(*col_struct_to, 0) << std::endl;
-            EXPECT_EQ("{5, \"test\"}", type->to_string(*col_struct_to, 0));
+            EXPECT_EQ("{\"int_col\":5, \"string_col\":\"test\"}", type->to_string(*col_struct_to, 0));
         }
     }
 }
