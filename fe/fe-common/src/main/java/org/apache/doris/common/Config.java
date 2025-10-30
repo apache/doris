@@ -1986,6 +1986,11 @@ public class Config extends ConfigBase {
                     + "the value should be greater than 0, if it is <=0, default is 1024."})
     public static int max_streaming_job_num = 1024;
 
+    @ConfField(masterOnly = true, description = {"一个 Streaming Job 在内存中最多保留的 task的数量，超过将丢弃旧的记录",
+            "The maximum number of tasks a Streaming Job can keep in memory. If the number exceeds the limit, "
+                    + "old records will be discarded."})
+    public static int max_streaming_task_show_count = 100;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.

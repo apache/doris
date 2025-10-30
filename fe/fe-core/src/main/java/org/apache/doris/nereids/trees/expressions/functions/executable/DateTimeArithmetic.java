@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -123,6 +124,14 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "days_add")
     public static Expression daysAdd(DateTimeV2Literal date, IntegerLiteral day) {
         return date.plusDays(day.getValue());
+    }
+
+    /**
+     * datetime arithmetic function day_second-add.
+     */
+    @ExecFunction(name = "day_second_add")
+    public static Expression daysAdd(DateTimeV2Literal date, VarcharLiteral daySecond) {
+        return date.plusDaySecond(daySecond);
     }
 
     /**

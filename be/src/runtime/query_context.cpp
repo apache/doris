@@ -310,9 +310,9 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
                    "If there are many errors: `addr2line: Dwarf Error`,"
                    "or other FAQ, reference doc: "
                    "https://doris.apache.org/community/developer-guide/debug-tool/#4-qa\n";
-            auto log_str =
+            auto nest_log_str =
                     fmt::format("Query {}, dump heap profile to dot: {}", print_id(_query_id), dot);
-            LOG_LONG_STRING(INFO, log_str);
+            LOG_LONG_STRING(INFO, nest_log_str);
         }
     }
 
