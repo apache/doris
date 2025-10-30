@@ -2044,13 +2044,27 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
     }
 
     // Check if snapshot is not ready (UNSUPPORTED state)
-    if (instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
+    if (!instance->has_snapshot_switch_status() ||
+        instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                              "Snapshot not ready, instance_id: " + instance_id);
+                              "Snapshot is not ready, instance_id: " + instance_id);
     } else if (value == "false" && instance->snapshot_switch_status() == SNAPSHOT_SWITCH_OFF) {
         return std::make_pair(
                 MetaServiceCode::INVALID_ARGUMENT,
                 "Snapshot is already set to SNAPSHOT_SWITCH_OFF, instance_id: " + instance_id);
+    } else if (value == "true" && instance->multi_version_status() != MULTI_VERSION_READ_WRITE) {
+        // If the multi_version_status is not READ_WRITE, cannot enable snapshot because the
+        // operation logs will be recycled directly since min_versionstamp is not set when multi
+        // version status is WRITE_ONLY
+        std::string url =
+                "${MS_ENDPOINT}/MetaService/http/"
+                "set_multi_version_status?multi_version_status=MULTI_VERSION_READ_WRITE";
+        return std::make_pair(
+                MetaServiceCode::INVALID_ARGUMENT,
+                fmt::format("Cannot enable snapshot when multi_version_status is not "
+                            "MULTI_VERSION_READ_WRITE, instance_id: {}. Consider enabling "
+                            "MULTI_VERSION_READ_WRITE status by curl {}",
+                            instance_id));
     } else if (value == "true") {
         instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
 
