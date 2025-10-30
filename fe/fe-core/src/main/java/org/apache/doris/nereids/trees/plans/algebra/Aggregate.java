@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct.SplitContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
@@ -32,8 +35,10 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.BitSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -58,6 +63,34 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
 
     default Set<AggregateFunction> getAggregateFunctions() {
         return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
+    }
+
+    /**getAggregateFunctionWithGuardExpr*/
+    default Map<AggregateFunction, Expression> getAggregateFunctionWithGuardExpr() {
+        Map<AggregateFunction, Expression> aggFunctionWithGuardExpr = new HashMap<>();
+        for (Expression expr : getOutputExpressions()) {
+            expr.accept(new DefaultExpressionVisitor<Void, SplitContext>() {
+                @Override
+                public Void visitAggregateFunction(AggregateFunction expr, SplitContext context) {
+                    if (context.sessionVars != null) {
+                        aggFunctionWithGuardExpr.put(expr, new SessionVarGuardExpr(expr, context.sessionVars));
+                    } else {
+                        aggFunctionWithGuardExpr.put(expr, expr);
+                    }
+                    return null;
+                }
+
+                @Override
+                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, SplitContext context) {
+                    Map<String, String> originVar = context.sessionVars;
+                    context.sessionVars = expr.getSessionVars();
+                    super.visit(expr, context);
+                    context.sessionVars = originVar;
+                    return null;
+                }
+            }, new SplitContext());
+        }
+        return aggFunctionWithGuardExpr;
     }
 
     /** getDistinctArguments */

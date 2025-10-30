@@ -21,10 +21,13 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -37,8 +40,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -84,21 +87,15 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         if (!logicalAgg.supportAggregatePhase(AggregatePhase.ONE)) {
             return ImmutableList.of();
         }
-        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
-        boolean changed = false;
-        for (NamedExpression expr : logicalAgg.getOutputExpressions()) {
-            if (expr instanceof Alias && expr.child(0) instanceof AggregateFunction) {
-                Alias alias = (Alias) expr;
-                AggregateExpression aggExpr = new AggregateExpression((AggregateFunction) expr.child(0),
-                        AggregateParam.GLOBAL_RESULT);
-                builder.add(alias.withChildren(ImmutableList.of(aggExpr)));
-                changed = true;
-            } else {
-                builder.add(expr);
-            }
-        }
+        List<NamedExpression> aggOutput = ExpressionUtils.rewriteDownShortCircuit(
+                logicalAgg.getOutputExpressions(), expr -> {
+                    if (!(expr instanceof AggregateFunction)) {
+                        return expr;
+                    }
+                    return new AggregateExpression((AggregateFunction) expr, AggregateParam.GLOBAL_RESULT);
+                }
+        );
         AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, !skipRegulator(logicalAgg));
-        List<NamedExpression> aggOutput = changed ? builder.build() : logicalAgg.getOutputExpressions();
         return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput, param,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
                 null, logicalAgg.child()));
@@ -116,11 +113,31 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
             return ImmutableList.of();
         }
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-        Map<AggregateFunction, Alias> aggFunctionToAlias = aggregate.getAggregateFunctions().stream()
-                .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
-                    AggregateExpression localAggFunc = new AggregateExpression(function, inputToBufferParam);
-                    return new Alias(localAggFunc);
-                }));
+        Map<AggregateFunction, Alias> aggFunctionToAlias = new HashMap<>();
+        for (Expression expr : aggregate.getOutputExpressions()) {
+            expr.accept(new DefaultExpressionVisitor<Void, SplitContext>() {
+                @Override
+                public Void visitAggregateFunction(AggregateFunction expr, SplitContext context) {
+                    AggregateExpression localAggFunc = new AggregateExpression(expr, inputToBufferParam);
+                    if (context.sessionVars != null) {
+                        aggFunctionToAlias.put(expr, new Alias(
+                                new SessionVarGuardExpr(localAggFunc, context.sessionVars)));
+                    } else {
+                        aggFunctionToAlias.put(expr, new Alias(localAggFunc));
+                    }
+                    return null;
+                }
+
+                @Override
+                public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, SplitContext context) {
+                    Map<String, String> originVar = context.sessionVars;
+                    context.sessionVars = expr.getSessionVars();
+                    super.visit(expr, context);
+                    context.sessionVars = originVar;
+                    return null;
+                }
+            }, new SplitContext());
+        }
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll((List) aggregate.getGroupByExpressions())
                 .addAll(aggFunctionToAlias.values())
@@ -167,5 +184,10 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
             }
         }
         return false;
+    }
+
+    /**SplitContext*/
+    public static class SplitContext {
+        public Map<String, String> sessionVars = null;
     }
 }

@@ -176,7 +176,6 @@ public class DecimalV3Type extends FractionalType {
         return new DecimalV3Type(precision, scale);
     }
 
-
     /**
      * create DecimalV3Type, without checking precision and scale, e.g. for DataType.fromCatalogType
      */

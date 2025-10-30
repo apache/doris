@@ -25,9 +25,12 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -112,7 +115,23 @@ public class AliasUdfBuilder extends UdfBuilder {
             }
         };
 
-        return Pair.of(udfAnalyzer.analyze(aliasUdf.getUnboundFunction()), boundAliasFunction);
+        Expression analyzedExpression;
+        Map<String, String> sessionVariables = aliasUdf.getSessionVariables();
+        if (sessionVariables != null && !sessionVariables.isEmpty()) {
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
+                    analyzedExpression = udfAnalyzer.analyze(aliasUdf.getUnboundFunction());
+                    analyzedExpression = new SessionVarGuardExpr(analyzedExpression, sessionVariables);
+                }
+            } else {
+                analyzedExpression = udfAnalyzer.analyze(aliasUdf.getUnboundFunction());
+            }
+        } else {
+            analyzedExpression = udfAnalyzer.analyze(aliasUdf.getUnboundFunction());
+        }
+
+        return Pair.of(analyzedExpression, boundAliasFunction);
     }
 
     @Override

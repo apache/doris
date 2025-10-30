@@ -65,6 +65,8 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
     @SerializedName(value = "idx", alternate = {"indexes"})
     private List<Index> indexes;
+    @SerializedName(value = "svs")
+    private Map<String, String> sessionVariables;
 
     private Expr whereClause;
     private Map<String, Column> nameToColumn;
@@ -79,12 +81,12 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
         this(indexId, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
-                defineStmt, null, null); // indexes is null by default
+                defineStmt, null, null, null); // indexes is null by default
     }
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt,
-            List<Index> indexes, String dbName) {
+            List<Index> indexes, String dbName, Map<String, String> sessionVariables) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -100,6 +102,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         this.indexes = indexes != null ? indexes : Lists.newArrayList();
         initColumnNameMap();
         this.dbName = dbName;
+        this.sessionVariables = sessionVariables;
     }
 
     public void setWhereClause(Expr whereClause) {
@@ -351,5 +354,9 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
             nameToColumn.put(normalizeName(column.getName()), column);
             definedNameToColumn.put(normalizeName(column.getDefineName()), column);
         }
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 }

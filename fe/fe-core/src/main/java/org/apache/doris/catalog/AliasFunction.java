@@ -47,6 +47,8 @@ public class AliasFunction extends Function {
     @SerializedName("pm")
     private List<String> parameters = new ArrayList<>();
     private List<String> typeDefParams = new ArrayList<>();
+    @SerializedName("sv")
+    private Map<String, String> sessionVariables;
 
     // Only used for serialization
     protected AliasFunction() {
@@ -58,11 +60,17 @@ public class AliasFunction extends Function {
 
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction) {
+        return createFunction(functionName, argTypes, retType, hasVarArgs, parameters, originFunction, null);
+    }
+
+    public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
+            boolean hasVarArgs, List<String> parameters, Expr originFunction, Map<String, String> sessionVariables) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
+        aliasFunction.sessionVariables = sessionVariables;
         return aliasFunction;
     }
 
@@ -72,6 +80,14 @@ public class AliasFunction extends Function {
 
     public List<String> getParameters() {
         return parameters;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 
     @Override

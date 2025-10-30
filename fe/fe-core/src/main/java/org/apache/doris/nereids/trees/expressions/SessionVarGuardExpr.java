@@ -43,6 +43,7 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
 
     public SessionVarGuardExpr(Expression child, Map<String, String> sessionVars) {
         // Expose the same children as the wrapped expression to stay transparent for rewrites
+        // 检查一下sessionVars不是null.
         super(ImmutableList.of(child));
         this.sessionVars = sessionVars;
     }

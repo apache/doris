@@ -5793,7 +5793,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setAffectQueryResultSessionVariables(Map<String, String> variables) {
-        if (variables.isEmpty()) {
+        if (variables == null || variables.isEmpty()) {
             return;
         }
         try {

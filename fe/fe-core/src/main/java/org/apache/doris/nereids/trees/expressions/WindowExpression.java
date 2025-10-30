@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter.AddSessionVarGuard;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -93,7 +94,14 @@ public class WindowExpression extends Expression {
      */
     public List<Expression> getExpressionsInWindowSpec() {
         List<Expression> expressions = Lists.newArrayList();
-        expressions.addAll(function.children());
+        if (function instanceof SessionVarGuardExpr) {
+            AddSessionVarGuard rewriter = new AddSessionVarGuard(((SessionVarGuardExpr) function).getSessionVars());
+            for (Expression expr : function.child(0).children()) {
+                expressions.add(expr.accept(rewriter, null));
+            }
+        } else {
+            expressions.addAll(function.children());
+        }
         expressions.addAll(partitionKeys);
         expressions.addAll(orderKeys.stream()
                 .map(UnaryNode::child)
