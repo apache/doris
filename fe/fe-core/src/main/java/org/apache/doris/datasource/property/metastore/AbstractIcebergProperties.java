@@ -35,6 +35,7 @@ import java.util.Map;
  */
 public abstract class AbstractIcebergProperties extends MetastoreProperties {
 
+    @Getter
     @ConnectorProperty(
             names = {CatalogProperties.WAREHOUSE_LOCATION},
             required = false,
