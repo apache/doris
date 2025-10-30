@@ -22,6 +22,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.JobProperties;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import lombok.Data;
 import org.json.simple.JSONObject;
@@ -47,7 +48,8 @@ public class StreamingJobProperties implements JobProperties {
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
     public static final long DEFAULT_MAX_S3_BATCH_BYTES = 10 * 1024 * 1024 * 1024L; // 10GB
-    public static final int DEFAULT_INSERT_TIMEOUT = 30 * 60; // 30min
+    public static final int DEFAULT_JOB_INSERT_TIMEOUT = 30 * 60; // 30min
+    public static final int DEFAULT_JOB_QUERY_TIMEOUT = 30 * 60; // 30min
 
 
     private final Map<String, String> properties;
@@ -117,19 +119,45 @@ public class StreamingJobProperties implements JobProperties {
         }
     }
 
-    public SessionVariable getSessionVariable() throws JobException {
-        SessionVariable sessionVariable = new SessionVariable();
+    public SessionVariable getSessionVariable(SessionVariable sessionVariable) throws JobException {
+        int defaultInsert = parseIntOrDefault(
+                VariableMgr.getDefaultValue(SessionVariable.INSERT_TIMEOUT),
+                DEFAULT_JOB_INSERT_TIMEOUT
+        );
+        int defaultQuery = parseIntOrDefault(
+                VariableMgr.getDefaultValue(SessionVariable.QUERY_TIMEOUT),
+                DEFAULT_JOB_QUERY_TIMEOUT
+        );
+        // override with job default session var
+        if (sessionVariable.getInsertTimeoutS() == defaultInsert) {
+            sessionVariable.setInsertTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
+        }
+
+        if (sessionVariable.getQueryTimeoutS() == defaultQuery) {
+            sessionVariable.setQueryTimeoutS(DEFAULT_JOB_QUERY_TIMEOUT);
+        }
+
         Map<String, String> sessionVarMap = parseSessionVarMap();
         if (!sessionVarMap.isEmpty()) {
             try {
-                sessionVariable.setInsertTimeoutS(DEFAULT_INSERT_TIMEOUT);
-                sessionVariable.setQueryTimeoutS(DEFAULT_INSERT_TIMEOUT);
+                // override session var for sessionVarMap
                 sessionVariable.readFromMap(sessionVarMap);
             } catch (Exception e) {
                 throw new JobException("Invalid session variable, " + e.getMessage());
             }
         }
         return sessionVariable;
+    }
+
+    private int parseIntOrDefault(String val, int defaultValue) {
+        if (val == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(val);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     private Map<String, String> parseSessionVarMap() {
