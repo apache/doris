@@ -42,7 +42,7 @@
 
 namespace doris::io {
 
-bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+bvar::Adder<uint64_t> remote_read_counter("cached_remote_reader_remote_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
@@ -275,7 +275,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
         {
-            s3_read_counter << 1;
+            remote_read_counter << 1;
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                          &size, io_ctx));
@@ -336,6 +336,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
             do {
+                SCOPED_RAW_TIMER(&stats.remote_wait_timer);
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
                 block_state = block->wait();
@@ -368,15 +369,15 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
                 LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
                              << st.msg() << ", block state=" << block_state;
-                size_t bytes_read {0};
+                size_t nest_bytes_read {0};
                 stats.hit_cache = false;
-                s3_read_counter << 1;
+                remote_read_counter << 1;
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
                         current_offset, Slice(result.data + (current_offset - offset), read_size),
-                        &bytes_read));
+                        &nest_bytes_read));
                 indirect_read_bytes += read_size;
-                DCHECK(bytes_read == read_size);
+                DCHECK(nest_bytes_read == read_size);
             }
         }
         *bytes_read += read_size;
@@ -403,6 +404,7 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         statis->bytes_read_from_remote += read_stats.bytes_read;
     }
     statis->remote_io_timer += read_stats.remote_read_timer;
+    statis->remote_wait_timer += read_stats.remote_wait_timer;
     statis->local_io_timer += read_stats.local_read_timer;
     statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;

@@ -86,8 +86,9 @@ public class RefreshMTMVInfo {
     }
 
     private void checkPartitionExist(MTMV mtmv) throws org.apache.doris.common.AnalysisException {
-        MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
-        List<TableIf> tables = Lists.newArrayList(mtmv, relatedTable);
+        Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+        List<TableIf> tables = Lists.newArrayList(pctTables);
+        tables.add(mtmv);
         tables.sort(Comparator.comparing(TableIf::getId));
         MetaLockUtils.readLockTables(tables);
         try {
@@ -97,7 +98,8 @@ public class RefreshMTMVInfo {
                                 + "does not support refreshing by partition");
             }
             List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
-                    mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties());
+                    mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties(),
+                    mtmv.getPartitionColumns());
             Set<String> shouldExistPartitionNames = Sets.newHashSetWithExpectedSize(partitionDescs.size());
             partitionDescs.stream().forEach(desc -> {
                 shouldExistPartitionNames.add(((SinglePartitionDesc) desc).getPartitionName());

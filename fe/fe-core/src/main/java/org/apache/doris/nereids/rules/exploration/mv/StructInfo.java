@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -725,12 +726,11 @@ public class StructInfo {
      *         need to add filter.
      *         return null if add filter fail.
      */
-    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo,
-            Set<String>> partitionOnOriginPlan, String partitionColumn, CascadesContext parentCascadesContext) {
+    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan,
+            Map<BaseColInfo, Set<String>> partitionOnBaseTableMap, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
-        PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);
-        Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(),
-                predicateAddContext);
+        PredicateAddContext predicateAddContext = new PredicateAddContext(null, partitionOnBaseTableMap);
+        Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), predicateAddContext);
         if (!predicateAddContext.isHandleSuccess()) {
             return null;
         }

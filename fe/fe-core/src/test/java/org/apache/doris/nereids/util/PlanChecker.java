@@ -148,7 +148,7 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze() {
-        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.newTableCollector(true).collect();
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.setCteContext(new CTEContext());
         MemoTestUtils.initMemoAndValidState(cascadesContext);
@@ -157,7 +157,7 @@ public class PlanChecker {
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.newTableCollector(true).collect();
         this.cascadesContext.setCteContext(new CTEContext());
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
@@ -171,7 +171,7 @@ public class PlanChecker {
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
-        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.newTableCollector(true).collect();
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.setCteContext(new CTEContext());
         MemoTestUtils.initMemoAndValidState(cascadesContext);
@@ -718,11 +718,11 @@ public class PlanChecker {
     }
 
     public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                statementContext);
         connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -745,10 +745,11 @@ public class PlanChecker {
     }
 
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         try {
             nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));

@@ -406,6 +406,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             // ATTN: Empty clusters are treated as dropped clusters.
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
+                MetricRepo.unregisterCloudMetrics(clusterId, clusterName, toDel);
                 boolean succ = clusterNameToId.remove(clusterName, clusterId);
 
                 // remove from computeGroupIdToComputeGroup
@@ -774,8 +775,15 @@ public class CloudSystemInfoService extends SystemInfoService {
                 && Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
-
-        return super.getMinPipelineExecutorSize();
+        List<Backend> currentBackends = getBackendsByClusterName(clusterName);
+        if (currentBackends == null || currentBackends.isEmpty()) {
+            return 1;
+        }
+        return currentBackends.stream()
+                .mapToInt(Backend::getPipelineExecutorSize)
+                .filter(size -> size > 0)
+                .min()
+                .orElse(1);
     }
 
     @Override

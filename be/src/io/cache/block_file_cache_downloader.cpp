@@ -219,9 +219,21 @@ void FileCacheBlockDownloader::download_file_cache_block(
                       << "status=" << st.to_string();
         };
 
+        std::string path;
+        doris::FileType file_type =
+                meta.has_file_type() ? meta.file_type() : doris::FileType::SEGMENT_FILE;
+        bool is_index = (file_type == doris::FileType::INVERTED_INDEX_FILE);
+        if (is_index) {
+            path = storage_resource.value()->remote_idx_v2_path(*find_it->second,
+                                                                meta.segment_id());
+        } else {
+            // default .dat
+            path = storage_resource.value()->remote_segment_path(*find_it->second,
+                                                                 meta.segment_id());
+        }
+
         DownloadFileMeta download_meta {
-                .path = storage_resource.value()->remote_segment_path(*find_it->second,
-                                                                      meta.segment_id()),
+                .path = path,
                 .file_size = meta.has_file_size() ? meta.file_size()
                                                   : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
@@ -279,7 +291,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
-        auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
+        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
             if (meta.download_done) {

@@ -21,9 +21,13 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <memory>
+
+#include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -37,7 +41,7 @@ public:
 TEST_F(EncodingInfoTest, normal) {
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
     const EncodingInfo* encoding_info = nullptr;
-    auto status = EncodingInfo::get(type_info, PLAIN_ENCODING, &encoding_info);
+    auto status = EncodingInfo::get(type_info->type(), PLAIN_ENCODING, &encoding_info);
     EXPECT_TRUE(status.ok());
     EXPECT_NE(nullptr, encoding_info);
 }
@@ -45,8 +49,78 @@ TEST_F(EncodingInfoTest, normal) {
 TEST_F(EncodingInfoTest, no_encoding) {
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
     const EncodingInfo* encoding_info = nullptr;
-    auto status = EncodingInfo::get(type_info, DICT_ENCODING, &encoding_info);
+    auto status = EncodingInfo::get(type_info->type(), DICT_ENCODING, &encoding_info);
     EXPECT_FALSE(status.ok());
+}
+
+TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
+    // Helper lambda to test string/JSON types with DICT_ENCODING as default
+    auto test_dict_type_encoding = [](FieldType type, const std::string& type_name) {
+        const auto* type_info = get_scalar_type_info(type);
+
+        // Test with binary_plain_encoding_default_impl = "v1" (default)
+        // String and JSON types default to DICT_ENCODING
+        config::binary_plain_encoding_default_impl = "v1";
+        EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        EXPECT_EQ(DICT_ENCODING, encoding_type)
+                << "Type " << type_name << " should use DICT_ENCODING when config is false";
+
+        // Test with binary_plain_encoding_default_impl = "v2"
+        // Config doesn't affect DICT_ENCODING types
+        config::binary_plain_encoding_default_impl = "v2";
+        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        EXPECT_EQ(DICT_ENCODING, encoding_type)
+                << "Type " << type_name << " should still use DICT_ENCODING when config is true";
+    };
+
+    // Helper lambda to test aggregate state types with PLAIN_ENCODING as default
+    auto test_plain_type_encoding = [](FieldType type, const std::string& type_name) {
+        const auto* type_info = get_scalar_type_info(type);
+
+        // Test with binary_plain_encoding_default_impl = "v1" (default)
+        config::binary_plain_encoding_default_impl = "v1";
+        EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        EXPECT_EQ(PLAIN_ENCODING, encoding_type)
+                << "Type " << type_name << " should use PLAIN_ENCODING when config is false";
+
+        // Test with binary_plain_encoding_default_impl = "v2"
+        config::binary_plain_encoding_default_impl = "v2";
+        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
+        EXPECT_EQ(PLAIN_ENCODING_V2, encoding_type)
+                << "Type " << type_name << " should use PLAIN_ENCODING_V2 when config is true";
+    };
+
+    // Test string types (default to DICT_ENCODING, not affected by config)
+    test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_VARCHAR, "VARCHAR");
+    test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_STRING, "STRING");
+    test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_CHAR, "CHAR");
+
+    // Test JSON/variant types (default to DICT_ENCODING, not affected by config)
+    test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_JSONB, "JSONB");
+    test_dict_type_encoding(FieldType::OLAP_FIELD_TYPE_VARIANT, "VARIANT");
+
+    // Test aggregate state types (default to PLAIN_ENCODING, affected by config)
+    test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_HLL, "HLL");
+    test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_BITMAP, "BITMAP");
+    test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, "QUANTILE_STATE");
+    test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_AGG_STATE, "AGG_STATE");
+
+    // Test non-binary type (BIGINT) - should not be affected by the config
+    const auto* bigint_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
+
+    config::binary_plain_encoding_default_impl = "v1";
+    auto expected_encoding =
+            (config::integer_type_default_use_plain_encoding) ? PLAIN_ENCODING : BIT_SHUFFLE;
+    EncodingTypePB encoding_type =
+            EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
+    EXPECT_EQ(expected_encoding, encoding_type);
+
+    config::binary_plain_encoding_default_impl = "v2";
+    encoding_type = EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
+    EXPECT_EQ(expected_encoding, encoding_type); // Should remain BIT_SHUFFLE
+
+    // Reset to default
+    config::binary_plain_encoding_default_impl = "v1";
 }
 
 } // namespace segment_v2
