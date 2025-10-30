@@ -64,7 +64,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
-          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : ""),
+          _has_default_value(tdesc.__isset.col_default_value) {
     if (tdesc.__isset.virtual_column_expr) {
         // Make sure virtual column is valid.
         if (tdesc.virtual_column_expr.nodes.empty()) {
@@ -98,7 +99,9 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
-          _is_auto_increment(pdesc.is_auto_increment()) {}
+          _is_auto_increment(pdesc.is_auto_increment()),
+          _col_default_value(),
+          _has_default_value(false) {}
 
 #ifdef BE_TEST
 SlotDescriptor::SlotDescriptor()
@@ -111,7 +114,9 @@ SlotDescriptor::SlotDescriptor()
           _field_idx(-1),
           _is_materialized(true),
           _is_key(false),
-          _is_auto_increment(false) {}
+          _is_auto_increment(false),
+          _col_default_value(),
+          _has_default_value(false) {}
 #endif
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
