@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -72,5 +73,18 @@ public class Crc32 extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCrc32(this, context);
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        FunctionSignature sig = signature;
+        sig = ComputeSignatureHelper.implementAnyDataTypeWithOutIndexNoLegacyDateUpgrade(sig, getArguments());
+        sig = ComputeSignatureHelper.implementAnyDataTypeWithIndexNoLegacyDateUpgrade(sig, getArguments());
+        sig = ComputeSignatureHelper.computePrecision(this, sig, getArguments());
+        sig = ComputeSignatureHelper.implementFollowToArgumentReturnType(sig, getArguments());
+        sig = ComputeSignatureHelper.normalizeDecimalV2(sig, getArguments());
+        sig = ComputeSignatureHelper.ensureNestedNullableOfArray(sig, getArguments());
+        sig = ComputeSignatureHelper.dynamicComputeVariantArgs(sig, getArguments());
+        return sig;
     }
 }
