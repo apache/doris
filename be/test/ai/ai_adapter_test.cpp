@@ -449,6 +449,100 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response) {
     ASSERT_EQ(results[0], "anthropic result");
 }
 
+TEST(AI_ADAPTER_TEST, longcat_adapter_request) {
+    LongCatAdapter adapter;
+    TAIResource config;
+    config.model_name = "LongCat-Flash-Chat";
+    config.temperature = 0.7;
+    config.max_tokens = 1024;
+    config.api_key = "test_longcat_key";
+    adapter.init(config);
+
+    // header test
+    MockHttpClient mock_client;
+    Status auth_status = adapter.set_authentication(&mock_client);
+    ASSERT_TRUE(auth_status.ok());
+
+    EXPECT_STREQ(mock_client.get()->data, "Authorization: Bearer test_longcat_key");
+    EXPECT_STREQ(mock_client.get()->next->data, "Content-Type: application/json");
+
+    std::vector<std::string> inputs = {"hello longcat"};
+    std::string request_body;
+    Status st =
+            adapter.build_request_payload(inputs, FunctionAISummarize::system_prompt, request_body);
+    ASSERT_TRUE(st.ok());
+
+    // body test - LongCat is compatible with the OpenAI format.
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+
+    // model name
+    ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
+    ASSERT_TRUE(doc["model"].IsString()) << "Model field is not a string";
+    ASSERT_STREQ(doc["model"].GetString(), "LongCat-Flash-Chat");
+
+    // temperature
+    ASSERT_TRUE(doc.HasMember("temperature")) << "Missing temperature field";
+    ASSERT_TRUE(doc["temperature"].IsNumber()) << "Temperature field is not a number";
+    ASSERT_DOUBLE_EQ(doc["temperature"].GetDouble(), 0.7);
+
+    // max token
+    ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
+    ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
+    ASSERT_EQ(doc["max_tokens"].GetInt(), 1024);
+
+    // messages
+    ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
+    ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
+    ASSERT_GT(doc["messages"].Size(), 0) << "Messages array is empty";
+
+    // system_prompt
+    const auto& first_message = doc["messages"][0];
+    ASSERT_TRUE(first_message.HasMember("role")) << "Message missing role field";
+    ASSERT_TRUE(first_message["role"].IsString()) << "Role field is not a string";
+    ASSERT_STREQ(first_message["role"].GetString(), "system");
+    ASSERT_STREQ(first_message["content"].GetString(), FunctionAISummarize::system_prompt);
+
+    // user message
+    const auto& last_message = doc["messages"][doc["messages"].Size() - 1];
+    ASSERT_TRUE(last_message.HasMember("content")) << "Message missing content field";
+    ASSERT_TRUE(last_message["content"].IsString()) << "Content field is not a string";
+    ASSERT_STREQ(last_message["content"].GetString(), inputs[0].c_str());
+}
+
+TEST(AI_ADAPTER_TEST, longcat_adapter_parse_response) {
+    LongCatAdapter adapter;
+    // OpenAI compatible format
+    std::string resp = R"({"choices":[{"message":{"content":"longcat result"}}]})";
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0], "longcat result");
+}
+
+TEST(AI_ADAPTER_TEST, longcat_adapter_embedding_not_supported) {
+    LongCatAdapter adapter;
+    TAIResource config;
+    config.provider_type = "LONGCAT";
+    adapter.init(config);
+
+    std::vector<std::string> inputs = {"test embedding"};
+    std::string request_body;
+    Status st = adapter.build_embedding_request(inputs, request_body);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(),
+                ::testing::HasSubstr("LONGCAT does not support the Embed feature."));
+
+    std::vector<std::vector<float>> results;
+    st = adapter.parse_embedding_response("test response", results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(),
+                ::testing::HasSubstr("LONGCAT does not support the Embed feature."));
+}
+
 TEST(AI_ADAPTER_TEST, unsupported_provider_type) {
     TAIResource config;
     config.provider_type = "not_exist";
@@ -457,9 +551,9 @@ TEST(AI_ADAPTER_TEST, unsupported_provider_type) {
 }
 
 TEST(AI_ADAPTER_TEST, adapter_factory_all_types) {
-    std::vector<std::string> types = {"LOCAL",     "OPENAI", "MOONSHOT", "DEEPSEEK",
-                                      "MINIMAX",   "ZHIPU",  "QWEN",     "BAICHUAN",
-                                      "ANTHROPIC", "GEMINI", "VOYAGEAI", "MOCK"};
+    std::vector<std::string> types = {"LOCAL",    "OPENAI", "MOONSHOT", "DEEPSEEK",  "MINIMAX",
+                                      "ZHIPU",    "QWEN",   "BAICHUAN", "ANTHROPIC", "GEMINI",
+                                      "VOYAGEAI", "MOCK",   "LONGCAT"};
     for (const auto& type : types) {
         auto adapter = doris::vectorized::AIAdapterFactory::create_adapter(type);
         ASSERT_TRUE(adapter != nullptr) << "Adapter not found for type: " << type;
