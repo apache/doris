@@ -300,8 +300,8 @@ TEST(VStringFunctionsTest, Reverse) {
             "ab\xE4\xB8\xAD"
             "c";
     reverse_check(mixed, std::string("c\xE4\xB8\xAD"
-                                                      "ba",
-                                                      6));
+                                     "ba",
+                                     6));
 
     // emoji (4-byte) + ASCII: "😀a" -> "a😀"
     std::string emoji_a =
@@ -315,16 +315,16 @@ TEST(VStringFunctionsTest, Reverse) {
             "\xF0\x9F\x98\x80"
             "\xE5\xA5\xBD";
     reverse_check(mix2, std::string("\xE5\xA5\xBD"
-                                                    "\xF0\x9F\x98\x80"
-                                                    "\xE4\xBD\xA0",
-                                                    10));
+                                    "\xF0\x9F\x98\x80"
+                                    "\xE4\xBD\xA0",
+                                    10));
 
     // illegal UTF-8 leading byte without continuation: "A\xC2" -> "\xC2A"
     std::string invalid = "A";
     invalid.push_back('\xC2'); // leading byte of a 2-byte sequence without continuation
     reverse_check(invalid, std::string("\xC2"
-                                                        "A", 
-                                                        2));
+                                                 "A", 
+                                                 2));
 }
 
 TEST(VStringFunctionsTest, HexEncode) {
@@ -343,7 +343,7 @@ TEST(VStringFunctionsTest, HexEncode) {
     EXPECT_EQ("41", encode_ptr(one.data(), one.size()));
 
     // ASCII "hello" -> 68 65 6C 6C 6F
-    std::vector<unsigned char> hello {'h','e','l','l','o'};
+    std::vector<unsigned char> hello {'h', 'e', 'l', 'l', 'o'};
     EXPECT_EQ("68656C6C6F", encode_ptr(hello.data(), hello.size()));
 
     // mixed values incl. 0x00 and 0xFF
@@ -360,8 +360,8 @@ TEST(VStringFunctionsTest, HexEncode) {
 
     // large string to cover SIMD path
     std::vector<unsigned char> large {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
-                                     0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-                                     0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+                                      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                                      0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
     EXPECT_EQ("123456789ABCDEF0112233445566778899AABBCCDDEEFF",
               encode_ptr(large.data(), large.size()));
 }
@@ -420,7 +420,7 @@ TEST(VStringFunctionsTest, ToUpper) {
 
 TEST(VStringFunctionsTest, GetCharLen) {
     auto check = [](const std::string& s, size_t expected_count,
-                              const std::vector<size_t>& expected_idx) {
+                    const std::vector<size_t>& expected_idx) {
         // overload with index vector
         std::vector<size_t> idx;
         size_t c1 = VStringFunctions::get_char_len(s.data(), s.size(), idx);
