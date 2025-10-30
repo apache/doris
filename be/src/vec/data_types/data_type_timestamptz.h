@@ -65,8 +65,19 @@ public:
 
     UInt32 get_scale() const override { return _scale; }
 
-    /// TODO: The function here is used for literals, which has not been implemented yet. It will be added in the future.
-    Field get_field(const TExprNode& node) const override { return Field {}; }
+    Field get_field(const TExprNode& node) const override {
+        DateV2Value<DateTimeV2ValueType> value;
+        const int32_t scale =
+                node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
+        if (value.from_date_str(node.date_literal.value.c_str(),
+                                cast_set<int32_t>(node.date_literal.value.size()), scale)) {
+            return Field::create_field<TYPE_TIMESTAMPTZ>(value.to_date_int_val());
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type TimeStampTz({})",
+                                   node.date_literal.value, _scale);
+        }
+    }
 
 private:
     const UInt32 _scale = 6; // Default precision is 6
