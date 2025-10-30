@@ -175,7 +175,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         List<ValueDesc> valuePerRefs = Lists.newArrayList();
         for (Entry<Expression, Collection<ValueDesc>> referenceValues : groupByReference.asMap().entrySet()) {
             List<ValueDesc> valuePerReference = (List<ValueDesc>) referenceValues.getValue();
-            valuePerRefs.add(merger.mergeSameReferenceValues(valuePerReference));
+            valuePerRefs.add(merger.merge(referenceValues.getKey(), valuePerReference));
         }
 
         if (valuePerRefs.size() == 1) {
@@ -198,24 +198,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         R visitUnknownValue(UnknownValue unknownValue, C context);
     }
 
-    private interface SameReferenceValueMerger extends ValueDescVisitor<ValueDesc, ValueDesc> {
-
-        default ValueDesc mergeSameReferenceValues(List<ValueDesc> values) {
-            values = preMerge(values);
-            ValueDesc result = values.get(0);
-            for (int i = 1; i < values.size(); i++) {
-                result = values.get(i).accept(this, result);
-            }
-            return result;
-        }
-
-        // pre merge, merge value desc with the same type
-        default List<ValueDesc> preMerge(List<ValueDesc> values) {
-            return values;
-        }
+    private interface SameReferenceValueMerger {
+        // values have the same reference
+        ValueDesc merge(Expression reference, List<ValueDesc> values);
     }
 
-    private static class ValueDescIntersect implements SameReferenceValueMerger {
+    private static class ValueDescIntersect implements SameReferenceValueMerger,
+            ValueDescVisitor<ValueDesc, ValueDesc> {
 
         @Override
         public ValueDesc visitRangeValue(RangeValue rangeValue, ValueDesc source) {
@@ -241,39 +230,23 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         public ValueDesc visitUnknownValue(UnknownValue unknownValue, ValueDesc source) {
             return source.intersect(unknownValue);
         }
+
+        @Override
+        public ValueDesc merge(Expression reference, List<ValueDesc> values) {
+            ValueDesc result = values.get(0);
+            for (int i = 1; i < values.size(); i++) {
+                result = values.get(i).accept(this, result);
+            }
+            return result;
+        }
     }
 
     private static class ValueDescUnion implements SameReferenceValueMerger {
 
         @Override
-        public ValueDesc visitRangeValue(RangeValue rangeValue, ValueDesc source) {
-            return source.union(rangeValue);
-        }
-
-        @Override
-        public ValueDesc visitDiscreteValue(DiscreteValue discreteValue, ValueDesc source) {
-            return source.union(discreteValue);
-        }
-
-        @Override
-        public ValueDesc visitEmptyValue(EmptyValue emptyValue, ValueDesc source) {
-            return source.union(emptyValue);
-        }
-
-        @Override
-        public ValueDesc visitCompoundValue(CompoundValue compoundValue, ValueDesc source) {
-            return source.union(compoundValue);
-        }
-
-        @Override
-        public ValueDesc visitUnknownValue(UnknownValue unknownValue, ValueDesc source) {
-            return source.union(unknownValue);
-        }
-
-        @Override
-        public List<ValueDesc> preMerge(List<ValueDesc> valueDescs) {
+        public ValueDesc merge(Expression reference, List<ValueDesc> valueDescs) {
+            ImmutableList.Builder<ValueDesc> result = ImmutableList.builderWithExpectedSize(valueDescs.size());
             ExpressionRewriteContext context = valueDescs.get(0).context;
-            Expression reference = valueDescs.get(0).getReference();
             // Since in-predicate's options is a list, the discrete values need to kept options' order.
             // If not keep options' order, the result in-predicate's option list will not equals to
             // the input in-predicate, later nereids will need to simplify the new in-predicate,
@@ -308,21 +281,28 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 discreteValues.removeIf(x -> rangeSet.contains(x));
             }
 
-            List<ValueDesc> result = Lists.newArrayListWithExpectedSize(valueDescs.size());
             if (!discreteValues.isEmpty()) {
                 result.add(new DiscreteValue(context, reference, discreteValues));
             }
             for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
                 result.add(new RangeValue(context, reference, range));
             }
-            for (ValueDesc valueDesc : valueDescs) {
-                if (!(valueDesc instanceof DiscreteValue) && !(valueDesc instanceof RangeValue)) {
-                    result.add(valueDesc);
+            for (ValueDesc value : valueDescs) {
+                if (value instanceof CompoundValue || value instanceof UnknownValue) {
+                    result.add(value);
                 }
             }
 
-            return result;
+            List<ValueDesc> resultValues = result.build();
+            if (resultValues.isEmpty()) {
+                return new EmptyValue(context, reference);
+            } else if (resultValues.size() == 1) {
+                return resultValues.get(0);
+            } else {
+                return new CompoundValue(context, resultValues, false);
+            }
         }
+
     }
 
     /**
@@ -360,16 +340,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected abstract ValueDesc intersect(CompoundValue compoundValue);
 
         protected abstract ValueDesc intersect(UnknownValue unknownValue);
-
-        protected abstract ValueDesc union(EmptyValue emptyValue);
-
-        protected abstract ValueDesc union(RangeValue rangeValue);
-
-        protected abstract ValueDesc union(DiscreteValue discreteValue);
-
-        protected abstract ValueDesc union(CompoundValue compoundValue);
-
-        protected abstract ValueDesc union(UnknownValue unknownValue);
     }
 
     /**
@@ -409,31 +379,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected ValueDesc intersect(UnknownValue other) {
             return this;
-        }
-
-        @Override
-        protected ValueDesc union(EmptyValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc union(RangeValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc union(DiscreteValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc union(CompoundValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc union(UnknownValue other) {
-            return other;
         }
     }
 
@@ -509,39 +454,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         @Override
-        protected ValueDesc union(EmptyValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc union(RangeValue other) {
-            if (range.isConnected(other.range)) {
-                return new RangeValue(context, reference, range.span(other.range));
-            } else {
-                return new CompoundValue(context, ImmutableList.of(this, other), false);
-            }
-        }
-
-        @Override
-        protected ValueDesc union(DiscreteValue other) {
-            if (isCoverDiscreteValue(other)) {
-                return this;
-            } else {
-                return new CompoundValue(context, ImmutableList.of(this, other), false);
-            }
-        }
-
-        @Override
-        protected ValueDesc union(CompoundValue other) {
-            return other.compoundUnionWith(this, true);
-        }
-
-        @Override
-        protected ValueDesc union(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
-        }
-
-        @Override
         public String toString() {
             return range == null ? "UnknownRange" : range.toString();
         }
@@ -611,39 +523,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected ValueDesc intersect(UnknownValue other) {
             return new CompoundValue(context, ImmutableList.of(this, other), true);
         }
-
-        @Override
-        protected ValueDesc union(EmptyValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc union(RangeValue other) {
-            if (other.isCoverDiscreteValue(this)) {
-                return other;
-            } else {
-                return new CompoundValue(context, ImmutableList.of(this, other), false);
-            }
-        }
-
-        @Override
-        protected ValueDesc union(DiscreteValue other) {
-            Set<ComparableLiteral> newValues = Sets.newLinkedHashSet();
-            newValues.addAll(other.values);
-            newValues.addAll(this.values);
-            return new DiscreteValue(context, reference, newValues);
-        }
-
-        @Override
-        protected ValueDesc union(CompoundValue other) {
-            return other.compoundUnionWith(this, true);
-        }
-
-        @Override
-        protected ValueDesc union(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
-        }
-
         @Override
         public String toString() {
             return values.toString();
@@ -726,38 +605,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected ValueDesc intersect(UnknownValue other) {
             return new CompoundValue(context, ImmutableList.of(this, other), true);
         }
-
-        @Override
-        protected ValueDesc union(EmptyValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc union(RangeValue other) {
-            return compoundUnionWith(other, false);
-        }
-
-        @Override
-        protected ValueDesc union(DiscreteValue other) {
-            return compoundUnionWith(other, false);
-        }
-
-        @Override
-        protected ValueDesc union(CompoundValue other) {
-            return compoundUnionWith(other, false);
-        }
-
-        @Override
-        protected ValueDesc union(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
-        }
-
         public ValueDesc compoundIntersectWith(ValueDesc other, boolean reverse) {
             return mergeWith(other, reverse, true);
-        }
-
-        public ValueDesc compoundUnionWith(ValueDesc other, boolean reverse) {
-            return mergeWith(other, reverse, false);
         }
 
         // merge with other, if isIntersect = true then intersect them, else union them
@@ -823,31 +672,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected ValueDesc intersect(UnknownValue other) {
             return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
-        protected ValueDesc union(EmptyValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc union(RangeValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
-        }
-
-        @Override
-        protected ValueDesc union(DiscreteValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
-        }
-
-        @Override
-        protected ValueDesc union(CompoundValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
-        }
-
-        @Override
-        protected ValueDesc union(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), false);
         }
     }
 }
