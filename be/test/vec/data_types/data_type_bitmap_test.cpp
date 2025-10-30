@@ -113,55 +113,6 @@ void insert_data_bitmap(MutableColumns* bitmap_cols, DataTypePtr dt_bitmap, int 
 
 // not support function: get_filed
 
-// test to_string | to_string_batch | from_string
-TEST_P(DataTypeBitMapTest, FromAndToStringTest) {
-    MutableColumns bitmap_cols;
-    std::vector<std::string> data_strs;
-    insert_data_bitmap(&bitmap_cols, dt_bitmap, rows_value, &data_strs);
-
-    {
-        // to_string_batch | from_string
-        auto col_to = ColumnString::create();
-        dt_bitmap->to_string_batch(*bitmap_cols[0]->get_ptr(), *col_to);
-        ASSERT_EQ(col_to->size(), bitmap_cols[0]->get_ptr()->size());
-        // from_string assert col_to to assert_column and check same with mutableColumn
-        auto assert_column = dt_bitmap->create_column();
-        for (int i = 0; i < col_to->size(); ++i) {
-            std::string s = col_to->get_data_at(i).to_string();
-            StringRef rb(s.data(), s.size());
-            ASSERT_EQ(Status::OK(), dt_bitmap->from_string(rb, assert_column.get()));
-            ASSERT_EQ(assert_column->operator[](i), bitmap_cols[0]->get_ptr()->operator[](i))
-                    << "i: " << i << " s: " << s << " datatype: " << dt_bitmap->get_name()
-                    << " assert_column: " << assert_column->get_name()
-                    << " mutableColumn:" << bitmap_cols[0]->get_ptr()->get_name() << std::endl;
-        }
-        std::cout << "finish to_string_batch | from_string test" << std::endl;
-    }
-
-    {
-        // to_string | from_string
-        auto ser_col = ColumnString::create();
-        ser_col->reserve(bitmap_cols[0]->get_ptr()->size());
-        VectorBufferWriter buffer_writer(*ser_col.get());
-        for (int i = 0; i < bitmap_cols[0]->get_ptr()->size(); ++i) {
-            dt_bitmap->to_string(*bitmap_cols[0]->get_ptr(), i, buffer_writer);
-            std::string res = dt_bitmap->to_string(*bitmap_cols[0]->get_ptr(), i);
-            buffer_writer.commit();
-            EXPECT_EQ(res, data_strs[i]);
-        }
-        // check ser_col to assert_column and check same with mutableColumn
-        auto assert_column_1 = dt_bitmap->create_column();
-        for (int i = 0; i < ser_col->size(); ++i) {
-            std::string s = ser_col->get_data_at(i).to_string();
-            StringRef rb(s.data(), s.size());
-            ASSERT_EQ(Status::OK(), dt_bitmap->from_string(rb, assert_column_1.get()));
-            auto aaa = assert_column_1->operator[](i);
-            ASSERT_EQ(assert_column_1->operator[](i), bitmap_cols[0]->get_ptr()->operator[](i));
-        }
-        std::cout << "finish to_string | from_string test" << std::endl;
-    }
-}
-
 // serialize / deserialize
 TEST_P(DataTypeBitMapTest, SerializeDeserializeTest) {
     MutableColumns bitmap_cols;

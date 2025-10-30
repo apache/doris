@@ -699,11 +699,18 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+    // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
+    //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
+            DRY_RUN_QUERY,
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
             SKIP_DELETE_SIGN,
             SKIP_STORAGE_ENGINE_MERGE,
+            SKIP_MISSING_VERSION,
+            SKIP_BAD_TABLET,
             SHOW_HIDDEN_COLUMNS
     );
 
@@ -747,7 +754,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
-    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
     public static final String READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
 
@@ -891,6 +897,14 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
+
+    // Experimental: enable pushing down virtual slots (common sub-expressions) into OlapScan.
+    // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
+    @VariableMgr.VarAttr(name = "enable_virtual_slot_for_cse", needForward = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否启用将公共子表达式作为虚拟列下推到OlapScan（实验特性）",
+                    "Enable pushing common sub-expressions as virtual columns into OlapScan (experimental)"})
+    public boolean experimentalEnableVirtualSlotForCse = false;
 
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
@@ -1278,7 +1292,12 @@ public class SessionVariable implements Serializable, Writable {
     public int maxScanKeyNum = 48;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     public int maxPushdownConditionsPerColumn = 1024;
-    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY, needForward = true)
+    @VariableMgr.VarAttr(
+            name = SHOW_HIDDEN_COLUMNS,
+            flag = VariableMgr.SESSION_ONLY,
+            needForward = true,
+            affectQueryResult = true
+    )
     public boolean showHiddenColumns = false;
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = {
@@ -1834,25 +1853,25 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true, affectQueryResult = true)
     public boolean skipStorageEngineMerge = false;
 
     /**
      * For debug purpose, skip delete predicate when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true, affectQueryResult = true)
     public boolean skipDeletePredicate = false;
 
     /**
      * For debug purpose, skip delete sign when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true, affectQueryResult = true)
     public boolean skipDeleteSign = false;
 
     /**
      * For debug purpose, skip delete bitmap when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true, affectQueryResult = true)
     public boolean skipDeleteBitmap = false;
 
     // This variable replace the original FE config `recover_with_skip_missing_version`.
@@ -1865,7 +1884,7 @@ public class SessionVariable implements Serializable, Writable {
     // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
     // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
     // this variable will not work.
-    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION, affectQueryResult = true)
     public boolean skipMissingVersion = false;
 
     // This variable is used to control whether to skip the bad tablet.
@@ -1873,7 +1892,7 @@ public class SessionVariable implements Serializable, Writable {
     // the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care
     // about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and
     // load the remaining data into a new table.
-    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET)
+    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET, affectQueryResult = true)
     public boolean skipBadTablet = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
@@ -2870,10 +2889,12 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableTextValidateUtf8 = true;
 
-    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
-            "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
-            "Skip checking transactional hive version file '_orc_acid_version.'"
-    })
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, affectQueryResult = true,
+            description = {
+                "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
+                "Skip checking transactional hive version file '_orc_acid_version.'"
+            }
+    )
     public boolean skipCheckingAcidVersionFile = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
@@ -3201,7 +3222,8 @@ public class SessionVariable implements Serializable, Writable {
     private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
 
     public boolean isInDebugMode() {
-        return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge;
+        return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
+                || skipMissingVersion || skipBadTablet;
     }
 
     public String printDebugModeVariables() {
@@ -4674,7 +4696,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
-        tResult.setEnableStrictCast(enableStrictCast);
+        tResult.setEnableStrictCast(enableStrictCast());
+        tResult.setEnableInsertStrict(enableInsertStrict);
         tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
 
         tResult.setHnswEfSearch(hnswEFSearch);
@@ -4761,7 +4784,8 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        field.set(this, root.get(attr.name()));
+                        // root.get(attr.name()) always return Double type, so need to convert it.
+                        field.set(this, Double.valueOf(root.get(attr.name()).toString()));
                         break;
                     case "String":
                         field.set(this, root.get(attr.name()));
@@ -5421,8 +5445,13 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static boolean enableStrictCast() {
-        if (ConnectContext.get() != null) {
-            return ConnectContext.get().getSessionVariable().enableStrictCast;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext != null && statementContext.isInsert()) {
+                return connectContext.getSessionVariable().enableInsertStrict;
+            }
+            return connectContext.getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
         }

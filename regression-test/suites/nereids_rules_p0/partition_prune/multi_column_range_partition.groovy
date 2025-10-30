@@ -138,7 +138,7 @@ suite("multi_column_range_partition") {
         }
         explain {
             sql "select * from t_multi_column_partition_datetime_first where date_trunc(dt,'day') is null"
-            contains("partitions=3/5 (p0,p10,p30)")
+            contains("VEMPTYSET")
         }
         explain {
             sql "select * from t_multi_column_partition_datetime_first where date_trunc(dt,'day') is not null"
@@ -146,15 +146,15 @@ suite("multi_column_range_partition") {
         }
         explain {
             sql "select * from t_multi_column_partition_datetime_first where a=1 and date_trunc(dt,'month') is null"
-            contains("partitions=1/5 (p30)")
+            contains("VEMPTYSET")
         }
         explain {
             sql "select * from t_multi_column_partition_datetime_first where a>1 and date_trunc(dt,'month') is null"
-            contains("partitions=1/5 (p30)")
+            contains("VEMPTYSET")
         }
         explain {
             sql "select * from t_multi_column_partition_datetime_first where date_trunc(dt,'month') is null"
-            contains("partitions=1/5 (p30)")
+            contains("VEMPTYSET")
         }
         explain {
             sql "select * from t_multi_column_partition_datetime_first where a=1 and date_trunc(dt,'month') is not null"

@@ -88,6 +88,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
@@ -291,7 +292,8 @@ public class BindSink implements AnalysisRuleFactory {
         List<NamedExpression> castExprs = Lists.newArrayList();
         ConnectContext connCtx = ConnectContext.get();
         final boolean truncateString = needTruncateStringWhenInsert
-                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast);
+                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr

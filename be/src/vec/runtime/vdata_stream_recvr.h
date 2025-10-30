@@ -91,6 +91,7 @@ public:
                      const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
 
     void add_block(Block* block, int sender_id, bool use_move);
+    std::string debug_string();
 
     MOCK_FUNCTION Status get_next(Block* block, bool* eos);
 
@@ -184,6 +185,7 @@ public:
     Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
+    std::string debug_string();
 
     void add_block(Block* block, bool use_move);
 

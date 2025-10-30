@@ -154,10 +154,10 @@ inline bool is_delimiter(char c) {
 }
 inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
 
-inline bool is_bar(char c) {
-    return c == '-';
+inline bool is_date_sep(char c) {
+    return c == '-' || c == '/';
 }
-inline auto consume_one_bar = skip_qualified_char<1, is_bar>;
+inline auto consume_one_date_sep = skip_qualified_char<1, is_date_sep>;
 
 inline bool is_colon(char c) {
     return c == ':';

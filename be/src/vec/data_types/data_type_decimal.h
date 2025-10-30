@@ -223,11 +223,8 @@ public:
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(FieldType); }
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
-    template <bool is_const>
-    void to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(const FieldType& value) const;
     using SerDeType = DataTypeDecimalSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

@@ -83,16 +83,6 @@ public class FeNameFormat {
         }
     }
 
-    public static void checkPrefix(String prefix) throws AnalysisException {
-        if (prefix == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, prefix);
-        }
-
-        if (prefix.startsWith(FORBIDDEN_PARTITION_NAME)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, prefix);
-        }
-    }
-
     public static void checkPartitionName(String partitionName) throws AnalysisException {
         if (Strings.isNullOrEmpty(partitionName) || !partitionName.matches(getCommonNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, partitionName);

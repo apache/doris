@@ -172,7 +172,7 @@ under the License.
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         <excludes>
-                            **/apache/doris/thrift/*,
+                            **/apache/doris/thrift/**/*,
                             **/apache/parquet/**/*
                         </excludes>
                     </configuration>
