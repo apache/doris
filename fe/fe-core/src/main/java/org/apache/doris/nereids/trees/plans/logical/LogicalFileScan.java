@@ -21,6 +21,8 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -32,6 +34,9 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -46,7 +51,7 @@ import java.util.Optional;
 /**
  * Logical file scan for external catalog.
  */
-public class LogicalFileScan extends LogicalCatalogRelation {
+public class LogicalFileScan extends LogicalCatalogRelation implements SupportPruneNestedColumn {
     protected final SelectedPartitions selectedPartitions;
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
@@ -187,6 +192,30 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     @Override
     public List<Slot> computeAsteriskOutput() {
         return super.computeAsteriskOutput();
+    }
+
+    @Override
+    public boolean supportPruneNestedColumn() {
+        ExternalTable table = getTable();
+        if (table instanceof IcebergExternalTable) {
+            return true;
+        } else if (table instanceof HMSExternalTable) {
+            try {
+                ConnectContext connectContext = ConnectContext.get();
+                SessionVariable sessionVariable = connectContext.getSessionVariable();
+                TFileFormatType fileFormatType = ((HMSExternalTable) table).getFileFormatType(sessionVariable);
+                switch (fileFormatType) {
+                    case FORMAT_PARQUET:
+                    case FORMAT_ORC:
+                        return true;
+                    default:
+                        return false;
+                }
+            } catch (Throwable t) {
+                // ignore and not prune
+            }
+        }
+        return false;
     }
 
     /**
