@@ -93,6 +93,9 @@ public:
 
     int64_t num_rows_filtered() const;
 
+    void set_tablet_load_rowset_num_info(
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info);
+
 protected:
     virtual void _init_profile(RuntimeProfile* profile);
 
