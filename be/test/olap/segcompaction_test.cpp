@@ -363,7 +363,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_block(output_block.get());
+                s = rowset_reader->next_batch(output_block.get());
                 if (s != Status::OK()) {
                     eof = true;
                 }
@@ -869,7 +869,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_block(output_block.get());
+                s = rowset_reader->next_batch(output_block.get());
                 if (s != Status::OK()) {
                     eof = true;
                 }
@@ -1134,7 +1134,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_block(output_block.get());
+                s = rowset_reader->next_batch(output_block.get());
                 if (s != Status::OK()) {
                     eof = true;
                 }

@@ -366,7 +366,6 @@ public:
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
     int64_t get_compress_time() const { return _compress_time_ns; }
 
-
     // remove tmp columns in block
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block
