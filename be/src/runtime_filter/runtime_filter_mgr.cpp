@@ -471,6 +471,7 @@ Status RuntimeFilterMergeControllerEntity::reset_global_rf(
         cnt_val->merger->set_expected_producer_num(producer_size);
         cnt_val->arrive_id.clear();
         cnt_val->source_addrs.clear();
+        cnt_val->done = false;
     }
     return Status::OK();
 }
