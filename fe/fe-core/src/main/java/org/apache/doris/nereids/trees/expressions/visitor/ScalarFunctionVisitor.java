@@ -179,6 +179,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfYear;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaySecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -268,6 +269,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -512,6 +514,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
@@ -1129,6 +1133,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(daysAdd, context);
     }
 
+    default R visitDaySecondAdd(DaySecondAdd daySecondAdd, C context) {
+        return visitScalarFunction(daySecondAdd, context);
+    }
+
     default R visitDaysSub(DaysSub daysSub, C context) {
         return visitScalarFunction(daysSub, context);
     }
@@ -1487,6 +1495,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIsNan(IsNan isNan, C context) {
         return visitScalarFunction(isNan, context);
+    }
+
+    default R visitIsUuid(IsUuid isUuid, C context) {
+        return visitScalarFunction(isUuid, context);
     }
 
     default R visitIsInf(IsInf isInf, C context) {
@@ -2391,6 +2403,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSessionUser(SessionUser user, C context) {
         return visitScalarFunction(user, context);
+    }
+
+    default R visitUtcDate(UtcDate utcDate, C context) {
+        return visitScalarFunction(utcDate, context);
+    }
+
+    default R visitUtcTime(UtcTime utcTime, C context) {
+        return visitScalarFunction(utcTime, context);
     }
 
     default R visitUtcTimestamp(UtcTimestamp utcTimestamp, C context) {

@@ -593,8 +593,9 @@ std::string FSFileCacheStorage::get_version_path() const {
 }
 
 Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
-        const std::shared_ptr<LocalFileSystem>& fs, const Path& file_path, long expiration_time,
-        size_t size, size_t* offset, bool* is_tmp, FileCacheType* cache_type) const {
+        const std::shared_ptr<LocalFileSystem>& input_fs, const Path& file_path,
+        long expiration_time, size_t size, size_t* offset, bool* is_tmp,
+        FileCacheType* cache_type) const {
     std::error_code ec;
     std::string offset_with_suffix = file_path.native();
     auto delim_pos1 = offset_with_suffix.find('_');
@@ -650,7 +651,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
     }
 
     if (size == 0 && !(*is_tmp)) {
-        auto st = fs->delete_file(file_path);
+        auto st = input_fs->delete_file(file_path);
         if (!st.ok()) {
             LOG_WARNING("delete file {} error", file_path.native()).error(st);
         }
@@ -753,7 +754,6 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
                 LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                              << ", try to remove it";
-                std::error_code ec;
                 std::filesystem::remove(key_prefix_it->path(), ec);
                 if (ec) {
                     LOG(WARNING) << "failed to remove=" << key_prefix_it->path()
@@ -816,7 +816,6 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             long expiration_time = std::stoul(expiration_time_str);
             auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
-            std::error_code ec;
             std::filesystem::directory_iterator offset_it(key_it->path(), ec);
             if (ec) [[unlikely]] {
                 LOG(ERROR) << fmt::format("Failed to list dir {}, err={}",
@@ -850,7 +849,6 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     // async load, can't find key, need to check exist.
     auto key_path = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     bool exists = false;
-    auto st = fs->exists(key_path, &exists);
     if (auto st = fs->exists(key_path, &exists); !exists && st.ok()) {
         // cache miss
         return;
@@ -881,7 +879,6 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {
             // if the file is tmp, it means it is the old file and it should be removed
             if (is_tmp) {
-                std::error_code ec;
                 std::filesystem::remove(check_it->path(), ec);
                 if (ec) {
                     LOG(WARNING) << fmt::format("cannot remove {}: {}", check_it->path().native(),

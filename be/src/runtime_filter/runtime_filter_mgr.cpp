@@ -356,6 +356,12 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
                                                               int execution_timeout) {
     DCHECK_GT(cnt_val.targetv2_info.size(), 0);
 
+    if (cnt_val.done) {
+        return Status::InternalError("Runtime filter has been sent",
+                                     cnt_val.merger->debug_string());
+    }
+    cnt_val.done = true;
+
     butil::IOBuf request_attachment;
 
     PPublishFilterRequestV2 apply_request;
@@ -424,8 +430,6 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
                              closure->response_.get(), closure.get());
         closure.release();
     }
-
-    cnt_val.done = true;
     return st;
 }
 
@@ -433,6 +437,13 @@ void RuntimeFilterMergeControllerEntity::release_undone_filters(QueryContext* qu
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     for (auto& [filter_id, ctx] : _filter_map) {
         if (!ctx.done && !ctx.targetv2_info.empty()) {
+            {
+                std::lock_guard<std::mutex> l(ctx.mtx);
+                ctx.merger->set_wrapper_state_and_ready_to_apply(
+                        RuntimeFilterWrapper::State::DISABLED,
+                        "rf coordinator's query context released before runtime filter is ready to "
+                        "apply");
+            }
             auto st = _send_rf_to_target(ctx, std::weak_ptr<QueryContext> {}, 0,
                                          UniqueId(query_ctx->query_id()).to_proto(),
                                          query_ctx->execution_timeout());

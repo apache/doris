@@ -770,9 +770,8 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    // only cloud deploy mode will use file cache. and keep the same with FileScanner
-    if (config::is_cloud_mode() && config::enable_file_cache &&
-        _state->query_options().enable_file_cache) {
+    // only cloud deploy mode will use file cache.
+    if (config::is_cloud_mode() && config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(

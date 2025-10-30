@@ -94,7 +94,6 @@ public class FunctionSet<T> {
         LikePredicate.initBuiltins(this);
         MatchPredicate.initBuiltins(this);
         InPredicate.initBuiltins(this);
-        AliasFunction.initBuiltins(this);
 
         // init table function
         initTableFunction();
