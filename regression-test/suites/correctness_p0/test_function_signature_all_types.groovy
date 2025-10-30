@@ -30,7 +30,6 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    // 创建测试表,包含各种数据类型
     sql """
         DROP TABLE IF EXISTS test_sig_all_types
     """
@@ -66,7 +65,6 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
         )
     """
 
-    // 插入测试数据
     sql """
         INSERT INTO test_sig_all_types VALUES
         (0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 'zero', 'zero', 'zero', '2023-12-15', '2023-12-15 00:00:00', '2023-12-15', '2023-12-15 00:00:00', false),
@@ -515,31 +513,31 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     sql "DROP TABLE IF EXISTS test_datev1_list_partitionv3"
     
     // Test 1.1: DATEV1 as List Partition key (v4)
-    // sql """
-    //     DROP TABLE IF EXISTS test_datev1_list_partitionv4
-    // """
-    // sql """
-    //     CREATE TABLE test_datev1_list_partitionv4 (
-    //         id INT,
-    //         dt DATEV1,
-    //         value VARCHAR(100)
-    //     ) DUPLICATE KEY(id)
-    //     PARTITION BY LIST(dt) (
-    //         PARTITION p1 VALUES IN ('2024-01-15', '2024-01-16', '2024-01-17'),
-    //         PARTITION p2 VALUES IN ('2024-02-15', '2024-02-16', '2024-02-17'),
-    //         PARTITION p3 VALUES IN ('2024-03-15', '2024-03-16', '2024-03-17')
-    //     )
-    //     DISTRIBUTED BY HASH(id) BUCKETS 3
-    //     PROPERTIES ("replication_num" = "1")
-    // """
-    // sql """
-    //     INSERT INTO test_datev1_list_partitionv4 VALUES
-    //     (1, '2024-01-17', 'jan1'),
-    //     (2, '2024-02-16', 'feb1'),
-    //     (3, '2024-03-16', 'mar1')
-    // """
-    // qt_datev1_list_partitionv4 "SELECT * FROM test_datev1_list_partitionv4 ORDER BY id"
-    // sql "DROP TABLE IF EXISTS test_datev1_list_partitionv4"
+    sql """
+        DROP TABLE IF EXISTS test_datev1_list_partitionv4
+    """
+    sql """
+        CREATE TABLE test_datev1_list_partitionv4 (
+            id INT,
+            dt DATEV1,
+            value VARCHAR(100)
+        ) DUPLICATE KEY(id)
+        PARTITION BY LIST(dt) (
+            PARTITION p1 VALUES IN ('2024-01-15', '2024-01-16', '2024-01-17'),
+            PARTITION p2 VALUES IN ('2024-02-15', '2024-02-16', '2024-02-17'),
+            PARTITION p3 VALUES IN ('2024-03-15', '2024-03-16', '2024-03-17')
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_list_partitionv4 VALUES
+        (1, '2024-01-17', 'jan1'),
+        (2, '2024-02-16', 'feb1'),
+        (3, '2024-03-16', 'mar1')
+    """
+    qt_datev1_list_partitionv4 "SELECT * FROM test_datev1_list_partitionv4 ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_list_partitionv4"
     
     // Test 2: DATEV1 as bucketing key
     sql """
