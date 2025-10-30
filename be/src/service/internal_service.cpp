@@ -210,28 +210,17 @@ private:
 PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
           // heavy threadpool is used for load process and other process that will read disk or access network.
-          _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
-                                   ? config::brpc_heavy_work_pool_threads
-                                   : std::max(128, CpuInfo::num_cores() * 4),
-                           config::brpc_heavy_work_pool_max_queue_size != -1
-                                   ? config::brpc_heavy_work_pool_max_queue_size
-                                   : std::max(10240, CpuInfo::num_cores() * 320),
+          _heavy_work_pool(get_brpc_heavy_work_pool_threads(),
+                           get_brpc_heavy_work_pool_max_queue_size(),
                            "brpc_heavy"),
 
           // light threadpool should be only used in query processing logic. All hanlers should be very light, not locked, not access disk.
-          _light_work_pool(config::brpc_light_work_pool_threads != -1
-                                   ? config::brpc_light_work_pool_threads
-                                   : std::max(128, CpuInfo::num_cores() * 4),
-                           config::brpc_light_work_pool_max_queue_size != -1
-                                   ? config::brpc_light_work_pool_max_queue_size
-                                   : std::max(10240, CpuInfo::num_cores() * 320),
+          _light_work_pool(get_brpc_light_work_pool_threads(),
+                           get_brpc_light_work_pool_max_queue_size(),
                            "brpc_light"),
-          _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
-                                          ? config::brpc_arrow_flight_work_pool_threads
-                                          : std::max(512, CpuInfo::num_cores() * 2),
-                                  config::brpc_arrow_flight_work_pool_max_queue_size != -1
-                                          ? config::brpc_arrow_flight_work_pool_max_queue_size
-                                          : std::max(20480, CpuInfo::num_cores() * 640),
+
+          _arrow_flight_work_pool(get_brpc_arrow_flight_work_pool_threads(),
+                                  get_brpc_arrow_flight_work_pool_max_queue_size(),
                                   "brpc_arrow_flight") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
@@ -243,22 +232,22 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                          [this]() { return _light_work_pool.get_active_threads(); });
 
     REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
-                         []() { return config::brpc_heavy_work_pool_max_queue_size; });
+                         [this]() { return get_brpc_heavy_work_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
-                         []() { return config::brpc_light_work_pool_max_queue_size; });
+                         [this]() { return get_brpc_light_work_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(heavy_work_max_threads,
-                         []() { return config::brpc_heavy_work_pool_threads; });
+                         [this]() { return get_brpc_heavy_work_pool_threads(); });
     REGISTER_HOOK_METRIC(light_work_max_threads,
-                         []() { return config::brpc_light_work_pool_threads; });
+                         [this]() { return get_brpc_light_work_pool_threads(); });
 
     REGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size,
                          [this]() { return _arrow_flight_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(arrow_flight_work_active_threads,
                          [this]() { return _arrow_flight_work_pool.get_active_threads(); });
     REGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size,
-                         []() { return config::brpc_arrow_flight_work_pool_max_queue_size; });
+                         [this]() { return get_brpc_arrow_flight_work_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
-                         []() { return config::brpc_arrow_flight_work_pool_threads; });
+                         [this]() { return get_brpc_arrow_flight_work_pool_threads(); });
 
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
 
@@ -1015,6 +1004,42 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         offer_failed(result, done, _heavy_work_pool);
         return;
     }
+}
+
+uint32_t PInternalService::get_brpc_heavy_work_pool_threads() {
+    return config::brpc_heavy_work_pool_threads != -1
+                   ? config::brpc_heavy_work_pool_threads
+                   : std::max(128, CpuInfo::num_cores() * 4);
+}
+
+uint32_t PInternalService::get_brpc_heavy_work_pool_max_queue_size() {
+    return config::brpc_heavy_work_pool_max_queue_size != -1
+                   ? config::brpc_heavy_work_pool_max_queue_size
+                   : std::max(10240, CpuInfo::num_cores() * 320);
+}
+
+uint32_t PInternalService::get_brpc_light_work_pool_threads() {
+    return config::brpc_light_work_pool_threads != -1
+                   ? config::brpc_light_work_pool_threads
+                   : std::max(128, CpuInfo::num_cores() * 4);
+}
+
+uint32_t PInternalService::get_brpc_light_work_pool_max_queue_size() {
+    return config::brpc_light_work_pool_max_queue_size != -1
+                   ? config::brpc_light_work_pool_max_queue_size
+                   : std::max(10240, CpuInfo::num_cores() * 320);
+}
+
+uint32_t PInternalService::get_brpc_arrow_flight_work_pool_threads() {
+    return config::brpc_arrow_flight_work_pool_threads != -1
+                   ? config::brpc_arrow_flight_work_pool_threads
+                   : std::max(512, CpuInfo::num_cores() * 2);
+}
+
+uint32_t PInternalService::get_brpc_arrow_flight_work_pool_max_queue_size() {
+    return config::brpc_arrow_flight_work_pool_max_queue_size != -1
+                   ? config::brpc_arrow_flight_work_pool_max_queue_size
+                   : std::max(20480, CpuInfo::num_cores() * 640);
 }
 
 void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
