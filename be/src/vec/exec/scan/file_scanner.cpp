@@ -1171,7 +1171,13 @@ Status FileScanner::_get_next_reader() {
             // to filter the row group. But if this is count push down, the offset is undefined,
             // causing incorrect row group filter and may return empty result.
         } else {
-            RETURN_IF_ERROR(_set_fill_or_truncate_columns(need_to_get_parsed_schema));
+            Status status = _set_fill_or_truncate_columns(need_to_get_parsed_schema);
+            if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
+                continue;
+            } else if (!status.ok()) {
+                return Status::InternalError("failed to set_fill_or_truncate_columns, err: {}",
+                                             status.to_string());
+            }
         }
         _cur_reader_eof = false;
         break;
