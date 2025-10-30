@@ -291,7 +291,7 @@ Status VCollectIterator::_topn_next(Block* block) {
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
             block->clear_column_data();
-            auto status = rs_split.rs_reader->next_block(block);
+            auto status = rs_split.rs_reader->next_batch(block);
             if (!status.ok()) {
                 if (status.is<END_OF_FILE>()) {
                     eof = true;
@@ -538,6 +538,9 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _current++;
     } else {
         _ref.row_pos++;
+        if (_ref.row_pos < _block->rows()) {
+            _ref.is_same = _row_is_same[_ref.row_pos];
+        }
     }
 
     RETURN_IF_ERROR(refresh_current_row());
@@ -560,7 +563,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         if (_rs_reader == nullptr) {
             return Status::Error<END_OF_FILE>("");
         }
-        auto res = _rs_reader->next_block(block);
+        auto res = _rs_reader->next_batch(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             return res;
         }
