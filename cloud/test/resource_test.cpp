@@ -29,6 +29,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <random>
 #include <thread>
 
@@ -495,6 +496,357 @@ TEST(ResourceTest, InitScanRetry) {
             get_instance_info(meta_service.get(), &info, instance_id);
         }
     }
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Helper to create instance with obj_info for cascade testing
+static Versionstamp next_test_snapshot_versionstamp() {
+    static std::atomic<uint64_t> version_counter {1};
+    uint64_t version = version_counter.fetch_add(1);
+    return Versionstamp(version, 0);
+}
+
+static void create_instance_with_obj_info(MetaServiceProxy* meta_service,
+                                          const std::string& instance_id,
+                                          const std::string& source_instance_id,
+                                          const std::string& user_id, const std::string& ak,
+                                          const std::string& sk, bool enable_snapshot = true) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    std::optional<Versionstamp> snapshot_version;
+    if (!source_instance_id.empty()) {
+        instance.set_source_instance_id(source_instance_id);
+        snapshot_version = next_test_snapshot_versionstamp();
+        instance.set_source_snapshot_id(snapshot_version->to_string());
+    }
+
+    instance.set_snapshot_switch_status(enable_snapshot ? SNAPSHOT_SWITCH_ON : SNAPSHOT_SWITCH_OFF);
+
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_user_id(user_id);
+    obj_info->set_ak(ak);
+    obj_info->set_sk(sk);
+    obj_info->set_id("test_obj_info");
+
+    std::string key = instance_key({instance_id});
+    std::string val = instance.SerializeAsString();
+    txn->put(key, val);
+
+    if (snapshot_version.has_value()) {
+        versioned::SnapshotReferenceKeyInfo ref_key_info {source_instance_id, *snapshot_version,
+                                                          instance_id};
+        std::string ref_key = versioned::snapshot_reference_key(ref_key_info);
+        txn->put(ref_key, "");
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+// Helper to verify instance ak/sk
+static void verify_instance_aksk(MetaServiceProxy* meta_service, const std::string& instance_id,
+                                 const std::string& expected_ak, const std::string& expected_sk) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string key = instance_key({instance_id});
+    std::string val;
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+
+    InstanceInfoPB instance;
+    ASSERT_TRUE(instance.ParseFromString(val));
+    ASSERT_GT(instance.obj_info_size(), 0);
+    EXPECT_EQ(instance.obj_info(0).ak(), expected_ak);
+    EXPECT_EQ(instance.obj_info(0).sk(), expected_sk);
+}
+
+// Test AK/SK cascade update: two-level cascade
+TEST(AkSkCascadeTest, TwoLevelCascade) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Create parent and child instances
+    create_instance_with_obj_info(meta_service.get(), "parent_inst", "", "user123", "old_ak",
+                                  "old_sk");
+    create_instance_with_obj_info(meta_service.get(), "child_inst", "parent_inst", "user123",
+                                  "old_ak", "old_sk");
+
+    // Update parent's AK/SK
+    UpdateAkSkRequest req;
+    req.set_instance_id("parent_inst");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user123");
+    bucket_user->set_ak("new_ak");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Verify parent updated
+    verify_instance_aksk(meta_service.get(), "parent_inst", "new_ak", cipher_sk);
+
+    // Verify child also updated (cascaded)
+    verify_instance_aksk(meta_service.get(), "child_inst", "new_ak", cipher_sk);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test AK/SK cascade update: three-level cascade
+TEST(AkSkCascadeTest, ThreeLevelCascade) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Create instance tree: parent -> child -> grandchild
+    create_instance_with_obj_info(meta_service.get(), "parent", "", "user1", "old_ak", "old_sk");
+    create_instance_with_obj_info(meta_service.get(), "child", "parent", "user1", "old_ak",
+                                  "old_sk");
+    create_instance_with_obj_info(meta_service.get(), "grandchild", "child", "user1", "old_ak",
+                                  "old_sk");
+
+    // Update parent
+    UpdateAkSkRequest req;
+    req.set_instance_id("parent");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user1");
+    bucket_user->set_ak("new_ak_v2");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Verify all three levels updated
+    verify_instance_aksk(meta_service.get(), "parent", "new_ak_v2", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "child", "new_ak_v2", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "grandchild", "new_ak_v2", cipher_sk);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test AK/SK cascade update: multiple branches
+TEST(AkSkCascadeTest, MultipleBranchesCascade) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Create tree: parent -> child1, child2, child3
+    create_instance_with_obj_info(meta_service.get(), "parent", "", "user1", "old_ak", "old_sk");
+    create_instance_with_obj_info(meta_service.get(), "child1", "parent", "user1", "old_ak",
+                                  "old_sk");
+    create_instance_with_obj_info(meta_service.get(), "child2", "parent", "user1", "old_ak",
+                                  "old_sk");
+    create_instance_with_obj_info(meta_service.get(), "child3", "parent", "user1", "old_ak",
+                                  "old_sk");
+
+    // Update parent
+    UpdateAkSkRequest req;
+    req.set_instance_id("parent");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user1");
+    bucket_user->set_ak("new_ak_multi");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Verify all branches updated
+    verify_instance_aksk(meta_service.get(), "parent", "new_ak_multi", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "child1", "new_ak_multi", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "child2", "new_ak_multi", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "child3", "new_ak_multi", cipher_sk);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test AK/SK cascade update: no children
+TEST(AkSkCascadeTest, NoChildrenInstance) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Create only parent
+    create_instance_with_obj_info(meta_service.get(), "single_inst", "", "user1", "old_ak",
+                                  "old_sk");
+
+    // Update parent
+    UpdateAkSkRequest req;
+    req.set_instance_id("single_inst");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user1");
+    bucket_user->set_ak("new_ak_single");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Verify only parent updated
+    verify_instance_aksk(meta_service.get(), "single_inst", "new_ak_single", cipher_sk);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Snapshot disabled should skip cascading to derived instances
+TEST(AkSkCascadeTest, SnapshotDisabledSkipsCascade) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Parent keeps snapshot disabled; child is a derived instance
+    create_instance_with_obj_info(meta_service.get(), "parent_snapshot_off", "", "user1", "old_ak",
+                                  "old_sk", /*enable_snapshot=*/false);
+    create_instance_with_obj_info(meta_service.get(), "child_snapshot_off", "parent_snapshot_off",
+                                  "user1", "old_ak", "old_sk");
+
+    UpdateAkSkRequest req;
+    req.set_instance_id("parent_snapshot_off");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user1");
+    bucket_user->set_ak("new_ak_disabled");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Parent updated, child stays untouched because snapshot is off
+    verify_instance_aksk(meta_service.get(), "parent_snapshot_off", "new_ak_disabled", cipher_sk);
+    verify_instance_aksk(meta_service.get(), "child_snapshot_off", "old_ak", "old_sk");
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Test AK/SK cascade update: child without obj_info should NOT be cascaded
+TEST(AkSkCascadeTest, ChildWithoutObjInfo) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    // Create parent with obj_info
+    create_instance_with_obj_info(meta_service.get(), "parent", "", "user1", "old_ak", "old_sk");
+
+    // Create child WITHOUT obj_info (independent storage)
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB child_instance;
+    child_instance.set_instance_id("child_no_obj");
+    child_instance.set_source_instance_id("parent");
+    // No obj_info added - using independent storage
+    std::string key = instance_key({"child_no_obj"});
+    std::string val = child_instance.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Update parent
+    UpdateAkSkRequest req;
+    req.set_instance_id("parent");
+    auto* bucket_user = req.add_internal_bucket_user();
+    bucket_user->set_user_id("user1");
+    bucket_user->set_ak("new_ak");
+    bucket_user->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+    meta_service->update_ak_sk(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Verify parent updated
+    verify_instance_aksk(meta_service.get(), "parent", "new_ak", cipher_sk);
+
+    // Verify child was NOT updated (has no obj_info)
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(instance_key({"child_no_obj"}), &val), TxnErrorCode::TXN_OK);
+    child_instance.ParseFromString(val);
+    EXPECT_EQ(child_instance.obj_info_size(), 0); // Still no obj_info
 
     sp->disable_processing();
     sp->clear_all_call_backs();
