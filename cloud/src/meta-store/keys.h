@@ -81,6 +81,7 @@
 // 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
 // 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
 // 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
+// 0x02 "system" "meta-service" "instance_update"                                          -> int64
 //
 // 0x03 "version" ${instance_id} "partition" ${partition_id} ${timestamp}   -> VersionPB
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
@@ -434,6 +435,7 @@ void copy_file_key(const CopyFileKeyInfo& in, std::string* out);
 
 std::string system_meta_service_registry_key();
 std::string system_meta_service_arn_info_key();
+std::string system_meta_service_instance_update_key();
 
 // Note:
 // This key points to a value (EncryptionKeyInfoPB, the format is below) which stores a set of items,
@@ -589,5 +591,9 @@ bool decode_meta_rowset_key(std::string_view* in, int64_t* tablet_id, int64_t* v
 // Decode meta tablet idx key
 // Return true if decode successfully, otherwise false
 bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id);
+
+// Decode instance key
+// Return true if decode successfully, otherwise false
+bool decode_instance_key(std::string_view* in, std::string* instance_id);
 
 } // namespace doris::cloud

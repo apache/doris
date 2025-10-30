@@ -1481,6 +1481,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         return;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
     err = txn->commit();
@@ -1712,6 +1713,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         return;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
     err = txn->commit();
@@ -1796,6 +1798,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         return;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
 
@@ -2008,6 +2011,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         return;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << request->instance_id() << " instance_key=" << hex(key);
     err = txn->commit();
@@ -2058,8 +2062,8 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
                       << config::snapshot_min_interval_seconds << " for instance " << instance_id;
         }
         if (!instance->has_max_reserved_snapshot()) {
-            instance->set_max_reserved_snapshot(0);
             // Disable auto snapshot by default
+            instance->set_max_reserved_snapshot(0);
             LOG(INFO) << "Set default max_reserved_snapshots to 0 for instance " << instance_id;
         }
     } else {
@@ -2502,6 +2506,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         return r;
     }
     val = r.second;
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -3358,6 +3363,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
         return;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
               << " json=" << proto_to_json(instance);
@@ -3748,6 +3754,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
         txn->put(key1, val1);
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -4015,6 +4022,7 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         return;
     }
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
     err = txn->commit();
@@ -4515,6 +4523,11 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                              KVStats* stats, bool include_self) {
+    if (!config::enable_notify_instance_update) {
+        LOG(INFO) << "notify_refresh_instance is disabled";
+        return;
+    }
+
     LOG(INFO) << "begin notify_refresh_instance, include_self=" << include_self;
     TEST_SYNC_POINT_RETURN_WITH_VOID("notify_refresh_instance_return");
     std::unique_ptr<Transaction> txn;

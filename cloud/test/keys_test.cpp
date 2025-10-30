@@ -993,11 +993,14 @@ TEST(KeysTest, SystemKeysTest) {
     // 0x02 "system" "meta-service" "registry"                                                   -> MetaServiceRegistryPB
     // 0x02 "system" "meta-service" "arn_info"                                                   -> RamUserPB
     // 0x02 "system" "meta-service" "encryption_key_info"                                        -> EncryptionKeyInfoPB
-    std::vector<std::string> suffixes {"registry", "arn_info", "encryption_key_info"};
+    // 0x02 "system" "meta-service" "instance_update"                                            -> int64
+    std::vector<std::string> suffixes {"registry", "arn_info", "encryption_key_info",
+                                       "instance_update"};
     std::vector<std::function<std::string()>> fns {
             system_meta_service_registry_key,
             system_meta_service_arn_info_key,
             system_meta_service_encryption_key_info_key,
+            system_meta_service_instance_update_key,
     };
     size_t num = suffixes.size();
     for (size_t i = 0; i < num; ++i) {
@@ -2466,4 +2469,21 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         EXPECT_EQ(dec_ref2, ref_id2);
         EXPECT_EQ(dec_ref3, ref_id3);
     }
+}
+
+TEST(KeysTest, DecodeInstanceKey) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_deadbeef";
+
+    std::string encoded_instance_key = instance_key({instance_id});
+
+    std::string dec_instance_id;
+    std::string_view key_sv(encoded_instance_key);
+    ASSERT_TRUE(decode_instance_key(&key_sv, &dec_instance_id));
+    ASSERT_TRUE(key_sv.empty());
+    EXPECT_EQ(instance_id, dec_instance_id);
+
+    std::string invalid_key = "invalid";
+    std::string_view invalid_sv(invalid_key);
+    ASSERT_FALSE(decode_instance_key(&invalid_sv, &dec_instance_id));
 }
