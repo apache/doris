@@ -49,6 +49,7 @@ public class StreamingJobProperties implements JobProperties {
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
     public static final long DEFAULT_MAX_S3_BATCH_BYTES = 10 * 1024 * 1024 * 1024L; // 10GB
     public static final int DEFAULT_JOB_INSERT_TIMEOUT = 30 * 60; // 30min
+    public static final int DEFAULT_JOB_QUERY_TIMEOUT = 30 * 60; // 30min
 
 
     private final Map<String, String> properties;
@@ -119,14 +120,21 @@ public class StreamingJobProperties implements JobProperties {
     }
 
     public SessionVariable getSessionVariable(SessionVariable sessionVariable) throws JobException {
-        SessionVariable defaultSessionVar = VariableMgr.getDefaultSessionVariable();
-
+        int defaultInsert = parseIntOrDefault(
+                VariableMgr.getDefaultValue(SessionVariable.INSERT_TIMEOUT),
+                DEFAULT_JOB_INSERT_TIMEOUT
+        );
+        int defaultQuery = parseIntOrDefault(
+                VariableMgr.getDefaultValue(SessionVariable.QUERY_TIMEOUT),
+                DEFAULT_JOB_QUERY_TIMEOUT
+        );
         // override with job default session var
-        if (sessionVariable.getInsertTimeoutS() == defaultSessionVar.getInsertTimeoutS()) {
+        if (sessionVariable.getInsertTimeoutS() == defaultInsert) {
             sessionVariable.setInsertTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
         }
-        if (sessionVariable.getQueryTimeoutS() == defaultSessionVar.getQueryTimeoutS()) {
-            sessionVariable.setQueryTimeoutS(DEFAULT_JOB_INSERT_TIMEOUT);
+
+        if (sessionVariable.getQueryTimeoutS() == defaultQuery) {
+            sessionVariable.setQueryTimeoutS(DEFAULT_JOB_QUERY_TIMEOUT);
         }
 
         Map<String, String> sessionVarMap = parseSessionVarMap();
@@ -139,6 +147,17 @@ public class StreamingJobProperties implements JobProperties {
             }
         }
         return sessionVariable;
+    }
+
+    private int parseIntOrDefault(String val, int defaultValue) {
+        if (val == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(val);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     private Map<String, String> parseSessionVarMap() {
