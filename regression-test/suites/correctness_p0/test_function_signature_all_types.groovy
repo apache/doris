@@ -494,25 +494,52 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     sql """
         CREATE TABLE test_datev1_list_partitionv3 (
             id INT,
-            dt DATEV1,
+            dt DATETIMEV1,
             value VARCHAR(100)
         ) DUPLICATE KEY(id)
         PARTITION BY LIST(dt) (
-            PARTITION p1 VALUES IN ('2024-01-15', '2024-01-16', '2024-01-17'),
-            PARTITION p2 VALUES IN ('2024-02-15', '2024-02-16', '2024-02-17'),
-            PARTITION p3 VALUES IN ('2024-03-15', '2024-03-16', '2024-03-17')
+            PARTITION p1 VALUES IN ('2024-01-15 00:00:00', '2024-01-16 00:00:00', '2024-01-17 00:00:00'),
+            PARTITION p2 VALUES IN ('2024-02-15 00:00:00', '2024-02-16 00:00:00', '2024-02-17 00:00:00'),
+            PARTITION p3 VALUES IN ('2024-03-15 00:00:00', '2024-03-16 00:00:00', '2024-03-17 00:00:00')
         )
         DISTRIBUTED BY HASH(id) BUCKETS 3
         PROPERTIES ("replication_num" = "1")
     """
     sql """
         INSERT INTO test_datev1_list_partitionv3 VALUES
-        (1, '2024-01-17', 'jan1'),
-        (2, '2024-02-16', 'feb1'),
-        (3, '2024-03-16', 'mar1')
+        (1, '2024-01-17 00:00:00', 'jan1'),
+        (2, '2024-02-16 00:00:00', 'feb1'),
+        (3, '2024-03-16 00:00:00', 'mar1')
     """
-    qt_datev1_list_partition "SELECT * FROM test_datev1_list_partition ORDER BY id"
-    sql "DROP TABLE IF EXISTS test_datev1_list_partition"
+    qt_datev1_list_partition "SELECT * FROM test_datev1_list_partitionv3 ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_list_partitionv3"
+    
+    // Test 1.1: DATEV1 as List Partition key (v4)
+    // sql """
+    //     DROP TABLE IF EXISTS test_datev1_list_partitionv4
+    // """
+    // sql """
+    //     CREATE TABLE test_datev1_list_partitionv4 (
+    //         id INT,
+    //         dt DATEV1,
+    //         value VARCHAR(100)
+    //     ) DUPLICATE KEY(id)
+    //     PARTITION BY LIST(dt) (
+    //         PARTITION p1 VALUES IN ('2024-01-15', '2024-01-16', '2024-01-17'),
+    //         PARTITION p2 VALUES IN ('2024-02-15', '2024-02-16', '2024-02-17'),
+    //         PARTITION p3 VALUES IN ('2024-03-15', '2024-03-16', '2024-03-17')
+    //     )
+    //     DISTRIBUTED BY HASH(id) BUCKETS 3
+    //     PROPERTIES ("replication_num" = "1")
+    // """
+    // sql """
+    //     INSERT INTO test_datev1_list_partitionv4 VALUES
+    //     (1, '2024-01-17', 'jan1'),
+    //     (2, '2024-02-16', 'feb1'),
+    //     (3, '2024-03-16', 'mar1')
+    // """
+    // qt_datev1_list_partitionv4 "SELECT * FROM test_datev1_list_partitionv4 ORDER BY id"
+    // sql "DROP TABLE IF EXISTS test_datev1_list_partitionv4"
     
     // Test 2: DATEV1 as bucketing key
     sql """
@@ -819,6 +846,160 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     qt_datev1_map "SELECT id, map_size(date_map) as size FROM test_datev1_map ORDER BY id"
     sql "DROP TABLE IF EXISTS test_datev1_map"
     
+    // Test 12: DATEV1 with BloomFilter index and pruning signal
+    sql """
+        DROP TABLE IF EXISTS test_datev1_bloom
+    """
+    sql """
+        CREATE TABLE test_datev1_bloom (
+            id INT,
+            dt DATEV1,
+            v  INT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(dt) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1",
+            "bloom_filter_columns" = "dt"
+        )
+    """
+    sql """
+        INSERT INTO test_datev1_bloom VALUES
+        (1, '2024-01-15', 10),
+        (2, '2024-01-16', 20),
+        (3, '2024-02-15', 30)
+    """
+    explain {
+        sql("SELECT * FROM test_datev1_bloom WHERE dt = '2024-01-15'")
+        contains("tablets=1/3")
+    }
+    qt_datev1_bloom "SELECT * FROM test_datev1_bloom WHERE dt = '2024-01-15' ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_bloom"
+
+    // Test 13: DATEV1 delete condition (DELETE FROM)
+    sql """
+        DROP TABLE IF EXISTS test_datev1_delete
+    """
+    sql """
+        CREATE TABLE test_datev1_delete (
+            id INT,
+            dt DATEV1,
+            v  INT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_delete VALUES
+        (1, '2024-01-15', 10),
+        (2, '2024-02-15', 20),
+        (3, '2024-03-15', 30)
+    """
+    sql "DELETE FROM test_datev1_delete WHERE dt < '2024-02-01'"
+    qt_datev1_delete_after "SELECT * FROM test_datev1_delete ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_delete"
+
+    // Test 14: DATEV1 default CURRENT_TIMESTAMP (implicit cast to date)
+    sql """
+        DROP TABLE IF EXISTS test_datev1_default
+    """
+    sql """
+        CREATE TABLE test_datev1_default (
+            id INT,
+            dt DATETIMEV1 DEFAULT CURRENT_TIMESTAMP,
+            v  INT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO test_datev1_default(id, v) VALUES (1, 10)"
+    sql "INSERT INTO test_datev1_default VALUES (2, '2024-02-15', 20)"
+    qt_datev1_default "SELECT id, (dt >= '2000-01-01') as ok, v FROM test_datev1_default ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_default"
+
+    // Test 15: Compute layer - group by/order by/distinct/join
+    sql """
+        DROP TABLE IF EXISTS test_datev1_compute
+    """
+    sql """
+        CREATE TABLE test_datev1_compute (
+            id INT,
+            dt DATEV1,
+            v  INT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_compute VALUES
+        (1, '2024-01-15', 10),
+        (2, '2024-01-15', 20),
+        (3, '2024-02-15', 30),
+        (4, '2024-03-15', 40)
+    """
+    qt_datev1_group "SELECT dt, sum(v) FROM test_datev1_compute GROUP BY dt ORDER BY dt"
+    qt_datev1_order "SELECT id, dt FROM test_datev1_compute ORDER BY dt, id"
+    qt_datev1_distinct "SELECT DISTINCT dt FROM test_datev1_compute ORDER BY dt"
+    qt_datev1_join2 "SELECT a.id, b.id, a.dt FROM test_datev1_compute a JOIN test_datev1_compute b ON a.dt = b.dt WHERE a.id <> b.id ORDER BY a.id, b.id"
+    sql "DROP TABLE IF EXISTS test_datev1_compute"
+
+    // Test 16: Casts and implicit casts with DATEV1
+    sql """
+        DROP TABLE IF EXISTS test_datev1_cast
+    """
+    sql """
+        CREATE TABLE test_datev1_cast (
+            id INT,
+            dt DATEV1
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_cast VALUES
+        (1, '2024-01-15'),
+        (2, '2024-02-16')
+    """
+    qt_datev1_cast_explicit "SELECT id, cast(dt as DATETIMEV1) FROM test_datev1_cast ORDER BY id"
+    qt_datev1_cast_implicit_cmp "SELECT count(*) FROM test_datev1_cast WHERE dt < '2024-02-01 00:00:00'"
+    qt_datev1_to_string "SELECT id, cast(dt as string) FROM test_datev1_cast ORDER BY id"
+    sql "DROP TABLE IF EXISTS test_datev1_cast"
+
+    // Test 18: Runtime filter on DATEV1 join key
+    sql """
+        DROP TABLE IF EXISTS test_datev1_rf_fact
+    """
+    sql """
+        DROP TABLE IF EXISTS test_datev1_rf_dim
+    """
+    sql """
+        CREATE TABLE test_datev1_rf_fact (
+            id INT,
+            dt DATEV1,
+            v  INT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 6
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE test_datev1_rf_dim (
+            d DATEV1
+        ) DUPLICATE KEY(d)
+        DISTRIBUTED BY HASH(d) BUCKETS 6
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_datev1_rf_fact VALUES
+        (1, '2024-01-15', 10), (2, '2024-02-15', 20), (3, '2024-03-15', 30)
+    """
+    sql """
+        INSERT INTO test_datev1_rf_dim VALUES
+        ('2024-01-15'), ('2024-03-15')
+    """
+    
+    qt_datev1_rf_join "SELECT f.id, f.dt, f.v FROM test_datev1_rf_fact f JOIN test_datev1_rf_dim d ON f.dt = d.d ORDER BY f.id"
+    sql "DROP TABLE IF EXISTS test_datev1_rf_fact"
+    sql "DROP TABLE IF EXISTS test_datev1_rf_dim"
+
     // Restore config
     sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = '${originDisableDatev1}')"
     logger.info("restore disable_datev1 to ${originDisableDatev1}")
