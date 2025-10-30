@@ -1976,6 +1976,7 @@ nonReserved
     | DECIMAL
     | DECIMALV2
     | DECIMALV3
+    | DEFAULT
     | DEFERRED
     | DEMAND
     | DIAGNOSE
