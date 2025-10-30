@@ -1005,8 +1005,8 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 }
 
 uint32_t PInternalService::get_brpc_heavy_work_pool_threads() {
-    return return config::brpc_heavy_work_pool_threads != -1 ? config::brpc_heavy_work_pool_threads
-                                                             : std::max(128, CpuInfo::num_cores() * 4);
+    return config::brpc_heavy_work_pool_threads != -1 ? config::brpc_heavy_work_pool_threads
+                                                      : std::max(128, CpuInfo::num_cores() * 4);
 }
 
 uint32_t PInternalService::get_brpc_heavy_work_pool_max_queue_size() {
