@@ -209,6 +209,7 @@ public abstract class Type {
         arraySubTypes.add(DATETIME);
         arraySubTypes.add(DATEV2);
         arraySubTypes.add(DATETIMEV2);
+        arraySubTypes.add(TIMESTAMP_TZ);
         arraySubTypes.add(IPV4);
         arraySubTypes.add(IPV6);
         arraySubTypes.add(CHAR);
@@ -238,6 +239,7 @@ public abstract class Type {
         mapSubTypes.add(DATETIME);
         mapSubTypes.add(DATEV2);
         mapSubTypes.add(DATETIMEV2);
+        mapSubTypes.add(TIMESTAMP_TZ);
         mapSubTypes.add(IPV4);
         mapSubTypes.add(IPV6);
         mapSubTypes.add(CHAR);
@@ -263,6 +265,7 @@ public abstract class Type {
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);
         structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(TIMESTAMP_TZ);
         structSubTypes.add(IPV4);
         structSubTypes.add(IPV6);
         structSubTypes.add(CHAR);
@@ -284,6 +287,7 @@ public abstract class Type {
         variantSubTypes.add(DECIMAL256);
         variantSubTypes.add(DATEV2);
         variantSubTypes.add(DATETIMEV2);
+        variantSubTypes.add(TIMESTAMP_TZ);
         variantSubTypes.add(IPV4);
         variantSubTypes.add(IPV6);
         variantSubTypes.add(STRING);
