@@ -1065,6 +1065,20 @@ void SegmentWriter::clear() {
 Status SegmentWriter::_write_data() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
+
+        auto* column_meta = column_writer->get_column_meta();
+        DCHECK(column_meta != nullptr);
+        column_meta->set_compressed_data_bytes(
+                (column_meta->has_compressed_data_bytes() ? column_meta->compressed_data_bytes()
+                                                          : 0) +
+                column_writer->get_total_compressed_data_pages_bytes());
+        column_meta->set_uncompressed_data_bytes(
+                (column_meta->has_uncompressed_data_bytes() ? column_meta->uncompressed_data_bytes()
+                                                            : 0) +
+                column_writer->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(
+                (column_meta->has_raw_data_bytes() ? column_meta->raw_data_bytes() : 0) +
+                column_writer->get_raw_data_bytes());
     }
     return Status::OK();
 }
