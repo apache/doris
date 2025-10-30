@@ -619,6 +619,7 @@ PIPE: '|';
 DOUBLEPIPES: '||';
 HAT: '^';
 COLON: ':';
+DOUBLECOLON: '::';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';

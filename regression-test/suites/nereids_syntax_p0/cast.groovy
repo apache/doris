@@ -256,4 +256,9 @@ suite("cast") {
 
     sql """select ipv6_string_to_num(a), ipv4_string_to_num(b) from ip_test"""
     sql """drop table if exists ip_test"""
+
+    test {
+        sql "select '100'::int, 100::string"
+        result([[100, "100"]])
+    }
 }
