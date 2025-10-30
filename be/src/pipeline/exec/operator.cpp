@@ -355,6 +355,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
+            column_ptr = column_ptr->convert_to_full_column_if_const();
             if (result_column_id >= origin_columns_count) {
                 bytes_usage += column_ptr->allocated_bytes();
             }
