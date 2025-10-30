@@ -266,15 +266,14 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             insertExecutor = buildResult.executor;
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
-
-            // finalize sink to complete enough info for sink execution
-            if (!insertExecutor.isEmptyInsert()) {
-                insertExecutor.finalizeSink(
-                        buildResult.planner.getFragments().get(0), buildResult.dataSink,
-                        buildResult.physicalSink);
-            }
-
             if (!needBeginTransaction) {
+                // we need to finalize sink for rewrite operation
+                if (isRewriteOperation) {
+                    insertExecutor.finalizeSink(
+                            buildResult.planner.getFragments().get(0), buildResult.dataSink,
+                            buildResult.physicalSink
+                    );
+                }
                 return insertExecutor;
             }
 
@@ -299,6 +298,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 }
                 if (!insertExecutor.isEmptyInsert()) {
                     insertExecutor.beginTransaction();
+                    insertExecutor.finalizeSink(
+                            buildResult.planner.getFragments().get(0), buildResult.dataSink,
+                            buildResult.physicalSink
+                    );
                 }
                 newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
