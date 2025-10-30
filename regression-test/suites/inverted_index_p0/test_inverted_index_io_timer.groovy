@@ -105,24 +105,23 @@ suite('test_inverted_index_io_timer', 'p0') {
             }
             
             check { profileString, exception ->
-                // log.info("Profile content: {}", profileString)
-                // Check that InvertedIndexIOTimer exists and is greater than 0
-                def pattern = Pattern.compile("InvertedIndexIOTimer:\\s*(\\d+\\.\\d+|\\d+)(\\w+)")
-                def matcher = pattern.matcher(profileString)
-                
-                boolean foundTimer = false
-                while (matcher.find()) {
-                    def timeValue = matcher.group(1)
-                    def timeUnit = matcher.group(2)
-                    log.info("Found InvertedIndexIOTimer: {} {}", timeValue, timeUnit)
-                    
-                    // Convert to numeric value
-                    def numericValue = Double.parseDouble(timeValue)
-                    assertTrue(numericValue > 0, "InvertedIndexIOTimer should be greater than 0, but got: ${timeValue}${timeUnit}")
-                    foundTimer = true
+                def local = 0
+                def remote = 0
+
+                def localMatcher = Pattern.compile("InvertedIndexNumLocalIOTotal:\\s*(\\d+)").matcher(profileString)
+                if (localMatcher.find()) {
+                    local = Integer.parseInt(localMatcher.group(1))
+                    log.info("InvertedIndexNumLocalIOTotal: {}", local)
                 }
-                
-                assertTrue(foundTimer, "InvertedIndexIOTimer not found in profile")
+
+                def remoteMatcher = Pattern.compile("InvertedIndexNumRemoteIOTotal:\\s*(\\d+)").matcher(profileString)
+                if (remoteMatcher.find()) {
+                    remote = Integer.parseInt(remoteMatcher.group(1))
+                    log.info("InvertedIndexNumRemoteIOTotal: {}", remote)
+                }
+
+                def total = local + remote
+                assertTrue(total > 0, "InvertedIndexNumLocalIOTotal + InvertedIndexNumRemoteIOTotal should be > 0, got: ${total} (local=${local}, remote=${remote})")
             }
         }
         
