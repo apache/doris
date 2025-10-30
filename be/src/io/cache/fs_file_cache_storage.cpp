@@ -244,8 +244,8 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     // return OK not means the file is deleted, it may be not exist
 
     { // try to detect the file with old v2 format
-        std::string dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        std::string file = get_path_in_local_cache_v2(dir, key.offset, key.meta.type);
+        dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+        file = get_path_in_local_cache_v2(dir, key.offset, key.meta.type);
         RETURN_IF_ERROR(fs->delete_file(file));
     }
 
@@ -657,7 +657,6 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mg
         if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
             LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                          << ", try to remove it";
-            std::error_code ec;
             std::filesystem::remove(key_prefix_it->path(), ec);
             if (ec) {
                 LOG(WARNING) << "failed to remove=" << key_prefix_it->path()
@@ -867,7 +866,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         } else {
             LOG(INFO) << "DB and FS counts are consistent, difference ratio: "
                       << difference_ratio * 100 << "%, skipping FS load.";
-            if (auto st = write_file_cache_version(); !st.ok()) {
+            if (st = write_file_cache_version(); !st.ok()) {
                 LOG(WARNING) << "Failed to write version hints for file cache, err="
                              << st.to_string();
             }
@@ -878,56 +877,15 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
 
 void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
                                                        std::lock_guard<std::mutex>& cache_lock) {
-<<<<<<< HEAD
-    // async load, can't find key, need to check exist.
-    auto key_path = get_path_in_local_cache_v2(key.hash,
-                                               key.meta.expiration_time); //TODO(zhengyu): need v3?
-    bool exists = false;
-    if (auto st = fs->exists(key_path, &exists); !exists && st.ok()) {
-=======
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     auto block_meta = _meta_store->get(mkey);
     if (!block_meta.has_value()) {
->>>>>>> a4779a691e (cache lazy load)
         // cache miss
         return;
     }
 
     CacheContext context_original;
     context_original.query_id = TUniqueId();
-<<<<<<< HEAD
-    context_original.expiration_time = key.meta.expiration_time;
-    std::error_code ec;
-    std::filesystem::directory_iterator check_it(key_path, ec);
-    if (ec) [[unlikely]] {
-        LOG(WARNING) << "fail to directory_iterator " << ec.message();
-        return;
-    }
-    for (; check_it != std::filesystem::directory_iterator(); ++check_it) {
-        size_t size = check_it->file_size(ec);
-        size_t offset = 0;
-        bool is_tmp = false;
-        FileCacheType cache_type = FileCacheType::NORMAL;
-        if (!parse_filename_suffix_to_cache_type(fs, check_it->path().filename().native(),
-                                                 context_original.expiration_time, size, &offset,
-                                                 &is_tmp, &cache_type)) {
-            continue;
-        }
-        if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {
-            // if the file is tmp, it means it is the old file and it should be removed
-            if (is_tmp) {
-                std::filesystem::remove(check_it->path(), ec);
-                if (ec) {
-                    LOG(WARNING) << fmt::format("cannot remove {}: {}", check_it->path().native(),
-                                                ec.message());
-                }
-            } else {
-                context_original.cache_type = cache_type;
-                mgr->add_cell(key.hash, context_original, offset, size,
-                              FileBlock::State::DOWNLOADED, cache_lock);
-            }
-        }
-=======
     context_original.expiration_time = block_meta->ttl;
     context_original.cache_type = static_cast<FileCacheType>(block_meta->type);
     context_original.tablet_id = key.meta.tablet_id;
@@ -935,7 +893,6 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(key.offset)) {
         mgr->add_cell(key.hash, context_original, key.offset, block_meta->size,
                       FileBlock::State::DOWNLOADED, cache_lock);
->>>>>>> a4779a691e (cache lazy load)
     }
 }
 
