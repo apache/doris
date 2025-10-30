@@ -41,3 +41,48 @@
 -- !sql --
 1	GET /french/images/nav_venue_off.gif HTTP/1.0
 
+-- !sql --
+[{\n        "token": "foo"\n    }, {\n        "token": "bar"\n    }]
+
+-- !sql --
+[{\n        "token": "foo"\n    }]
+
+-- !sql --
+[{\n        "token": "bar"\n    }]
+
+-- !sql --
+1	FOO BAR
+
+-- !sql --
+1	FOO BAR
+
+-- !sql --
+1	FOO BAR
+
+-- !sql --
+1	FOO BAR
+
+-- !sql --
+1	FOO BAR
+
+-- !sql --
+1	FOO BAR
+
+-- !sql --
+1	{"string_1":"FOO BAR","string_2":"FOO BAR","string_3":"FOO BAR"}
+
+-- !sql --
+1	{"string_1":"FOO BAR","string_2":"FOO BAR","string_3":"FOO BAR"}
+
+-- !sql --
+1	{"string_1":"FOO BAR","string_2":"FOO BAR","string_3":"FOO BAR"}
+
+-- !sql --
+1	{"string_1":"FOO BAR","string_2":"FOO BAR","string_3":"FOO BAR"}
+
+-- !sql --
+1	{"string_1":"FOO BAR","string_2":"FOO BAR","string_3":"FOO BAR"}
+
+-- !sql --
+1	{"string_1":"FOO BAR","string_2":"FOO BAR","string_3":"FOO BAR"}
+
