@@ -3653,9 +3653,9 @@ public class Config extends ConfigBase {
     public static String aws_credentials_provider_version = "v2";
 
     @ConfField(mutable = true, description = {
-        "用户的单个查询能使用的 FILE_CACHE 比例的软上限，0和100均表示能够使用全量 FILE_CACHE",
+        "用户的单个查询能使用的 FILE_CACHE 比例的软上限，100表示能够使用全量 FILE_CACHE",
         "The soft upper limit of FILE_CACHE percent that a single query of a user can use.",
-        "Both 0 and 100 indicate that the full FILE_CACHE capacity can be used. "
+        "100 indicate that the full FILE_CACHE capacity can be used. "
     })
     public static int file_cache_query_limit_percent_soft = 100;
 }

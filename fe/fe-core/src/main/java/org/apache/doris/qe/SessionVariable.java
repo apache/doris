@@ -2644,9 +2644,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkFileCacheQueryLimitPercent(String fileCacheQueryLimitPercentStr) {
         int fileCacheQueryLimitPct = Integer.valueOf(fileCacheQueryLimitPercentStr);
-        if (fileCacheQueryLimitPct < 0 || fileCacheQueryLimitPct > Config.file_cache_query_limit_percent_soft) {
+        if (fileCacheQueryLimitPct < 1 || fileCacheQueryLimitPct > Config.file_cache_query_limit_percent_soft) {
             throw new InvalidParameterException(
-                String.format("file_cache_query_limit_percent should be between 0 and %d",
+                String.format("file_cache_query_limit_percent should be between 1 and %d",
                 Config.file_cache_query_limit_percent_soft));
         }
     }
@@ -2660,8 +2660,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkPolicyFileCacheQueryLimitPercent(String policyFileCacheQueryLimitPercentStr) {
         int policyFileCacheQueryLimitPct = Integer.valueOf(policyFileCacheQueryLimitPercentStr);
-        if (policyFileCacheQueryLimitPct < 0 || policyFileCacheQueryLimitPct > 100) {
-            throw new InvalidParameterException("policy_file_cache_query_limit_percent should be between 0 and 100)");
+        if (policyFileCacheQueryLimitPct < 1 || policyFileCacheQueryLimitPct > 100) {
+            throw new InvalidParameterException("policy_file_cache_query_limit_percent should be between 1 and 100)");
         }
     }
 
@@ -4888,11 +4888,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
 
         if (policyFileCacheQueryLimitPercent >= 0) {
-            tResult.setFileCacheQueryLimitPercent((policyFileCacheQueryLimitPercent % 100 == 0)
-                    ? 100 : policyFileCacheQueryLimitPercent);
+            tResult.setFileCacheQueryLimitPercent(policyFileCacheQueryLimitPercent);
         } else if (fileCacheQueryLimitPercent >= 0) {
-            tResult.setFileCacheQueryLimitPercent(Math.min((fileCacheQueryLimitPercent % 100 == 0)
-                    ? 100 : fileCacheQueryLimitPercent, Config.file_cache_query_limit_percent_soft));
+            tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent, Config.file_cache_query_limit_percent_soft));
         } else {
             tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_percent_soft);
         }
