@@ -99,11 +99,11 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr result;
         bool valid = cast_type(arguments[0].get(), [&](const auto& type) {
-            using DataType = std::decay_t<decltype(type)>;
+            using DecayedDataType = std::decay_t<decltype(type)>;
 
-            if constexpr (IsDataTypeDecimal<DataType>) {
+            if constexpr (IsDataTypeDecimal<DecayedDataType>) {
                 if constexpr (!allow_decimal) return false;
-                result = std::make_shared<DataType>(type.get_precision(), type.get_scale());
+                result = std::make_shared<DecayedDataType>(type.get_precision(), type.get_scale());
             } else {
                 result = std::make_shared<typename PrimitiveTypeTraits<Op::ResultType>::DataType>();
             }
@@ -121,31 +121,31 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         bool valid =
                 cast_type(block.get_by_position(arguments[0]).type.get(), [&](const auto& type) {
-                    using DataType = std::decay_t<decltype(type)>;
+                    using DecayedDataType = std::decay_t<decltype(type)>;
 
-                    if constexpr (IsDataTypeDecimal<DataType>) {
+                    if constexpr (IsDataTypeDecimal<DecayedDataType>) {
                         if (allow_decimal) {
-                            if (auto col = check_and_get_column<ColumnDecimal<DataType::PType>>(
+                            if (auto col = check_and_get_column<ColumnDecimal<DecayedDataType::PType>>(
                                         block.get_by_position(arguments[0]).column.get())) {
                                 auto col_res =
                                         PrimitiveTypeTraits<Op::ResultType>::ColumnType::create(
                                                 0, type.get_scale());
                                 auto& vec_res = col_res->get_data();
                                 vec_res.resize(col->get_data().size());
-                                UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
+                                UnaryOperationImpl<DecayedDataType::PType, Op>::vector(col->get_data(),
                                                                                 vec_res);
                                 block.replace_by_position(result, std::move(col_res));
                                 return true;
                             }
                         }
                     } else {
-                        if (auto col = check_and_get_column<ColumnVector<DataType::PType>>(
+                        if (auto col = check_and_get_column<ColumnVector<DecayedDataType::PType>>(
                                     block.get_by_position(arguments[0]).column.get())) {
                             auto col_res =
                                     PrimitiveTypeTraits<Op::ResultType>::ColumnType::create();
                             auto& vec_res = col_res->get_data();
                             vec_res.resize(col->get_data().size());
-                            UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
+                            UnaryOperationImpl<DecayedDataType::PType, Op>::vector(col->get_data(),
                                                                             vec_res);
                             block.replace_by_position(result, std::move(col_res));
                             return true;
