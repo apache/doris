@@ -211,13 +211,11 @@ PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
           // heavy threadpool is used for load process and other process that will read disk or access network.
           _heavy_work_pool(get_brpc_heavy_work_pool_threads(),
-                           get_brpc_heavy_work_pool_max_queue_size(),
-                           "brpc_heavy"),
+                           get_brpc_heavy_work_pool_max_queue_size(), "brpc_heavy"),
 
           // light threadpool should be only used in query processing logic. All hanlers should be very light, not locked, not access disk.
           _light_work_pool(get_brpc_light_work_pool_threads(),
-                           get_brpc_light_work_pool_max_queue_size(),
-                           "brpc_light"),
+                           get_brpc_light_work_pool_max_queue_size(), "brpc_light"),
 
           _arrow_flight_work_pool(get_brpc_arrow_flight_work_pool_threads(),
                                   get_brpc_arrow_flight_work_pool_max_queue_size(),
@@ -1007,9 +1005,8 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 }
 
 uint32_t PInternalService::get_brpc_heavy_work_pool_threads() {
-    return config::brpc_heavy_work_pool_threads != -1
-                   ? config::brpc_heavy_work_pool_threads
-                   : std::max(128, CpuInfo::num_cores() * 4);
+    return return config::brpc_heavy_work_pool_threads != -1 ? config::brpc_heavy_work_pool_threads
+                                                             : std::max(128, CpuInfo::num_cores() * 4);
 }
 
 uint32_t PInternalService::get_brpc_heavy_work_pool_max_queue_size() {
@@ -1019,9 +1016,8 @@ uint32_t PInternalService::get_brpc_heavy_work_pool_max_queue_size() {
 }
 
 uint32_t PInternalService::get_brpc_light_work_pool_threads() {
-    return config::brpc_light_work_pool_threads != -1
-                   ? config::brpc_light_work_pool_threads
-                   : std::max(128, CpuInfo::num_cores() * 4);
+    return config::brpc_light_work_pool_threads != -1 ? config::brpc_light_work_pool_threads
+                                                      : std::max(128, CpuInfo::num_cores() * 4);
 }
 
 uint32_t PInternalService::get_brpc_light_work_pool_max_queue_size() {
