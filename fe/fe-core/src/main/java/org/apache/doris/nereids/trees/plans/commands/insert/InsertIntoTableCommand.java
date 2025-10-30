@@ -440,8 +440,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         dataSink,
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                                        Optional.of(icebergInsertCtx),
-                                emptyInsert, jobId)
+                                Optional.of(icebergInsertCtx),
+                                emptyInsert, jobId
+                        )
                 );
             } else if (physicalSink instanceof PhysicalJdbcTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);

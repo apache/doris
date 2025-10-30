@@ -24,7 +24,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
-import org.apache.doris.datasource.iceberg.rewrite.RewriteFileInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -322,19 +321,6 @@ public class IcebergTransaction implements Transaction {
         synchronized (filesToAdd) {
             return filesToAdd.stream().mapToLong(DataFile::fileSizeInBytes).sum();
         }
-    }
-
-
-    /**
-     * Get detailed file information for rewrite operation
-     */
-    public RewriteFileInfo getRewriteFileInfo() {
-        return new RewriteFileInfo(
-            getFilesToDeleteCount(),
-            getFilesToAddCount(),
-            getFilesToDeleteSize(),
-            getFilesToAddSize()
-        );
     }
 
     private void commitAppendTxn(List<WriteResult> pendingResults) {
