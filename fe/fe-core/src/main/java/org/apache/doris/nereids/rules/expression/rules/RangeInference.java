@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -49,6 +50,7 @@ import com.google.common.collect.TreeRangeSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -144,9 +146,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         ValueDesc childValue = not.child().accept(this, context);
         if (childValue instanceof DiscreteValue) {
             return new NotDiscreteValue(context, childValue.getReference(), ((DiscreteValue) childValue).values);
+        } else if (childValue instanceof IsNullValue) {
+            return new IsNotNullValue(context, childValue.getReference(), not);
         } else {
             return new UnknownValue(context, not);
         }
+    }
+
+    @Override
+    public ValueDesc visitIsNull(IsNull isNull, ExpressionRewriteContext context) {
+        return new IsNullValue(context, isNull.child());
     }
 
     @Override
@@ -273,6 +282,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
             }
         }
+        if (collector.hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
+            return new UnknownValue(context, BooleanLiteral.FALSE);
+        } else if (collector.hasIsNullValue) {
+            result.add(new IsNullValue(context, reference));
+        } else {
+            collector.isNotNullValueOpt.ifPresent(result::add);
+        }
         result.addAll(collector.compoundValues);
         result.addAll(collector.unknownValues);
 
@@ -341,6 +357,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
         }
 
+        if (collector.hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
+            return new UnknownValue(context, BooleanLiteral.TRUE);
+        } else if (collector.hasIsNullValue) {
+            result.add(new IsNullValue(context, reference));
+        } else {
+            collector.isNotNullValueOpt.ifPresent(result::add);
+        }
         result.addAll(collector.compoundValues);
         result.addAll(collector.unknownValues);
 
@@ -365,12 +388,18 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         R visitNotDiscreteValue(NotDiscreteValue notDiscreteValue, C context);
 
+        R visitIsNullValue(IsNullValue isNullValue, C context);
+
+        R visitIsNotNullValue(IsNotNullValue isNotNullValue, C context);
+
         R visitCompoundValue(CompoundValue compoundValue, C context);
 
         R visitUnknownValue(UnknownValue unknownValue, C context);
     }
 
     private static class ValueDescCollector {
+        Optional<IsNotNullValue> isNotNullValueOpt = Optional.empty();
+        boolean hasIsNullValue = false;
         boolean hasEmptyValue = false;
         List<RangeValue> rangeValues = Lists.newArrayList();
         List<DiscreteValue> discreteValues = Lists.newArrayList();
@@ -389,6 +418,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 notDiscreteValues.add((NotDiscreteValue) value);
             } else if (value instanceof CompoundValue) {
                 compoundValues.add((CompoundValue) value);
+            } else if (value instanceof IsNullValue) {
+                hasIsNullValue = true;
+            } else if (value instanceof IsNotNullValue) {
+                IsNotNullValue isNotNullValue = (IsNotNullValue) value;
+                if (!isNotNullValueOpt.isPresent() || isNotNullValue.getNotExpression().isGeneratedIsNotNull()) {
+                    isNotNullValueOpt = Optional.of(isNotNullValue);
+                }
             } else {
                 Preconditions.checkArgument(value instanceof UnknownValue);
                 unknownValues.add((UnknownValue) value);
@@ -532,7 +568,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     /**
-     * use `Set` to wrap `InPredicate`
      * for example:
      * a not in (1,2,3) => [1,2,3]
      */
@@ -548,6 +583,42 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitNotDiscreteValue(this, context);
+        }
+    }
+
+    /**
+     * a is null
+     */
+    public static class IsNullValue extends ValueDesc {
+
+        public IsNullValue(ExpressionRewriteContext context, Expression reference) {
+            super(context, reference);
+        }
+
+        @Override
+        protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
+            return visitor.visitIsNullValue(this, context);
+        }
+    }
+
+    /**
+     * a is not null
+     */
+    public static class IsNotNullValue extends ValueDesc {
+        final Not not;
+
+        public IsNotNullValue(ExpressionRewriteContext context, Expression reference, Not not) {
+            super(context, reference);
+            this.not = not;
+        }
+
+        public Not getNotExpression() {
+            return this.not;
+        }
+
+        @Override
+        protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
+            return visitor.visitIsNotNullValue(this, context);
         }
     }
 
