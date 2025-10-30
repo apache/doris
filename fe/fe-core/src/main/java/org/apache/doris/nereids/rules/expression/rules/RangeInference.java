@@ -35,20 +35,18 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
@@ -152,9 +150,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
     private ValueDesc simplify(ExpressionRewriteContext context, List<Expression> predicates, boolean isAnd) {
         boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
-        Multimap<Expression, ValueDesc> groupByReference
-                = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
-        SameReferenceValueMerger merger = isAnd ? new ValueDescIntersect() : new ValueDescUnion();
+        Map<Expression, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
         for (Expression predicate : predicates) {
             // EmptyValue(a) = IsNull(a) and null,  it doesn't equals to IsNull(a).
             // Only the and expression contains at least a null literal in its conjunctions,
@@ -168,14 +164,21 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else {
                 valueDesc = predicate.accept(this, context);
             }
-            List<ValueDesc> valueDescs = (List<ValueDesc>) groupByReference.get(valueDesc.reference);
-            valueDescs.add(valueDesc);
+            Expression reference = valueDesc.reference;
+            groupByReference.computeIfAbsent(reference, key -> new ValueDescCollector()).add(valueDesc);
         }
 
         List<ValueDesc> valuePerRefs = Lists.newArrayList();
-        for (Entry<Expression, Collection<ValueDesc>> referenceValues : groupByReference.asMap().entrySet()) {
-            List<ValueDesc> valuePerReference = (List<ValueDesc>) referenceValues.getValue();
-            valuePerRefs.add(merger.merge(referenceValues.getKey(), valuePerReference));
+        for (Entry<Expression, ValueDescCollector> referenceValues : groupByReference.entrySet()) {
+            Expression reference = referenceValues.getKey();
+            ValueDescCollector collector = referenceValues.getValue();
+            ValueDesc mergedValue;
+            if (isAnd) {
+                mergedValue = intersectForSameReference(context, reference, collector);
+            } else {
+                mergedValue = unionForSameReference(context, reference, collector);
+            }
+            valuePerRefs.add(mergedValue);
         }
 
         if (valuePerRefs.size() == 1) {
@@ -183,6 +186,123 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         return new CompoundValue(context, valuePerRefs, isAnd);
+    }
+
+    private ValueDesc intersectForSameReference(ExpressionRewriteContext context, Expression reference,
+            ValueDescCollector collector) {
+        if (collector.hasEmptyValue) {
+            return new EmptyValue(context, reference);
+        }
+
+        ImmutableList.Builder<ValueDesc> result = ImmutableList.builder();
+
+        RangeValue mergeRangeValue = null;
+        if (!collector.rangeValues.isEmpty()) {
+            for (RangeValue rangeValue : collector.rangeValues) {
+                if (mergeRangeValue == null) {
+                    mergeRangeValue = rangeValue;
+                } else {
+                    ValueDesc combineValue = mergeRangeValue.intersect(rangeValue);
+                    if (combineValue instanceof EmptyValue) {
+                        return combineValue;
+                    } else if (combineValue instanceof RangeValue) {
+                        mergeRangeValue = (RangeValue) combineValue;
+                    } else {
+                        collector.add(combineValue);
+                    }
+                }
+            }
+        }
+
+        Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
+        DiscreteValue mergeDiscreteValue = null;
+        if (!collector.discreteValues.isEmpty()) {
+            discreteValues.addAll(collector.discreteValues.get(0).values);
+            for (int i = 1; i < collector.discreteValues.size(); i++) {
+                discreteValues.retainAll(collector.discreteValues.get(i).values);
+            }
+            if (discreteValues.isEmpty()) {
+                return new EmptyValue(context, reference);
+            }
+            mergeDiscreteValue = new DiscreteValue(context, reference, discreteValues);
+        }
+
+        if (mergeRangeValue != null && mergeDiscreteValue != null) {
+            ValueDesc combineValue = mergeRangeValue.intersect(mergeDiscreteValue);
+            if (combineValue instanceof EmptyValue) {
+                return combineValue;
+            }
+            result.add(combineValue);
+        } else if (mergeRangeValue != null) {
+            result.add(mergeRangeValue);
+        } else if (mergeDiscreteValue != null) {
+            result.add(mergeDiscreteValue);
+        }
+        result.addAll(collector.compoundValues);
+        result.addAll(collector.unknownValues);
+
+        List<ValueDesc> resultValues = result.build();
+        if (resultValues.isEmpty()) {
+            Preconditions.checkArgument(collector.hasEmptyValue);
+            return new EmptyValue(context, reference);
+        } else if (resultValues.size() == 1) {
+            return resultValues.get(0);
+        } else {
+            return new CompoundValue(context, resultValues, true);
+        }
+    }
+
+    private ValueDesc unionForSameReference(ExpressionRewriteContext context, Expression reference,
+            ValueDescCollector collector) {
+        ImmutableList.Builder<ValueDesc> result = ImmutableList.builderWithExpectedSize(collector.size());
+        // Since in-predicate's options is a list, the discrete values need to kept options' order.
+        // If not keep options' order, the result in-predicate's option list will not equals to
+        // the input in-predicate, later nereids will need to simplify the new in-predicate,
+        // then cause dead loop.
+        Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
+        for (DiscreteValue discreteValue : collector.discreteValues) {
+            discreteValues.addAll(discreteValue.getValues());
+        }
+
+        // for 'a > 8 or a = 8', then range (8, +00) can convert to [8, +00)
+        RangeSet<ComparableLiteral> rangeSet = TreeRangeSet.create();
+        for (RangeValue rangeValue : collector.rangeValues) {
+            Range<ComparableLiteral> range = rangeValue.range;
+            rangeSet.add(range);
+            if (range.hasLowerBound()
+                    && range.lowerBoundType() == BoundType.OPEN
+                    && discreteValues.contains(range.lowerEndpoint())) {
+                rangeSet.add(Range.singleton(range.lowerEndpoint()));
+            }
+            if (range.hasUpperBound()
+                    && range.upperBoundType() == BoundType.OPEN
+                    && discreteValues.contains(range.upperEndpoint())) {
+                rangeSet.add(Range.singleton(range.upperEndpoint()));
+            }
+        }
+
+        if (!rangeSet.isEmpty()) {
+            discreteValues.removeIf(x -> rangeSet.contains(x));
+        }
+
+        if (!discreteValues.isEmpty()) {
+            result.add(new DiscreteValue(context, reference, discreteValues));
+        }
+        for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
+            result.add(new RangeValue(context, reference, range));
+        }
+        result.addAll(collector.compoundValues);
+        result.addAll(collector.unknownValues);
+
+        List<ValueDesc> resultValues = result.build();
+        if (resultValues.isEmpty()) {
+            Preconditions.checkArgument(collector.hasEmptyValue);
+            return new EmptyValue(context, reference);
+        } else if (resultValues.size() == 1) {
+            return resultValues.get(0);
+        } else {
+            return new CompoundValue(context, resultValues, false);
+        }
     }
 
     /** value desc visitor */
@@ -198,111 +318,31 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         R visitUnknownValue(UnknownValue unknownValue, C context);
     }
 
-    private interface SameReferenceValueMerger {
-        // values have the same reference
-        ValueDesc merge(Expression reference, List<ValueDesc> values);
-    }
+    private static class ValueDescCollector {
+        boolean hasEmptyValue = false;
+        List<RangeValue> rangeValues = Lists.newArrayList();
+        List<DiscreteValue> discreteValues = Lists.newArrayList();
+        List<CompoundValue> compoundValues = Lists.newArrayList();
+        List<UnknownValue> unknownValues = Lists.newArrayList();
 
-    private static class ValueDescIntersect implements SameReferenceValueMerger,
-            ValueDescVisitor<ValueDesc, ValueDesc> {
-
-        @Override
-        public ValueDesc visitRangeValue(RangeValue rangeValue, ValueDesc source) {
-            return source.intersect(rangeValue);
-        }
-
-        @Override
-        public ValueDesc visitDiscreteValue(DiscreteValue discreteValue, ValueDesc source) {
-            return source.intersect(discreteValue);
-        }
-
-        @Override
-        public ValueDesc visitEmptyValue(EmptyValue emptyValue, ValueDesc source) {
-            return source.intersect(emptyValue);
-        }
-
-        @Override
-        public ValueDesc visitCompoundValue(CompoundValue compoundValue, ValueDesc source) {
-            return source.intersect(compoundValue);
-        }
-
-        @Override
-        public ValueDesc visitUnknownValue(UnknownValue unknownValue, ValueDesc source) {
-            return source.intersect(unknownValue);
-        }
-
-        @Override
-        public ValueDesc merge(Expression reference, List<ValueDesc> values) {
-            ValueDesc result = values.get(0);
-            for (int i = 1; i < values.size(); i++) {
-                result = values.get(i).accept(this, result);
-            }
-            return result;
-        }
-    }
-
-    private static class ValueDescUnion implements SameReferenceValueMerger {
-
-        @Override
-        public ValueDesc merge(Expression reference, List<ValueDesc> valueDescs) {
-            ImmutableList.Builder<ValueDesc> result = ImmutableList.builderWithExpectedSize(valueDescs.size());
-            ExpressionRewriteContext context = valueDescs.get(0).context;
-            // Since in-predicate's options is a list, the discrete values need to kept options' order.
-            // If not keep options' order, the result in-predicate's option list will not equals to
-            // the input in-predicate, later nereids will need to simplify the new in-predicate,
-            // then cause dead loop.
-            Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
-            for (ValueDesc valueDesc : valueDescs) {
-                if (valueDesc instanceof DiscreteValue) {
-                    discreteValues.addAll(((DiscreteValue) valueDesc).getValues());
-                }
-            }
-
-            // for 'a > 8 or a = 8', then range (8, +00) can convert to [8, +00)
-            RangeSet<ComparableLiteral> rangeSet = TreeRangeSet.create();
-            for (ValueDesc valueDesc : valueDescs) {
-                if (valueDesc instanceof RangeValue) {
-                    Range<ComparableLiteral> range = ((RangeValue) valueDesc).range;
-                    rangeSet.add(range);
-                    if (range.hasLowerBound()
-                            && range.lowerBoundType() == BoundType.OPEN
-                            && discreteValues.contains(range.lowerEndpoint())) {
-                        rangeSet.add(Range.singleton(range.lowerEndpoint()));
-                    }
-                    if (range.hasUpperBound()
-                            && range.upperBoundType() == BoundType.OPEN
-                            && discreteValues.contains(range.upperEndpoint())) {
-                        rangeSet.add(Range.singleton(range.upperEndpoint()));
-                    }
-                }
-            }
-
-            if (!rangeSet.isEmpty()) {
-                discreteValues.removeIf(x -> rangeSet.contains(x));
-            }
-
-            if (!discreteValues.isEmpty()) {
-                result.add(new DiscreteValue(context, reference, discreteValues));
-            }
-            for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
-                result.add(new RangeValue(context, reference, range));
-            }
-            for (ValueDesc value : valueDescs) {
-                if (value instanceof CompoundValue || value instanceof UnknownValue) {
-                    result.add(value);
-                }
-            }
-
-            List<ValueDesc> resultValues = result.build();
-            if (resultValues.isEmpty()) {
-                return new EmptyValue(context, reference);
-            } else if (resultValues.size() == 1) {
-                return resultValues.get(0);
+        void add(ValueDesc value) {
+            if (value instanceof EmptyValue) {
+                hasEmptyValue = true;
+            } else if (value instanceof RangeValue) {
+                rangeValues.add((RangeValue) value);
+            } else if (value instanceof DiscreteValue) {
+                discreteValues.add((DiscreteValue) value);
+            } else if (value instanceof CompoundValue) {
+                compoundValues.add((CompoundValue) value);
             } else {
-                return new CompoundValue(context, resultValues, false);
+                Preconditions.checkArgument(value instanceof UnknownValue);
+                unknownValues.add((UnknownValue) value);
             }
         }
 
+        int size() {
+            return rangeValues.size() + discreteValues.size() + compoundValues.size() + unknownValues.size();
+        }
     }
 
     /**
@@ -330,16 +370,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         protected abstract <R, C> R visit(ValueDescVisitor<R, C> visitor, C context);
-
-        protected abstract ValueDesc intersect(EmptyValue emptyValue);
-
-        protected abstract ValueDesc intersect(RangeValue rangeValue);
-
-        protected abstract ValueDesc intersect(DiscreteValue discreteValue);
-
-        protected abstract ValueDesc intersect(CompoundValue compoundValue);
-
-        protected abstract ValueDesc intersect(UnknownValue unknownValue);
     }
 
     /**
@@ -354,31 +384,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitEmptyValue(this, context);
-        }
-
-        @Override
-        protected ValueDesc intersect(EmptyValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc intersect(RangeValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc intersect(DiscreteValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc intersect(CompoundValue other) {
-            return this;
-        }
-
-        @Override
-        protected ValueDesc intersect(UnknownValue other) {
-            return this;
         }
     }
 
@@ -405,13 +410,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return visitor.visitRangeValue(this, context);
         }
 
-        @Override
-        protected ValueDesc intersect(EmptyValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc intersect(RangeValue other) {
+        private ValueDesc intersect(RangeValue other) {
             if (range.isConnected(other.range)) {
                 Range<ComparableLiteral> newRange = range.intersection(other.range);
                 if (!newRange.isEmpty()) {
@@ -428,8 +427,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new EmptyValue(context, reference);
         }
 
-        @Override
-        protected ValueDesc intersect(DiscreteValue other) {
+        private ValueDesc intersect(DiscreteValue other) {
             Set<ComparableLiteral> intersectValues = Sets.newLinkedHashSetWithExpectedSize(other.values.size());
             for (ComparableLiteral value : other.values) {
                 if (range.contains(value)) {
@@ -444,28 +442,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         @Override
-        protected ValueDesc intersect(CompoundValue other) {
-            return other.compoundIntersectWith(this, true);
-        }
-
-        @Override
-        protected ValueDesc intersect(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
         public String toString() {
             return range == null ? "UnknownRange" : range.toString();
-        }
-
-        public boolean isCoverDiscreteValue(DiscreteValue discreteValue) {
-            for (ComparableLiteral value : discreteValue.values) {
-                if (!range.test(value)) {
-                    return false;
-                }
-            }
-
-            return true;
         }
     }
 
@@ -492,37 +470,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return visitor.visitDiscreteValue(this, context);
         }
 
-        @Override
-        protected ValueDesc intersect(EmptyValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc intersect(RangeValue other) {
-            return other.intersect(this);
-        }
-
-        @Override
-        protected ValueDesc intersect(DiscreteValue other) {
-            Set<ComparableLiteral> newValues = Sets.newLinkedHashSet();
-            newValues.addAll(this.values);
-            newValues.retainAll(other.values);
-            if (newValues.isEmpty()) {
-                return new EmptyValue(context, reference);
-            } else {
-                return new DiscreteValue(context, reference, newValues);
-            }
-        }
-
-        @Override
-        protected ValueDesc intersect(CompoundValue other) {
-            return other.compoundIntersectWith(this, true);
-        }
-
-        @Override
-        protected ValueDesc intersect(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
         @Override
         public String toString() {
             return values.toString();
@@ -580,59 +527,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitCompoundValue(this, context);
         }
-
-        @Override
-        protected ValueDesc intersect(EmptyValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc intersect(RangeValue other) {
-            return compoundIntersectWith(other, false);
-        }
-
-        @Override
-        protected ValueDesc intersect(DiscreteValue other) {
-            return compoundIntersectWith(other, false);
-        }
-
-        @Override
-        protected ValueDesc intersect(CompoundValue other) {
-            return compoundIntersectWith(other, false);
-        }
-
-        @Override
-        protected ValueDesc intersect(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
-        public ValueDesc compoundIntersectWith(ValueDesc other, boolean reverse) {
-            return mergeWith(other, reverse, true);
-        }
-
-        // merge with other, if isIntersect = true then intersect them, else union them
-        private ValueDesc mergeWith(ValueDesc other, boolean reverse, boolean isIntersect) {
-            // flatten
-            List<ValueDesc> newSourceValues;
-            if (isAnd == isIntersect && reference.equals(other.reference)) {
-                List<ValueDesc> otherValues = ImmutableList.of(other);
-                if (other instanceof CompoundValue && ((CompoundValue) other).isAnd == isIntersect) {
-                    otherValues = ((CompoundValue) other).sourceValues;
-                }
-                ImmutableList.Builder<ValueDesc> builder
-                        = ImmutableList.builderWithExpectedSize(sourceValues.size() + otherValues.size());
-                if (reverse) {
-                    builder.addAll(otherValues);
-                    builder.addAll(sourceValues);
-                } else {
-                    builder.addAll(sourceValues);
-                    builder.addAll(otherValues);
-                }
-                newSourceValues = builder.build();
-            } else {
-                newSourceValues = reverse ? ImmutableList.of(other, this) : ImmutableList.of(this, other);
-            }
-            return new CompoundValue(context, newSourceValues, isIntersect);
-        }
     }
 
     /**
@@ -647,31 +541,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitUnknownValue(this, context);
-        }
-
-        @Override
-        protected ValueDesc intersect(EmptyValue other) {
-            return other;
-        }
-
-        @Override
-        protected ValueDesc intersect(RangeValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
-        protected ValueDesc intersect(DiscreteValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
-        protected ValueDesc intersect(CompoundValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
-        }
-
-        @Override
-        protected ValueDesc intersect(UnknownValue other) {
-            return new CompoundValue(context, ImmutableList.of(this, other), true);
         }
     }
 }
