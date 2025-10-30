@@ -35,6 +35,7 @@ suite('test_read_from_peer', 'docker') {
     options.beConfigs += [
         'file_cache_each_block_size=131072',
         // 'sys_log_verbose_modules=*',
+        'enable_cache_read_from_peer=true'
     ]
     options.setFeNum(1)
     options.setBeNum(1)

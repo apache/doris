@@ -82,6 +82,8 @@ bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_bytes_1min_window(
 bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_total_bytes_1min_window(
         "cached_remote_reader_indirect_total_bytes_1min_window", &g_read_cache_indirect_total_bytes,
         60);
+bvar::Adder<uint64_t> g_failed_get_peer_addr_counter(
+        "cached_remote_reader_failed_get_peer_addr_counter");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -198,6 +200,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
                << ", file_path=" << file_path;
 
     if (host.empty() || port == 0) {
+        g_failed_get_peer_addr_counter << 1;
         LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
                                   << ", host=" << host << ", port=" << port
                                   << ", file_path=" << file_path;

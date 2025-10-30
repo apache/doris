@@ -172,8 +172,9 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
     return id_to_rowset_meta_map;
 }
 
-static void CleanUpExpiredMappings(void* arg) {
-    auto* tablet_id = reinterpret_cast<int64_t*>(arg);
+static void clean_up_expired_mappings(void* arg) {
+    // Reclaim ownership with unique_ptr for automatic memory management
+    std::unique_ptr<int64_t> tablet_id(static_cast<int64_t*>(arg));
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
     manager.remove_balanced_tablet(*tablet_id);
     VLOG_DEBUG << "Removed expired balanced warm up cache tablet: tablet_id=" << *tablet_id;
@@ -225,21 +226,27 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                << "]";
                 }
             }
-            bthread_timer_t timer_id;
+            // Use std::make_unique to avoid raw pointer allocation
+            auto tablet_id_ptr = std::make_unique<int64_t>(tablet_id);
             unsigned long expired_ms = g_tablet_report_inactive_duration_ms;
             if (doris::config::cache_read_from_peer_expired_seconds > 0 &&
                 doris::config::cache_read_from_peer_expired_seconds <=
                         g_tablet_report_inactive_duration_ms / 1000) {
                 expired_ms = doris::config::cache_read_from_peer_expired_seconds * 1000;
             }
-            const int rc = bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
-                                             CleanUpExpiredMappings, (void*)&tablet_id);
-            if (rc != 0) {
-                LOG(WARNING) << "Fail to add timer for CleanUpExpiredMappings for tablet_id="
+            bthread_timer_t timer_id;
+            // ATTN: The timer callback will reclaim ownership of the tablet_id_ptr, so we need to release it after the timer is added.
+            if (const int rc =
+                        bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
+                                          clean_up_expired_mappings, tablet_id_ptr.get());
+                rc == 0) {
+                tablet_id_ptr.release();
+            } else {
+                LOG(WARNING) << "Fail to add timer for clean up expired mappings for tablet_id="
                              << tablet_id << " rc=" << rc;
             }
             LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
-                      << " status=" << st.to_string();
+                      << " status=" << st.to_string() << " expired_ms=" << expired_ms;
         };
 
         std::string path;

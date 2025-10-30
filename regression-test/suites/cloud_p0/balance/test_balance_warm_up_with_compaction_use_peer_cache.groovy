@@ -29,7 +29,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
         'rehash_tablet_after_be_dead_seconds=3600',
-        'enable_cloud_warm_up_for_rebalance=true',
+        'cloud_warm_up_for_rebalance_type=async_warmup',
         'cloud_pre_heating_time_limit_sec=30',
         // disable Auto Analysis Job Executor
         'auto_check_statistics_in_minutes=60',

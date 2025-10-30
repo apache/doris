@@ -29,14 +29,15 @@ suite('test_balance_warm_up', 'docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
         'rehash_tablet_after_be_dead_seconds=3600',
-        'enable_cloud_warm_up_for_rebalance=true'
+        'cloud_warm_up_for_rebalance_type=async_warmup'
     ]
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
-        'cache_read_from_peer_expired_seconds=100'
+        'cache_read_from_peer_expired_seconds=100',
+        'enable_cache_read_from_peer=true'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -84,6 +85,22 @@ suite('test_balance_warm_up', 'docker') {
         """
         sql """
             insert into $table values  (44, 1, 'comment', 'spez', '2006-10-11 23:00:48', 'Welcome back, Randall',  0, 43, 0, [454465], '', 0, '', [], 0), (46, 0, 'story', 'goldfish', '2006-10-11 23:39:28', '',  0, 0, 0, [454470], 'http://www.rentometer.com/', 0, ' VCs Prefer to Fund Nearby Firms - New York Times', [], 0);
+        """
+
+        // more tablets accessed. for test metrics `balance_tablet_be_mapping_size`
+        sql """CREATE TABLE more_tablets_warm_up_test_tbl (
+            `k1` int(11) NULL,
+            `v1` VARCHAR(2048)
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+            "replication_num"="1"
+            );
+        """
+        sql """
+            insert into more_tablets_warm_up_test_tbl values (1, 'value1'), (2, 'value2'), (3, 'value3'), (4, 'value4'), (5, 'value5'), (6, 'value6'), (7, 'value7'), (8, 'value8'), (9, 'value9'), (10, 'value10'), (11, 'value11'), (12, 'value12'), (13, 'value13'), (14, 'value14'), (15, 'value15'), (16, 'value16'), (17, 'value17'), (18, 'value18'), (19, 'value19'), (20, 'value20');
         """
 
         // before add be
@@ -139,6 +156,8 @@ suite('test_balance_warm_up', 'docker') {
                 Integer.valueOf((String) row.ReplicaNum) == 1
             }
         }
+
+        sql """select count(*) from more_tablets_warm_up_test_tbl"""
 
         // from be1 -> be2, warm up this tablet
         // after add be

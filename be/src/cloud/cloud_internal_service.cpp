@@ -175,6 +175,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
                                                const PFetchPeerDataRequest* request,
                                                PFetchPeerDataResponse* response,
                                                google::protobuf::Closure* done) {
+    // TODO(dx): use async thread pool to handle the request, not AsyncIO
     brpc::ClosureGuard closure_guard(done);
     g_file_cache_get_by_peer_num << 1;
     if (!config::enable_file_cache) {

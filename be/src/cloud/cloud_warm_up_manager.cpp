@@ -821,7 +821,7 @@ void CloudWarmUpManager::remove_balanced_tablet(int64_t tablet_id) {
     if (it != shard.tablets.end()) {
         shard.tablets.erase(it);
         g_balance_tablet_be_mapping_size << -1;
-        VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
+        VLOG_DEBUG << "Removed balanced warm up cache tablet by timer, tablet_id=" << tablet_id;
     }
 }
 
