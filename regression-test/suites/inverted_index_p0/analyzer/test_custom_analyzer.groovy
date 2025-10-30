@@ -179,4 +179,63 @@ suite("test_custom_analyzer", "p0") {
         qt_sql """ select * from test_custom_analyzer_3 where ch match 'nav_venue_off.gif'; """
     } catch (SQLException e) {
     }
+
+    sql "DROP TABLE IF EXISTS ${indexTbName1}"
+    sql """
+        CREATE TABLE ${indexTbName1} (
+            `a` bigint NOT NULL,
+            `ch` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """ insert into ${indexTbName1} values(1, "FOO BAR"); """
+    qt_sql """ select tokenize("FOO BAR", '"analyzer"="lowercase_delimited"'); """
+    qt_sql """ select tokenize("FOO", '"analyzer"="lowercase_delimited"'); """
+    qt_sql """ select tokenize("BAR", '"analyzer"="lowercase_delimited"'); """
+
+    sql """ alter table ${indexTbName1} add index idx_ch_default(`ch`)  using inverted; """
+    wait_for_last_build_index_finish("${indexTbName1}", 60000)
+    sql """ alter table ${indexTbName1} add index idx_ch(`ch`) using inverted properties("support_phrase" = "true", "analyzer" = "lowercase_delimited"); """
+    wait_for_last_build_index_finish("${indexTbName1}", 60000)
+
+    qt_sql """ select * from ${indexTbName1} where ch match_all 'FOO'; """
+    qt_sql """ select * from ${indexTbName1} where ch match_all 'BAR'; """
+    qt_sql """ select * from ${indexTbName1} where ch match_all 'FOO BAR'; """
+
+    qt_sql """ select * from ${indexTbName1} where ch match_phrase_prefix 'FOO'; """
+    qt_sql """ select * from ${indexTbName1} where ch match_phrase_prefix 'BAR'; """
+    qt_sql """ select * from ${indexTbName1} where ch match_phrase_prefix 'FOO BAR'; """
+
+    def variantTableName = "test_custom_analyzer_2"
+    sql "DROP TABLE IF EXISTS ${variantTableName}"
+    sql """
+        CREATE TABLE ${variantTableName} (
+            `a` bigint NOT NULL,
+            `var` variant<'string_*' : string,
+                properties("variant_max_subcolumns_count" = "1", "variant_enable_typed_paths_to_sparse" = "true")
+            > NULL,
+            INDEX idx_string (var) USING INVERTED PROPERTIES("field_pattern" = "string_*"),
+            INDEX idx_string_prefix (var) USING INVERTED PROPERTIES("field_pattern" = "string_*", "support_phrase" = "true", "analyzer" = "lowercase_delimited")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """ insert into ${variantTableName} values(1, '{"string_1" : "FOO BAR", "string_2" : "FOO BAR", "string_3" : "FOO BAR"}'), (2, '{"string_3" : "FOO BAR"}'); """
+
+    qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_all 'FOO'; """
+    qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_all 'BAR'; """
+    qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_all 'FOO BAR'; """
+
+    qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_phrase_prefix 'FOO'; """
+    qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_phrase_prefix 'BAR'; """
+    qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_phrase_prefix 'FOO BAR'; """
 }
