@@ -2638,9 +2638,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
             checker = "checkFileCacheQueryLimitPercent",
             description = {"限制用户的单个查询能使用的 FILE_CACHE 比例 "
-                + "（用户设置，取值范围 1 到 Config.file_cache_query_limit_percent_soft）。",
-                "Limit the FILE_CACHE percent that a single query of a user can use "
-                + "(set by the user via session variables, range: 1 to Config.file_cache_query_limit_percent_soft)."})
+                    + "（用户设置，取值范围 1 到 Config.file_cache_query_limit_percent_soft）。",
+                    "Limit the FILE_CACHE percent that a single query of a user can use "
+                    + "(set by user via session variables, range: 1 to Config.file_cache_query_limit_percent_soft)."})
     public int fileCacheQueryLimitPercent = -1;
 
     public void checkFileCacheQueryLimitPercent(String fileCacheQueryLimitPercentStr) {
@@ -2655,9 +2655,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = POLICY_FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
             checker = "checkPolicyFileCacheQueryLimitPercent",
             description = {"限制用户的单个查询能使用的 FILE_CACHE 比例 "
-                + "（admin 权限用户通过创建 workload Policy 设置，取值范围 1 到 100）。",
-                "Limit the FILE_CACHE percent that a single query of a user can use"
-                + "(set by the admin by creating workload Policy, range: 1 to 100)."})
+                    + "（admin 权限用户通过创建 workload Policy 设置，取值范围 1 到 100）。",
+                    "Limit the FILE_CACHE percent that a single query of a user can use"
+                    + "(set by admin by creating workload Policy, range: 1 to 100)."})
     public int policyFileCacheQueryLimitPercent = -1;
 
     public void checkPolicyFileCacheQueryLimitPercent(String policyFileCacheQueryLimitPercentStr) {
@@ -4892,7 +4892,8 @@ public class SessionVariable implements Serializable, Writable {
         if (policyFileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(policyFileCacheQueryLimitPercent);
         } else if (fileCacheQueryLimitPercent > 0) {
-            tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent, Config.file_cache_query_limit_percent_soft));
+            tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
+                    Config.file_cache_query_limit_percent_soft));
         } else {
             tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_percent_soft);
         }
