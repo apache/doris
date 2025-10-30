@@ -188,7 +188,7 @@ suite("test_drop_partition_range") {
     
     // Test 8: Delete partitions by date range without intervals
     sql """
-        CREATE TABLE drop_range_partition_7
+        CREATE TABLE drop_range_partition_8
         (
             `k1` LARGEINT NOT NULL,
             `age` SMALLINT,
@@ -207,7 +207,7 @@ suite("test_drop_partition_range") {
         PROPERTIES ("replication_num" = "1");
     """
     
-    sql "ALTER TABLE drop_range_partition_7 DROP PARTITION FROM (1) TO (3);"
-    List<List<Object>> result15 = sql "show partitions from drop_range_partition_7;"
+    sql "ALTER TABLE drop_range_partition_8 DROP PARTITION FROM (1) TO (3);"
+    List<List<Object>> result15 = sql "show partitions from drop_range_partition_8;"
     assertEquals(result15.size(), 2)
 }
