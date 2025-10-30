@@ -41,13 +41,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -220,6 +220,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                     "Failed to create repository: " + st.getErrMsg());
         }
+        //fixme why ping again? it has pinged in addAndInitRepoIfNotExist
         if (!repo.ping()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                     "Failed to create repository: failed to connect to the repo");

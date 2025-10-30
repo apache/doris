@@ -66,8 +66,9 @@
 // 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletJobInfoPB
 // 0x01 "job" ${instance_id} "recycle"                                                     -> JobRecyclePB
 // 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
+// 0x01 "job" ${instance_id} "snapshot_data_migrator"                                      -> JobRecyclePB
+// 0x01 "job" ${instance_id} "snapshot_chain_compactor"                                    -> JobRecyclePB
 // 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id}                            -> StreamingJobPB
-
 //
 // 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
 // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
@@ -80,6 +81,7 @@
 // 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
 // 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
 // 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
+// 0x02 "system" "meta-service" "instance_update"                                          -> int64
 //
 // 0x03 "version" ${instance_id} "partition" ${partition_id} ${timestamp}   -> VersionPB
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
@@ -146,93 +148,98 @@ struct BasicKeyInfo : Base {
 // ATTN: newly added key must have different type number
 
 //                                                      0:instance_id
-using InstanceKeyInfo      = BasicKeyInfo<0 , std::tuple<std::string>>;
+using InstanceKeyInfo      = BasicKeyInfo<__LINE__ , std::tuple<std::string>>;
 
 //                                                      0:instance_id  1:db_id  2:label
-using TxnLabelKeyInfo      = BasicKeyInfo<1 , std::tuple<std::string,  int64_t, std::string>>;
+using TxnLabelKeyInfo      = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, std::string>>;
 
 //                                                      0:instance_id  1:db_id  2:txn_id
-using TxnInfoKeyInfo       = BasicKeyInfo<2 , std::tuple<std::string,  int64_t, int64_t>>;
+using TxnInfoKeyInfo       = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:txn_id
-using TxnIndexKeyInfo      = BasicKeyInfo<3 , std::tuple<std::string,  int64_t>>;
+using TxnIndexKeyInfo      = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t>>;
 
 //                                                      0:instance_id  1:db_id  2:txn_id
-using TxnRunningKeyInfo    = BasicKeyInfo<5 , std::tuple<std::string,  int64_t, int64_t>>;
+using TxnRunningKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
-using PartitionVersionKeyInfo     = BasicKeyInfo<6 , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
+using PartitionVersionKeyInfo     = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id  2:version
-using MetaRowsetKeyInfo    = BasicKeyInfo<7 , std::tuple<std::string,  int64_t,     int64_t>>;
+using MetaRowsetKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,     int64_t>>;
 
 //                                                      0:instance_id  1:txn_id  2:tablet_id
-using MetaRowsetTmpKeyInfo = BasicKeyInfo<8 , std::tuple<std::string,  int64_t,  int64_t>>;
+using MetaRowsetTmpKeyInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,  int64_t>>;
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
-using MetaTabletKeyInfo    = BasicKeyInfo<9 , std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
+using MetaTabletKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id
-using MetaTabletIdxKeyInfo = BasicKeyInfo<10, std::tuple<std::string,  int64_t>>;
+using MetaTabletIdxKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t>>;
 
 //                                                      0:instance_id  1:index_id
-using RecycleIndexKeyInfo  = BasicKeyInfo<11, std::tuple<std::string,  int64_t>>;
+using RecycleIndexKeyInfo  = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t>>;
 
 //                                                      0:instance_id  1:part_id
-using RecyclePartKeyInfo   = BasicKeyInfo<12, std::tuple<std::string,  int64_t>>;
+using RecyclePartKeyInfo   = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
-using RecycleRowsetKeyInfo = BasicKeyInfo<13, std::tuple<std::string,  int64_t,     std::string>>;
+using RecycleRowsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t,     std::string>>;
 
 //                                                      0:instance_id  1:db_id  2:txn_id
-using RecycleTxnKeyInfo    = BasicKeyInfo<14, std::tuple<std::string,  int64_t, int64_t>>;
+using RecycleTxnKeyInfo    = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
-using StatsTabletKeyInfo   = BasicKeyInfo<15, std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
+using StatsTabletKeyInfo   = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
-using JobTabletKeyInfo     = BasicKeyInfo<16, std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
+using JobTabletKeyInfo     = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
 
 //                                                      0:instance_id  1:stage_id   2:table_id  3:copy_id     4:group_id
-using CopyJobKeyInfo       = BasicKeyInfo<17, std::tuple<std::string,  std::string,  int64_t,   std::string,  int64_t>>;
+using CopyJobKeyInfo       = BasicKeyInfo<__LINE__, std::tuple<std::string,  std::string,  int64_t,   std::string,  int64_t>>;
 
 //                                                      0:instance_id  1:stage_id   2:table_id  3:obj_key     4:obj_etag
-using CopyFileKeyInfo      = BasicKeyInfo<18, std::tuple<std::string,  std::string,  int64_t,   std::string,  std::string>>;
+using CopyFileKeyInfo      = BasicKeyInfo<__LINE__, std::tuple<std::string,  std::string,  int64_t,   std::string,  std::string>>;
 
 //                                                      0:instance_id  1:stage_id
-using RecycleStageKeyInfo  = BasicKeyInfo<19, std::tuple<std::string,  std::string>>;
+using RecycleStageKeyInfo  = BasicKeyInfo<__LINE__, std::tuple<std::string,  std::string>>;
 
 //                                                      0:instance_id
-using JobRecycleKeyInfo    = BasicKeyInfo<20 , std::tuple<std::string>>;
+using JobRecycleKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string>>;
+
+//                                                      0:instance_id
+using JobSnapshotDataMigratorKeyInfo = BasicKeyInfo<53, std::tuple<std::string>>;
+//                                                      0:instance_id
+using JobSnapshotChainCompactorKeyInfo = BasicKeyInfo<54, std::tuple<std::string>>;
 
 //                                                      0:instance_id  1:index_id  2:schema_version
-using MetaSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    int64_t>>;
+using MetaSchemaKeyInfo    = BasicKeyInfo<__LINE__, std::tuple<std::string,  int64_t,    int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id  2:rowest_id  3:version  4:seg_id
-using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,     std::string, int64_t, int64_t>>;
+using MetaDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t,     std::string, int64_t, int64_t>>;
 
 // partition_id of -1 indicates all partitions
 //                                                      0:instance_id  1:table_id 2:partition_id
-using MetaDeleteBitmapUpdateLockInfo = BasicKeyInfo<23 , std::tuple<std::string, int64_t, int64_t>>;
+using MetaDeleteBitmapUpdateLockInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id
-using MetaPendingDeleteBitmapInfo = BasicKeyInfo<24 , std::tuple<std::string, int64_t>>;
+using MetaPendingDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t>>;
 
 //                                                      0:instance_id 1:db_id  2:job_id
-using RLJobProgressKeyInfo = BasicKeyInfo<25, std::tuple<std::string, int64_t, int64_t>>;
+using RLJobProgressKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 
 //                                                      0:instance_id 1:db_id  2:job_id
-using StreamingJobKeyInfo = BasicKeyInfo<52, std::tuple<std::string, int64_t, int64_t>>;
+using StreamingJobKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 
 //                                                      0:instance_id 1:vault_id
-using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string>>;
+using StorageVaultKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, std::string>>;
 
 //                                                      0:instance_id 1:db_id 2:table_id
-using TableVersionKeyInfo = BasicKeyInfo<27, std::tuple<std::string, int64_t, int64_t>>;
+using TableVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 //                                                      0:instance_id  1:index_id
-using MetaSchemaPBDictionaryInfo = BasicKeyInfo<28 , std::tuple<std::string,  int64_t>>;
+using MetaSchemaPBDictionaryInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t>>;
 //                                                        0:instance_id 1:table_id 2:initiator
-using MowTabletJobInfo = BasicKeyInfo<29 , std::tuple<std::string, int64_t, int64_t>>;
+using MowTabletJobInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t, int64_t>>;
 
 namespace versioned {
 
@@ -241,94 +248,94 @@ namespace versioned {
 
 // 0x03 "version" ${instance_id} "partition" ${partition_id} ${timestamp}   -> VersionPB
 //                                                      0:instance_id  1:partition_id
-using PartitionVersionKeyInfo = BasicKeyInfo<30, std::tuple<std::string, int64_t>>;
+using PartitionVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
 //                                                      0:instance_id  1:table_id
-using TableVersionKeyInfo = BasicKeyInfo<31, std::tuple<std::string, int64_t>>;
+using TableVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "index" ${instance_id} "partition" ${partition_id}                  -> PartitionIndexPB
 //                                                      0:instance_id  1:partition_id
-using PartitionIndexKeyInfo = BasicKeyInfo<32, std::tuple<std::string, int64_t>>;
+using PartitionIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition} -> ${empty_value}
 //                                                      0:instance_id  1:db_id  2:table_id  3:partition_id
-using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t>>;
+using PartitionInvertedIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t>>;
 
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                        -> TabletIndexPB
 //                                                      0:instance_id  1:tablet_id
-using TabletIndexKeyInfo = BasicKeyInfo<34, std::tuple<std::string, int64_t>>;
+using TabletIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet} -> ${empty_value}
 //                                                      0:instance_id  1:db_id  2:table_id  3:index_id  4:partition_id  5:tablet_id
-using TabletInvertedIndexKeyInfo = BasicKeyInfo<35, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t, int64_t>>;
+using TabletInvertedIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t, int64_t>>;
 
 // 0x03 "index" ${instance_id} "index" ${index_id}                          -> IndexIndexPB
 //                                                      0:instance_id  1:index_id
-using IndexIndexKeyInfo = BasicKeyInfo<36, std::tuple<std::string, int64_t>>;
+using IndexIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "index" ${instance_id} "index_inverted" ${db_id} ${table_id} ${index_id} -> ${empty_value}
 //                                                      0:instance_id  1:db_id  2:table_id  3:index_id
-using IndexInvertedKeyInfo = BasicKeyInfo<37, std::tuple<std::string, int64_t, int64_t, int64_t>>;
+using IndexInvertedKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t>>;
 
 // 0x03 "stats" ${instance_id} "tablet_load" ${tablet_id} ${timestamp}      -> TabletStatsPB
 //                                                      0:instance_id  1:tablet_id
-using TabletLoadStatsKeyInfo = BasicKeyInfo<38, std::tuple<std::string, int64_t>>;
+using TabletLoadStatsKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "stats" ${instance_id} "tablet_compact" ${tablet_id} ${timestamp}   -> TabletStatsPB
 //                                                      0:instance_id  1:tablet_id
-using TabletCompactStatsKeyInfo = BasicKeyInfo<39, std::tuple<std::string, int64_t>>;
+using TabletCompactStatsKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "partition" ${partition_id} ${timestamp}      -> ${empty_value}
 //                                                      0:instance_id  1:partition_id
-using MetaPartitionKeyInfo = BasicKeyInfo<40, std::tuple<std::string, int64_t>>;
+using MetaPartitionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "index" ${index_id} ${timestamp}              -> ${empty_value}
 //                                                      0:instance_id  1:index_id
-using MetaIndexKeyInfo = BasicKeyInfo<41, std::tuple<std::string, int64_t>>;
+using MetaIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "tablet" ${tablet_id} ${timestamp}            -> TabletMetaPB
 //                                                      0:instance_id  1:tablet_id
-using MetaTabletKeyInfo = BasicKeyInfo<42, std::tuple<std::string, int64_t>>;
+using MetaTabletKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "schema" ${index_id} ${schema_version}        -> TabletSchemaPB
 //                                                      0:instance_id  1:index_id  2:schema_version
-using MetaSchemaKeyInfo = BasicKeyInfo<43, std::tuple<std::string, int64_t, int64_t>>;
+using MetaSchemaKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
 //                                                      0:instance_id  1:tablet_id  2:version
-using MetaRowsetLoadKeyInfo = BasicKeyInfo<44, std::tuple<std::string, int64_t, int64_t>>;
+using MetaRowsetLoadKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
 //                                                      0:instance_id  1:tablet_id  2:version 
-using MetaRowsetCompactKeyInfo = BasicKeyInfo<45, std::tuple<std::string, int64_t, int64_t>>;
+using MetaRowsetCompactKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 
 // 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} -> DeleteBitmapStoragePB
 //                                                      0:instance_id  1:tablet_id  2:rowest_id
-using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,   std::string>>;
+using MetaDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t,   std::string>>;
 
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id}            -> int64
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
-using DataRowsetRefCountKeyInfo = BasicKeyInfo<46, std::tuple<std::string, int64_t, std::string>>;
+using DataRowsetRefCountKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, std::string>>;
 
 // 0x03 "snapshot" ${instance_id} "full" ${timestamp}                       -> SnapshotPB
 //                                                      0:instance_id
-using SnapshotFullKeyInfo = BasicKeyInfo<47, std::tuple<std::string>>;
+using SnapshotFullKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string>>;
 
 // 0x03 "snapshot" ${instance_id} "reference" ${timestamp} ${instance_id}   -> ${empty_value}
 //                                                      0:instance_id  1:timestamp  2:ref_instance_id
-using SnapshotReferenceKeyInfo = BasicKeyInfo<48, std::tuple<std::string, Versionstamp, std::string>>;
+using SnapshotReferenceKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, Versionstamp, std::string>>;
 
 // 0x03 "log" ${instance_id} ${timestamp}                                   -> OperationLogPB
 //                                                      0:instance_id
-using LogKeyInfo = BasicKeyInfo<49, std::tuple<std::string>>;
+using LogKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string>>;
 
 } // namespace versioned
 
 //                                                      0:instance_id  1:tablet_id
-using JobRestoreTabletKeyInfo = BasicKeyInfo<50, std::tuple<std::string, int64_t>>;
+using JobRestoreTabletKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
 //                                                      0:instance_id  1:tablet_id  2:version
-using JobRestoreRowsetKeyInfo = BasicKeyInfo<51, std::tuple<std::string, int64_t,     int64_t>>;
+using JobRestoreRowsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t,     int64_t>>;
 
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
@@ -408,7 +415,11 @@ static inline std::string job_restore_rowset_key(const JobRestoreRowsetKeyInfo& 
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);
+void job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in, std::string* out);
+void job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in, std::string* out);
 static inline std::string job_check_key(const JobRecycleKeyInfo& in) { std::string s; job_check_key(in, &s); return s; }
+static inline std::string job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in) { std::string s; job_snapshot_data_migrator_key(in, &s); return s; }
+static inline std::string job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in) { std::string s; job_snapshot_chain_compactor_key(in, &s); return s; }
 void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);
 static inline std::string job_tablet_key(const JobTabletKeyInfo& in) { std::string s; job_tablet_key(in, &s); return s; }
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out);
@@ -424,6 +435,7 @@ void copy_file_key(const CopyFileKeyInfo& in, std::string* out);
 
 std::string system_meta_service_registry_key();
 std::string system_meta_service_arn_info_key();
+std::string system_meta_service_instance_update_key();
 
 // Note:
 // This key points to a value (EncryptionKeyInfoPB, the format is below) which stores a set of items,
@@ -451,6 +463,7 @@ std::string stats_key_prefix(std::string_view instance_id);
 std::string meta_key_prefix(std::string_view instance_id);
 std::string data_key_prefix(std::string_view instance_id);
 std::string log_key_prefix(std::string_view instance_id);
+std::string snapshot_key_prefix(std::string_view instance_id);
 
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
@@ -463,7 +476,6 @@ static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) {
 
 void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out);
 static inline std::string partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in) { std::string s; partition_inverted_index_key(in, &s); return s; }
-int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id, int64_t* partition_id);
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out);
 static inline std::string tablet_index_key(const TabletIndexKeyInfo& in) { std::string s; tablet_index_key(in, &s); return s; }
@@ -536,5 +548,53 @@ int decode_key(std::string_view* in,
  * Return the list of single version meta key prefixs.
  */
 std::vector<std::string> get_single_version_meta_key_prefixs();
+
+namespace versioned {
+
+// Decode partition inverted index key
+// Return true if decode successfully, otherwise false
+bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                         int64_t* partition_id);
+
+// Decode snapshot reference key
+// Return true if decode successfully, otherwise false
+bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
+                             Versionstamp* timestamp, std::string* ref_instance_id);
+} // namespace versioned
+
+// Decode stats tablet key
+// Return true if decode successfully, otherwise false
+bool decode_stats_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
+                             int64_t* partition_id, int64_t* tablet_id);
+
+// Decode table version key
+// Return true if decode successfully, otherwise false
+bool decode_table_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id);
+
+// Decode tablet schema key
+// Return true if decode successfully, otherwise false
+bool decode_tablet_schema_key(std::string_view* in, int64_t* index_id, int64_t* schema_version);
+
+// Decode partition version key
+// Return true if decode successfully, otherwise false
+bool decode_partition_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
+                                  int64_t* partition_id);
+
+// Decode meta tablet key
+// Return true if decode successfully, otherwise false
+bool decode_meta_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
+                            int64_t* partition_id, int64_t* tablet_id);
+
+// Decode meta rowset key
+// Return true if decode successfully, otherwise false
+bool decode_meta_rowset_key(std::string_view* in, int64_t* tablet_id, int64_t* version);
+
+// Decode meta tablet idx key
+// Return true if decode successfully, otherwise false
+bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id);
+
+// Decode instance key
+// Return true if decode successfully, otherwise false
+bool decode_instance_key(std::string_view* in, std::string* instance_id);
 
 } // namespace doris::cloud

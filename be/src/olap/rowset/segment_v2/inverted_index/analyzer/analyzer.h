@@ -23,6 +23,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 namespace lucene {
@@ -38,12 +39,12 @@ namespace doris::segment_v2::inverted_index {
 
 class InvertedIndexAnalyzer {
 public:
-    static std::unique_ptr<lucene::util::Reader> create_reader(CharFilterMap& char_filter_map);
+    static ReaderPtr create_reader(CharFilterMap& char_filter_map);
 
     static std::shared_ptr<lucene::analysis::Analyzer> create_analyzer(
             const InvertedIndexCtx* inverted_index_ctx);
 
-    static std::vector<TermInfo> get_analyse_result(lucene::util::Reader* reader,
+    static std::vector<TermInfo> get_analyse_result(ReaderPtr reader,
                                                     lucene::analysis::Analyzer* analyzer);
 
     static std::vector<TermInfo> get_analyse_result(

@@ -43,11 +43,10 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -59,7 +58,6 @@ import java.math.MathContext;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -119,6 +117,10 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     public abstract Object getValue();
 
+    protected String castValueToString() {
+        return String.valueOf(getValue());
+    }
+
     /**
      * Map literal to double, and keep "<=" order.
      * for numeric literal (int/long/double/float), directly convert to double
@@ -172,151 +174,9 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     /**
-     * literal expr compare.
+     * Cast with checking strict mode is enabled or not.
      */
-    public Expression deprecatingCheckedCastTo(DataType targetType) throws AnalysisException {
-        if (getDataType().isNumericType()) {
-            String desc = getStringValue();
-            BigDecimal val = new BigDecimal(desc);
-            BigDecimal maxVal = val;
-            BigDecimal minVal = val;
-            if (targetType.isTinyIntType()) {
-                maxVal = new BigDecimal(Byte.MAX_VALUE);
-                minVal = new BigDecimal(Byte.MIN_VALUE);
-            } else if (targetType.isSmallIntType()) {
-                maxVal = new BigDecimal(Short.MAX_VALUE);
-                minVal = new BigDecimal(Short.MIN_VALUE);
-            } else if (targetType.isIntegerType()) {
-                maxVal = new BigDecimal(Integer.MAX_VALUE);
-                minVal = new BigDecimal(Integer.MIN_VALUE);
-            } else if (targetType.isBigIntType()) {
-                maxVal = new BigDecimal(Long.MAX_VALUE);
-                minVal = new BigDecimal(Long.MIN_VALUE);
-            } else if (targetType.isLargeIntType()) {
-                maxVal = new BigDecimal(LargeIntType.MAX_VALUE);
-                minVal = new BigDecimal(LargeIntType.MIN_VALUE);
-            } else if (targetType.isFloatType()) {
-                maxVal = new BigDecimal(Float.MAX_VALUE);
-                minVal = BigDecimal.valueOf(-Float.MAX_VALUE);
-            } else if (targetType.isDoubleType()) {
-                maxVal = new BigDecimal(Double.MAX_VALUE);
-                minVal = BigDecimal.valueOf(-Double.MAX_VALUE);
-            }
-
-            if (val.compareTo(maxVal) > 0 || val.compareTo(minVal) < 0) {
-                throw new AnalysisException(
-                        String.format("%s can't cast to %s", desc, targetType));
-            }
-        }
-        return deprecatingUncheckedCastTo(targetType);
-    }
-
-    protected Expression deprecatingUncheckedCastTo(DataType targetType) throws AnalysisException {
-        if (this.dataType.equals(targetType)) {
-            return this;
-        }
-        if (this instanceof NullLiteral) {
-            return new NullLiteral(targetType);
-        }
-        // TODO support string to complex
-        String desc = getStringValue();
-        // convert boolean to byte string value to support cast boolean to numeric in FE.
-        if (this.equals(BooleanLiteral.TRUE)) {
-            desc = "1";
-        } else if (this.equals(BooleanLiteral.FALSE)) {
-            desc = "0";
-        }
-        if (targetType.isBooleanType()) {
-            try {
-                // convert any non-zero numeric literal to true if target type is boolean
-                long value = Long.parseLong(desc);
-                if (value == 0) {
-                    return Literal.of(false);
-                } else {
-                    return Literal.of(true);
-                }
-            } catch (Exception e) {
-                // ignore
-            }
-            if ("0".equals(desc) || "false".equals(desc.toLowerCase(Locale.ROOT))) {
-                return Literal.of(false);
-            }
-            if ("1".equals(desc) || "true".equals(desc.toLowerCase(Locale.ROOT))) {
-                return Literal.of(true);
-            }
-        }
-        if (targetType instanceof IntegralType) {
-            // do trailing zeros to avoid number parse error when cast to integral type
-            BigDecimal bigDecimal = new BigDecimal(desc);
-            if (bigDecimal.stripTrailingZeros().scale() <= 0) {
-                desc = bigDecimal.stripTrailingZeros().toPlainString();
-            }
-        }
-        if (targetType.isTinyIntType()) {
-            return Literal.of(Byte.valueOf(desc));
-        } else if (targetType.isSmallIntType()) {
-            return Literal.of(Short.valueOf(desc));
-        } else if (targetType.isIntegerType()) {
-            return Literal.of(Integer.valueOf(desc));
-        } else if (targetType.isBigIntType()) {
-            return Literal.of(Long.valueOf(desc));
-        } else if (targetType.isLargeIntType()) {
-            return Literal.of(new BigDecimal(desc).toBigInteger());
-        } else if (targetType.isFloatType()) {
-            return Literal.of(Double.valueOf(desc).floatValue());
-        } else if (targetType.isDoubleType()) {
-            return Literal.of(Double.parseDouble(desc));
-        } else if (targetType.isCharType()) {
-            if (((CharType) targetType).getLen() >= desc.length()) {
-                return new CharLiteral(desc, ((CharType) targetType).getLen());
-            }
-        } else if (targetType.isVarcharType()) {
-            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
-                int pointZeroIndex = findPointZeroIndex(desc);
-                if (pointZeroIndex > -1) {
-                    return new VarcharLiteral(desc.substring(0, pointZeroIndex), ((VarcharType) targetType).getLen());
-                }
-            }
-            return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
-        } else if (targetType instanceof StringType) {
-            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
-                int pointZeroIndex = findPointZeroIndex(desc);
-                if (pointZeroIndex > -1) {
-                    return new StringLiteral(desc.substring(0, pointZeroIndex));
-                }
-            }
-            return new StringLiteral(desc);
-        } else if (targetType.isDateType()) {
-            return new DateLiteral(desc);
-        } else if (targetType.isDateTimeType()) {
-            return new DateTimeLiteral(desc);
-        } else if (targetType.isDecimalV2Type() && !desc.isEmpty()) {
-            return new DecimalLiteral((DecimalV2Type) targetType, new BigDecimal(desc));
-        } else if (targetType.isDecimalV3Type() && !desc.isEmpty()) {
-            return new DecimalV3Literal((DecimalV3Type) targetType, new BigDecimal(desc));
-        } else if (targetType.isDateV2Type()) {
-            return new DateV2Literal(desc);
-        } else if (targetType.isDateTimeV2Type()) {
-            return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
-        } else if (targetType.isJsonType()) {
-            return new JsonLiteral(desc);
-        } else if (targetType.isIPv4Type()) {
-            return new IPv4Literal(desc);
-        } else if (targetType.isIPv6Type()) {
-            return new IPv6Literal(desc);
-        } else if (targetType.isTimeType()) {
-            if (this.dataType.isStringLikeType()) { // could parse in FE
-                return new TimeV2Literal((TimeV2Type) targetType, desc);
-            }
-            throw new AnalysisException("cast to TimeType only in BE now");
-        }
-        throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
-    }
-
-    /**
-     * Fall back to old cast logic when new cast not covered yet.
-     */
-    public Expression checkedCastWithFallback(DataType targetType) {
+    public Expression checkedCastWithStrictChecking(DataType targetType) {
         try {
             return checkedCastTo(targetType);
         } catch (CastException c) {
@@ -325,8 +185,6 @@ public abstract class Literal extends Expression implements LeafExpression {
             } else {
                 return new NullLiteral(dataType);
             }
-        } catch (Throwable t) {
-            return deprecatingCheckedCastTo(targetType);
         }
     }
 
@@ -412,23 +270,24 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (this instanceof NullLiteral) {
             return new NullLiteral(targetType);
         }
-        if (targetType.isStringLikeType()) {
-            return deprecatingUncheckedCastTo(targetType);
+        if (targetType.isStringLikeType() && !this.dataType.isComplexType()) {
+            return uncheckedCastToString((CharacterType) targetType);
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 
-    private static int findPointZeroIndex(String str) {
-        int pointIndex = -1;
-        for (int i = 0; i < str.length(); ++i) {
-            char c = str.charAt(i);
-            if (pointIndex > 0 && c != '0') {
-                return -1;
-            } else if (pointIndex == -1 && c == '.') {
-                pointIndex = i;
+    protected Expression uncheckedCastToString(CharacterType targetType) {
+        String value = castValueToString();
+        if (targetType.isStringType()) {
+            return new StringLiteral(value);
+        } else if (targetType.isCharType()) {
+            if (targetType.getLen() < 0 || targetType.getLen() >= value.length()) {
+                return new CharLiteral(value, targetType.getLen());
             }
+        } else {
+            return new VarcharLiteral(value, targetType.getLen());
         }
-        return pointIndex;
+        throw new AnalysisException(String.format("Cast from %s to %s not supported", value, targetType));
     }
 
     /** fromLegacyLiteral */
@@ -809,5 +668,10 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new DoubleLiteral(number.doubleValue());
         }
         return null;
+    }
+
+    @Override
+    public String toDigest() {
+        return "?";
     }
 }

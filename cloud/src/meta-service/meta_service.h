@@ -335,6 +335,16 @@ public:
                                           GetStreamingTaskCommitAttachResponse* response,
                                           ::google::protobuf::Closure* done) override;
 
+    void delete_streaming_job(::google::protobuf::RpcController* controller,
+                              const DeleteStreamingJobRequest* request,
+                              DeleteStreamingJobResponse* response,
+                              ::google::protobuf::Closure* done) override;
+
+    void reset_streaming_job_offset(::google::protobuf::RpcController* controller,
+                                    const ResetStreamingJobOffsetRequest* request,
+                                    ResetStreamingJobOffsetResponse* response,
+                                    ::google::protobuf::Closure* done) override;
+
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -360,6 +370,10 @@ public:
     void begin_snapshot(::google::protobuf::RpcController* controller,
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override;
+
+    void update_snapshot(::google::protobuf::RpcController* controller,
+                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override;
 
     void commit_snapshot(::google::protobuf::RpcController* controller,
                          const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
@@ -481,6 +495,12 @@ public:
     }
     [[nodiscard]] const std::shared_ptr<ResourceManager>& resource_mgr() const {
         return impl_->resource_mgr();
+    }
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return impl_->txn_lazy_committer();
+    }
+    [[nodiscard]] const std::shared_ptr<SnapshotManager>& snapshot_manager() const {
+        return impl_->snapshot_manager();
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -849,6 +869,21 @@ public:
                   response, done);
     }
 
+    void delete_streaming_job(::google::protobuf::RpcController* controller,
+                              const DeleteStreamingJobRequest* request,
+                              DeleteStreamingJobResponse* response,
+                              ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::delete_streaming_job, controller, request, response, done);
+    }
+
+    void reset_streaming_job_offset(::google::protobuf::RpcController* controller,
+                                    const ResetStreamingJobOffsetRequest* request,
+                                    ResetStreamingJobOffsetResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::reset_streaming_job_offset, controller, request, response,
+                  done);
+    }
+
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
                            ::google::protobuf::Closure* done) override {
@@ -874,6 +909,12 @@ public:
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::begin_snapshot, controller, request, response, done);
+    }
+
+    void update_snapshot(::google::protobuf::RpcController* controller,
+                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_snapshot, controller, request, response, done);
     }
 
     void commit_snapshot(::google::protobuf::RpcController* controller,

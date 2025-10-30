@@ -31,7 +31,7 @@ suite("test_auto_partition_with_single_replica_insert") {
         AUTO PARTITION BY LIST (`chain_name`)
         (PARTITION pchain5fname10 VALUES IN ("chain_name"),
         PARTITION p4e0995e85ce1534e4e3a5 VALUES IN ("星辰医疗科技有限公司"))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO
+        DISTRIBUTED BY HASH(`user_id`) buckets 10
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         );
@@ -61,7 +61,7 @@ suite("test_auto_partition_with_single_replica_insert") {
         AUTO PARTITION BY LIST (`chain_name`)
         (PARTITION pchain5fname10 VALUES IN ("chain_name"),
         PARTITION p4e0995e85ce1534e4e3a5 VALUES IN ("星辰医疗科技有限公司"))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO
+        DISTRIBUTED BY HASH(`user_id`) buckets 10
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         );

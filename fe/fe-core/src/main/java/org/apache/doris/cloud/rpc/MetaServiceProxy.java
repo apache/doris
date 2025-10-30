@@ -419,6 +419,11 @@ public class MetaServiceProxy {
         return w.executeRequest((client) -> client.resetRLProgress(request));
     }
 
+    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(Cloud.ResetStreamingJobOffsetRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.resetStreamingJobOffset(request));
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
         return w.executeRequest((client) -> client.getObjStoreInfo(request));
@@ -438,12 +443,21 @@ public class MetaServiceProxy {
         return w.executeRequest((client) -> client.getStreamingTaskCommitAttach(request));
     }
 
+    public Cloud.DeleteStreamingJobResponse deleteStreamingJob(Cloud.DeleteStreamingJobRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.deleteStreamingJob(request));
+    }
+
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) throws RpcException {
         return w.executeRequest((client) -> client.alterInstance(request));
     }
 
     public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) throws RpcException {
         return w.executeRequest((client) -> client.beginSnapshot(request));
+    }
+
+    public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.updateSnapshot(request));
     }
 
     public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) throws RpcException {

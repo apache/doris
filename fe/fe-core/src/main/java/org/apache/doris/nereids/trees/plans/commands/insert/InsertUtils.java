@@ -32,6 +32,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -576,6 +577,8 @@ public class InsertUtils {
             unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundBlackholeSink) {
+            unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
                     "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
@@ -607,7 +610,7 @@ public class InsertUtils {
                 return (NamedExpression) defualtValueExpression;
             } else {
                 return new Alias(Literal.of(column.getDefaultValue())
-                        .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
+                        .checkedCastWithStrictChecking(DataType.fromCatalogType(column.getType())),
                         column.getName());
             }
         } catch (org.apache.doris.common.AnalysisException e) {

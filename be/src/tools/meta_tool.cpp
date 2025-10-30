@@ -88,7 +88,7 @@ void show_meta() {
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
     doris::TabletMetaPB tablet_meta_pb;
-    tablet_meta.to_meta_pb(&tablet_meta_pb);
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
     json2pb::ProtoMessageToJson(tablet_meta_pb, &json_meta, json_options);
     std::cout << json_meta << std::endl;
 }
@@ -183,7 +183,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         if (dir_map.find(dir) == dir_map.end()) {
             // new data dir, init it
             std::unique_ptr<DataDir> data_dir_p;
-            Status st = init_data_dir(engine, dir, &data_dir_p);
+            st = init_data_dir(engine, dir, &data_dir_p);
             if (!st.ok()) {
                 std::cout << "invalid root path:" << FLAGS_root_path
                           << ", error: " << st.to_string() << std::endl;

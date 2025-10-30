@@ -215,7 +215,8 @@ public class CloudReplica extends Replica {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             // TODO(wb) rethinking whether should update err status.
-            cluster = context.getCloudCluster();
+            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(context.getCloudCluster());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get compute group by context {}", cluster);
@@ -611,5 +612,21 @@ public class CloudReplica extends Replica {
             secondaryClusterToBackends.remove(clusterId);
             return;
         }
+    }
+
+    public List<Backend> getAllPrimaryBes() {
+        List<Backend> result = new ArrayList<Backend>();
+        primaryClusterToBackends.keySet().forEach(clusterId -> {
+            List<Long> backendIds = primaryClusterToBackends.get(clusterId);
+            if (backendIds == null || backendIds.isEmpty()) {
+                return;
+            }
+            Long beId = backendIds.get(0);
+            if (beId != -1) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                result.add(backend);
+            }
+        });
+        return result;
     }
 }

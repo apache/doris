@@ -211,7 +211,7 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
             boolean hasCompactedRowsets = rowsets.any { it.contains("[2-") }
             assertTrue(hasBaseRowset, "Should have base rowset [0-1]")
             assertTrue(hasCompactedRowsets, "Should have compacted rowsets starting from version 2")
-            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V2")
+            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V3")
         }
 
         int segmentsCount = 0

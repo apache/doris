@@ -69,7 +69,7 @@ public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
-    private final DescriptorTable descTable = new DescriptorTable();
+    private DescriptorTable descTable;
 
     private final RuntimeFilterTranslator translator;
 
@@ -124,8 +124,20 @@ public class PlanTranslatorContext {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
+        this.descTable = new DescriptorTable();
     }
 
+    public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
+        this.connectContext = ctx.getConnectContext();
+        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
+        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
+        this.descTable = descTable;
+    }
+
+    /**
+     * Constructor for testing purposes with default values.
+     */
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
@@ -133,6 +145,7 @@ public class PlanTranslatorContext {
         this.topnFilterContext = new TopnFilterContext();
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
         this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
+        this.descTable = new DescriptorTable();
     }
 
     /**
@@ -285,7 +298,11 @@ public class PlanTranslatorContext {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         Optional<Column> column = slotReference.getOriginalColumn();
-        column.ifPresent(slotDescriptor::setColumn);
+        if (column.isPresent()) {
+            slotDescriptor.setColumn(column.get());
+        } else {
+            slotDescriptor.setCaptionAndNormalize(slotReference.toString());
+        }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;

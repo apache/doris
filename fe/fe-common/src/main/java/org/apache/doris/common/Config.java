@@ -1244,6 +1244,12 @@ public class Config extends ConfigBase {
     public static int routine_load_blacklist_expire_time_second = 300;
 
     /**
+     * Minimum batch interval for adaptive routine load tasks when not at EOF.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_adaptive_min_batch_interval_sec = 360;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1970,10 +1976,20 @@ public class Config extends ConfigBase {
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
 
+    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为10",
+            "The number of threads used to execute Streaming Tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
+    public static int job_streaming_task_exec_thread_num = 10;
+
     @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
             "The maximum number of Streaming jobs, "
                     + "the value should be greater than 0, if it is <=0, default is 1024."})
     public static int max_streaming_job_num = 1024;
+
+    @ConfField(masterOnly = true, description = {"一个 Streaming Job 在内存中最多保留的 task的数量，超过将丢弃旧的记录",
+            "The maximum number of tasks a Streaming Job can keep in memory. If the number exceeds the limit, "
+                    + "old records will be discarded."})
+    public static int max_streaming_task_show_count = 100;
 
     /* job test config */
     /**
@@ -3033,9 +3049,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "倒排索引默认存储格式",
-            "Default storage format of inverted index, the default value is V1."
+            "Default storage format of inverted index, the default value is V3."
     })
-    public static String inverted_index_storage_format = "V2";
+    public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
@@ -3648,4 +3664,14 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_max_reversed_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
+    @ConfField(mutable = true)
+    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
+    @ConfField(mutable = true)
+    public static int multi_part_upload_max_seconds = 3600; // 1 hour
+    @ConfField(mutable = true)
+    public static int multi_part_upload_pool_size = 10;
+
+    @ConfField(mutable = true)
+    public static String aws_credentials_provider_version = "v2";
 }

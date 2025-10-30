@@ -17,6 +17,7 @@
 
 #include "vec/functions/function_date_or_datetime_computation.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -58,12 +59,16 @@ struct CurTimeFunctionName {
 };
 
 using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
-using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
+using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATETIMEV2>>;
+using FunctionUtcDate = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATEV2>>;
+using FunctionUtcTime = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_TIMEV2>>;
 using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
 using FunctionSecToTime = FunctionCurrentDateOrDateTime<SecToTimeImpl>;
 using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
 using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
+using FunctionPeriodAdd = FunctionNeedsToHandleNull<PeriodAddImpl, PrimitiveType::TYPE_BIGINT>;
+using FunctionPeriodDiff = FunctionNeedsToHandleNull<PeriodDiffImpl, PrimitiveType::TYPE_BIGINT>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateDiff>();
@@ -86,6 +91,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);
     factory.register_function<FunctionCurTime>();
     factory.register_function<FunctionUtcTimeStamp>();
+    factory.register_function<FunctionUtcDate>();
+    factory.register_function<FunctionUtcTime>();
     factory.register_function<FunctionTimeToSec>();
     factory.register_function<FunctionSecToTime>();
     factory.register_function<FunctionMicroSecToDateTime>();
@@ -93,6 +100,9 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecToDateTime>();
     factory.register_function<FunctionMonthsBetween>();
     factory.register_function<FunctionTime>();
+    factory.register_function<FunctionGetFormat>();
+    factory.register_function<FunctionPeriodAdd>();
+    factory.register_function<FunctionPeriodDiff>();
 
     // alias
     factory.register_alias("days_add", "date_add");

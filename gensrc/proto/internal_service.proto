@@ -854,6 +854,7 @@ message FileCacheBlockMeta {
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
     optional int64 file_size = 9;
+    optional FileType file_type = 10;
 }
 
 message PGetFileCacheMetaResponse {
@@ -1065,6 +1066,21 @@ message PAbortRefreshDictionaryResponse {
     optional PStatus status = 1;
 }
 
+message PGetTabletRowsetsRequest {
+    optional int64 tablet_id = 1;
+    optional int64 version_start = 2;
+    optional int64 version_end = 3;
+
+    optional DeleteBitmapPB delete_bitmap_keys = 4;
+}
+
+message PGetTabletRowsetsResponse {
+    required PStatus status = 1;
+    repeated RowsetMetaPB rowsets = 2;
+
+    optional DeleteBitmapPB delete_bitmap = 3;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1120,5 +1136,6 @@ service PBackendService {
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
     rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);
     rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
+    rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
 };
 

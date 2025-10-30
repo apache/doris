@@ -31,7 +31,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
@@ -47,6 +46,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -204,9 +204,14 @@ public class Repository implements Writable, GsonPostProcessable {
         try {
             StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
-        } catch (StoragePropertiesException exception) {
-            LOG.warn("Failed to create file system for repository: {}, error: {}, roll back to broker"
-                    + " filesystem", name, exception.getMessage());
+        } catch (RuntimeException exception) {
+            LOG.warn("File system initialization failed due to incompatible configuration parameters. "
+                            + "The system has reverted to BrokerFileSystem as a fallback. "
+                            + "However, the current configuration is not supported by this version and"
+                            + " cannot be used as is. "
+                            + "Please review the configuration and update it to match the supported parameter"
+                            + " format. Root cause: {}",
+                    ExceptionUtils.getRootCause(exception), exception);
             BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(brokerProperties);
         }

@@ -69,25 +69,6 @@ namespace doris::vectorized {
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
 
-/// Info that represents a scalar or array field in a decomposed view.
-/// It allows to recreate field with different number
-/// of dimensions or nullability.
-struct FieldInfo {
-    /// The common type id of of all scalars in field.
-    PrimitiveType scalar_type_id = PrimitiveType::INVALID_TYPE;
-    /// Do we have NULL scalar in field.
-    bool have_nulls = false;
-    /// If true then we have scalars with different types in array and
-    /// we need to convert scalars to the common type.
-    bool need_convert = false;
-    /// Number of dimension in array. 0 if field is scalar.
-    size_t num_dimensions = 0;
-
-    // decimal info
-    int scale = 0;
-    int precision = 0;
-};
-
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnVariant is not suitable for writing into tables
@@ -194,6 +175,8 @@ public:
 
         /// Returns last inserted field.
         Field get_last_field() const;
+
+        void deserialize_from_sparse_column(const ColumnString* value, size_t row);
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -342,7 +325,7 @@ public:
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
 
     // ensure root node is a certain type
-    void ensure_root_node_type(const DataTypePtr& type);
+    void ensure_root_node_type(const DataTypePtr& type) const;
 
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
@@ -490,7 +473,7 @@ public:
     template <typename Func>
     MutableColumnPtr apply_for_columns(Func&& func) const;
 
-    bool empty() const;
+    bool only_have_default_values() const;
 
     // Check if all columns and types are aligned, only in debug mode
     Status sanitize() const;
