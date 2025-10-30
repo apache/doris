@@ -113,7 +113,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     bool initialize_context_holder =
             config::enable_file_cache && config::enable_file_cache_query_limit &&
             query_options.__isset.enable_file_cache && query_options.enable_file_cache &&
-            query_options.file_cache_query_limit_percent < 100;
+            query_options.__isset.file_cache_query_limit_percent && query_options.file_cache_query_limit_percent < 100;
 
     // Initialize file cache context holders
     if (initialize_context_holder) {
