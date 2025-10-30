@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDecimalLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -302,25 +301,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
-    @Override
-    public void swapSign() throws NotImplementedException {
-        // swapping sign does not change the type
-        value = value.negate();
-    }
-
-    @Override
-    protected void compactForLiteral(Type type) throws AnalysisException {
-        if (type.isDecimalV3()) {
-            int scale = Math.max(this.value.scale(), ((ScalarType) type).decimalScale());
-            int integerPart = Math.max(this.value.precision() - this.value.scale(),
-                    type.getPrecision() - ((ScalarType) type).decimalScale());
-            this.type = ScalarType.createDecimalV3Type(integerPart + scale, scale);
-            BigDecimal adjustedValue = value.scale() < 0 ? value
-                    : value.setScale(scale, RoundingMode.HALF_UP);
-            this.value = Objects.requireNonNull(adjustedValue);
-        }
-    }
-
     // To be compatible with OLAP, only need 9 digits.
     // Note: the return value is negative if value is negative.
     public int getFracValue() {
@@ -361,13 +341,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
             return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
-    }
-
-    public Expr castToDecimalV3ByDivde(Type targetType) {
-        // onlye use in DecimalLiteral divide DecimalV3
-        CastExpr expr = new CastExpr(targetType, this);
-        expr.setNotFold(true);
-        return expr;
     }
 
     @Override
