@@ -301,7 +301,7 @@ public:
         // Use smaller page sizes to ensure we trigger fallback scenario
         // where dictionary gets full and we switch to plain encoding
         options.data_page_size = 64 * 1024; // 64KB data page
-        options.dict_page_size = 32 * 1024; // 32KB dict page to trigger fallback
+        options.dict_page_size = 1024;      // 1KB dict page to trigger fallback
 
         PageBuilder* builder_ptr = nullptr;
         Status ret0 = BinaryDictPageBuilder::create(&builder_ptr, options);
