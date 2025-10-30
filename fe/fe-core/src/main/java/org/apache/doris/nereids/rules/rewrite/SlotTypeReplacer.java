@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumn;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -374,6 +376,10 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
     @Override
     public Plan visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
+        if (!fileScan.supportPruneNestedColumn()) {
+            return fileScan;
+        }
+
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(fileScan.getOutput(), false, true);
         if (replaced.first) {
             List<Slot> replaceSlots = new ArrayList<>(replaced.second);
@@ -407,6 +413,11 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
     @Override
     public Plan visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
+        TableValuedFunction function = tvfRelation.getFunction();
+        if (!(function instanceof SupportPruneNestedColumn)
+                || !((SupportPruneNestedColumn) function).supportPruneNestedColumn()) {
+            return tvfRelation;
+        }
         Pair<Boolean, List<Slot>> replaced
                 = replaceExpressions(tvfRelation.getOutput(), false, true);
         if (replaced.first) {
