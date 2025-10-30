@@ -101,7 +101,8 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()),
-          _send_multi_blocks(false) {
+          _send_multi_blocks(state->query_options().__isset.exchange_multi_blocks_byte_size &&
+                             state->query_options().exchange_multi_blocks_byte_size > 0) {
     if (_send_multi_blocks) {
         _send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
     }

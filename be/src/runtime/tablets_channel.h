@@ -50,6 +50,7 @@ class PSuccessSlaveTabletNodeIds;
 class PTabletError;
 class PTabletInfo;
 class PTabletWriterOpenRequest;
+class PTabletWriterOpenResult;
 class PTabletWriterAddBlockRequest;
 class PTabletWriterAddBlockResult;
 class PUniqueId;

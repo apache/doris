@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CommonToken;
@@ -40,6 +41,6 @@ public class ParseErrorListener extends BaseErrorListener {
         } else {
             start = new Origin(line, charPositionInLine);
         }
-        throw new ParseException(msg, start, Optional.empty());
+        throw new SyntaxParseException(msg, start, Optional.empty());
     }
 }
