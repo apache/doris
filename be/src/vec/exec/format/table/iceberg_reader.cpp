@@ -544,8 +544,6 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
         }
         auto field_schema = it->second;
 
-        const auto& all_access_paths = slot->all_access_paths();
-
         // primitive (non-nested) types: direct mapping by name
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -558,13 +556,13 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
         }
 
         // complex types:
-
-        // collect and process all_access_paths -> column_ids
+        const auto& all_access_paths = slot->all_access_paths();
         process_access_paths(field_schema, all_access_paths, column_ids);
 
-        // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
+        if (!predicate_access_paths.empty()) {
+            process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
+        }
     }
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
 }
@@ -737,8 +735,6 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
         }
         const orc::Type* orc_field = it->second;
 
-        const auto& all_access_paths = slot->all_access_paths();
-
         // primitive (non-nested) types: direct mapping by name
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -749,14 +745,14 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
             continue;
         }
 
-        // nested types:
-
-        // collect and process all_access_paths -> column_ids
+        // complex types:
+        const auto& all_access_paths = slot->all_access_paths();
         process_access_paths(orc_field, all_access_paths, column_ids);
 
-        // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
+        if (!predicate_access_paths.empty()) {
+            process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
+        }
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));

@@ -166,8 +166,6 @@ ColumnIdResult HiveOrcReader::_create_column_ids(const orc::Type* orc_type,
         }
         const orc::Type* orc_field = it->second;
 
-        const auto& all_access_paths = slot->all_access_paths();
-
         // primitive (non-nested) types: direct mapping by name
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -179,13 +177,13 @@ ColumnIdResult HiveOrcReader::_create_column_ids(const orc::Type* orc_type,
         }
 
         // complex types:
-
-        // collect and process all_access_paths -> column_ids
+        const auto& all_access_paths = slot->all_access_paths();
         process_access_paths(orc_field, all_access_paths, column_ids);
 
-        // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
+        if (!predicate_access_paths.empty()) {
+            process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
+        }
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
@@ -261,8 +259,6 @@ ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
         }
         const orc::Type* orc_field = it->second;
 
-        const auto& all_access_paths = slot->all_access_paths();
-
         // primitive (non-nested) types: direct mapping by pos
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -273,14 +269,14 @@ ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
             continue;
         }
 
+        const auto& all_access_paths = slot->all_access_paths();
         // complex types
-
-        // collect and process all_access_paths -> column_ids
         process_access_paths(orc_field, all_access_paths, column_ids);
 
-        // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
+        if (!predicate_access_paths.empty()) {
+            process_access_paths(orc_field, predicate_access_paths, filter_column_ids);
+        }
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
@@ -438,8 +434,6 @@ ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* fiel
         }
         auto field_schema = it->second;
 
-        const auto& all_access_paths = slot->all_access_paths();
-
         // primitive (non-nested) types: direct mapping by name
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -452,13 +446,13 @@ ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* fiel
         }
 
         // complex types:
-
-        // collect and process all_access_paths -> column_ids
+        const auto& all_access_paths = slot->all_access_paths();
         process_access_paths(field_schema, all_access_paths, column_ids);
 
-        // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
+        if (!predicate_access_paths.empty()) {
+            process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
+        }
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
@@ -538,8 +532,6 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
         }
         auto field_schema = it->second;
 
-        const auto& all_access_paths = slot->all_access_paths();
-
         // primitive (non-nested) types: direct mapping by position
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -551,12 +543,14 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
             continue;
         }
 
-        // collect and process all_access_paths -> column_ids
+        // complex types:
+        const auto& all_access_paths = slot->all_access_paths();
         process_access_paths(field_schema, all_access_paths, column_ids);
 
-        // collect and process predicate_access_paths -> filter_column_ids
         const auto& predicate_access_paths = slot->predicate_access_paths();
-        process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
+        if (!predicate_access_paths.empty()) {
+            process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
+        }
     }
 
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
