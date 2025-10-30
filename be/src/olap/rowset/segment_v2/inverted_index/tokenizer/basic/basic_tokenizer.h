@@ -17,28 +17,34 @@
 
 #pragma once
 
-#include "icu_tokenizer_config.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
-namespace doris::segment_v2 {
+using namespace lucene::analysis;
 
-class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
+namespace doris::segment_v2::inverted_index {
+
+class BasicTokenizer : public DorisTokenizer {
 public:
-    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
-    ~DefaultICUTokenizerConfig() override = default;
+    BasicTokenizer() = default;
+    BasicTokenizer(bool own_reader);
+    ~BasicTokenizer() override = default;
 
-    void initialize(const std::string& dictPath) override;
-    bool combine_cj() override { return cjk_as_words_; }
-    icu::BreakIterator* get_break_iterator(int32_t script) override;
+    void initialize(const std::string& extra_chars = "");
+
+    Token* next(Token* token) override;
+    void reset() override;
 
 private:
-    static void read_break_iterator(BreakIteratorPtr& rbbi, const std::string& filename);
+    template <bool HasExtraChars>
+    void cut();
 
-    static BreakIteratorPtr cjk_break_iterator_;
-    static BreakIteratorPtr default_break_iterator_;
-    static BreakIteratorPtr myanmar_syllable_iterator_;
+    int32_t _buffer_index = 0;
+    int32_t _data_len = 0;
+    std::string _buffer;
+    std::vector<std::string_view> _tokens_text;
 
-    bool cjk_as_words_ = false;
-    bool myanmar_as_words_ = false;
+    std::array<bool, 128> _extra_char_set {};
+    bool _has_extra_chars = false;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

@@ -15,29 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.indexpolicy;
+#pragma once
 
-import org.apache.doris.common.DdlException;
+#include <memory>
 
-import com.google.common.collect.ImmutableSet;
+#include "CLucene.h"
+#include "CLucene/debug/error.h"
+#include "unicode/brkiter.h"
+#include "unicode/rbbi.h"
+#include "unicode/ubrk.h"
+#include "unicode/uchar.h"
+#include "unicode/uniset.h"
+#include "unicode/unistr.h"
+#include "unicode/uscript.h"
+#include "unicode/utext.h"
+#include "unicode/utf8.h"
 
-import java.util.Map;
-import java.util.Set;
+namespace doris::segment_v2::inverted_index {
 
-public class LowerCaseTokenFilterValidator extends BasePolicyValidator {
-    private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type");
+using BreakIteratorPtr = std::unique_ptr<icu::BreakIterator>;
 
-    public LowerCaseTokenFilterValidator() {
-        super(ALLOWED_PROPS);
+struct UTextDeleter {
+    void operator()(UText* utext) const {
+        if (utext != nullptr) {
+            utext_close(utext);
+        }
     }
+};
 
-    @Override
-    protected String getTypeName() {
-        return "lowercase filter";
-    }
+using UTextPtr = std::unique_ptr<UText, UTextDeleter>;
 
-    @Override
-    protected void validateSpecific(Map<String, String> props) throws DdlException {
-        // No parameters to validate
-    }
-}
+} // namespace doris::segment_v2::inverted_index
