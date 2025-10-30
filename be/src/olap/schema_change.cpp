@@ -33,6 +33,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
@@ -87,6 +88,9 @@
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 class CollectionValue;
 
 using namespace ErrorCode;
@@ -124,7 +128,7 @@ public:
 
         if (_tablet->keys_type() == KeysType::AGG_KEYS) {
             auto tablet_schema = _tablet->tablet_schema();
-            int key_number = _tablet->num_key_columns();
+            int key_number = cast_set<int>(_tablet->num_key_columns());
 
             std::vector<vectorized::AggregateFunctionPtr> agg_functions;
             std::vector<vectorized::AggregateDataPtr> agg_places;
@@ -169,7 +173,7 @@ public:
                     agg_functions[j - key_number]->add(
                             agg_places[j - key_number],
                             const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
-                            &_arena);
+                            _arena);
                 }
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
@@ -220,7 +224,7 @@ public:
             }
 
             // update real inserted row number
-            rows = pushed_row_refs.size();
+            rows = cast_set<int>(pushed_row_refs.size());
             *merged_rows -= rows;
 
             for (int i = 0; i < rows; i += ALTER_TABLE_BATCH_SIZE) {
@@ -327,7 +331,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
     }
 
-    const int row_num = ref_block->rows();
+    const int row_num = cast_set<int>(ref_block->rows());
     const int new_schema_cols_num = new_block->columns();
 
     // will be used for swaping ref_block[entry.first] and new_block[entry.second]
@@ -636,7 +640,8 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         constexpr double HOLD_BLOCK_MEMORY_RATE =
                 0.66; // Reserve some memory for use by other parts of this job
         if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation ||
-            _mem_tracker->consumption() > _memory_limitation * HOLD_BLOCK_MEMORY_RATE ||
+            cast_set<double>(_mem_tracker->consumption()) >
+                    cast_set<double>(_memory_limitation) * HOLD_BLOCK_MEMORY_RATE ||
             DebugPoints::instance()->is_enable(
                     "VBaseSchemaChangeWithSorting._inner_process.create_rowset")) {
             RETURN_IF_ERROR(create_rowset());
@@ -753,7 +758,7 @@ Status VBaseSchemaChangeWithSorting::_external_sorting(std::vector<RowsetSharedP
                                    (input_rowsets_data_size / (input_row_num + 1) + 1);
         RETURN_IF_ERROR(Merger::vertical_merge_rowsets(
                 new_tablet, ReaderType::READER_ALTER_TABLE, *new_tablet_schema, rs_readers,
-                rowset_writer, avg_segment_rows, way_num, &stats));
+                rowset_writer, cast_set<uint32_t>(avg_segment_rows), way_num, &stats));
     } else {
         RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                                *new_tablet_schema, rs_readers, rowset_writer,
@@ -1015,7 +1020,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
             reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
+            reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
             reader_context.version = Version(0, end_version);
             if (!_base_tablet_schema->cluster_key_uids().empty()) {
                 for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
@@ -1139,9 +1144,8 @@ Status SchemaChangeJob::_get_versions_to_be_changed(std::vector<Version>* versio
     }
     *max_rowset = rowset;
 
-    RETURN_IF_ERROR(_base_tablet->capture_consistent_versions_unlocked(
-            Version(0, rowset->version().second), versions_to_be_changed, false, false));
-
+    *versions_to_be_changed = DORIS_TRY(_base_tablet->capture_consistent_versions_unlocked(
+            Version(0, rowset->version().second), {}));
     return Status::OK();
 }
 
@@ -1154,7 +1158,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
               << ", new_tablet=" << _new_tablet->tablet_id() << ", job_id=" << _job_id;
 
     // find end version
-    int32_t end_version = -1;
+    int64_t end_version = -1;
     for (const auto& ref_rowset_reader : sc_params.ref_rowset_readers) {
         if (ref_rowset_reader->version().second > end_version) {
             end_version = ref_rowset_reader->version().second;
@@ -1227,8 +1231,11 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
 
         if (!rs_reader->rowset()->is_local()) {
-            context.storage_resource =
-                    *DORIS_TRY(rs_reader->rowset()->rowset_meta()->remote_storage_resource());
+            auto maybe_resource = rs_reader->rowset()->rowset_meta()->remote_storage_resource();
+            if (!maybe_resource) {
+                return maybe_resource.error();
+            }
+            context.storage_resource = *maybe_resource.value();
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
@@ -1312,7 +1319,8 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
     DescriptorTbl desc_tbl = *sc_params.desc_tbl;
 
     // set column mapping
-    for (int i = 0, new_schema_size = new_tablet_schema->num_columns(); i < new_schema_size; ++i) {
+    for (size_t i = 0, new_schema_size = new_tablet_schema->num_columns(); i < new_schema_size;
+         ++i) {
         const TabletColumn& new_column = new_tablet_schema->column(i);
         const std::string& column_name_lower = to_lower(new_column.name());
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
@@ -1371,8 +1379,8 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
     // If the reference sequence of the Key column is out of order, it needs to be reordered
     int num_default_value = 0;
 
-    for (int i = 0, new_schema_size = new_tablet_schema->num_key_columns(); i < new_schema_size;
-         ++i) {
+    for (int i = 0, new_schema_size = cast_set<int>(new_tablet_schema->num_key_columns());
+         i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
         if (!column_mapping->has_reference()) {
@@ -1450,7 +1458,8 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         } else if (column_mapping->ref_column_idx >= 0) {
             // index changed
             if (vectorized::schema_util::has_schema_index_diff(
-                        new_tablet_schema, base_tablet_schema, i, column_mapping->ref_column_idx)) {
+                        new_tablet_schema, base_tablet_schema, cast_set<int32_t>(i),
+                        column_mapping->ref_column_idx)) {
                 *sc_directly = true;
                 return Status::OK();
             }
@@ -1549,8 +1558,9 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
                   << "double write rowsets for version: " << alter_version + 1 << "-" << max_version
                   << " new_tablet=" << _new_tablet->tablet_id();
         std::shared_lock rlock(_new_tablet->get_header_lock());
-        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
-                {alter_version + 1, max_version}, &rowsets));
+        auto ret = DORIS_TRY(_new_tablet->capture_consistent_rowsets_unlocked(
+                {alter_version + 1, max_version}, CaptureRowsetOps {}));
+        rowsets = std::move(ret.rowsets);
     }
     for (auto rowset_ptr : rowsets) {
         std::lock_guard rwlock(_new_tablet->get_rowset_update_lock());
@@ -1568,8 +1578,9 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
         LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
                   << "incremental rowsets for version: " << max_version + 1 << "-"
                   << new_max_version << " new_tablet=" << _new_tablet->tablet_id();
-        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
-                {max_version + 1, new_max_version}, &rowsets));
+        auto ret = DORIS_TRY(_new_tablet->capture_consistent_rowsets_unlocked(
+                {max_version + 1, new_max_version}, CaptureRowsetOps {}));
+        rowsets = std::move(ret.rowsets);
     }
     for (auto&& rowset_ptr : rowsets) {
         RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(_new_tablet, rowset_ptr));
@@ -1579,5 +1590,7 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
     _new_tablet->save_meta();
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

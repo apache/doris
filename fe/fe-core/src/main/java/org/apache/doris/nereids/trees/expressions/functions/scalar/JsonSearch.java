@@ -37,11 +37,16 @@ public class JsonSearch extends ScalarFunction implements ExplicitlyCastableSign
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE)
-                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+                    .args(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     public JsonSearch(Expression arg0, Expression arg1, Expression arg2) {
         super("json_search", arg0, arg1, arg2);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private JsonSearch(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -52,7 +57,7 @@ public class JsonSearch extends ScalarFunction implements ExplicitlyCastableSign
     @Override
     public JsonSearch withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new JsonSearch(children.get(0), children.get(1), children.get(2));
+        return new JsonSearch(getFunctionParams(children));
     }
 
     @Override

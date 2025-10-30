@@ -63,7 +63,6 @@ class RowGroup;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
-static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
 class RowGroupReader : public ProfileCollector {
 public:
@@ -149,7 +148,7 @@ public:
 
     RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
                    const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                   cctz::time_zone* ctz, io::IOContext* io_ctx,
+                   const cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
                    const LazyReadContext& lazy_read_ctx, RuntimeState* state);
 
@@ -193,7 +192,8 @@ private:
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
                              FilterMap& filter_map);
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
-    Status _rebuild_filter_map(FilterMap& filter_map, std::unique_ptr<uint8_t[]>& filter_map_data,
+    Status _rebuild_filter_map(FilterMap& filter_map,
+                               DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                size_t pre_read_rows) const;
     Status _fill_partition_columns(
             Block* block, size_t rows,
@@ -225,7 +225,7 @@ private:
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
-    cctz::time_zone* _ctz = nullptr;
+    const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     PositionDeleteContext _position_delete_ctx;
     // merge the row ranges generated from page index and position delete.

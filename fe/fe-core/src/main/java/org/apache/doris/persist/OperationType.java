@@ -293,28 +293,17 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_NAME = 322;
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
+    @Deprecated
     public static final short OP_INIT_CATALOG = 325;
+    @Deprecated
     public static final short OP_INIT_CATALOG_COMP = 10325; // compatible with old cloud code.
     public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    @Deprecated
     public static final short OP_INIT_EXTERNAL_DB = 327;
     public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    @Deprecated
-    public static final short OP_CREATE_MTMV_JOB = 330;
-    @Deprecated
-    public static final short OP_DROP_MTMV_JOB = 331;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_JOB = 332;
-    @Deprecated
-    public static final short OP_CREATE_MTMV_TASK = 340;
-    @Deprecated
-    public static final short OP_DROP_MTMV_TASK = 341;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_TASK = 342;
-    @Deprecated
-    public static final short OP_ALTER_MTMV_STMT = 345;
     public static final short OP_ADD_CONSTRAINT = 346;
     public  static final short OP_DROP_CONSTRAINT = 347;
 
@@ -426,11 +415,15 @@ public class OperationType {
     public static final short OP_CREATE_INDEX_POLICY = 490;
     public static final short OP_DROP_INDEX_POLICY = 491;
 
+    public static final short OP_OPERATE_KEY = 492;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated
     public static final short OP_MODIFY_TTL_SECONDS = 1001;
     public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
+
+    public static final short OP_BEGIN_SNAPSHOT = 1100;
 
     /**
      * Get opcode name by op code.

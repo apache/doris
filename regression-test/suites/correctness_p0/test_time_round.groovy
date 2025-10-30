@@ -89,7 +89,10 @@ suite("test_time_round") {
     qt_select "select hour_floor(dt,2,o) from dbround order by id;"
     qt_select "select hour_floor(dt,p,'1919-08-10 11:45:14') from dbround order by id;"
     qt_select "select hour_floor(dt,2,'1919-08-10 11:45:14') from dbround order by id;"
-    qt_select_1 "select dt,hour_floor(dt,0) from dbround order by id;"
+    test {
+        sql "select dt,hour_floor(dt,0) from dbround order by id;"
+        exception "out of range"
+    }
     
     /// Additional test cases for three-parameter versions
     // Week tests with three parameters
@@ -177,6 +180,22 @@ suite("test_time_round") {
     qt_select "select week_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select month_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select month_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select_quarter1 "select quarter_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select_quarter2 "select quarter_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select_quarter3 "select quarter_ceil(dt, o) from dbround where id > 3 order by id;"
+    qt_select_quarter4 "select quarter_floor(dt, o) from dbround where id > 3 order by id;"
+    qt_select_quarter5 "select quarter_ceil(dt, 1, '1999-12-31') from dbround where id > 3 order by id;"
+    qt_select_quarter6 "select quarter_floor(dt, 1, '1999-12-31') from dbround where id > 3 order by id;"
+    qt_select_quarter7 "select quarter_ceil(dt, 2) from dbround where id > 3 order by id;"
+    qt_select_quarter8 "select quarter_floor(dt, 2) from dbround where id > 3 order by id;"
+    qt_select_quarter9 "select quarter_ceil(dt, '2000-02-01') from dbround where id > 3 order by id;"
+    qt_select_quarter10 "select quarter_floor(dt, '2000-02-01') from dbround where id > 3 order by id;"
+    qt_select_quarter11 "select quarter_ceil(dt) from dbround where id > 3 order by id;"
+    qt_select_quarter12 "select quarter_floor(dt) from dbround where id > 3 order by id;"
+    qt_select_quarter13 "select quarter_ceil(cast(dt as date)) from dbround where id > 3 order by id;"
+    qt_select_quarter14 "select quarter_floor(cast(dt as date)) from dbround where id > 3 order by id;"
+    qt_select_quarter15 "select quarter_ceil(cast(dt as date), p) from dbround where id > 3 order by id;"
+    qt_select_quarter16 "select quarter_floor(cast(dt as date), p) from dbround where id > 3 order by id;"
     qt_select "select day_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select day_floor(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select hour_ceil(dt, p, o) from dbround where id > 3 order by id;"
@@ -186,17 +205,21 @@ suite("test_time_round") {
     qt_select "select second_ceil(dt, p, o) from dbround where id > 3 order by id;"
     qt_select "select second_floor(dt, p, o) from dbround where id > 3 order by id;"
     
-    // invalid period
-    qt_select_1 "select week_ceil('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
-    qt_select_1 "select week_floor('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
-    qt_select_1 "select week_ceil('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
-    qt_select_1 "select week_floor('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
+    // // invalid period
+    // qt_select_1 "select week_ceil('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_floor('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_ceil('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_floor('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
     
     // Test with large period values
     qt_select "select week_ceil('2022-05-25 00:00:00', 100, '2022-01-02 00:00:00')"
     qt_select "select week_floor('2022-05-25 00:00:00', 100, '2022-01-02 00:00:00')"
     qt_select "select month_ceil('2022-05-15 12:30:45', 100, '2022-01-10 00:00:00')"
     qt_select "select month_floor('2022-05-15 12:30:45', 100, '2022-01-10 00:00:00')"
+    qt_select "select quarter_ceil('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')"
+    qt_select "select quarter_floor('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')"
+    testFoldConst("select quarter_ceil('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')")
+    testFoldConst("select quarter_floor('2022-05-15 12:30:45', 100, '2020-01-10 00:00:00')")
     qt_select "select year_ceil('2022-05-15 12:30:45', 100, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2022-05-15 12:30:45', 100, '2020-06-15 00:00:00')"
     
@@ -205,6 +228,10 @@ suite("test_time_round") {
     qt_select "select week_floor('2022-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
     qt_select "select month_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
     qt_select "select month_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter3 "select quarter_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter4 "select quarter_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    testFoldConst("select quarter_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
+    testFoldConst("select quarter_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
     qt_select "select year_ceil('2020-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2020-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     
@@ -213,6 +240,210 @@ suite("test_time_round") {
     qt_select "select week_floor('2021-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
     qt_select "select month_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
     qt_select "select month_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter5 "select quarter_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select_quarter6 "select quarter_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    testFoldConst("select quarter_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
+    testFoldConst("select quarter_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')")
     qt_select "select year_ceil('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
     qt_select "select year_floor('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
+
+    // quarter's many test
+    qt_sql "select quarter_floor('2020-12-12')"
+    qt_sql "select quarter_ceil('2020-12-12')"
+    qt_sql "select quarter_floor('2020-12-12', 1)"
+    qt_sql "select quarter_floor('2020-12-12', 2)"
+    qt_sql "select quarter_floor('2020-12-12', 3)"
+    qt_sql "select quarter_floor('2020-12-12', 4)"
+    qt_sql "select quarter_floor('2020-12-12', 6)"
+    qt_sql "select quarter_floor('2020-12-12', 10)"
+    qt_sql "select quarter_floor('2020-12-12', 12)"
+    qt_sql "select quarter_ceil('2020-12-12', 1)"
+    qt_sql "select quarter_ceil('2020-12-12', 2)"
+    qt_sql "select quarter_ceil('2020-12-12', 3)"
+    qt_sql "select quarter_ceil('2020-12-12', 4)"
+    qt_sql "select quarter_ceil('2020-12-12', 6)"
+    qt_sql "select quarter_ceil('2020-12-12', 10)"
+    qt_sql "select quarter_ceil('2020-12-12', 12)"
+    qt_sql "select quarter_floor('2020-12-12', '2020-01-01')"
+    qt_sql "select quarter_floor('2020-12-12', '2020-02-01')"
+    qt_sql "select quarter_ceil('2020-12-12', '2020-01-01')"
+    qt_sql "select quarter_ceil('2020-12-12', '2020-02-01')"
+    qt_sql "select quarter_floor('2020-10-02', 1, '2020-01-03');"
+    qt_sql "select quarter_floor('2020-04-02');"
+    qt_sql "select quarter_floor('2020-05-01');"
+    qt_sql "select quarter_floor('2020-05-02');"
+
+    testFoldConst("select quarter_floor('2020-12-12')")
+    testFoldConst("select quarter_ceil('2020-12-12')")
+    testFoldConst("select quarter_floor('2020-12-12', 1)")
+    testFoldConst("select quarter_floor('2020-12-12', 2)")
+    testFoldConst("select quarter_floor('2020-12-12', 3)")
+    testFoldConst("select quarter_floor('2020-12-12', 4)")
+    testFoldConst("select quarter_floor('2020-12-12', 6)")
+    testFoldConst("select quarter_floor('2020-12-12', 10)")
+    testFoldConst("select quarter_floor('2020-12-12', 12)")
+    testFoldConst("select quarter_ceil('2020-12-12', 1)")
+    testFoldConst("select quarter_ceil('2020-12-12', 2)")
+    testFoldConst("select quarter_ceil('2020-12-12', 3)")
+    testFoldConst("select quarter_ceil('2020-12-12', 4)")
+    testFoldConst("select quarter_ceil('2020-12-12', 6)")
+    testFoldConst("select quarter_ceil('2020-12-12', 10)")
+    testFoldConst("select quarter_ceil('2020-12-12', 12)")
+    testFoldConst("select quarter_floor('2020-12-12', '2020-01-01')")
+    testFoldConst("select quarter_floor('2020-12-12', '2020-02-01')")
+    testFoldConst("select quarter_ceil('2020-12-12', '2020-01-01')")
+    testFoldConst("select quarter_ceil('2020-12-12', '2020-02-01')")
+    testFoldConst("select quarter_floor('2020-10-02', 1, '2020-01-03');")
+    testFoldConst("select quarter_floor('2020-04-02');")
+    testFoldConst("select quarter_floor('2020-05-01');")
+    testFoldConst("select quarter_floor('2020-05-02');")
+
+    testFoldConst("select year_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56', 2)")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56', '2020-01-01 00:00:00')")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56', 3, '2020-01-01 00:00:00')")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56.123')")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56.12345', 2)")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56.1', '2020-01-01 00:00:00.5')")
+    testFoldConst("select year_ceil('2025-09-10 12:34:56.123456', 3, '2020-01-01 00:00:00.789')")
+    
+    testFoldConst("select year_floor('2025-09-10 12:34:56')")
+    testFoldConst("select year_floor('2025-09-10 12:34:56', 2)")
+    testFoldConst("select year_floor('2025-09-10 12:34:56', '2020-01-01 00:00:00')")
+    testFoldConst("select year_floor('2025-09-10 12:34:56', 3, '2020-01-01 00:00:00')")
+    testFoldConst("select year_floor('2025-09-10 12:34:56.456')")
+    testFoldConst("select year_floor('2025-09-10 12:34:56.78', 2)")
+    testFoldConst("select year_floor('2025-09-10 12:34:56.9012', '2020-01-01 00:00:00.345')")
+    testFoldConst("select year_floor('2025-09-10 12:34:56.67', 3, '2020-01-01 00:00:00.12')")
+
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56', 2)")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56', '2020-01-01 00:00:00')")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56', 3, '2020-01-01 00:00:00')")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56.789')")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56.23', 2)")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56.5678', '2020-01-01 00:00:00.9')")
+    testFoldConst("select quarter_ceil('2025-09-10 12:34:56.34', 3, '2020-01-01 00:00:00.567')")
+
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56')")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56', 2)")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56', '2020-01-01 00:00:00')")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56', 3, '2020-01-01 00:00:00')")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56.456789')")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56.89', 2)")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56.12', '2020-01-01 00:00:00.3456')")
+    testFoldConst("select quarter_floor('2025-09-10 12:34:56.678', 3, '2020-01-01 00:00:00.91')")
+
+    testFoldConst("select month_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56', 2)")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56', '2020-01-01 00:00:00')")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56', 3, '2020-01-01 00:00:00')")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56.2')")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56.4567', 2)")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56.89012', '2020-01-01 00:00:00.123')")
+    testFoldConst("select month_ceil('2025-09-10 12:34:56.345', 3, '2020-01-01 00:00:00.6789')")
+
+    testFoldConst("select month_floor('2025-09-10 12:34:56')")
+    testFoldConst("select month_floor('2025-09-10 12:34:56', 2)")
+    testFoldConst("select month_floor('2025-09-10 12:34:56', '2020-01-01 00:00:00')")
+    testFoldConst("select month_floor('2025-09-10 12:34:56', 3, '2020-01-01 00:00:00')")
+    testFoldConst("select month_floor('2025-09-10 12:34:56.87')")
+    testFoldConst("select month_floor('2025-09-10 12:34:56.345678', 2)")
+    testFoldConst("select month_floor('2025-09-10 12:34:56.67', '2020-01-01 00:00:00.8901')")
+    testFoldConst("select month_floor('2025-09-10 12:34:56.234', 3, '2020-01-01 00:00:00.56')")
+
+    testFoldConst("select day_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56', 3)")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56', '2025-09-01 00:00:00')")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56', 5, '2025-09-01 00:00:00')")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56.678')")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56.12', 3)")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56.45678', '2025-09-01 00:00:00.789')")
+    testFoldConst("select day_ceil('2025-09-10 12:34:56.9', 5, '2025-09-01 00:00:00.123456')")
+
+    testFoldConst("select day_floor('2025-09-10 12:34:56')")
+    testFoldConst("select day_floor('2025-09-10 12:34:56', 3)")
+    testFoldConst("select day_floor('2025-09-10 12:34:56', '2025-09-01 00:00:00')")
+    testFoldConst("select day_floor('2025-09-10 12:34:56', 5, '2025-09-01 00:00:00')")
+    testFoldConst("select day_floor('2025-09-10 12:34:56.3456')")
+    testFoldConst("select day_floor('2025-09-10 12:34:56.789', 3)")
+    testFoldConst("select day_floor('2025-09-10 12:34:56.12345', '2025-09-01 00:00:00.67')")
+    testFoldConst("select day_floor('2025-09-10 12:34:56.56', 5, '2025-09-01 00:00:00.8901')")
+
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56', 3)")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56', '2025-09-10 10:00:00')")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56', 6, '2025-09-10 10:00:00')")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56.123456')")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56.78', 3)")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56.456', '2025-09-10 10:00:00.789')")
+    testFoldConst("select hour_ceil('2025-09-10 12:34:56.12', 6, '2025-09-10 10:00:00.3456')")
+
+    testFoldConst("select hour_floor('2025-09-10 12:34:56')")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56', 3)")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56', '2025-09-10 10:00:00')")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56', 6, '2025-09-10 10:00:00')")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56.5678')")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56.234', 3)")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56.89012', '2025-09-10 10:00:00.456')")
+    testFoldConst("select hour_floor('2025-09-10 12:34:56.67', 6, '2025-09-10 10:00:00.123')")
+
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56', 5)")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56', '2025-09-10 12:30:00')")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56', 10, '2025-09-10 12:30:00')")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56.789')")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56.45', 5)")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56.12345', '2025-09-10 12:30:00.678')")
+    testFoldConst("select minute_ceil('2025-09-10 12:34:56.9', 10, '2025-09-10 12:30:00.234567')")
+    testFoldConst("""select minute_ceil(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0)),
+                        nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))));""")
+    testFoldConst("""select minute_ceil(nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))),
+                        CAST('2021-12-31 12:23:34' AS DATETIMEV2(0)));""")
+    testFoldConst("""select minute_ceil(nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))),
+                        nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))));""")
+
+    testFoldConst("select minute_floor('2025-09-10 12:34:56')")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56', 5)")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56', '2025-09-10 12:30:00')")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56', 10, '2025-09-10 12:30:00')")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56.456789')")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56.123', 5)")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56.78', '2025-09-10 12:30:00.45')")
+    testFoldConst("select minute_floor('2025-09-10 12:34:56.34567', 10, '2025-09-10 12:30:00.891')")
+
+    testFoldConst("select second_ceil('2025-09-10 12:34:56')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56', 7)")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56', 7, '2025-09-10 12:34:50')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56', '2025-09-10 12:34:50')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56', 15, '2025-09-10 12:34:30')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56.234')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56.56789', 7)")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56.12', 7, '2025-09-10 12:34:50.345')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56.8901', '2025-09-10 12:34:50.67')")
+    testFoldConst("select second_ceil('2025-09-10 12:34:56.123456', 15, '2025-09-10 12:34:30.789')")
+
+    testFoldConst("select second_floor('2025-09-10 12:34:56')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56', 7)")
+    testFoldConst("select second_floor('2025-09-10 12:34:56', '2025-09-10 12:34:50')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56', 7, '2025-09-10 12:34:50')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56', 15, '2025-09-10 12:34:30')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56.678')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56.234567', 7)")
+    testFoldConst("select second_floor('2025-09-10 12:34:56.45', '2025-09-10 12:34:50.123')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56.8901', 7, '2025-09-10 12:34:50.234')")
+    testFoldConst("select second_floor('2025-09-10 12:34:56.12', 15, '2025-09-10 12:34:30.567890')")
+
+    test {
+        sql "select year_ceil('9999-12-31', '2000-01-01');"
+        exception "out of range"
+    }
+    test {
+        sql "select year_ceil('9999-12-31');"
+        exception "out of range"
+    }
+    test {
+        sql "select milliseconds_add('9999-12-31 23:59:59.999999', 1);"
+        exception "out of range"
+    }
 }

@@ -49,7 +49,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
     private final HoodieTimeline timeline;
     private final HollowCommitHandling hollowCommitHandling;
     private String startTimestamp;
-    private final String endTimestamp;
+    private String endTimestamp;
     private final boolean startInstantArchived;
     private final boolean endInstantArchived;
     private final List<HoodieInstant> includedCommits;
@@ -57,7 +57,6 @@ public class MORIncrementalRelation implements IncrementalRelation {
     private final List<StoragePathInfo> affectedFilesInCommits;
     private final boolean fullTableScan;
     private final String globPattern;
-    private final boolean includeStartTime;
     private final String startTs;
     private final String endTs;
 
@@ -85,10 +84,14 @@ public class MORIncrementalRelation implements IncrementalRelation {
         if (EARLIEST_TIME.equals(startTimestamp)) {
             startTimestamp = "000";
         }
-        endTimestamp = optParams.getOrDefault("hoodie.datasource.read.end.instanttime",
-                hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
-                        ? timeline.lastInstant().get().getStateTransitionTime()
-                        : timeline.lastInstant().get().getTimestamp());
+
+        String latestTime = hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
+                        ? timeline.lastInstant().get().getCompletionTime()
+                : timeline.lastInstant().get().requestedTime();
+        endTimestamp = optParams.getOrDefault("hoodie.datasource.read.end.instanttime", latestTime);
+        if (LATEST_TIME.equals(latestTime)) {
+            endTimestamp = latestTime;
+        }
 
         startInstantArchived = timeline.isBeforeTimelineStarts(startTimestamp);
         endInstantArchived = timeline.isBeforeTimelineStarts(endTimestamp);
@@ -96,30 +99,21 @@ public class MORIncrementalRelation implements IncrementalRelation {
         includedCommits = getIncludedCommits();
         commitsMetadata = getCommitsMetadata();
         affectedFilesInCommits = HoodieInputFormatUtils.listAffectedFilesForCommits(configuration,
-                metaClient.getBasePathV2(), commitsMetadata);
+                metaClient.getBasePath(), commitsMetadata);
         fullTableScan = shouldFullTableScan();
         if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME && fullTableScan) {
             throw new HoodieException("Cannot use stateTransitionTime while enables full table scan");
         }
         globPattern = optParams.getOrDefault("hoodie.datasource.read.incr.path.glob", "");
 
-        if (startInstantArchived) {
-            includeStartTime = false;
-            startTs = startTimestamp;
-        } else {
-            includeStartTime = true;
-            startTs = includedCommits.isEmpty() ? startTimestamp : includedCommits.get(0).getTimestamp();
-        }
-        endTs = endInstantArchived || includedCommits.isEmpty() ? endTimestamp
-                : includedCommits.get(includedCommits.size() - 1).getTimestamp();
+        startTs = startTimestamp;
+        endTs = endTimestamp;
     }
 
     @Override
     public Map<String, String> getHoodieParams() {
-        optParams.put("hoodie.datasource.read.incr.operation", "true");
         optParams.put("hoodie.datasource.read.begin.instanttime", startTs);
         optParams.put("hoodie.datasource.read.end.instanttime", endTs);
-        optParams.put("hoodie.datasource.read.incr.includeStartTime", includeStartTime ? "true" : "false");
         return optParams;
     }
 
@@ -128,7 +122,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
             // If endTimestamp commit is not archived, will filter instants
             // before endTimestamp.
             if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
-                return timeline.findInstantsInRangeByStateTransitionTime(startTimestamp, endTimestamp).getInstants();
+                return timeline.findInstantsInRangeByCompletionTime(startTimestamp, endTimestamp).getInstants();
             } else {
                 return timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants();
             }
@@ -153,7 +147,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
             return true;
         }
         for (StoragePathInfo fileStatus : affectedFilesInCommits) {
-            if (!metaClient.getRawHoodieStorage().exists(fileStatus.getPath())) {
+            if (!metaClient.getStorage().exists(fileStatus.getPath())) {
                 return true;
             }
         }
@@ -163,11 +157,6 @@ public class MORIncrementalRelation implements IncrementalRelation {
     @Override
     public boolean fallbackFullTableScan() {
         return fullTableScan;
-    }
-
-    @Override
-    public boolean isIncludeStartTime() {
-        return includeStartTime;
     }
 
     @Override
@@ -190,13 +179,13 @@ public class MORIncrementalRelation implements IncrementalRelation {
         HoodieTimeline scanTimeline;
         if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
             scanTimeline = metaClient.getCommitsAndCompactionTimeline()
-                    .findInstantsInRangeByStateTransitionTime(startTimestamp, endTimestamp);
+                    .findInstantsInRangeByCompletionTime(startTimestamp, endTimestamp);
         } else {
             scanTimeline = TimelineUtils.handleHollowCommitIfNeeded(
                             metaClient.getCommitsAndCompactionTimeline(), metaClient, hollowCommitHandling)
                     .findInstantsInRange(startTimestamp, endTimestamp);
         }
-        String latestCommit = includedCommits.get(includedCommits.size() - 1).getTimestamp();
+        String latestCommit = includedCommits.get(includedCommits.size() - 1).requestedTime();
         HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
                 affectedFilesInCommits);
         Stream<FileSlice> fileSlices = HoodieTableMetadataUtil.getWritePartitionPaths(commitsMetadata)

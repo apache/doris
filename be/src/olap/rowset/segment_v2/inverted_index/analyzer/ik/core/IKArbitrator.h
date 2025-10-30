@@ -29,12 +29,12 @@ namespace doris::segment_v2 {
 
 class IKArbitrator {
 public:
-    IKArbitrator(IKMemoryPool<Cell>& pool) : pool_(pool) {}
+    IKArbitrator(vectorized::Arena& arena) : arena_(arena) {}
     // Ambiguity handling
     void process(AnalyzeContext& context, bool use_smart);
 
 private:
-    IKMemoryPool<Cell>& pool_;
+    vectorized::Arena& arena_;
     // Ambiguity identification
     LexemePath* judge(Cell* lexeme_cell, size_t full_text_length);
 

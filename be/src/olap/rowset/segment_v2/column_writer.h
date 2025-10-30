@@ -30,6 +30,7 @@
 
 #include "common/status.h" // for Status
 #include "olap/field.h"    // for Field
+#include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -41,6 +42,7 @@ namespace doris {
 class BlockCompressionCodec;
 class TabletColumn;
 class TabletIndex;
+struct RowsetWriterContext;
 
 namespace io {
 class FileWriter;
@@ -53,7 +55,8 @@ struct ColumnWriterOptions {
     // - input: column_id/unique_id/type/length/encoding/compression/is_nullable members
     // - output: encoding/indexes/dict_page members
     ColumnMetaPB* meta = nullptr;
-    size_t data_page_size = 64 * 1024;
+    size_t data_page_size = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    size_t dict_page_size = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
     double compression_min_space_saving = 0.1;
@@ -62,16 +65,24 @@ struct ColumnWriterOptions {
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
     bool need_inverted_index = false;
+    bool need_ann_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
     BloomFilterOptions bf_options;
-    std::vector<const TabletIndex*> indexes; // unused
-    const TabletIndex* inverted_index = nullptr;
+    std::vector<const TabletIndex*> inverted_indexes;
     IndexFileWriter* index_file_writer = nullptr;
+
+    SegmentFooterPB* footer = nullptr;
+    io::FileWriter* file_writer = nullptr;
+    CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
+    RowsetWriterContext* rowset_ctx = nullptr;
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    const TabletIndex* ann_index = nullptr;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
-           << ", data_page_size=" << data_page_size
+           << ", data_page_size=" << data_page_size << ", dict_page_size=" << dict_page_size
            << ", compression_min_space_saving = " << compression_min_space_saving
            << ", need_zone_map=" << need_zone_map << ", need_bitmap_index=" << need_bitmap_index
            << ", need_bloom_filter" << need_bloom_filter;
@@ -86,6 +97,7 @@ class OrdinalIndexWriter;
 class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
+class VariantColumnWriterImpl;
 
 class ColumnWriter {
 public:
@@ -100,12 +112,17 @@ public:
     static Status create_map_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
                                     io::FileWriter* file_writer,
                                     std::unique_ptr<ColumnWriter>* writer);
+
+    static Status create_variant_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                        io::FileWriter* file_writer,
+                                        std::unique_ptr<ColumnWriter>* writer);
+
     static Status create_agg_state_writer(const ColumnWriterOptions& opts,
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
-            : _field(std::move(field)), _is_nullable(is_nullable) {}
+    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta)
+            : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {}
 
     virtual ~ColumnWriter() = default;
 
@@ -158,9 +175,15 @@ public:
 
     virtual Status write_inverted_index() = 0;
 
+    virtual Status write_ann_index() { return Status::OK(); }
+
     virtual Status write_bloom_filter_index() = 0;
 
     virtual ordinal_t get_next_rowid() const = 0;
+
+    virtual uint64_t get_raw_data_bytes() const = 0;
+    virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
+    virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -169,9 +192,12 @@ public:
 
     Field* get_field() const { return _field.get(); }
 
+    ColumnMetaPB* get_column_meta() const { return _column_meta; }
+
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
+    ColumnMetaPB* _column_meta;
     std::vector<uint8_t> _null_bitmap;
 };
 
@@ -210,6 +236,16 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    uint64_t get_raw_data_bytes() const override { return _raw_data_bytes; }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _total_uncompressed_data_pages_size;
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _total_compressed_data_pages_size;
+    }
 
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
@@ -268,6 +304,10 @@ private:
     // total size of data page list
     uint64_t _data_size;
 
+    uint64_t _raw_data_bytes {0};
+    uint64_t _total_uncompressed_data_pages_size {0};
+    uint64_t _total_compressed_data_pages_size {0};
+
     // cached generated pages,
     std::vector<std::unique_ptr<Page>> _pages;
     ordinal_t _first_rowid = 0;
@@ -277,7 +317,7 @@ private:
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::vector<std::unique_ptr<IndexColumnWriter>> _inverted_index_builders;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
@@ -348,6 +388,28 @@ public:
 
     ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
 
+    uint64_t get_raw_data_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+    }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = is_nullable() ? std::invoke(func, _null_writer.get()) : 0;
+        for (const auto& writer : _sub_column_writers) {
+            size += std::invoke(func, writer.get());
+        }
+        return size;
+    }
+
 private:
     size_t _num_sub_column_writers;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
@@ -390,6 +452,7 @@ public:
         return Status::OK();
     }
     Status write_inverted_index() override;
+    Status write_ann_index() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("array not support bloom filter index");
@@ -397,6 +460,29 @@ public:
         return Status::OK();
     }
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
+
+    uint64_t get_raw_data_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+    }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = std::invoke(func, _offset_writer.get());
+        if (is_nullable()) {
+            size += std::invoke(func, _null_writer.get());
+        }
+        size += std::invoke(func, _item_writer.get());
+        return size;
+    }
 
 private:
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
@@ -406,7 +492,8 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<AnnIndexColumnWriter> _ann_index_writer;
     ColumnWriterOptions _opts;
 };
 
@@ -455,13 +542,150 @@ public:
     // according key writer to get next rowid
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
+    uint64_t get_raw_data_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+    }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = std::invoke(func, _offsets_writer.get());
+        if (is_nullable()) {
+            size += std::invoke(func, _null_writer.get());
+        }
+        for (const auto& writer : _kv_writers) {
+            size += std::invoke(func, writer.get());
+        }
+        return size;
+    }
+
 private:
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _index_builder;
     ColumnWriterOptions _opts;
+};
+
+// used for compaction to write sub variant column
+class VariantSubcolumnWriter : public ColumnWriter {
+public:
+    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                    std::unique_ptr<Field> field);
+
+    ~VariantSubcolumnWriter() override = default;
+
+    Status init() override;
+
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+
+    Status write_zone_map() override;
+
+    Status write_bitmap_index() override;
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override;
+    ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    uint64_t get_raw_data_bytes() const override {
+        return 0; // TODO
+    }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return 0; // TODO
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return 0; // TODO
+    }
+
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("variant writer can not append_nulls");
+    }
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+
+    Status finish_current_page() override {
+        return Status::NotSupported("variant writer has no data, can not finish_current_page");
+    }
+
+    size_t get_non_null_size() const { return none_null_size; }
+
+    Status finalize();
+
+private:
+    bool is_finalized() const;
+    bool _is_finalized = false;
+    ordinal_t _next_rowid = 0;
+    size_t none_null_size = 0;
+    vectorized::MutableColumnPtr _column;
+    const TabletColumn* _tablet_column = nullptr;
+    ColumnWriterOptions _opts;
+    std::unique_ptr<ColumnWriter> _writer;
+    TabletIndexes _indexes;
+};
+
+class VariantColumnWriter : public ColumnWriter {
+public:
+    explicit VariantColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                 std::unique_ptr<Field> field);
+
+    ~VariantColumnWriter() override = default;
+
+    Status init() override;
+
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+
+    Status write_zone_map() override;
+
+    Status write_bitmap_index() override;
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override;
+    ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    uint64_t get_raw_data_bytes() const override {
+        return 0; // TODO
+    }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return 0; // TODO
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return 0; // TODO
+    }
+
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("variant writer can not append_nulls");
+    }
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+
+    Status finish_current_page() override {
+        return Status::NotSupported("variant writer has no data, can not finish_current_page");
+    }
+
+private:
+    std::unique_ptr<VariantColumnWriterImpl> _impl;
+    ordinal_t _next_rowid = 0;
 };
 
 } // namespace segment_v2

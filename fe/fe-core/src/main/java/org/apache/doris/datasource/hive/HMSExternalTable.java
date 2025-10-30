@@ -593,10 +593,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return remoteTable.getViewOriginalText();
     }
 
-    public String getMetastoreUri() {
-        return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
-    }
-
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
     }
@@ -605,8 +601,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return catalog.getCatalogProperty().getStoragePropertiesMap();
     }
 
-    public Map<String, String> getHadoopProperties() {
-        return catalog.getCatalogProperty().getHadoopProperties();
+    public Map<String, String> getBackendStorageProperties() {
+        return catalog.getCatalogProperty().getBackendStorageProperties();
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
@@ -1129,8 +1125,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions,
-                new FileSystemDirectoryLister(), null);
+        return cache.getFilesByPartitions(hivePartitions, false, true, new FileSystemDirectoryLister(), null);
     }
 
     @Override

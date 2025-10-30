@@ -39,7 +39,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
 
     auto& id_file_map = state()->get_id_file_map();
     if (id_file_map != nullptr) {
-        id_file_map->set_external_scan_params(state()->get_query_ctx());
+        id_file_map->set_external_scan_params(state()->get_query_ctx(), _max_scanners);
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
@@ -53,7 +53,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         std::unique_ptr<vectorized::FileScanner> scanner = vectorized::FileScanner::create_unique(
                 state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
                 &_colname_to_value_range, &p._colname_to_slot_id);
-        RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+        RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }
     return Status::OK();

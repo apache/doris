@@ -33,7 +33,6 @@ public class MCProperties extends BaseProperties {
     public static final String ODPS_ENDPOINT = "mc.odps_endpoint";
     public static final String TUNNEL_SDK_ENDPOINT = "mc.tunnel_endpoint";
 
-
     public static final String PROJECT = "mc.default.project";
     public static final String SESSION_TOKEN = "mc.session_token";
 
@@ -74,6 +73,33 @@ public class MCProperties extends BaseProperties {
     public static final String DATETIME_PREDICATE_PUSH_DOWN =
             "mc.datetime_predicate_push_down";
     public static final String DEFAULT_DATETIME_PREDICATE_PUSH_DOWN = "true";
+
+    // The account systems for Alibaba Cloud China and International are different. If the primary account is an
+    // International user, specify ACCOUNT_FORMAT as ACCOUNT_FORMAT_ID. Otherwise, specify ACCOUNT_FORMAT_NAME.
+    public static final String ACCOUNT_FORMAT = "mc.account_format";
+    public static final String ACCOUNT_FORMAT_NAME = "name";
+    public static final String ACCOUNT_FORMAT_ID = "id";
+    public static final String DEFAULT_ACCOUNT_FORMAT = ACCOUNT_FORMAT_NAME;
+
+    // In the previous MaxCompute architecture, and its mapping in Doris,
+    // the hierarchy was: project / database -> table / table.
+    // When creating a catalog, users needed to specify the property `mc.default.project`,
+    // which indicated the default project to access.
+    // In this structure, executing `SHOW DATABASES` would list other projects.
+    //
+    // After MaxCompute introduced the concept of schemas, the hierarchy changed to:
+    // project / catalog -> schema / database -> table / table.
+    // Here, the project is at a higher level, and `SHOW DATABASES` should now list
+    // all schemas under the current project.
+    // As a result, users need to create a separate catalog for each project,
+    // specifying a different `mc.default.project` property.
+    //
+    // To maintain compatibility with the old version,
+    // a variable is introduced:
+    // - When the property is true, the new architecture is used.
+    // - When the property is false, the old architecture is used.
+    public static final String ENABLE_NAMESPACE_SCHEMA = "mc.enable.namespace.schema";
+    public static final String DEFAULT_ENABLE_NAMESPACE_SCHEMA = "false";
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

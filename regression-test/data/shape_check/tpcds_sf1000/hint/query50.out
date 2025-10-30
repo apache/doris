@@ -21,14 +21,14 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ------------------------------PhysicalProject
 --------------------------------filter((d2.d_moy = 8) and (d2.d_year = 2001))
-----------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalOlapScan[date_dim(d2)]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[date_dim(d1)]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store]
 
 Hint log:
-Used: leading(store_sales { store_returns d2 } broadcast d1 store ) 
-UnUsed: 
+Used: leading(store_sales { store_returns d2 } broadcast d1 store )
+UnUsed:
 SyntaxError:
 

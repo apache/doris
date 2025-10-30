@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.StandardDateFormat;
@@ -187,6 +189,18 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
     }
 
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral((DateTimeType) targetType,
+                    year, month, day, hour, minute, second, microSecond);
+        }
+        return super.uncheckedCastTo(targetType);
+    }
+
     public String getMicrosecondString() {
         if (microSecond == 0) {
             return "0";
@@ -197,6 +211,56 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public Expression plusDays(long days) {
         return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
+    }
+
+    /**
+     * plusDaySecond
+     */
+    public Expression plusDaySecond(VarcharLiteral daySecond) {
+        String stringValue = daySecond.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9:\\-\\s]+")) {
+            return new NullLiteral(dataType);
+        }
+
+        String[] split = stringValue.split("\\s+");
+        if (split.length != 2) {
+            return new NullLiteral(dataType);
+        }
+
+        String day = split[0];
+        String[] hourMinuteSecond = split[1].split(":");
+
+        if (hourMinuteSecond.length != 3) {
+            return new NullLiteral(dataType);
+        }
+
+        try {
+            long days = Long.parseLong(day);
+            boolean dayPositive = days >= 0;
+
+            long hours = Long.parseLong(hourMinuteSecond[0]);
+            long minutes = Long.parseLong(hourMinuteSecond[1]);
+            long seconds = Long.parseLong(hourMinuteSecond[2]);
+
+            if (dayPositive) {
+                hours = Math.abs(hours);
+                minutes = Math.abs(minutes);
+                seconds = Math.abs(seconds);
+            } else {
+                hours = -Math.abs(hours);
+                minutes = -Math.abs(minutes);
+                seconds = -Math.abs(seconds);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusDays(days)
+                .plusHours(hours)
+                .plusMinutes(minutes)
+                .plusSeconds(seconds), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
     }
 
     public Expression plusMonths(long months) {
@@ -223,18 +287,22 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
-    // When performing addition or subtraction with MicroSeconds, the precision must
-    // be set to 6 to display it completely.
+    // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
+    // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(microSeconds * 1000L), 6);
+        return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
     public Expression plusMilliSeconds(long microSeconds) {
-        return plusMicroSeconds(microSeconds * 1000L);
+        return plusMicroSeconds(Math.multiplyExact(microSeconds, 1000L));
     }
 
-    public long getScale() {
+    public int getScale() {
         return ((DateTimeV2Type) dataType).getScale();
+    }
+
+    public int commonScale(DateTimeV2Literal other) {
+        return (int) Math.max(getScale(), other.getScale());
     }
 
     /**

@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testUnionDistinct") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -39,7 +41,7 @@ suite ("testUnionDistinct") {
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
 
-    createMV("create materialized view emps_mv as select empid, deptno from emps order by empid, deptno;")
+    createMV("create materialized view emps_mv as select empid as a1, deptno as a2 from emps order by empid, deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
@@ -51,11 +53,11 @@ suite ("testUnionDistinct") {
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select empid, deptno from emps where empid >1 union select empid, deptno from emps where empid <0 order by empid;")
-        contains "(emps_mv)"
-        notContains "(emps)"
-    }
+    mv_rewrite_success_without_check_chosen(
+            "select empid, deptno from emps where empid >1 union select empid, deptno from emps where empid <0 order by empid;",
+            "emps_mv"
+    )
+
     qt_select_mv "select * from (select empid, deptno from emps where empid >1 union select empid, deptno from emps where empid <0) t order by 1;"
     sql """set enable_stats=true;"""
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")

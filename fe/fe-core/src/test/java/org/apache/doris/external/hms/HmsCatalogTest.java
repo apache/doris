@@ -17,13 +17,10 @@
 
 package org.apache.doris.external.hms;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -36,6 +33,9 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
@@ -47,7 +47,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -75,26 +74,30 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         mgr = env.getCatalogMgr();
 
         // create hms catalog
-        CreateCatalogStmt hmsCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog hms_ctl properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
-                connectContext);
-        mgr.createCatalog(hmsCatalog);
+        String createStmt = "create catalog hms_ctl "
+                + "properties("
+                + "'type' = 'hms', "
+                + "'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
 
         // create inner db and tbl for test
         mgr.getInternalCatalog().createDb("test", false, Maps.newHashMap());
 
-        CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt("create table test.tbl1(\n"
+        createTable("create table test.tbl1(\n"
                 + "k1 int comment 'test column k1', "
                 + "k2 int comment 'test column k2')  comment 'test table1' "
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
-        mgr.getInternalCatalog().createTable(createTableStmt);
     }
 
     private void createDbAndTableForHmsCatalog(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
-        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
@@ -110,6 +113,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "name", "hms_tbl");
         Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
         Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
+        long now = System.currentTimeMillis();
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -151,6 +155,10 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 tbl.getDlaType();
                 minTimes = 0;
                 result = DLAType.HIVE;
+
+                tbl.getNewestUpdateVersionOrTime();
+                minTimes = 0;
+                result = now;
             }
         };
 
@@ -373,7 +381,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         hmsCatalog.addDatabaseForTest(db);
     }
 
-
     @Test
     public void testQueryView() {
         SessionVariable sv = connectContext.getSessionVariable();
@@ -381,52 +388,42 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
         // force use nereids planner to query hive views
-        queryViews(true);
+        queryViews();
     }
 
-    private void testParseAndAnalyze(boolean useNereids, String sql) {
+    private void testParseAndAnalyze(String sql) {
         try {
-            if (useNereids) {
-                checkAnalyze(sql);
-            } else {
-                parseAndAnalyzeStmt(sql, connectContext);
-            }
+            checkAnalyze(sql);
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
     }
 
-    private void testParseAndAnalyzeWithThrows(boolean useNereids, String sql,
-                                               Class<? extends Throwable> throwableClass) {
+    private void testParseAndAnalyzeWithThrows(String sql) {
         try {
-            if (useNereids) {
-                Assert.assertThrows(throwableClass, () -> checkAnalyze(sql));
-            } else {
-                Assert.assertThrows(throwableClass, () -> parseAndAnalyzeStmt(sql, connectContext));
-            }
+            Assert.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> checkAnalyze(sql));
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
     }
 
-    private void queryViews(boolean useNereids) {
+    private void queryViews() {
         // test normal table
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_tbl");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_tbl");
 
         // test simple view
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view1");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view1");
 
         // test view with subquery
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view2");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view2");
 
         // test view with union
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view3");
 
         // test view with not support func
-        testParseAndAnalyzeWithThrows(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view4",
-                    useNereids ? org.apache.doris.nereids.exceptions.AnalysisException.class : AnalysisException.class);
+        testParseAndAnalyzeWithThrows("SELECT * FROM hms_ctl.hms_db.hms_view4");
 
         // change to hms_ctl
         try {
@@ -437,17 +434,16 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         }
 
         // test in hms_ctl
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view1");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view1");
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view2");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view2");
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view3");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view3");
 
-        testParseAndAnalyzeWithThrows(useNereids, "SELECT * FROM hms_db.hms_view4",
-                    useNereids ? org.apache.doris.nereids.exceptions.AnalysisException.class : AnalysisException.class);
+        testParseAndAnalyzeWithThrows("SELECT * FROM hms_db.hms_view4");
 
         // test federated query
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view3, internal.test.tbl1");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view3, internal.test.tbl1");
 
         // change to internal catalog
         try {
@@ -457,9 +453,9 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
             Assert.fail();
         }
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3, internal.test.tbl1");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view3, internal.test.tbl1");
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3, test.tbl1");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view3, test.tbl1");
     }
 
 }

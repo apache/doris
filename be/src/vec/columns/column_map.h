@@ -119,7 +119,6 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    ColumnPtr replicate(const Offsets& offsets) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
@@ -194,6 +193,21 @@ public:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
+    // Remove duplicate key-value pairs from each internal map in the ColumnMap.
+    //
+    // For each map stored in the ColumnMap, if multiple entries have the same key
+    // and identical value, only the **last** such key-value pair is retained; earlier
+    // duplicates are removed. This ensures that all keys within each map are unique.
+    //
+    // Note: This function modifies the internal state of the ColumnMap in-place.
+    // It is intended to be used after data loading or merging steps where
+    // redundant key-value pairs may have been introduced.
+    //
+    // Example:
+    //   Input map: {{"a", 1}, {"b", 2}, {"a", 3}, {"c", 4, null: 5, null: 6}}
+    //   Result:    {{"b", 2}, {"a", 3}, {"c", 3, null: 6}}
+    Status deduplicate_keys(bool recursive = false);
+
     ColumnPtr convert_column_if_overflow() override {
         keys_column = keys_column->convert_column_if_overflow();
         values_column = values_column->convert_column_if_overflow();
@@ -201,6 +215,21 @@ public:
     }
 
     void erase(size_t start, size_t length) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
+    size_t get_max_row_byte_size() const override;
+
+    void replace_float_special_values() override;
+
+    template <bool positive>
+    struct less;
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;

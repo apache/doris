@@ -34,7 +34,8 @@ namespace doris {
 
 class TestCloudSizeBasedCumulativeCompactionPolicy : public testing::Test {
 public:
-    TestCloudSizeBasedCumulativeCompactionPolicy() : _engine(CloudStorageEngine({})) {}
+    TestCloudSizeBasedCumulativeCompactionPolicy()
+            : _engine(CloudStorageEngine(EngineOptions {})) {}
 
     void SetUp() {
         config::compaction_promotion_size_mbytes = 1024;

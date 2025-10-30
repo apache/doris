@@ -27,6 +27,7 @@
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 using namespace doris::segment_v2;
@@ -223,10 +224,14 @@ public:
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
 
-    // Check input type could apply safely.
-    // Note: Currenly ColumnPredicate is not include complex type, so use PrimitiveType
-    // is simple and intuitive
-    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const = 0;
+    /**
+     * Figure out whether this page is matched partially or completely.
+     */
+    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ParquetPredicate is not supported by this predicate!");
+        return true;
+    }
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float

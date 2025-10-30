@@ -65,7 +65,8 @@ public:
               _merge_by_exchange(false),
               _partition_exprs({}),
               _algorithm(type),
-              _reuse_mem(false) {}
+              _reuse_mem(false),
+              _max_buffered_bytes(-1) {}
 #endif
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -76,7 +77,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_is_analytic_sort) {
             return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
@@ -100,6 +101,9 @@ public:
                                      int batch_size, bool* eos);
     void reset(RuntimeState* state);
 
+    int64_t limit() const { return _limit; }
+    int64_t offset() const { return _offset; }
+
 private:
     friend class SortSinkLocalState;
 
@@ -122,6 +126,7 @@ private:
     const std::vector<TExpr> _partition_exprs;
     const TSortAlgorithm::type _algorithm;
     const bool _reuse_mem;
+    const int64_t _max_buffered_bytes;
 };
 
 #include "common/compile_check_end.h"

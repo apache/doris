@@ -36,6 +36,7 @@ suite("test_table_properties") {
 	UNIQUE KEY(`user_id`, `username`)
 	DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 	PROPERTIES (
+    "enable_mow_light_delete" = "false",
 	"replication_allocation" = "tag.location.default: 1"
 	);
         """
@@ -82,6 +83,9 @@ suite("test_table_properties") {
     		"replication_num" = "1"
 	);
     """
+
+    def compression_count = sql """ select count(*) from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME=\"compression\" """;
+    assert compression_count.first()[0] == 3;
 
     qt_select_check_1 """select count(*) from information_schema.table_properties where table_schema=\"${dbName}\"; """
     qt_select_check_2 """select * from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""

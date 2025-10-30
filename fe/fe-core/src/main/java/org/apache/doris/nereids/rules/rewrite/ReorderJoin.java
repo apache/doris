@@ -111,7 +111,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
         List<Plan> inputs = Lists.newArrayList();
         List<Expression> joinFilter = Lists.newArrayList();
-        List<Expression> notInnerJoinConditions = Lists.newArrayList();
+        List<Expression> notInnerHashJoinConditions = Lists.newArrayList();
+        List<Expression> notInnerOtherJoinConditions = Lists.newArrayList();
 
         LogicalJoin<?, ?> join;
         // Implicit rely on {rule: MergeFilters}, so don't exist filter--filter--join.
@@ -123,12 +124,16 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             join = (LogicalJoin<?, ?>) plan;
         }
 
+        if (join.isMarkJoin()) {
+            return plan;
+        }
+
         if (join.getJoinType().isInnerOrCrossJoin()) {
             joinFilter.addAll(join.getHashJoinConjuncts());
             joinFilter.addAll(join.getOtherJoinConjuncts());
         } else {
-            notInnerJoinConditions.addAll(join.getHashJoinConjuncts());
-            notInnerJoinConditions.addAll(join.getOtherJoinConjuncts());
+            notInnerHashJoinConditions.addAll(join.getHashJoinConjuncts());
+            notInnerOtherJoinConditions.addAll(join.getOtherJoinConjuncts());
         }
 
         // recursively convert children.
@@ -161,7 +166,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 inputs,
                 joinFilter,
                 join.getJoinType(),
-                notInnerJoinConditions);
+                notInnerHashJoinConditions,
+                notInnerOtherJoinConditions);
     }
 
     /**
@@ -253,7 +259,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                         multiJoinHandleChildren.children().subList(0, multiJoinHandleChildren.arity() - 1),
                         pushedFilter,
                         JoinType.INNER_JOIN,
-                        ExpressionUtils.EMPTY_CONDITION), planToHintType);
+                        ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION), planToHintType);
             } else if (multiJoinHandleChildren.getJoinType().isRightJoin()) {
                 left = multiJoinHandleChildren.child(0);
                 Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
@@ -267,7 +273,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                         multiJoinHandleChildren.children().subList(1, multiJoinHandleChildren.arity()),
                         pushedFilter,
                         JoinType.INNER_JOIN,
-                        ExpressionUtils.EMPTY_CONDITION), planToHintType);
+                        ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION), planToHintType);
             } else {
                 remainingFilter = multiJoin.getJoinFilter();
                 Preconditions.checkState(multiJoinHandleChildren.arity() == 2);
@@ -284,7 +290,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
             return PlanUtils.filterOrSelf(ImmutableSet.copyOf(remainingFilter), new LogicalJoin<>(
                     multiJoinHandleChildren.getJoinType(),
-                    ExpressionUtils.EMPTY_CONDITION, multiJoinHandleChildren.getNotInnerJoinConditions(),
+                    multiJoinHandleChildren.getNotInnerHashJoinConditions(),
+                    multiJoinHandleChildren.getNotInnerOtherJoinConditions(),
                     planToHintType.getOrDefault(right, new DistributeHint(DistributeType.NONE)),
                     Optional.empty(),
                     left, right, null));

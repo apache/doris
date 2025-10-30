@@ -50,6 +50,45 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size
     return (int64_t)1 << (sizeof(size) * 8 - 1 - __builtin_clzl(size));
 }
 
+void find_longest_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* result,
+                                            const std::vector<RowsetSharedPtr>& candidate_rowsets) {
+    std::vector<RowsetSharedPtr> current_sequence;
+    std::vector<RowsetSharedPtr> longest_sequence;
+
+    for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
+        auto& rowset = candidate_rowsets[i];
+
+        // Check if rowset is empty and has no delete predicate
+        if (rowset->num_segments() == 0 && !rowset->rowset_meta()->has_delete_predicate()) {
+            // Check if this is consecutive with previous rowset
+            if (current_sequence.empty() ||
+                (current_sequence.back()->end_version() == rowset->start_version() - 1)) {
+                current_sequence.push_back(rowset);
+            } else {
+                // Start new sequence if not consecutive
+                if (current_sequence.size() > longest_sequence.size()) {
+                    longest_sequence = current_sequence;
+                }
+                current_sequence.clear();
+                current_sequence.push_back(rowset);
+            }
+        } else {
+            // Non-empty rowset, check if we have a sequence to compare
+            if (current_sequence.size() > longest_sequence.size()) {
+                longest_sequence = current_sequence;
+            }
+            current_sequence.clear();
+        }
+    }
+
+    // Check final sequence
+    if (current_sequence.size() > longest_sequence.size()) {
+        longest_sequence = current_sequence;
+    }
+
+    *result = longest_sequence;
+}
+
 int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         CloudTablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
         const int64_t max_compaction_score, const int64_t min_compaction_score,
@@ -131,6 +170,24 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             }
         }
         return transient_size;
+    }
+
+    // Check if empty rowset compaction strategy is enabled
+    if (config::enable_empty_rowset_compaction && !input_rowsets->empty()) {
+        // Check if input_rowsets contain consecutive empty rowsets that meet criteria
+        std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
+        find_longest_consecutive_empty_rowsets(&consecutive_empty_rowsets, *input_rowsets);
+
+        if (!consecutive_empty_rowsets.empty() &&
+            consecutive_empty_rowsets.size() >= config::empty_rowset_compaction_min_count &&
+            static_cast<double>(consecutive_empty_rowsets.size()) /
+                            static_cast<double>(input_rowsets->size()) >=
+                    config::empty_rowset_compaction_min_ratio) {
+            // Prioritize consecutive empty rowset compaction
+            *input_rowsets = consecutive_empty_rowsets;
+            *compaction_score = consecutive_empty_rowsets.size();
+            return consecutive_empty_rowsets.size();
+        }
     }
 
     auto rs_begin = input_rowsets->begin();
@@ -220,6 +277,17 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
         int64_t last_cumulative_point) {
     TEST_INJECTION_POINT_RETURN_WITH_VALUE("new_cumulative_point", int64_t(0), output_rowset.get(),
                                            last_cumulative_point);
+    DBUG_EXECUTE_IF("CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        auto cumu_point = dp->param<int64_t>("cumu_point", -1);
+        if (target_tablet_id == tablet->tablet_id() && cumu_point != -1) {
+            LOG_INFO(
+                    "[CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point] "
+                    "tablet_id={}, cumu_point={}",
+                    target_tablet_id, cumu_point);
+            return cumu_point;
+        }
+    });
     // for MoW table, if there's too many versions, the delete bitmap will grow to
     // a very big size, which may cause the tablet meta too big and the `save_meta`
     // operation too slow.

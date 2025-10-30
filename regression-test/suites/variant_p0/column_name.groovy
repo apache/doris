@@ -65,7 +65,10 @@ suite("regression_test_variant_column_name", "variant_type"){
 
     // name with `.`
     sql "truncate table var_column_name"
-    sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+    test {
+        sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+        exception "may contains duplicated entry"
+    }
     for (int i = 0; i < 7; i++) {
         sql """insert into var_column_name select * from var_column_name"""
     }
@@ -79,5 +82,15 @@ suite("regression_test_variant_column_name", "variant_type"){
     } catch(Exception ex) {
         logger.info("""INSERT INTO ${table_name} failed: """ + ex)
         assertTrue(ex.toString().contains("may contains duplicated entry"));
+    }
+
+    // test key length larger than 255 bytes
+    def key = "a"
+    for (int i = 0; i < 256; i++) {
+        key += "a"
+    }
+    test {
+        sql """insert into var_column_name values (8, '{"${key}": "test"}')"""
+        exception "Key length exceeds maximum allowed size of 255 bytes."
     }
 }

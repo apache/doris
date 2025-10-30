@@ -15,21 +15,21 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
 ------------------------PhysicalProject
---------------------------filter((rnk < 11))
+--------------------------filter((V11.rnk < 11))
 ----------------------------PhysicalWindow
 ------------------------------PhysicalQuickSort[MERGE_SORT]
 --------------------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------------------PhysicalQuickSort[LOCAL_SORT]
 ------------------------------------PhysicalPartitionTopN
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 ------------------------------------------PhysicalProject
 --------------------------------------------hashAgg[GLOBAL]
 ----------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------hashAgg[LOCAL]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((ss1.ss_store_sk = 366))
-------------------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------------------------PhysicalOlapScan[store_sales(ss1)]
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute[DistributionSpecGather]
@@ -41,21 +41,21 @@ PhysicalResultSink
 ----------------------------------------------------------filter((store_sales.ss_store_sk = 366) and ss_cdemo_sk IS NULL)
 ------------------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------PhysicalProject
---------------------------filter((rnk < 11))
+--------------------------filter((V21.rnk < 11))
 ----------------------------PhysicalWindow
 ------------------------------PhysicalQuickSort[MERGE_SORT]
 --------------------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------------------PhysicalQuickSort[LOCAL_SORT]
 ------------------------------------PhysicalPartitionTopN
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 ------------------------------------------PhysicalProject
 --------------------------------------------hashAgg[GLOBAL]
 ----------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------hashAgg[LOCAL]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((ss1.ss_store_sk = 366))
-------------------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------------------------PhysicalOlapScan[store_sales(ss1)]
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute[DistributionSpecGather]

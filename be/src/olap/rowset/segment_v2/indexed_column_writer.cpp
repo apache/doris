@@ -38,6 +38,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                          const TypeInfo* type_info, io::FileWriter* file_writer)
@@ -56,7 +57,7 @@ IndexedColumnWriter::~IndexedColumnWriter() = default;
 
 Status IndexedColumnWriter::init() {
     const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _options.encoding, &encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), _options.encoding, &encoding_info));
     _options.encoding = encoding_info->encoding();
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
@@ -86,7 +87,7 @@ Status IndexedColumnWriter::init() {
 Status IndexedColumnWriter::add(const void* value) {
     if (_options.write_value_index && _data_page_builder->count() == 0) {
         // remember page's first value because it's used to build value index
-        _type_info->deep_copy(_first_value.data(), value, &_arena);
+        _type_info->deep_copy(_first_value.data(), value, _arena);
     }
     size_t num_to_write = 1;
     RETURN_IF_ERROR(
@@ -123,7 +124,7 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
 
     PageFooterPB footer;
     footer.set_type(DATA_PAGE);
-    footer.set_uncompressed_size(page_body.slice().get_size());
+    footer.set_uncompressed_size(static_cast<uint32_t>(page_body.slice().get_size()));
     footer.mutable_data_page_footer()->set_first_ordinal(first_ordinal);
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
@@ -197,5 +198,6 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

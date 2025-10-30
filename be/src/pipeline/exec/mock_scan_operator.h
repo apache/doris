@@ -29,6 +29,9 @@ public:
     MockScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState(state, parent) {}
 
+protected:
+    bool _is_key_column(const std::string& col_name) override { return true; }
+
 private:
     PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 

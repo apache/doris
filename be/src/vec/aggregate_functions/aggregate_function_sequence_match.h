@@ -30,7 +30,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <ostream>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -129,6 +128,7 @@ public:
         conditions_met |= other.conditions_met;
     }
 
+    // todo: rethink the sort method.
     void sort() {
         if (sorted) return;
 
@@ -137,47 +137,47 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(sorted, buf);
-        write_binary(events_list.size(), buf);
+        buf.write_binary(sorted);
+        buf.write_binary(events_list.size());
 
         for (const auto& events : events_list) {
-            write_binary(events.first, buf);
-            write_binary(events.second.to_ulong(), buf);
+            buf.write_binary(events.first);
+            buf.write_binary(events.second.to_ulong());
         }
 
         // This is std::bitset<32>, which will not exceed 32 bits.
         UInt32 conditions_met_value = (UInt32)conditions_met.to_ulong();
-        write_binary(conditions_met_value, buf);
+        buf.write_binary(conditions_met_value);
 
-        write_binary(pattern, buf);
-        write_binary(arg_count, buf);
+        buf.write_binary(pattern);
+        buf.write_binary(arg_count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sorted, buf);
+        buf.read_binary(sorted);
 
         size_t events_list_size;
-        read_binary(events_list_size, buf);
+        buf.read_binary(events_list_size);
 
         events_list.clear();
         events_list.reserve(events_list_size);
 
         for (size_t i = 0; i < events_list_size; ++i) {
             Timestamp timestamp;
-            read_binary(timestamp, buf);
+            buf.read_binary(timestamp);
 
             UInt64 events;
-            read_binary(events, buf);
+            buf.read_binary(events);
 
             events_list.emplace_back(timestamp, Events {events});
         }
 
         UInt32 conditions_met_value;
-        read_binary(conditions_met_value, buf);
+        buf.read_binary(conditions_met_value);
         conditions_met = conditions_met_value;
 
-        read_binary(pattern, buf);
-        read_binary(arg_count, buf);
+        buf.read_binary(pattern);
+        buf.read_binary(arg_count);
     }
 
 private:
@@ -602,7 +602,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         std::string pattern =
                 assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(columns[0])
                         ->get_data_at(0)
@@ -627,7 +627,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         const std::string pattern = this->data(rhs).get_pattern();
         this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
@@ -638,7 +638,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
         const std::string pattern = this->data(place).get_pattern();
         this->data(place).init(pattern, this->data(place).get_arg_count());
@@ -650,7 +650,9 @@ private:
 
 template <PrimitiveType T>
 class AggregateFunctionSequenceMatch final
-        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSequenceMatch(const DataTypes& arguments, const String& pattern_)
             : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>(arguments,
@@ -675,6 +677,7 @@ public:
             output.push_back(false);
             return;
         }
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
 
         const auto& data_ref = this->data(place);
@@ -694,7 +697,9 @@ public:
 
 template <PrimitiveType T>
 class AggregateFunctionSequenceCount final
-        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionSequenceCount(const DataTypes& arguments, const String& pattern_)
             : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>(arguments,
@@ -719,6 +724,7 @@ public:
             output.push_back(0);
             return;
         }
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         output.push_back(count(place));
     }

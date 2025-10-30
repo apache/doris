@@ -24,6 +24,7 @@
 
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"
@@ -31,14 +32,17 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_varbinary.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 } // namespace doris
 
@@ -148,27 +152,36 @@ Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) 
 Status JniConnector::get_table_schema(std::string& table_schema_str) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    // Call org.apache.doris.jni.JniScanner#getTableSchema
-    // return the TableSchema information
+
     jstring jstr = (jstring)env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_table_schema);
     RETURN_ERROR_IF_EXC(env);
-    table_schema_str = env->GetStringUTFChars(jstr, nullptr);
+
+    const char* cstr = env->GetStringUTFChars(jstr, nullptr);
     RETURN_ERROR_IF_EXC(env);
+
+    if (cstr == nullptr) {
+        return Status::RuntimeError("GetStringUTFChars returned null");
+    }
+
+    table_schema_str = std::string(cstr); // copy to std::string
+    env->ReleaseStringUTFChars(jstr, cstr);
+    env->DeleteLocalRef(jstr);
     return Status::OK();
 }
 
-std::map<std::string, std::string> JniConnector::get_statistics(JNIEnv* env) {
+Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
+    result->clear();
     jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
     jthrowable exc = (env)->ExceptionOccurred();
     if (exc != nullptr) {
         LOG(WARNING) << "get_statistics has error: "
                      << JniUtil::GetJniExceptionMsg(env).to_string();
         env->DeleteLocalRef(metrics);
-        return std::map<std::string, std::string> {};
+        return Status::OK();
     }
-    std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
+    RETURN_IF_ERROR(JniUtil::convert_to_cpp_map(env, metrics, result));
     env->DeleteLocalRef(metrics);
-    return result;
+    return Status::OK();
 }
 
 Status JniConnector::close() {
@@ -179,12 +192,15 @@ Status JniConnector::close() {
             COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
             COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
 
+            RETURN_ERROR_IF_EXC(env);
             int64_t _append = (int64_t)env->CallLongMethod(_jni_scanner_obj,
                                                            _jni_scanner_get_append_data_time);
+            RETURN_ERROR_IF_EXC(env);
             COUNTER_UPDATE(_java_append_data_time, _append);
 
             int64_t _create = (int64_t)env->CallLongMethod(
                     _jni_scanner_obj, _jni_scanner_get_create_vector_table_time);
+            RETURN_ERROR_IF_EXC(env);
             COUNTER_UPDATE(_java_create_vector_table_time, _create);
 
             COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
@@ -196,8 +212,11 @@ Status JniConnector::close() {
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
+            RETURN_ERROR_IF_EXC(env);
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
+            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(_jni_scanner_obj);
+            RETURN_ERROR_IF_EXC(env);
         }
         if (_jni_scanner_cls != nullptr) {
             // _jni_scanner_cls may be null if init connector failed
@@ -217,7 +236,7 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-    if (_jni_scanner_cls == nullptr) {
+    if (_jni_scanner_cls == nullptr) [[unlikely]] {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
@@ -230,14 +249,15 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_ERROR_IF_EXC(env);
 
     // prepare constructor parameters
-    jobject hashmap_object = JniUtil::convert_to_java_map(env, _scanner_params);
+    jobject hashmap_object;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, _scanner_params, &hashmap_object));
     jobject jni_scanner_obj =
             env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
 
     RETURN_ERROR_IF_EXC(env);
 
     // prepare constructor parameters
-    env->DeleteLocalRef(hashmap_object);
+    env->DeleteGlobalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
 
     _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
@@ -258,6 +278,7 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");
     _jni_scanner_get_statistics =
             env->GetMethodID(_jni_scanner_cls, "getStatistics", "()Ljava/util/Map;");
+    RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
     env->DeleteLocalRef(jni_scanner_obj);
     RETURN_ERROR_IF_EXC(env);
@@ -316,7 +337,7 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
 }
 
 Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                                  DataTypePtr& data_type, size_t num_rows) {
+                                  const DataTypePtr& data_type, size_t num_rows) {
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
@@ -337,6 +358,8 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     }
     // Date and DateTime are deprecated and not supported.
     switch (logical_type) {
+        //FIXME: in Doris we check data then insert. jdbc external table may have some data invalid for doris.
+        // should add check otherwise it may break some of our assumption now.
 #define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)              \
     case TYPE_INDEX:                                             \
         return _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>( \
@@ -355,18 +378,41 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         return _fill_map_column(address, data_column, data_type, num_rows);
     case PrimitiveType::TYPE_STRUCT:
         return _fill_struct_column(address, data_column, data_type, num_rows);
+    case PrimitiveType::TYPE_VARBINARY:
+        return _fill_varbinary_column(address, data_column, num_rows);
     default:
         return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
     }
     return Status::OK();
 }
 
+Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
+                                            MutableColumnPtr& doris_column, size_t num_rows) {
+    auto* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
+    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
+    // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
+    for (size_t i = 0; i < num_rows; ++i) {
+        // Read length (first 8 bytes)
+        int64_t len = 0;
+        memcpy(&len, meta_base + 16 * i, sizeof(len));
+        if (len <= 0) {
+            varbinary_col.insert_default();
+        } else {
+            // Read address (next 8 bytes)
+            uint64_t addr_u = 0;
+            memcpy(&addr_u, meta_base + 16 * i + 8, sizeof(addr_u));
+            const char* src = reinterpret_cast<const char*>(addr_u);
+            varbinary_col.insert_data(src, static_cast<size_t>(len));
+        }
+    }
+    return Status::OK();
+}
+
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    ColumnString::Chars& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    ColumnString::Offsets& string_offsets =
-            const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    auto& string_col = static_cast<ColumnString&>(*doris_column);
+    ColumnString::Chars& string_chars = string_col.get_chars();
+    ColumnString::Offsets& string_offsets = string_col.get_offsets();
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
@@ -385,17 +431,18 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
     size_t start_offset = string_offsets[origin_offsets_size - 1];
     string_offsets.resize(origin_offsets_size + num_rows);
     for (size_t i = 0; i < num_rows; ++i) {
-        string_offsets[origin_offsets_size + i] = offsets[i] + start_offset;
+        string_offsets[origin_offsets_size + i] =
+                static_cast<unsigned int>(offsets[i] + start_offset);
     }
     return Status::OK();
 }
 
 Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                        DataTypePtr& data_type, size_t num_rows) {
+                                        const DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
-    DataTypePtr& element_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& element_type =
             (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
-                    ->get_nested_type());
+                    ->get_nested_type();
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
     int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
@@ -413,13 +460,13 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
 }
 
 Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows) {
+                                      const DataTypePtr& data_type, size_t num_rows) {
     auto& map = static_cast<ColumnMap&>(*doris_column);
-    DataTypePtr& key_type = const_cast<DataTypePtr&>(
-            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
-    DataTypePtr& value_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& key_type =
+            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type();
+    const DataTypePtr& value_type =
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                    ->get_value_type());
+                    ->get_value_type();
     ColumnPtr& key_column = map.get_keys_ptr();
     ColumnPtr& value_column = map.get_values_ptr();
     ColumnArray::Offsets64& map_offsets = map.get_offsets();
@@ -434,18 +481,19 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
 
     RETURN_IF_ERROR(_fill_column(address, key_column, key_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return _fill_column(address, value_column, value_type,
-                        map_offsets[origin_size + num_rows - 1] - start_offset);
+    RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
+                                 map_offsets[origin_size + num_rows - 1] - start_offset));
+    return map.deduplicate_keys();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                         DataTypePtr& data_type, size_t num_rows) {
+                                         const DataTypePtr& data_type, size_t num_rows) {
     auto& doris_struct = static_cast<ColumnStruct&>(*doris_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
     for (int i = 0; i < doris_struct.tuple_size(); ++i) {
         ColumnPtr& struct_field = doris_struct.get_column_ptr(i);
-        DataTypePtr& field_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
+        const DataTypePtr& field_type = doris_struct_type->get_element(i);
         RETURN_IF_ERROR(_fill_column(address, struct_field, field_type, num_rows));
     }
     return Status::OK();
@@ -547,6 +595,8 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
                << get_jni_type(map_type->get_value_type()) << ">";
         return buffer.str();
     }
+    case TYPE_VARBINARY:
+        return "varbinary";
     default:
         return "unsupported";
     }
@@ -604,6 +654,11 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
     }
     case TYPE_STRING:
         return "string";
+    case TYPE_VARBINARY:
+        buffer << "varbinary("
+               << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
+               << ")";
+        return buffer.str();
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();
@@ -734,6 +789,12 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         RETURN_IF_ERROR(_fill_column_meta(value_column, value_type, meta_data));
         break;
     }
+    case PrimitiveType::TYPE_VARBINARY: {
+        const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
+        meta_data.emplace_back(
+                (long)assert_cast<const ColumnVarbinary&>(varbinary_col).get_data().data());
+        break;
+    }
     default:
         return Status::InternalError("Unsupported type: {}", data_type->get_name());
     }
@@ -811,7 +872,14 @@ void JniConnector::_collect_profile_before_close() {
             return;
         }
         // update scanner metrics
-        for (const auto& metric : get_statistics(env)) {
+        std::map<std::string, std::string> statistics_result;
+        st = get_statistics(env, &statistics_result);
+        if (!st) {
+            LOG(WARNING) << "failed to get_statistics when collect profile: " << st;
+            return;
+        }
+
+        for (const auto& metric : statistics_result) {
             std::vector<std::string> type_and_name = split(metric.first, ":");
             if (type_and_name.size() != 2) {
                 LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
@@ -837,4 +905,5 @@ void JniConnector::_collect_profile_before_close() {
         }
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

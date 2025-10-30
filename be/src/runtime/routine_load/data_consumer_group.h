@@ -24,6 +24,7 @@
 #include <mutex>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "io/fs/kafka_consumer_pipe.h"
 #include "runtime/routine_load/data_consumer.h"
@@ -36,6 +37,7 @@ class Message;
 } // namespace RdKafka
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class StreamLoadContext;
 
 // data consumer group saves a group of data consumers.
@@ -47,7 +49,8 @@ public:
 
     DataConsumerGroup(size_t consumer_num)
             : _grp_id(UniqueId::gen_uid()),
-              _thread_pool(consumer_num, consumer_num, "data_consumer"),
+              _thread_pool(doris::cast_set<uint32_t>(consumer_num),
+                           doris::cast_set<uint32_t>(consumer_num), "data_consumer"),
               _counter(0) {}
 
     virtual ~DataConsumerGroup() { _consumers.clear(); }
@@ -103,5 +106,6 @@ private:
     // blocking queue to receive msgs from all consumers
     BlockingQueue<RdKafka::Message*> _queue;
 };
+#include "common/compile_check_end.h"
 
 } // end namespace doris

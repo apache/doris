@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -42,7 +44,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class PushDownFilterThroughWindowTest implements MemoPatternMatchSupported {
+class PushDownFilterThroughWindowTest extends TestWithFeService implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
             PlanConstructor.student,
             ImmutableList.of(""));
@@ -85,6 +87,66 @@ class PushDownFilterThroughWindowTest implements MemoPatternMatchSupported {
                                             return eq.left().equals(age);
 
                                         })
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testPushDownFilter() throws Exception {
+        String db = "test";
+        createDatabase(db);
+        useDatabase(db);
+        createTable("CREATE TABLE lineorders (\n"
+                + "orderdate varchar(100) NOT NULL,\n"
+                + "orderid int NOT NULL,\n"
+                + "country_id int NOT NULL,\n"
+                + "vender_id int NOT NULL,\n"
+                + "ordernum int NOT NULL,\n"
+                + "ordemoney int NOT NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(orderdate, orderid, country_id)\n"
+                + "COMMENT 'OLAP'\n"
+                + "PARTITION BY LIST(orderdate)\n"
+                + "(PARTITION p1992 VALUES IN (\"0-2020\"),\n"
+                + "PARTITION p1993 VALUES IN (\"0-2021\"),\n"
+                + "PARTITION p1994 VALUES IN (\"0-2022\"),\n"
+                + "PARTITION p1995 VALUES IN (\"0-2023\"),\n"
+                + "PARTITION p1996 VALUES IN (\"0-2024\"),\n"
+                + "PARTITION p1997 VALUES IN (\"0-2025\"))\n"
+                + "DISTRIBUTED BY HASH(orderid) BUCKETS 48\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ")");
+
+        connectContext.getSessionVariable()
+                .setDisableNereidsRules(
+                        RuleType.OLAP_SCAN_PARTITION_PRUNE.name() + "," + RuleType.PRUNE_EMPTY_PARTITION.name());
+
+        PlanChecker.from(connectContext)
+                .analyze("select * from ( \n"
+                        + "  select \n"
+                        + "    orderid,\n"
+                        + "    orderdate,\n"
+                        + "    country_id,\n"
+                        + "    ordernum,\n"
+                        + "    ordemoney,\n"
+                        + "    SUBSTR(lineorders.orderdate,3,4) AS dt,\n"
+                        + "    ROW_NUMBER() OVER(PARTITION BY lineorders.orderid,lineorders.orderdate ORDER BY lineorders.country_id DESC) AS rn\n"
+                        + "  from lineorders\n"
+                        + ") a \n"
+                        + "where SUBSTR(a.dt, 1, 4) = SUBSTR(curdate(), 1, 4)")
+                .rewrite()
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalWindow(
+                                                logicalProject(
+                                                        logicalFilter(
+                                                                logicalOlapScan()
+                                                        )
+                                                )
+                                        )
                                 )
                         )
                 );

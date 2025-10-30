@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -45,7 +47,7 @@ import org.apache.doris.qe.StmtExecutor;
  * quantity { DAY | HOUR | MINUTE |
  * WEEK | SECOND }
  */
-public class CreateJobCommand extends Command implements ForwardWithSync {
+public class CreateJobCommand extends Command implements ForwardWithSync, NeedAuditEncryption {
 
     private CreateJobInfo createJobInfo;
 
@@ -56,8 +58,18 @@ public class CreateJobCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate();
         AbstractJob job = createJobInfo.analyzeAndBuildJobInfo(ctx);
         Env.getCurrentEnv().getJobManager().registerJob(job);
+    }
+
+    private void validate() throws JobException {
+        if (createJobInfo.streamingJob()) {
+            int streamingJobCnt = Env.getCurrentEnv().getJobManager().getStreamingJobCnt();
+            if (streamingJobCnt >= Config.max_streaming_job_num) {
+                throw new JobException("Exceed max streaming job num limit in fe.conf:" + Config.max_streaming_job_num);
+            }
+        }
     }
 
     @Override
@@ -70,4 +82,8 @@ public class CreateJobCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
 }

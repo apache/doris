@@ -98,6 +98,22 @@ BaseDeltaWriter::~BaseDeltaWriter() {
     }
 }
 
+void BaseDeltaWriter::set_tablet_load_rowset_num_info(
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_infos) {
+    auto* tablet = _rowset_builder->tablet().get();
+    if (tablet == nullptr) {
+        return;
+    }
+    auto max_version_config = tablet->max_version_config();
+    if (auto version_cnt = tablet->tablet_meta()->version_count();
+        UNLIKELY(version_cnt >
+                 (max_version_config * config::load_back_pressure_version_threshold / 100))) {
+        auto* load_info = tablet_infos->Add();
+        load_info->set_current_rowset_nums(static_cast<int32_t>(version_cnt));
+        load_info->set_max_config_rowset_nums(max_version_config);
+    }
+}
+
 DeltaWriter::~DeltaWriter() = default;
 
 Status BaseDeltaWriter::init() {
@@ -253,9 +269,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     auto cur_rowset = _rowset_builder->rowset();
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
-        for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->inverted_index(*column);
-            if (index_meta) {
+        for (const auto& column : tablet_schema->columns()) {
+            auto index_metas = tablet_schema->inverted_indexs(*column);
+            for (const auto* index_meta : index_metas) {
                 indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
             }
         }

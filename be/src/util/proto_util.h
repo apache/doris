@@ -59,10 +59,19 @@ inline bool enable_http_send_block(const PTransmitDataParams& request) {
 }
 
 template <typename Closure>
-void transmit_blockv2(PBackendService_Stub& stub, std::unique_ptr<Closure> closure) {
+void transmit_blockv2(PBackendService_Stub* stub, std::unique_ptr<Closure> closure) {
     closure->cntl_->http_request().Clear();
-    stub.transmit_block(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
-                        closure.get());
+    // Temporary code for debugging; it will be removed in the future.
+    auto& request = *closure->request_;
+    CHECK(request.IsInitialized());
+    for (int i = 0; i < request.blocks_size(); ++i) {
+        CHECK(request.blocks(i).has_column_values());
+    }
+    if (request.has_block()) {
+        CHECK(request.block().has_column_values());
+    }
+    stub->transmit_block(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
+                         closure.get());
     closure.release();
 }
 

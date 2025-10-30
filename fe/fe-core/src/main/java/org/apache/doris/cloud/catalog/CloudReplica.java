@@ -163,12 +163,15 @@ public class CloudReplica extends Replica {
 
     public long getBackendId(String beEndpoint) {
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByBeAddr(beEndpoint);
+        String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getPhysicalCluster(clusterName);
+
         try {
-            String clusterId = getCloudClusterIdByName(clusterName);
+            String clusterId = getCloudClusterIdByName(physicalClusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to get compute group name {}", clusterName, e);
+                LOG.debug("failed to get compute group name {}", physicalClusterName, e);
             }
             return -1;
         }
@@ -212,7 +215,8 @@ public class CloudReplica extends Replica {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             // TODO(wb) rethinking whether should update err status.
-            cluster = context.getCloudCluster();
+            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(context.getCloudCluster());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get compute group by context {}", cluster);
@@ -338,7 +342,7 @@ public class CloudReplica extends Replica {
         }
 
         // use primaryClusterToBackends, if find be normal
-        Backend be = getPrimaryBackend(clusterId);
+        Backend be = getPrimaryBackend(clusterId, false);
         if (be != null && be.isQueryAvailable()) {
             return be.getId();
         }
@@ -366,12 +370,24 @@ public class CloudReplica extends Replica {
         return pickBeId;
     }
 
-    public Backend getPrimaryBackend(String clusterId) {
+    public Backend getPrimaryBackend(String clusterId, boolean setIfAbsent) {
         long beId = getClusterPrimaryBackendId(clusterId);
         if (beId != -1L) {
             return Env.getCurrentSystemInfo().getBackend(beId);
         } else {
-            return null;
+            // Load event warmup requires knowing the mapping relationship
+            // between the downstream be and tablet of the shadow index
+            if (setIfAbsent) {
+                try {
+                    beId = getBackendIdImpl(clusterId);
+                    updateClusterToPrimaryBe(clusterId, beId);
+                    return Env.getCurrentSystemInfo().getBackend(beId);
+                } catch (ComputeGroupException e) {
+                    return null;
+                }
+            } else {
+                return null;
+            }
         }
     }
 
@@ -439,8 +455,9 @@ public class CloudReplica extends Replica {
             index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
         }
         long pickedBeId = availableBes.get((int) index).getId();
-        LOG.info("picked beId {}, replicaId {}, partitionId {}, beNum {}, replicaIdx {}, picked Index {}, hashVal {}",
-                pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
+        LOG.info("picked clusterName {} beId {}, replicaId {}, partitionId {}, beNum {}, "
+                + "replicaIdx {}, picked Index {}, hashVal {}",
+                clusterName, pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
                 hashCode == null ? -1 : hashCode.asLong());
 
         return pickedBeId;
@@ -595,5 +612,21 @@ public class CloudReplica extends Replica {
             secondaryClusterToBackends.remove(clusterId);
             return;
         }
+    }
+
+    public List<Backend> getAllPrimaryBes() {
+        List<Backend> result = new ArrayList<Backend>();
+        primaryClusterToBackends.keySet().forEach(clusterId -> {
+            List<Long> backendIds = primaryClusterToBackends.get(clusterId);
+            if (backendIds == null || backendIds.isEmpty()) {
+                return;
+            }
+            Long beId = backendIds.get(0);
+            if (beId != -1) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                result.add(backend);
+            }
+        });
+        return result;
     }
 }

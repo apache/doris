@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TFileCompressType;
@@ -46,7 +46,7 @@ public interface NereidsLoadTaskInfo {
 
     String getTimezone();
 
-    PartitionNames getPartitions();
+    PartitionNamesInfo getPartitionNamesInfo();
 
     LoadTask.MergeType getMergeType();
 
@@ -113,6 +113,8 @@ public interface NereidsLoadTaskInfo {
     List<String> getHiddenColumns();
 
     boolean isFixedPartialUpdate();
+
+    boolean getEmptyFieldAsNull();
 
     default TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
         return TUniqueKeyUpdateMode.UPSERT;

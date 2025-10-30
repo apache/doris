@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 # libevent
-LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
-LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
-LIBEVENT_SOURCE=libevent-release-2.1.12-stable
-LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
+LIBEVENT_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libevent-2.1.12.1.tar.gz"
+LIBEVENT_NAME=libevent-2.1.12.1.tar.gz
+LIBEVENT_SOURCE=doris-thirdparty-libevent-2.1.12.1
+LIBEVENT_MD5SUM="af67af024d42e57e185eb0c5026f8ae6"
 
 # openssl
 OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
@@ -92,10 +92,10 @@ GLOG_SOURCE=glog-0.6.0
 GLOG_MD5SUM="c98a6068bc9b8ad9cebaca625ca73aa2"
 
 # gtest
-GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.11.0.tar.gz"
-GTEST_NAME=googletest-release-1.11.0.tar.gz
-GTEST_SOURCE=googletest-release-1.11.0
-GTEST_MD5SUM="e8a8df240b6938bb6384155d4c37d937"
+GTEST_DOWNLOAD="https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz"
+GTEST_NAME=googletest-release-1.12.1.tar.gz
+GTEST_SOURCE=googletest-release-1.12.1
+GTEST_MD5SUM="e82199374acdfda3f425331028eb4e2a"
 
 # snappy
 SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
@@ -110,10 +110,10 @@ GPERFTOOLS_SOURCE=gperftools-2.10
 GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
 
 # zlib
-ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
-ZLIB_NAME=zlib-1.2.11.tar.gz
-ZLIB_SOURCE=zlib-1.2.11
-ZLIB_MD5SUM="1c9f62f0778697a09d36121ead88e08e"
+ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+ZLIB_NAME=zlib-1.3.1.tar.gz
+ZLIB_SOURCE=zlib-1.3.1
+ZLIB_MD5SUM="9855b6d802d7fe5b7bd5b196a2271655"
 
 # lz4
 LZ4_DOWNLOAD="https://github.com/lz4/lz4/archive/v1.9.4.tar.gz"
@@ -222,10 +222,10 @@ LIBRDKAFKA_SOURCE=librdkafka-1.9.2
 LIBRDKAFKA_MD5SUM="fe9624e905abbf8324b0f6be520d9c24"
 
 # zstd
-ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
-ZSTD_NAME=zstd-1.5.5.tar.gz
-ZSTD_SOURCE=zstd-1.5.5
-ZSTD_MD5SUM="63251602329a106220e0a5ad26ba656f"
+ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+ZSTD_NAME=zstd-1.5.7.tar.gz
+ZSTD_SOURCE=zstd-1.5.7
+ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
 # brotli
 BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
@@ -261,10 +261,10 @@ ARROW_SOURCE="arrow-apache-arrow-17.0.0"
 ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
-ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
-ABSEIL_NAME="abseil-cpp-20230125.3.tar.gz"
-ABSEIL_SOURCE=abseil-cpp-20230125.3
-ABSEIL_MD5SUM="9b6dae642c4bd92f007ab2c148bc0498"
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
+ABSEIL_NAME="abseil-cpp-20250512.1.tar.gz"
+ABSEIL_SOURCE=abseil-cpp-20250512.1
+ABSEIL_MD5SUM="f225db90c7f3485f3bb65ab2aeae76fa"
 
 # S2
 S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
@@ -321,10 +321,10 @@ LIBUNWIND_SOURCE="libunwind-1.6.2"
 LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
 
 # cctz
-CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
-CCTZ_NAME="cctz-2.3.tar.gz"
-CCTZ_SOURCE="cctz-2.3"
-CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
+CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.5.tar.gz"
+CCTZ_NAME="cctz-2.5.tar.gz"
+CCTZ_SOURCE="cctz-2.5"
+CCTZ_MD5SUM="cae0ee4a5da5399d591e770b7515a46d"
 
 # datatables, bootstrap 3 and jQuery 3
 # The origin download url is always changing: https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25
@@ -348,10 +348,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
-AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
+AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -468,6 +468,12 @@ HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
 HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
+# libhdfs 3.4
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.1-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="4ca35773ecfae856962885413f6bbeac"
+
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
 AVX2NEON_NAME=v1.0.0.tar.gz
@@ -511,10 +517,10 @@ BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
 # azure blob
-AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.10.3.tar.gz"
-AZURE_NAME="azure-core_1.10.3.tar.gz"
-AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
-AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
+AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.16.0.tar.gz"
+AZURE_NAME="azure-core_1.16.0.tar.gz"
+AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.16.0"
+AZURE_MD5SUM="0fb23eab695dc24b94456bf461e6af3b"
 
 # libdragonbox for faster double/float to string
 DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
@@ -539,19 +545,6 @@ PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixm
 PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
-
-# openblas
-OPENBLAS_DOWNLOAD="https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.29/OpenBLAS-0.3.29.tar.gz"
-OPENBLAS_NAME="OpenBLAS-0.3.29.tar.gz"
-OPENBLAS_SOURCE="OpenBLAS-0.3.29"
-OPENBLAS_MD5SUM="853a0c5c0747c5943e7ef4bbb793162d"
-
-# faiss
-FAISS_DOWNLOAD="https://github.com/facebookresearch/faiss/archive/refs/tags/v1.10.0.tar.gz"
-FAISS_NAME="faiss-1.10.0.tar.gz"
-FAISS_SOURCE="faiss-1.10.0"
-FAISS_MD5SUM="f31edf2492808b27cc963d0ab316a205"
-
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -621,6 +614,7 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
+    'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
@@ -633,8 +627,6 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
-    'OPENBLAS'
-    'FAISS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

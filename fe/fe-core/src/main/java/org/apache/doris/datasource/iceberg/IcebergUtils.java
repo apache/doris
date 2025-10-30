@@ -34,7 +34,6 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.Subquery;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
@@ -60,7 +59,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
@@ -79,6 +78,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
@@ -91,6 +91,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
@@ -101,6 +102,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
@@ -109,19 +111,27 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.Month;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -277,9 +287,6 @@ public class IcebergUtils {
         } else if (expr instanceof InPredicate) {
             // InPredicate, only support a in (1,2,3)
             InPredicate inExpr = (InPredicate) expr;
-            if (inExpr.contains(Subquery.class)) {
-                return null;
-            }
             SlotRef slotRef = convertDorisExprToSlotRef(inExpr.getChild(0));
             if (slotRef == null) {
                 return null;
@@ -602,10 +609,156 @@ public class IcebergUtils {
         }
     }
 
-    public static org.apache.iceberg.Table getIcebergTable(ExternalTable dorisTable) {
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, String timeZone) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            Object value = partitionData.get(i);
+            try {
+                String partitionString = serializePartitionValue(field.type(), value, timeZone);
+                partitionInfoMap.put(field.name(), partitionString);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
+
+    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
+        switch (type.typeId()) {
+            case BOOLEAN:
+            case INTEGER:
+            case LONG:
+            case STRING:
+            case UUID:
+            case DECIMAL:
+                if (value == null) {
+                    return null;
+                }
+                return value.toString();
+            case FIXED:
+            case BINARY:
+                if (value == null) {
+                    return null;
+                }
+                // Fixed and binary types are stored as ByteBuffer
+                ByteBuffer buffer = (ByteBuffer) value;
+                byte[] res = new byte[buffer.limit()];
+                buffer.get(res);
+                return new String(res, StandardCharsets.UTF_8);
+            case DATE:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg date is stored as days since epoch (1970-01-01)
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg time is stored as microseconds since midnight
+                long micros = (Long) value;
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg timestamp is stored as microseconds since epoch
+                // (1970-01-01T00:00:00)
+                long timestampMicros = (Long) value;
+                TimestampType timestampType = (TimestampType) type;
+                LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
+                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        ZoneOffset.UTC);
+                // type is timestamptz if timestampType.shouldAdjustToUTC() is true
+                if (timestampType.shouldAdjustToUTC()) {
+                    timestamp = timestamp.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of(timeZone))
+                            .toLocalDateTime();
+                }
+                return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
+        }
+    }
+
+    public static Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache().getIcebergTable(dorisTable);
+    }
+
+    public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
+        DorisTypeToIcebergType visitor = type.isStructType() ? new DorisTypeToIcebergType((StructType) type)
+                : new DorisTypeToIcebergType();
+        return DorisTypeToIcebergType.visit(type, visitor);
+    }
+
+    public static Literal<?> parseIcebergLiteral(String value, org.apache.iceberg.types.Type type) {
+        if (value == null) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case BOOLEAN:
+                try {
+                    return Literal.of(Boolean.parseBoolean(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
+                }
+            case INTEGER:
+            case DATE:
+                try {
+                    return Literal.of(Integer.parseInt(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Int string: " + value, e);
+                }
+            case LONG:
+            case TIME:
+            case TIMESTAMP:
+            case TIMESTAMP_NANO:
+                try {
+                    return Literal.of(Long.parseLong(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Long string: " + value, e);
+                }
+            case FLOAT:
+                try {
+                    return Literal.of(Float.parseFloat(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Float string: " + value, e);
+                }
+            case DOUBLE:
+                try {
+                    return Literal.of(Double.parseDouble(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Double string: " + value, e);
+                }
+            case STRING:
+                return Literal.of(value);
+            case UUID:
+                try {
+                    return Literal.of(UUID.fromString(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid UUID string: " + value, e);
+                }
+            case FIXED:
+            case BINARY:
+            case GEOMETRY:
+            case GEOGRAPHY:
+                return Literal.of(ByteBuffer.wrap(value.getBytes()));
+            case DECIMAL:
+                try {
+                    return Literal.of(new BigDecimal(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
+                }
+            default:
+                throw new IllegalArgumentException("Cannot parse unknown type: " + type);
+        }
     }
 
     private static void updateIcebergColumnUniqueId(Column column, Types.NestedField icebergField) {
@@ -636,7 +789,7 @@ public class IcebergUtils {
      */
     private static List<Column> getSchema(ExternalTable dorisTable, long schemaId, boolean isView) {
         try {
-            return dorisTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+            return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 Schema schema;
                 if (isView) {
                     View icebergView = getIcebergView(dorisTable);
@@ -676,6 +829,12 @@ public class IcebergUtils {
                             IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
                             true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
+            if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
+                Types.TimestampType timestampType = (Types.TimestampType) field.type();
+                if (timestampType.shouldAdjustToUTC()) {
+                    column.setWithTZExtraInfo();
+                }
+            }
             resSchema.add(column);
         }
         return resSchema;
@@ -768,7 +927,7 @@ public class IcebergUtils {
     }
 
     public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
-        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(externalCatalog.getConfiguration());
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
@@ -778,9 +937,8 @@ public class IcebergUtils {
             // Later, type checks will be performed when loading the table.
             catalogProperties.put(HiveCatalog.LIST_ALL_TABLES, "true");
         }
-        String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
+        String metastoreUris = catalogProperties.getOrDefault(HMSBaseProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
-
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
     }
@@ -1203,7 +1361,7 @@ public class IcebergUtils {
         }
     }
 
-    public static org.apache.iceberg.view.View getIcebergView(ExternalTable dorisTable) {
+    public static View getIcebergView(ExternalTable dorisTable) {
         IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
         return metadataCache.getIcebergView(dorisTable);
     }

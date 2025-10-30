@@ -168,10 +168,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.rollupFinishedVersion = -1L;
     }
 
-    public long getDataSize(boolean singleReplica) {
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
         long dataSize = 0;
         for (Tablet tablet : getTablets()) {
-            dataSize += tablet.getDataSize(singleReplica);
+            dataSize += tablet.getDataSize(singleReplica, filterSizeZero);
         }
         return dataSize;
     }

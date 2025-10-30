@@ -50,7 +50,9 @@ class RuntimeState;
 class TDataSink;
 namespace vectorized {
 class AsyncResultWriter;
-}
+class ScoreRuntime;
+class AnnTopNRuntime;
+} // namespace vectorized
 } // namespace doris
 
 namespace doris::pipeline {
@@ -132,6 +134,12 @@ public:
         return Status::OK();
     }
 
+    /**
+     * Pipeline task is blockable means it will be blocked in the next run. So we should put the
+     * pipeline task into the blocking task scheduler.
+     */
+    virtual bool is_blockable(RuntimeState* state) const = 0;
+
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
@@ -143,8 +151,9 @@ public:
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
     }
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution() const;
+    [[nodiscard]] virtual DataDistribution required_data_distribution(
+            RuntimeState* /*state*/) const;
+    [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
 
 protected:
     OperatorPtr _child = nullptr;
@@ -177,6 +186,11 @@ public:
     // Do initialization. This step should be executed only once and in bthread, so we can do some
     // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    // Make sure all resources are ready before execution. For example, remote tablets should be
+    // loaded to local storage.
+    // This is called by execution pthread and different from `Operator::prepare` which is called
+    // by bthread.
+    virtual Status prepare(RuntimeState* state) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
@@ -202,14 +216,14 @@ public:
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
+    [[nodiscard]] virtual bool is_blockable() const;
 
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
-    virtual std::vector<Dependency*> filter_dependencies() { return {}; }
+    virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
                         vectorized::Block* block, size_t column_to_keep);
@@ -268,6 +282,8 @@ protected:
     RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
@@ -285,6 +301,7 @@ public:
     ~PipelineXLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override;
 
     virtual std::string name_suffix() const;
@@ -297,7 +314,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -305,7 +321,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateArg* _shared_state = nullptr;
 };
 
@@ -466,12 +481,14 @@ public:
     // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
+    virtual Status prepare(RuntimeState* state) = 0;
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status terminate(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     [[nodiscard]] virtual bool is_finished() const { return false; }
+    [[nodiscard]] virtual bool is_blockable() const { return false; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -508,7 +525,6 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -549,6 +565,7 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
     Status terminate(RuntimeState* state) override;
@@ -561,7 +578,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -569,7 +585,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 };
 
@@ -619,6 +634,9 @@ public:
 
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
+    }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable();
     }
 
     [[nodiscard]] bool is_spillable() const { return _spillable; }
@@ -861,9 +879,10 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable() || _blockable;
+    }
 
-    // Tablets should be hold before open phase.
-    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status prepare(RuntimeState* state) override;
 
     Status terminate(RuntimeState* state) override;
@@ -925,6 +944,7 @@ public:
     [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
+    [[nodiscard]] vectorized::VExprContextSPtrs& projections() { return _projections; }
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
@@ -996,6 +1016,9 @@ protected:
     //_keep_origin is used to avoid copying during projection,
     // currently set to false only in the nestloop join.
     bool _keep_origin = true;
+
+    // _blockable is true if the operator contains expressions that may block execution
+    bool _blockable = false;
 };
 
 template <typename LocalStateType>
@@ -1141,15 +1164,14 @@ public:
                                                        "DummyOperatorDependency", true);
         _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
-    std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+    std::vector<Dependency*> execution_dependencies() override {
+        return {_filter_dependency.get()};
+    }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
@@ -1197,13 +1219,10 @@ public:
                                                     "DummyOperatorDependency", true);
         _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
     bool is_finished() const override { return _is_finished; }
 
 private:

@@ -35,6 +35,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_predicate.h"
 #include "util/obj_lru_cache.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
@@ -69,7 +70,7 @@ class VExprContext;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-class ParquetReader : public GenericReader {
+class ParquetReader : public GenericReader, public ExprPushDownHelper {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
 public:
@@ -85,6 +86,8 @@ public:
         int64_t column_read_time = 0;
         int64_t parse_meta_time = 0;
         int64_t parse_footer_time = 0;
+        int64_t file_footer_read_calls = 0;
+        int64_t file_footer_hit_cache = 0;
         int64_t open_file_time = 0;
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;
@@ -96,16 +99,19 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
+                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
-    // for test
-    void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
+#ifdef BE_TEST
+    // for unit test
+    void set_file_reader(io::FileReaderSPtr file_reader);
+#endif
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
@@ -122,8 +128,6 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status close() override;
-
-    RowRange get_whole_range() { return _whole_range; }
 
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
@@ -142,9 +146,7 @@ public:
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
-    // Only for iceberg reader to sanitize invalid column names
-    void iceberg_sanitize(const std::vector<std::string>& read_columns);
-
+    // Partition columns will not be materialized in parquet files. So we should fill it with missing columns.
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
@@ -156,6 +158,8 @@ public:
             std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
+
+    bool count_read_rows() override { return true; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -176,14 +180,12 @@ private:
         RuntimeProfile::Counter* open_file_time = nullptr;
         RuntimeProfile::Counter* open_file_num = nullptr;
         RuntimeProfile::Counter* row_group_filter_time = nullptr;
+        RuntimeProfile::Counter* page_index_read_calls = nullptr;
         RuntimeProfile::Counter* page_index_filter_time = nullptr;
         RuntimeProfile::Counter* read_page_index_time = nullptr;
         RuntimeProfile::Counter* parse_page_index_time = nullptr;
-
-        RuntimeProfile::Counter* file_read_time = nullptr;
-        RuntimeProfile::Counter* file_read_calls = nullptr;
-        RuntimeProfile::Counter* file_meta_read_calls = nullptr;
-        RuntimeProfile::Counter* file_read_bytes = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
@@ -209,14 +211,14 @@ private:
     void _init_file_description();
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
+    // At the beginning of reading next row group, index should be loaded and used to filter data efficiently.
     Status _process_page_index(const tparquet::RowGroup& row_group,
                                const RowGroupReader::RowGroupIndex& row_group_index,
                                std::vector<RowRange>& candidate_row_ranges);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
-    Status _process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& column_meta,
-                                       bool* filter_group);
+    Status _process_column_stat_filter(const tparquet::RowGroup& row_group, bool* filter_group);
     Status _process_row_group_filter(const RowGroupReader::RowGroupIndex& row_group_index,
                                      const tparquet::RowGroup& row_group, bool* filter_group);
     void _init_chunk_dicts();
@@ -229,11 +231,11 @@ private:
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
-    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
-
     Status _set_read_one_line_impl() override { return Status::OK(); }
 
-private:
+    bool _exists_in_file(const VSlotRef* slot) const override;
+    bool _type_matches(const VSlotRef*) const override;
+
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -249,10 +251,15 @@ private:
     // after _file_reader. Otherwise, there may be heap-use-after-free bug.
     ObjLRUCache::CacheHandle _meta_cache_handle;
     std::unique_ptr<FileMetaData> _file_metadata_ptr;
-    FileMetaData* _file_metadata = nullptr;
+    const FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
+    // _tracing_file_reader wraps _file_reader.
+    // _file_reader is original file reader.
+    // _tracing_file_reader is tracing file reader with io context.
+    // If io_ctx is null, _tracing_file_reader will be the same as file_reader.
     io::FileReaderSPtr _file_reader = nullptr;
+    io::FileReaderSPtr _tracing_file_reader = nullptr;
     std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader
     bool _row_group_eof = true;
@@ -269,6 +276,7 @@ private:
     std::vector<std::string> _read_file_columns;
 
     RowRange _whole_range = RowRange(0, 0);
+    // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
 
@@ -280,7 +288,7 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    cctz::time_zone* _ctz = nullptr;
+    const cctz::time_zone* _ctz = nullptr;
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 
@@ -294,9 +302,6 @@ private:
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
     RuntimeState* _state = nullptr;
-    // Cache to save some common part such as file footer.
-    // Maybe null if not used
-    FileMetaCache* _meta_cache = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;
@@ -309,6 +314,14 @@ private:
     std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+
+    bool _filter_groups;
+
+    // for page index filter. slot id => expr
+    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> _push_down_simple_predicates;
+    std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
+    std::vector<std::unique_ptr<ColumnPredicate>> _useless_predicates;
+    Arena _arena;
 };
 #include "common/compile_check_end.h"
 

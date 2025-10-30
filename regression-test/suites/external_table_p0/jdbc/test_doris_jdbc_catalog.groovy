@@ -23,7 +23,7 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
 
@@ -204,6 +204,20 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ set return_object_data_as_binary=true """
     order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from bowen_hll_test group by pin_id; """
 
+    sql """drop table if exists `order` """
+    sql """
+        create table `order` (
+            test_col int
+        )
+        DUPLICATE KEY(`test_col`)
+        DISTRIBUTED BY HASH(`test_col`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into `order` values (1);"""
+
     // query with jdbc external table
     sql """ refresh catalog  doris_jdbc_catalog """
     qt_sql """select current_catalog()"""
@@ -231,20 +245,33 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     // test query tvf
     qt_sql """desc function query("catalog" = "doris_jdbc_catalog", "query" = "select * from regression_test_jdbc_catalog_p0.base");"""
 
-    order_qt_sql """ select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+    order_qt_sql1 """ select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
 
-    order_qt_sql """ select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+    order_qt_sql2 """ select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
 
-    //clean
-    qt_sql """select current_catalog()"""
-    sql "switch internal"
-    qt_sql """select current_catalog()"""
-    sql "use regression_test_jdbc_catalog_p0"
-    sql """ drop table if exists test_doris_jdbc_doris_in_tb """
-    sql """ drop table if exists bowen_hll_test """
-    sql """ drop table if exists base """
-    sql """ drop table if exists all_null_tbl """
-    sql """ drop table if exists arr """
-    sql """ drop table if exists test_insert_order """
+    order_qt_sql3 """ select varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql4 """ select tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql5 """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
+    order_qt_sql6 """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col,varchar_col from tmp;"""
+
+    order_qt_sql7 """ with tmp as (select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
+
+    order_qt_keywork_table_name """ select * from `order` order by test_col; """
+
+    // //clean
+    // qt_sql """select current_catalog()"""
+    // sql "switch internal"
+    // qt_sql """select current_catalog()"""
+    // sql "use regression_test_jdbc_catalog_p0"
+    // sql """ drop table if exists test_doris_jdbc_doris_in_tb """
+    // sql """ drop table if exists bowen_hll_test """
+    // sql """ drop table if exists base """
+    // sql """ drop table if exists all_null_tbl """
+    // sql """ drop table if exists arr """
+    // sql """ drop table if exists test_insert_order """
 
 }

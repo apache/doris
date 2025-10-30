@@ -132,7 +132,7 @@ public class LocationPath {
         String schema = extractScheme(location);
         String normalizedLocation = location;
         StorageProperties storageProperties = null;
-        StorageProperties.Type type = SchemaTypeMapper.fromSchema(schema);
+        StorageProperties.Type type = fromSchemaWithContext(location, schema);
         if (StorageProperties.Type.LOCAL.equals(type)) {
             normalize = false;
         }
@@ -154,6 +154,13 @@ public class LocationPath {
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
     }
 
+    public static StorageProperties.Type fromSchemaWithContext(String location, String schema) {
+        if (isHdfsOnOssEndpoint(location)) {
+            return StorageProperties.Type.OSS_HDFS;
+        }
+        return SchemaTypeMapper.fromSchema(schema); // fallback to default
+    }
+
     public static LocationPath of(String location) {
         String schema = extractScheme(location);
         String encodedLocation = encodedLocation(location);
@@ -173,6 +180,21 @@ public class LocationPath {
                                   Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         try {
             return LocationPath.of(location, storagePropertiesMap, true);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
+    public static LocationPath of(String location,
+                                  StorageProperties storageProperties) {
+        try {
+            String schema = extractScheme(location);
+            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+            String encodedLocation = encodedLocation(normalizedLocation);
+            URI uri = URI.create(encodedLocation);
+            String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                    + Strings.nullToEmpty(uri.getAuthority());
+            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
         }
@@ -270,6 +292,9 @@ public class LocationPath {
     public static TFileType getTFileTypeForBE(String location) {
         if (StringUtils.isBlank(location)) {
             return null;
+        }
+        if (isHdfsOnOssEndpoint(location)) {
+            return TFileType.FILE_HDFS;
         }
         LocationPath locationPath = LocationPath.of(location);
         return locationPath.getTFileTypeForBE();

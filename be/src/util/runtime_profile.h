@@ -22,6 +22,7 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/runtime_profile.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -41,11 +42,11 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "util/binary_cast.hpp"
-#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TRuntimeProfileNode;
 class TRuntimeProfileTree;
 class RuntimeProfileCounterTreeNode;
@@ -99,6 +100,86 @@ class RuntimeProfile {
 public:
     static std::unique_ptr<RuntimeProfile> from_thrift(const TRuntimeProfileTree& node);
 
+    static std::unique_ptr<RuntimeProfile> from_proto(const PRuntimeProfileTree& tree);
+
+    static PProfileUnit unit_to_proto(const TUnit::type& type) {
+        switch (type) {
+        case TUnit::UNIT: {
+            return PProfileUnit::UNIT;
+        }
+        case TUnit::UNIT_PER_SECOND: {
+            return PProfileUnit::UNIT_PER_SECOND;
+        }
+        case TUnit::CPU_TICKS: {
+            return PProfileUnit::CPU_TICKS;
+        }
+        case TUnit::BYTES: {
+            return PProfileUnit::BYTES;
+        }
+        case TUnit::BYTES_PER_SECOND: {
+            return PProfileUnit::BYTES_PER_SECOND;
+        }
+        case TUnit::TIME_NS: {
+            return PProfileUnit::TIME_NS;
+        }
+        case TUnit::DOUBLE_VALUE: {
+            return PProfileUnit::DOUBLE_VALUE;
+        }
+        case TUnit::NONE: {
+            return PProfileUnit::NONE;
+        }
+        case TUnit::TIME_MS: {
+            return PProfileUnit::TIME_MS;
+        }
+        case TUnit::TIME_S: {
+            return PProfileUnit::TIME_S;
+        }
+        default: {
+            DCHECK(false);
+            return PProfileUnit::NONE;
+        }
+        }
+    }
+
+    static TUnit::type unit_to_thrift(const PProfileUnit& unit) {
+        switch (unit) {
+        case PProfileUnit::UNIT: {
+            return TUnit::UNIT;
+        }
+        case PProfileUnit::UNIT_PER_SECOND: {
+            return TUnit::UNIT_PER_SECOND;
+        }
+        case PProfileUnit::CPU_TICKS: {
+            return TUnit::CPU_TICKS;
+        }
+        case PProfileUnit::BYTES: {
+            return TUnit::BYTES;
+        }
+        case PProfileUnit::BYTES_PER_SECOND: {
+            return TUnit::BYTES_PER_SECOND;
+        }
+        case PProfileUnit::TIME_NS: {
+            return TUnit::TIME_NS;
+        }
+        case PProfileUnit::DOUBLE_VALUE: {
+            return TUnit::DOUBLE_VALUE;
+        }
+        case PProfileUnit::NONE: {
+            return TUnit::NONE;
+        }
+        case PProfileUnit::TIME_MS: {
+            return TUnit::TIME_MS;
+        }
+        case PProfileUnit::TIME_S: {
+            return TUnit::TIME_S;
+        }
+        default: {
+            DCHECK(false);
+            return TUnit::NONE;
+        }
+        }
+    }
+
     // The root counter name for all top level counters.
     static const std::string ROOT_COUNTER;
     class Counter {
@@ -132,6 +213,15 @@ public:
             counter.value = this->value();
             counter.type = this->type();
             counter.__set_level(this->_level);
+            return counter;
+        }
+
+        virtual PProfileCounter to_proto(const std::string& name) const {
+            PProfileCounter counter;
+            counter.set_name(name);
+            counter.set_value(this->value());
+            counter.set_type(unit_to_proto(this->type()));
+            counter.set_level(this->value());
             return counter;
         }
 
@@ -192,6 +282,15 @@ public:
             return counter;
         }
 
+        PProfileCounter to_proto(const std::string& name) const override {
+            PProfileCounter counter;
+            counter.set_name(name);
+            counter.set_value(current_value());
+            counter.set_type(unit_to_proto(this->type()));
+            counter.set_level(this->value());
+            return counter;
+        }
+
         TCounter to_thrift_peak(std::string name) {
             TCounter counter;
             counter.name = std::move(name);
@@ -199,6 +298,10 @@ public:
             counter.type = type();
             counter.__set_level(level());
             return counter;
+        }
+
+        PProfileCounter to_proto_peak(const std::string& name) const {
+            return Counter::to_proto(name);
         }
 
         virtual void pretty_print(std::ostream* s, const std::string& prefix,
@@ -364,6 +467,14 @@ public:
             return counter;
         }
 
+        PProfileCounter to_proto(const std::string& name) const override {
+            PProfileCounter counter;
+            counter.set_name(name);
+            counter.set_level(2);
+            counter.set_description(_description);
+            return counter;
+        }
+
     private:
         const std::string _description;
         const std::string _name;
@@ -400,6 +511,9 @@ public:
     // Info strings matched up by key and are updated or added, depending on whether
     // the key has already been registered.
     void update(const TRuntimeProfileTree& thrift_profile);
+
+    //Similar to `void update(const TRuntimeProfileTree& thrift_profile)`
+    void update(const PRuntimeProfileTree& proto_profile);
 
     // Add a counter with 'name'/'type'.  Returns a counter object that the caller can
     // update.  The counter is owned by the RuntimeProfile object.
@@ -476,6 +590,11 @@ public:
     void to_thrift(TRuntimeProfileTree* tree, int64_t profile_level = 2);
     void to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level = 2);
 
+    // Similar to `to_thrift`.
+    void to_proto(PRuntimeProfileTree* tree, int64_t profile_level = 2);
+    void to_proto(google::protobuf::RepeatedPtrField<PRuntimeProfileNode>* nodes,
+                  int64_t profile_level = 2);
+
     // Divides all counters by n
     void divide(int n);
 
@@ -487,7 +606,7 @@ public:
     void get_all_children(std::vector<RuntimeProfile*>* children);
 
     // Returns the number of counters in this profile
-    int num_counters() const { return _counter_map.size(); }
+    int num_counters() const { return cast_set<int>(_counter_map.size()); }
 
     // Returns name of this profile
     const std::string& name() const { return _name; }
@@ -596,6 +715,9 @@ private:
     // On return, *idx points to the node immediately following this subtree.
     void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
 
+    // Similar to `void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx)`
+    void update(const google::protobuf::RepeatedPtrField<PRuntimeProfileNode>& nodes, int* idx);
+
     // Helper function to compute compute the fraction of the total time spent in
     // this profile and its children.
     // Called recursively.
@@ -700,5 +822,5 @@ private:
     T _sw;
     C* _counter = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -56,7 +56,7 @@ private:
     Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
                                               vectorized::ColumnRawPtrs& key_columns,
-                                              const size_t num_rows);
+                                              const uint32_t num_rows);
     void _make_nullable_output_key(vectorized::Block* block);
     bool _should_expand_preagg_hash_tables();
 
@@ -111,7 +111,7 @@ public:
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
             return {ExchangeType::NOOP};
         }
@@ -120,7 +120,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution();
+        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(state);
     }
 
     bool require_data_distribution() const override { return _is_colocate; }

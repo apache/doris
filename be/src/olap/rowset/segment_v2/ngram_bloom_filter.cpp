@@ -21,7 +21,7 @@
 #include <glog/logging.h>
 
 #include "absl/strings/substitute.h"
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "exec/decompressor.h"
 #include "olap/utils.h"
@@ -35,6 +36,7 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Lzop
 const uint8_t LzopDecompressor::LZOP_MAGIC[9] = {0x89, 0x4c, 0x5a, 0x4f, 0x00,
@@ -68,8 +70,8 @@ Status LzopDecompressor::init() {
     return Status::OK();
 }
 
-Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                    uint8_t* output, size_t output_max_len,
+Status LzopDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, uint32_t output_max_len,
                                     size_t* decompressed_len, bool* stream_end,
                                     size_t* more_input_bytes, size_t* more_output_bytes) {
     if (!_is_header_loaded) {
@@ -87,7 +89,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     //   <uncompressed-checksums>
     //   <compressed-checksums>
     //   <compressed-data>
-    int left_input_len = input_len - *input_bytes_read;
+    size_t left_input_len = input_len - *input_bytes_read;
     if (left_input_len < sizeof(uint32_t)) {
         // block is at least have uncompressed_size
         *more_input_bytes = sizeof(uint32_t) - left_input_len;
@@ -348,7 +350,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
         ptr += sizeof(int32_t) + extra_len;
     }
 
-    _header_info.header_size = ptr - input;
+    _header_info.header_size = cast_set<int32_t>(ptr - input);
     *input_bytes_read = _header_info.header_size;
 
     _is_header_loaded = true;
@@ -398,4 +400,5 @@ std::string LzopDecompressor::debug_info() {
     return ss.str();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

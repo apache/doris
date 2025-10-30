@@ -91,6 +91,25 @@ class ClusterOptions {
     // if not specific, docker will let each be contains 1 HDD disk.
     List<String> beDisks = null
 
+    String tdeAk = "";
+    String tdeSk = "";
+
+    // Use external meta service cluster (shared MS/FDB)
+    // Specify the cluster name that provides MS/FDB services
+    // When set, this cluster will not create its own MS/FDB/Recycler
+    // Example: externalMsCluster = "shared-meta" (Cloud mode only)
+    String externalMsCluster = null
+
+    // Specify the instance id.
+    // When not set, "default_instance_id" will be used. (Cloud mode only)
+    String instanceId = null;
+
+    // Cluster snapshot JSON content for FE-1 first startup in cloud mode only.
+    // The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh
+    // with --cluster_snapshot parameter. Only effective on first startup.
+    // Example: clusterSnapshot = '{"cloud_unique_id":"1:instance_id:xxx"}'
+    String clusterSnapshot = null;
+
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
         beConfigs.add('enable_debug_points=true')
@@ -119,6 +138,7 @@ class ListHeader {
 
 class ServerNode {
 
+    // all node index start from 1, not 0
     int index
     String host
     int httpPort
@@ -128,7 +148,7 @@ class ServerNode {
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
-        node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
+        node.httpPort = (int) toLongOrDefault(fields.get(header.indexOf('http_port')), -1)
         node.alive = fields.get(header.indexOf('alive')) == 'true'
         node.path = (String) fields.get(header.indexOf('path'))
     }
@@ -182,8 +202,8 @@ class Frontend extends ServerNode {
     static Frontend fromCompose(ListHeader header, int index, List<Object> fields) {
         Frontend fe = new Frontend()
         ServerNode.fromCompose(fe, header, index, fields)
-        fe.queryPort = (Integer) fields.get(header.indexOf('query_port'))
-        fe.editLogPort = (Integer) fields.get(header.indexOf('edit_log_port'))
+        fe.queryPort = (int) toLongOrDefault(fields.get(header.indexOf('query_port')), -1)
+        fe.editLogPort = (int) toLongOrDefault(fields.get(header.indexOf('edit_log_port')), -1)
         fe.isMaster = fields.get(header.indexOf('is_master')) == 'true'
         return fe
     }
@@ -211,7 +231,7 @@ class Backend extends ServerNode {
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
-        be.heartbeatPort = (Integer) fields.get(header.indexOf('heartbeat_port'))
+        be.heartbeatPort = (int) toLongOrDefault(fields.get(header.indexOf('heartbeat_port')), -1)
         be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
         be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
 
@@ -228,6 +248,10 @@ class Backend extends ServerNode {
 
     String getConfFilePath() {
         return path + '/conf/be.conf'
+    }
+
+    String getHeartbeatPort() {
+        return heartbeatPort;
     }
 
 }
@@ -282,6 +306,8 @@ class SuiteCluster {
 
     static final Logger logger = LoggerFactory.getLogger(this.class)
 
+    // dockerImpl() will set jdbcUrl
+    String jdbcUrl = ""
     final String name
     final Config config
     private boolean running
@@ -356,20 +382,72 @@ class SuiteCluster {
         if (!options.beMetaServiceEndpoint) {
             cmd += ['--no-be-metaservice-endpoint']
         }
-        if (!options.beClusterId) {
-            cmd += ['--no-be-cluster-id']
+        if (options.beClusterId) {
+            cmd += ['--be-cluster-id']
+        }
+
+        if (options.tdeAk != null && options.tdeAk != "") {
+            cmd += ['--tde-ak']
+            cmd += options.tdeAk
+        }
+
+        if (options.tdeSk != null && options.tdeSk != "") {
+            cmd += ['--tde-sk']
+            cmd += options.tdeSk
+        }
+
+        if (options.externalMsCluster != null && options.externalMsCluster != "") {
+            cmd += ['--external-ms', options.externalMsCluster]
+        }
+
+        if (options.instanceId != null && options.instanceId != "") {
+            cmd += ['--instance-id', options.instanceId]
+        }
+
+        if (options.clusterSnapshot != null && options.clusterSnapshot != "") {
+            // Remove newlines and extra whitespace to make it a compact JSON string
+            def compactJson = options.clusterSnapshot
+                .replaceAll(/\s+/, ' ')  // Replace all whitespace sequences with single space
+                .trim()                   // Remove leading/trailing spaces
+            // No need to escape when using list-based execution
+            cmd += ['--cluster-snapshot', compactJson]
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
 
-        runCmd(cmd.join(' '), 180)
+        runCmdList(cmd, 180)
 
         // wait be report disk
         Thread.sleep(5000)
 
         running = true
+    }
+
+    String getJdbcUrl(boolean connectToFollower) {
+        def user = config.jdbcUser
+        def password = config.jdbcPassword
+        Frontend fe = null
+        for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
+            if (connectToFollower) {
+                fe = getOneFollowerFe()
+            } else {
+                fe = getMasterFe()
+            }
+            Thread.sleep(1000)
+        }
+
+        if (fe == null) {
+            throw new Exception('No available frontend found in cluster: ' + name)
+        }
+
+        logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
+
+        jdbcUrl = String.format(
+                "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                fe.host, fe.queryPort)
+        return jdbcUrl
     }
 
     void injectDebugPoints(NodeType type, Map<String, Map<String, String>> injectPoints) {
@@ -559,48 +637,57 @@ class SuiteCluster {
     int START_WAIT_TIMEOUT = 120
     int STOP_WAIT_TIMEOUT = 60
 
+    // indices start from 1, not 0
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
         runFrontendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then start all backends
     void startBackends(int... indices) {
         runBackendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
         runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
         runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
+    // indices start from 1, not 0
     // if not specific fe indices, then restart all frontends
     void restartFrontends(int... indices) {
         runFrontendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then restart all backends
     void restartBackends(int... indices) {
         runBackendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific ms indices, then restart all ms
     void restartMs(int... indices) {
         runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific recycler indices, then restart all recyclers
     void restartRecyclers(int... indices) {
         runRecyclerCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific fe indices, then drop all frontends
     void dropFrontends(boolean clean, int... indices) {
         def cmd = 'down'
@@ -610,6 +697,7 @@ class SuiteCluster {
         runFrontendsCmd(60, cmd, indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then decommission all backends
     void decommissionBackends(boolean clean, int... indices) {
         def cmd = 'down'
@@ -619,6 +707,7 @@ class SuiteCluster {
         runBackendsCmd(300, cmd, indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then drop force all backends
     void dropForceBackends(boolean clean, int... indices) {
         def cmd = 'down --drop-force'
@@ -628,6 +717,7 @@ class SuiteCluster {
         runBackendsCmd(60, cmd, indices)
     }
 
+    // index start from 1, not 0
     void checkFeIsAlive(int index, boolean isAlive) {
         def fe = getFeByIndex(index)
         assert fe != null : 'frontend with index ' + index + ' not exists!'
@@ -635,6 +725,7 @@ class SuiteCluster {
                 : 'frontend with index ' + index + ' dead')
     }
 
+    // index start from 1, not 0
     void checkBeIsAlive(int index, boolean isAlive) {
         def be = getBeByIndex(index)
         assert be != null : 'backend with index ' + index + ' not exists!'
@@ -642,6 +733,7 @@ class SuiteCluster {
                 : 'backend with index ' + index + ' dead')
     }
 
+    // index start from 1, not 0
     void checkFeIsExists(int index, boolean isExists) {
         def fe = getFeByIndex(index)
         if (isExists) {
@@ -651,6 +743,7 @@ class SuiteCluster {
         }
     }
 
+    // index start from 1, not 0
     void checkBeIsExists(int index, boolean isExists) {
         def be = getBeByIndex(index)
         if (isExists) {
@@ -665,26 +758,70 @@ class SuiteCluster {
         runCmd(cmd)
     }
 
+    /**
+     * Rollback the cloud cluster to a snapshot.
+     * This will stop ALL FE/BE, clean metadata/data, and restart with new cloud_unique_id and instance_id.
+     * Only available for cloud mode clusters.
+     *
+     * @param clusterSnapshot Cluster snapshot JSON content (required)
+     * @param waitTimeout Wait seconds for nodes to be ready (default: 120)
+     */
+    void rollback(String clusterSnapshot, int waitTimeout = 120) {
+        assert clusterSnapshot != null && clusterSnapshot != '' : 'clusterSnapshot cannot be null or empty'
+
+        // Parse and validate cluster snapshot JSON
+        def parser = new JsonSlurper()
+        Map<String, Object> snapshotObj = null
+        try {
+            snapshotObj = (Map<String, Object>) parser.parseText(clusterSnapshot)
+        } catch (Exception e) {
+            throw new Exception("Failed to parse clusterSnapshot JSON: ${e.message}")
+        }
+
+        // Check is_succeed field
+        def isSucceed = snapshotObj.get('is_succeed')
+        assert isSucceed == true : "clusterSnapshot is_succeed field must be true, but got: ${isSucceed}"
+
+        // Extract instance_id from snapshot
+        String instanceId = (String) snapshotObj.get('instance_id')
+        assert instanceId != null && instanceId != '' : "instance_id not found in clusterSnapshot or is empty"
+
+        logger.info("Rollback cluster ${name} with instance_id: ${instanceId}")
+
+        List<String> cmd = ['rollback', name, '--cluster-snapshot', clusterSnapshot]
+        cmd += ['--instance-id', instanceId]
+        cmd += ['--wait-timeout', String.valueOf(waitTimeout)]
+
+        runCmdList(cmd, waitTimeout + 60)
+
+        // wait be report disk after rollback
+        Thread.sleep(5000)
+    }
+
     private void waitHbChanged() {
         // heart beat interval is 5s
         Thread.sleep(7000)
     }
 
+    // indices start from 1, not 0
     private void runFrontendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --fe-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 
+    // indices start from 1, not 0
     private void runBackendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --be-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 
+    // indices start from 1, not 0
     private void runMsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --ms-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 
+    // indices start from 1, not 0
     private void runRecyclerCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --recycle-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
@@ -694,6 +831,32 @@ class SuiteCluster {
         def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
+        if (proc.exitValue() != 0) {
+            throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
+                                              proc.exitValue(), outBuf.toString(), errBuf.toString()))
+        }
+        def parser = new JsonSlurper()
+        if (outBuf.toString().size() == 0) {
+            throw new Exception(String.format('doris compose output is empty, err: %s', errBuf.toString()))
+        }
+        def object = (Map<String, Object>) parser.parseText(outBuf.toString())
+        if (object.get('code') != 0) {
+            throw new Exception(String.format('Code: %s != 0, err: %s', object.get('code'), object.get('err')))
+        }
+        return object.get('data')
+    }
+
+    // Execute command with proper argument list to avoid shell escaping issues
+    private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
+        def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
+        logger.info('Run doris compose cmd: {}', fullCmdList.join(' '))
+        def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
         Awaitility.await().atMost(timeoutSecond, SECONDS).until({

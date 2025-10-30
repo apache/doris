@@ -18,9 +18,10 @@
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/sloppy_phrase_matcher.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 SloppyPhraseMatcher::SloppyPhraseMatcher(const std::vector<PostingsAndFreq>& postings, int32_t slop)
-        : _slop(slop), _num_postings(postings.size()) {
+        : _slop(slop), _num_postings(static_cast<int32_t>(postings.size())) {
     _pq = std::make_unique<PhraseQueue>(postings.size());
     _phrase_positions.resize(postings.size());
     for (size_t i = 0; i < postings.size(); i++) {
@@ -83,7 +84,7 @@ bool SloppyPhraseMatcher::advance_rpts(PhrasePositions* pp) {
         return true;
     }
     const auto& rg = _rpt_groups[pp->_rpt_group];
-    FixedBitSet bits(rg.size());
+    FixedBitSet bits(static_cast<int32_t>(rg.size()));
     int32_t k0 = pp->_rpt_ind;
     int32_t k = 0;
     while ((k = collide(pp)) >= 0) {
@@ -187,7 +188,7 @@ LinkedHashMap<std::string, int32_t> SloppyPhraseMatcher::repeating_terms() {
         for (const auto& t : pp->_terms) {
             tcnt[t]++;
             if (tcnt[t] == 2) {
-                tord.insert(t, tord.size());
+                tord.insert(t, static_cast<int32_t>(tord.size()));
             }
         }
     }
@@ -220,7 +221,7 @@ std::vector<std::vector<PhrasePositions*>> SloppyPhraseMatcher::gather_rpt_group
                 }
                 int32_t g = pp->_rpt_group;
                 if (g < 0) {
-                    g = res.size();
+                    g = static_cast<int32_t>(res.size());
                     pp->_rpt_group = g;
                     std::vector<PhrasePositions*> rl;
                     rl.reserve(2);
@@ -262,7 +263,7 @@ void SloppyPhraseMatcher::sort_rpt_groups(std::vector<std::vector<PhrasePosition
         });
         _rpt_groups[i] = rg;
         for (size_t j = 0; j < _rpt_groups[i].size(); ++j) {
-            _rpt_groups[i][j]->_rpt_ind = j;
+            _rpt_groups[i][j]->_rpt_ind = static_cast<int32_t>(j);
         }
     }
 }
@@ -314,4 +315,5 @@ bool SloppyPhraseMatcher::init_complex() {
     return true;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -16,7 +16,7 @@
 // under the License.
 
 suite('cte-runtime-filter') {
-    
+    sql 'set enable_parallel_result_sink=false;'
     sql '''
     drop table if exists cte_runtime_filter_table;
     CREATE TABLE `cte_runtime_filter_table` (

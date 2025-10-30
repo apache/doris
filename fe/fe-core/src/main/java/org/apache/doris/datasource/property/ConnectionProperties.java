@@ -55,21 +55,13 @@ public abstract class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void initNormalizeAndCheckProps() {
-        List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
-        for (Field field : supportedProps) {
-            field.setAccessible(true);
-            ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
-            String[] names = anno.names();
-            for (String name : names) {
+    public void initNormalizeAndCheckProps() {
+        ConnectorPropertiesUtils.bindConnectorProperties(this, origProps);
+        for (Field field : ConnectorPropertiesUtils.getConnectorProperties(this.getClass())) {
+            ConnectorProperty annotation = field.getAnnotation(ConnectorProperty.class);
+            for (String name : annotation.names()) {
                 if (origProps.containsKey(name)) {
-                    try {
-                        field.set(this, origProps.get(name));
-                        matchedProperties.put(name, origProps.get(name));
-                    } catch (IllegalAccessException e) {
-                        throw new StoragePropertiesException("Failed to set property " + name
-                                + ", " + e.getMessage(), e);
-                    }
+                    matchedProperties.put(name, origProps.get(name));
                     break;
                 }
             }
@@ -101,7 +93,7 @@ public abstract class ConnectionProperties {
     // This method will check if all required properties are set.
     // Subclass can implement this method for additional check.
     protected void checkRequiredProperties() {
-        List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
+        List<Field> supportedProps = ConnectorPropertiesUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
             field.setAccessible(true);
             ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);

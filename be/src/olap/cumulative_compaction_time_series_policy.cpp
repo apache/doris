@@ -27,6 +27,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static constexpr int64_t MAX_LEVEL2_COMPACTION_TIMEOUT = 24 * 60 * 60;
 static constexpr int64_t MAX_LEVEL1_COMPACTION_GOAL_SIZE = 2 * 1024;
@@ -57,7 +58,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     // NOTE: tablet._meta_lock is hold
     auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
     // check the base rowset and collect the rowsets of cumulative part
-    for (auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         int64_t start_version = rs_meta->start_version();
         int64_t end_version = rs_meta->end_version();
         if (start_version < first_version) {
@@ -136,7 +137,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             // Condition 4: level1 achieve compaction_goal_size
             if (level1_rowsets.size() >= 2) {
                 if (continuous_size >= compaction_goal_size_mbytes * 10 * 1024 * 1024) {
-                    return level1_rowsets.size();
+                    return cast_set<int32_t>(level1_rowsets.size());
                 }
             }
             if (rs_meta->creation_time() < earliest_level1_rowset_creation_time) {
@@ -148,7 +149,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (level1_rowsets.size() >= 2) {
             int64_t cumu_interval = now - earliest_level1_rowset_creation_time;
             if (cumu_interval > compaction_time_threshold_seconds * 10) {
-                return level1_rowsets.size();
+                return cast_set<int32_t>(level1_rowsets.size());
             }
         }
     }
@@ -168,8 +169,8 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 }
 
 void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
+        Tablet* tablet, const RowsetMetaMapContainer& all_metas, int64_t current_cumulative_point,
+        int64_t* ret_cumulative_point) {
     *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
@@ -182,7 +183,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
-    for (auto& rs : all_metas) {
+    for (const auto& [_, rs] : all_metas) {
         existing_rss.emplace_back(rs);
     }
 
@@ -387,7 +388,7 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             if (level1_rowsets.size() >= 2) {
                 if (continuous_size >= compaction_goal_size_mbytes * 10 * 1024 * 1024) {
                     input_rowsets->swap(level1_rowsets);
-                    return input_rowsets->size();
+                    return cast_set<int32_t>(input_rowsets->size());
                 }
             }
         }
@@ -395,7 +396,7 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         DBUG_EXECUTE_IF("time_series_level2_file_count", {
             if (level1_rowsets.size() >= compaction_file_count) {
                 input_rowsets->swap(level1_rowsets);
-                return input_rowsets->size();
+                return cast_set<int32_t>(input_rowsets->size());
             }
         })
 
@@ -404,7 +405,7 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             int64_t cumu_interval = now - level1_rowsets.front()->rowset_meta()->creation_time();
             if (cumu_interval > compaction_time_threshold_seconds * 10) {
                 input_rowsets->swap(level1_rowsets);
-                return input_rowsets->size();
+                return cast_set<int32_t>(input_rowsets->size());
             }
         }
     }
@@ -475,5 +476,6 @@ int64_t TimeSeriesCumulativeCompactionPolicy::get_compaction_level(
 
     return first_level + 1;
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

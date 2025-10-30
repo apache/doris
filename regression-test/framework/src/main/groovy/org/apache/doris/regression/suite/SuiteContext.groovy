@@ -67,6 +67,7 @@ class SuiteContext implements Closeable {
     private long startTime
     private long finishTime
     private volatile Throwable throwable
+    public volatile Boolean isMultiDockerClusterRunning = false
 
     SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteCluster cluster,
                  ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
@@ -145,12 +146,40 @@ class SuiteContext implements Closeable {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
-            threadConnInfo.conn = config.getConnectionByDbName(dbName)
+            threadConnInfo.conn = getConnectionByDbName(dbName)
             threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }
         return threadConnInfo.conn
+    }
+
+    Connection getConnectionByDbName(String dbName) {
+        def jdbcUrl = getJdbcUrl()
+        def jdbcConn = DriverManager.getConnection(jdbcUrl, config.jdbcUser, config.jdbcPassword)
+        try {
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
+            log.info("Try to create db, sql: ${sql}".toString())
+            if (!config.dryRun) {
+                jdbcConn.withCloseable { conn -> JdbcUtils.executeToList(conn, sql) }
+            }
+        } catch (Throwable t) {
+            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+        }
+        def dbUrl = Config.buildUrlWithDb(jdbcUrl, dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
+    }
+
+    String getJdbcUrl() {
+        if (isMultiDockerClusterRunning) {
+            throw new IllegalStateException("In dockers() context, please use connectWithDockerCluster() to setup connection")
+        }
+        if (cluster.isRunning()) {
+            return cluster.jdbcUrl
+        } else {
+            return config.jdbcUrl
+        }
     }
 
     // like getConnection, but connect to FE master

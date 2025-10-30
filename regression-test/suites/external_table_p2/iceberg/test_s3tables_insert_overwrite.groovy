@@ -14,17 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
+import java.util.concurrent.ThreadLocalRandom
 suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+    // disable this test by default, glue + s3table is recommended
+    def run_test = false;
+    if (!run_test) {
+        return;
+    }
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_overwrite_all_types_${format_compression}`; """
+        def all_types_table = "iceberg_overwrite_all_types_${format_compression}_master"
+        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master_2"
+        sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
-        CREATE TABLE `iceberg_overwrite_all_types_${format_compression}`(
+        CREATE TABLE `${all_types_table}`(
           `boolean_col` boolean,
           `int_col` int,
           `bigint_col` bigint,
@@ -82,7 +89,7 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
         """
 
         sql """
-        INSERT OVERWRITE table iceberg_overwrite_all_types_${format_compression}
+        INSERT OVERWRITE table ${all_types_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -136,11 +143,11 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
           20240320 -- dt
         );
         """
-        order_qt_q01 """ select * from iceberg_overwrite_all_types_${format_compression};
+        order_qt_q01 """ select * from ${all_types_table};
         """
 
         sql """
-        INSERT OVERWRITE table iceberg_overwrite_all_types_${format_compression}
+        INSERT OVERWRITE table ${all_types_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -298,11 +305,11 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
           20240322 -- dt
         );
         """
-        order_qt_q02 """ select * from iceberg_overwrite_all_types_${format_compression};
+        order_qt_q02 """ select * from ${all_types_table};
         """
 
         sql """
-        INSERT OVERWRITE table iceberg_overwrite_all_types_${format_compression}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
+        INSERT OVERWRITE table ${all_types_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
         VALUES (
           CAST(123.45 AS FLOAT), -- float_col
           MAP(1, 10), -- t_map_int
@@ -310,19 +317,21 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
           ARRAY(null, 'value1', 'value2') -- t_ARRAY_string_starting_with_nulls
         );
         """
-        order_qt_q03 """ select * from iceberg_overwrite_all_types_${format_compression};
+        order_qt_q03 """ select * from ${all_types_table};
         """
 
-        sql """ DROP TABLE iceberg_overwrite_all_types_${format_compression}; """
+        sql """ DROP TABLE ${all_types_table}; """
     }
 
     def q03 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ DROP TABLE IF EXISTS `iceberg_overwrite_types_par_${format_compression}`; """
+        def all_types_table = "iceberg_overwrite_all_types_${format_compression}_master"
+        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master_"+ThreadLocalRandom.current().nextInt(1000)
+        sql """ DROP TABLE IF EXISTS `${all_types_partition_table}`; """
         sql """
-        CREATE TABLE `iceberg_overwrite_types_par_${format_compression}`(
+        CREATE TABLE `${all_types_partition_table}`(
           `boolean_col` boolean,
           `int_col` int,
           `bigint_col` bigint,
@@ -381,7 +390,7 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
         """
 
         sql """
-        INSERT OVERWRITE TABLE iceberg_overwrite_types_par_${format_compression}
+        INSERT OVERWRITE TABLE ${all_types_partition_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -435,11 +444,11 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
           20240320 -- dt
         );
         """
-        order_qt_q01 """ select * from iceberg_overwrite_types_par_${format_compression};
+        order_qt_q01 """ select * from ${all_types_partition_table};
         """
 
         sql """
-        INSERT OVERWRITE TABLE iceberg_overwrite_types_par_${format_compression}
+        INSERT OVERWRITE TABLE ${all_types_partition_table}
         VALUES  (
           1, -- boolean_col
           2147483647, -- int_col
@@ -597,11 +606,11 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
           20240322 -- dt
         );
         """
-        order_qt_q02 """ select * from iceberg_overwrite_types_par_${format_compression};
+        order_qt_q02 """ select * from ${all_types_partition_table};
         """
 
         sql """
-        INSERT OVERWRITE TABLE iceberg_overwrite_types_par_${format_compression}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
+        INSERT OVERWRITE TABLE ${all_types_partition_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
         VALUES (
           123.45, -- float_col
           MAP(1, 10), -- t_map_int
@@ -610,10 +619,10 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
           20240321 -- dt
         );
         """
-        order_qt_q03 """ select * from iceberg_overwrite_types_par_${format_compression};
+        order_qt_q03 """ select * from ${all_types_partition_table};
         """
 
-        sql """ DROP TABLE iceberg_overwrite_types_par_${format_compression}; """
+        sql """ DROP TABLE ${all_types_partition_table}; """
     }
 
     String enabled = context.config.otherConfigs.get("enableExternalIcebergTest")
@@ -634,8 +643,6 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
     sql """ switch ${catalog_name};"""
     sql """ use my_namespace;""" 
     sql """ set enable_fallback_to_original_planner=false """
-    def tables = sql """ show tables; """
-    assertTrue(tables.size() > 0)
 
     try {
         for (String format_compression in format_compressions) {

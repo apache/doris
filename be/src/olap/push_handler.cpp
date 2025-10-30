@@ -122,23 +122,12 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 "PushHandler::_do_streaming_ingestion input tablet is nullptr");
     }
 
-    std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
-    DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
-    })
-    if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
-    }
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    {
-        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_IF_ERROR(_engine.txn_manager()->prepare_txn(request.partition_id, *tablet,
-                                                           request.transaction_id, load_id));
-    }
+
+    RETURN_IF_ERROR(
+            tablet->prepare_txn(request.partition_id, request.transaction_id, load_id, false));
 
     // not call validate request here, because realtime load does not
     // contain version info
@@ -177,7 +166,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 tablet->version_count(), max_version_config, tablet->tablet_id());
     }
 
-    int version_count = tablet->version_count() + tablet->stale_version_count();
+    auto version_count = tablet->version_count() + tablet->stale_version_count();
     if (tablet->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
@@ -394,9 +383,6 @@ Status PushBrokerReader::init() {
     TPlanFragmentExecParams params;
     params.fragment_instance_id = dummy_id;
     params.query_id = dummy_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
     std::shared_ptr<MemTrackerLimiter> tracker = MemTrackerLimiter::create_shared(
@@ -414,8 +400,10 @@ Status PushBrokerReader::init() {
     _runtime_profile->set_name("PushBrokerReader");
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _file_reader_stats.reset(new io::FileReaderStats());
     _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
+    _io_ctx->file_reader_stats = _file_reader_stats.get();
     _io_ctx->query_id = &_runtime_state->query_id();
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
@@ -516,7 +504,9 @@ Status PushBrokerReader::_cast_to_input_block() {
                     {vectorized::DataTypeString().create_column_const(
                              arg.column->size(),
                              vectorized::Field::create_field<TYPE_STRING>(
-                                     remove_nullable(return_type)->get_family_name())),
+                                     is_decimal(return_type->get_primitive_type())
+                                             ? "Decimal"
+                                             : remove_nullable(return_type)->get_family_name())),
                      std::make_shared<vectorized::DataTypeString>(), ""}};
             auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
                     "CAST", arguments, return_type);
@@ -665,11 +655,10 @@ Status PushBrokerReader::_get_next_reader() {
     switch (_file_params.format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         std::unique_ptr<vectorized::ParquetReader> parquet_reader =
-                vectorized::ParquetReader::create_unique(
-                        _runtime_profile, _file_params, range,
-                        _runtime_state->query_options().batch_size,
-                        const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
-                        _io_ctx.get(), _runtime_state.get());
+                vectorized::ParquetReader::create_unique(_runtime_profile, _file_params, range,
+                                                         _runtime_state->query_options().batch_size,
+                                                         &_runtime_state->timezone_obj(),
+                                                         _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
                 _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,

@@ -62,26 +62,26 @@ struct OverlapSetImpl {
     using ElementNativeType = typename NativeType<typename T::value_type>::Type;
     using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
+    bool has_null = false;
 
-    template <bool nullable>
     void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
-                    continue;
-                }
+            if (nullmap[i]) {
+                has_null = true;
+                continue;
             }
             set.insert(vec[i]);
         }
     }
 
-    template <bool nullable>
     bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
+            if (nullmap[i]) {
+                if (has_null) {
+                    return true;
+                } else {
                     continue;
                 }
             }
@@ -98,24 +98,24 @@ template <>
 struct OverlapSetImpl<ColumnString> {
     using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
+    bool has_null = false;
 
-    template <bool nullable>
     void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
-                    continue;
-                }
+            if (nullmap[i]) {
+                has_null = true;
+                continue;
             }
             set.insert(column->get_data_at(i));
         }
     }
 
-    template <bool nullable>
     bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
+            if (nullmap[i]) {
+                if (has_null) {
+                    return true;
+                } else {
                     continue;
                 }
             }
@@ -151,7 +151,7 @@ public:
                 assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
         auto right_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*right_data_type).get_nested_type());
-        DCHECK(left_nested_type->equals(*right_nested_type))
+        DCHECK(left_nested_type->equals_ignore_precision(*right_nested_type))
                 << "data type " << arguments[0]->get_name() << " not equal with "
                 << arguments[1]->get_name();
         return make_nullable(std::make_shared<DataTypeUInt8>());
@@ -174,9 +174,9 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support "
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
                     "array_overlap");
         }
         // in arrays_overlap param is array Field and const Field
@@ -213,6 +213,7 @@ public:
 
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         for (auto nested_query_val : query_val) {
@@ -276,103 +277,26 @@ public:
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
         auto left_element_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        switch (left_element_type->get_primitive_type()) {
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
-                                                  dst_null_map_data,
-                                                  dst_nested_col->get_data().data());
-            break;
-        case TYPE_DATE:
-            ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                dst_nested_col->get_data().data());
-            break;
-        case TYPE_DATETIME:
-            ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
-                                                    dst_null_map_data,
-                                                    dst_nested_col->get_data().data());
-            break;
-        case TYPE_DATEV2:
-            ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
-                                                  dst_null_map_data,
-                                                  dst_nested_col->get_data().data());
-            break;
-        case TYPE_DATETIMEV2:
-            ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
-                                                      dst_null_map_data,
-                                                      dst_nested_col->get_data().data());
-            break;
-        case TYPE_BOOLEAN:
-            ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data());
-            break;
-        case TYPE_TINYINT:
-            ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                dst_nested_col->get_data().data());
-            break;
-        case TYPE_SMALLINT:
-            ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data());
-            break;
-        case TYPE_INT:
-            ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data());
-            break;
-        case TYPE_BIGINT:
-            ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data());
-            break;
-        case TYPE_LARGEINT:
-            ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
-                                                  dst_null_map_data,
-                                                  dst_nested_col->get_data().data());
-            break;
-        case TYPE_FLOAT:
-            ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
-                                                   dst_null_map_data,
-                                                   dst_nested_col->get_data().data());
-            break;
-        case TYPE_DOUBLE:
-            ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
-                                                   dst_null_map_data,
-                                                   dst_nested_col->get_data().data());
-            break;
-        case TYPE_DECIMAL32:
-            ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
-                                                     dst_null_map_data,
-                                                     dst_nested_col->get_data().data());
-            break;
-        case TYPE_DECIMAL64:
-            ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
-                                                     dst_null_map_data,
-                                                     dst_nested_col->get_data().data());
-            break;
-        case TYPE_DECIMAL128I:
-            ret = _execute_internal<ColumnDecimal128V3>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-            break;
-        case TYPE_DECIMALV2:
-            ret = _execute_internal<ColumnDecimal128V2>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-            break;
-        case TYPE_DECIMAL256:
-            ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
-                                                      dst_null_map_data,
-                                                      dst_nested_col->get_data().data());
-            break;
-        default:
-            break;
+
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            ret = _execute_internal<typename DispatchType::ColumnType>(
+                    left_exec_data, right_exec_data, dst_null_map_data,
+                    dst_nested_col->get_data().data());
+            return true;
+        };
+
+        if (!dispatch_switch_all(left_element_type->get_primitive_type(), call)) {
+            ret = Status::InvalidArgument("execute failed, not support type {} in function {}",
+                                          left_element_type->get_name(), get_name());
         }
 
-        if (ret.ok()) {
-            block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
-                                                                     std::move(dst_null_map)));
-        }
+        RETURN_IF_ERROR(ret);
 
-        return ret;
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(dst_nested_col), std::move(dst_null_map)));
+
+        return Status::OK();
     }
 
 private:
@@ -386,17 +310,6 @@ private:
                 dst_nullmap_data[row] = 1;
                 continue;
             }
-
-            if (data.nested_nullmap_data) {
-                ssize_t start = (*data.offsets_ptr)[row - 1];
-                ssize_t size = (*data.offsets_ptr)[row] - start;
-                for (ssize_t i = start; i < start + size; ++i) {
-                    if (data.nested_nullmap_data[i]) {
-                        dst_nullmap_data[row] = 1;
-                        break;
-                    }
-                }
-            }
         }
         return Status::OK();
     }
@@ -407,6 +320,11 @@ private:
                              UInt8* dst_data) const {
         using ExecutorImpl = OverlapSetImpl<T>;
         for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+            // arrays_overlap(null, null) -> null
+            if (dst_nullmap_data[row]) {
+                continue;
+            }
+            dst_nullmap_data[row] = 0;
             ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
             ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
             ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
@@ -430,29 +348,10 @@ private:
             }
 
             ExecutorImpl impl;
-            if (small_data->nested_nullmap_data) {
-                impl.template insert_array<true>(small_data->nested_col.get(),
-                                                 small_data->nested_nullmap_data, small_start,
-                                                 small_size);
-            } else {
-                impl.template insert_array<true>(small_data->nested_col.get(),
-                                                 small_data->nested_nullmap_data, small_start,
-                                                 small_size);
-            }
-
-            if (large_data->nested_nullmap_data) {
-                dst_data[row] = impl.template find_any<true>(large_data->nested_col.get(),
-                                                             large_data->nested_nullmap_data,
-                                                             large_start, large_size);
-            } else {
-                dst_data[row] = impl.template find_any<true>(large_data->nested_col.get(),
-                                                             large_data->nested_nullmap_data,
-                                                             large_start, large_size);
-            }
-
-            if (dst_data[row]) {
-                dst_nullmap_data[row] = 0;
-            }
+            impl.insert_array(small_data->nested_col.get(), small_data->nested_nullmap_data,
+                              small_start, small_size);
+            dst_data[row] = impl.find_any(large_data->nested_col.get(),
+                                          large_data->nested_nullmap_data, large_start, large_size);
         }
         return Status::OK();
     }

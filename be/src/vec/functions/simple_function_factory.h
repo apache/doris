@@ -37,7 +37,6 @@ void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
-void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
 void register_function_encode_varchar(SimpleFunctionFactory& factory);
 void register_function_conv(SimpleFunctionFactory& factory);
@@ -77,11 +76,14 @@ void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
 void register_function_to_json(SimpleFunctionFactory& factory);
+void register_function_json_transform(SimpleFunctionFactory& factory);
+void register_function_json_hash(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
 void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
+void register_function_uniform(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_uuid_transforms(SimpleFunctionFactory& factory);
@@ -108,13 +110,24 @@ void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
+void register_function_format(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_search(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
+void register_function_ai(SimpleFunctionFactory& factory);
+void register_function_score(SimpleFunctionFactory& factory);
+void register_function_variant_type(SimpleFunctionFactory& factory);
+void register_function_binary(SimpleFunctionFactory& factory);
+void register_function_soundex(SimpleFunctionFactory& factory);
+
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+void register_function_throw_exception(SimpleFunctionFactory& factory);
+#endif
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -130,6 +143,7 @@ class SimpleFunctionFactory {
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
+        //TODO: should add check of is_variadic. or just remove is_variadic is ok?
         DataTypes types = ptr()->get_variadic_argument_types();
         // types.empty() means function is not variadic
         if (!types.empty()) {
@@ -146,7 +160,7 @@ public:
 
     template <class Function>
     void register_function() {
-        if constexpr (std::is_base_of<IFunction, Function>::value) {
+        if constexpr (std::is_base_of_v<IFunction, Function>) {
             register_function(Function::name, &createDefaultFunction<Function>);
         } else {
             register_function(Function::name, &Function::create);
@@ -184,6 +198,11 @@ public:
                 key_str == "array_cum_sum") {
                 key_str += DECIMAL256_FUNCTION_SUFFIX;
             }
+        }
+
+        if ((key_str.starts_with("unix_timestamp") || key_str.starts_with("from_unixtime")) &&
+            attr.new_version_unix_timestamp) {
+            key_str += "_new";
         }
 
         temporary_function_update(be_version, key_str);
@@ -228,7 +247,7 @@ private:
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
         if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
-            function_to_replace.find(name) != function_to_replace.end()) {
+            function_to_replace.contains(name)) {
             name = function_to_replace[name];
         }
     }
@@ -247,7 +266,6 @@ public:
             register_function_encode_varchar(instance);
             register_function_decode_as_varchar(instance);
             register_function_logical(instance);
-            register_function_case(instance);
             register_function_cast(instance);
             register_function_conv(instance);
             register_function_plus(instance);
@@ -287,6 +305,7 @@ public:
             register_function_like(instance);
             register_function_regexp(instance);
             register_function_random(instance);
+            register_function_uniform(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
             register_function_uuid_transforms(instance);
@@ -314,12 +333,24 @@ public:
             register_function_ignore(instance);
             register_function_variant_element(instance);
             register_function_multi_match(instance);
+            register_function_search(instance);
             register_function_split_by_regexp(instance);
             register_function_assert_true(instance);
             register_function_bit_test(instance);
+            register_function_format(instance);
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
+            register_function_ai(instance);
+            register_function_score(instance);
+            register_function_binary(instance);
+            register_function_soundex(instance);
+            register_function_json_transform(instance);
+            register_function_json_hash(instance);
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+            register_function_throw_exception(instance);
+#endif
+            register_function_variant_type(instance);
         });
         return instance;
     }

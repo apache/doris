@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -54,30 +55,32 @@ public:
                          shared_state_map,
                  int task_idx);
 
+    virtual ~PipelineTask();
+
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink);
 
-    Status execute(bool* done);
+    virtual Status execute(bool* done);
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close(Status exec_status, bool close_sink = true);
+    virtual Status close(Status exec_status, bool close_sink = true);
 
-    std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
+    virtual std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
-    int get_core_id() const { return _core_id; }
+    int get_thread_id(int num_threads) const {
+        return _thread_id == -1 ? _thread_id : _thread_id % num_threads;
+    }
 
-    PipelineTask& set_core_id(int id) {
-        if (id != _core_id) {
-            if (_core_id != -1) {
-                COUNTER_UPDATE(_core_change_times, 1);
-            }
-            _core_id = id;
+    virtual PipelineTask& set_thread_id(int thread_id) {
+        _thread_id = thread_id;
+        if (thread_id != _thread_id) {
+            COUNTER_UPDATE(_core_change_times, 1);
         }
         return *this;
     }
 
-    Status finalize();
+    virtual Status finalize();
 
     std::string debug_string();
 
@@ -86,6 +89,12 @@ public:
                        ? _op_shared_states[_source->operator_id()]
                        : nullptr;
     }
+
+    /**
+     * Pipeline task is blockable means it will be blocked in the next run. So we should put it into
+     * the blocking task scheduler.
+     */
+    virtual bool is_blockable() const;
 
     /**
      * `shared_state` is shared by different pipeline tasks. This function aims to establish
@@ -111,23 +120,20 @@ public:
         return _op_shared_states[id].get();
     }
 
-    Status wake_up(Dependency* dep);
+    Status wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
-    bool is_finalized() const { return _exec_state == State::FINALIZED; }
+    virtual bool is_finalized() const { return _exec_state == State::FINALIZED; }
 
-    void set_wake_up_early() { _wake_up_early = true; }
+    void set_wake_up_early(PipelineId wake_by = -1) {
+        _wake_up_early = true;
+        _wake_by = wake_by;
+    }
 
     // Execution phase should be terminated. This is called if this task is canceled or waken up early.
     void terminate();
-
-    PipelineTask& set_task_queue(MultiCoreTaskQueue* task_queue) {
-        _task_queue = task_queue;
-        return *this;
-    }
-    MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -147,28 +153,36 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    bool is_revoking() const;
-    PipelineTask& set_running(bool running) {
-        _running.exchange(running);
-        return *this;
+    virtual bool set_running(bool running) {
+        bool old_value = !running;
+        _running.compare_exchange_weak(old_value, running);
+        return old_value;
     }
 
-    RuntimeState* runtime_state() const { return _state; }
+    virtual RuntimeState* runtime_state() const { return _state; }
 
-    std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
+    virtual std::string task_name() const {
+        return fmt::format("task{}({})", _index, _pipeline->_name);
+    }
+
+    [[nodiscard]] Status do_revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
     // TODO: Maybe we do not need this safe code anymore
     void stop_if_finished();
 
-    PipelineId pipeline_id() const { return _pipeline->id(); }
+    virtual PipelineId pipeline_id() const { return _pipeline->id(); }
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    Status blocked(Dependency* dependency) {
+    Status blocked(Dependency* dependency, std::unique_lock<std::mutex>& /* dep_lock */) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
         return _state_transition(PipelineTask::State::BLOCKED);
     }
+
+protected:
+    // Only used for RevokableTask
+    PipelineTask() : _index(0) {}
 
 private:
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
@@ -182,6 +196,7 @@ private:
     void _init_profile();
     void _fresh_profile_counter();
     Status _open();
+    Status _prepare();
 
     // Operator `op` try to reserve memory before executing. Return false if reserve failed
     // otherwise return true.
@@ -192,12 +207,11 @@ private:
     PipelinePtr _pipeline;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _core_id = -1;
+    int _thread_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
     std::weak_ptr<PipelineFragmentContext> _fragment_context;
-    MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
     // it may be visited by different thread but there is no race condition
@@ -235,10 +249,9 @@ private:
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
-    std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
-    std::vector<Dependency*> _filter_dependencies;
+    std::vector<Dependency*> _execution_dependencies;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
@@ -253,13 +266,14 @@ private:
     unsigned long long _exec_time_slice = config::pipeline_task_exec_time_slice * NANOS_PER_MILLIS;
     Dependency* _blocked_dep = nullptr;
 
-    Dependency* _execution_dep = nullptr;
     Dependency* _memory_sufficient_dependency;
     std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};
     std::atomic<bool> _wake_up_early {false};
+    // PipelineTask maybe hold by TaskQueue
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     /**
          *
@@ -304,6 +318,7 @@ private:
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
     const std::string _pipeline_name;
+    int _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;

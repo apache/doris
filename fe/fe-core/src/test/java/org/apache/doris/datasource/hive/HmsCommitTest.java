@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TestHMSCachedClient;
@@ -112,7 +113,8 @@ public class HmsCommitTest {
             // If you have a real HMS service, then you can use this client to create real connections for testing
             HiveConf entries = new HiveConf();
             entries.set("hive.metastore.uris", uri);
-            hmsClient = new ThriftHMSCachedClient(entries, 2);
+            hmsClient = new ThriftHMSCachedClient(entries, 2, new ExecutionAuthenticator() {
+            });
         } else {
             hmsClient = new TestHMSCachedClient();
         }

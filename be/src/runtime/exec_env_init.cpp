@@ -19,6 +19,7 @@
 #include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <simdjson.h>
 #include <sys/resource.h>
 
 #include <cerrno> // IWYU pragma: keep
@@ -31,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -41,7 +43,6 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -52,10 +53,13 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/condition_cache.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
@@ -104,7 +108,6 @@
 #include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
@@ -128,9 +131,8 @@
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
 
-#include "runtime/memory/tcmalloc_hook.h"
-
 namespace doris {
+
 #include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -183,6 +185,26 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
     return env->_init(store_paths, spill_store_paths, broken_paths);
+}
+
+// pick simdjson implementation based on CPU capabilities
+inline void init_simdjson_parser() {
+    // haswell: AVX2 (2013 Intel Haswell or later, all AMD Zen processors)
+    const auto* haswell_implementation = simdjson::get_available_implementations()["haswell"];
+    if (!haswell_implementation || !haswell_implementation->supported_by_runtime_system()) {
+        // pick available implementation
+        for (const auto* implementation : simdjson::get_available_implementations()) {
+            if (implementation->supported_by_runtime_system()) {
+                LOG(INFO) << "Using SimdJSON implementation : " << implementation->name() << ": "
+                          << implementation->description();
+                simdjson::get_active_implementation() = implementation;
+                return;
+            }
+        }
+        LOG(WARNING) << "No available SimdJSON implementation found.";
+    } else {
+        LOG(INFO) << "Using SimdJSON Haswell implementation";
+    }
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
@@ -257,7 +279,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
-    RETURN_IF_ERROR(_init_mem_env());
+    RETURN_IF_ERROR(init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -278,7 +300,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
-    _cluster_info = new ClusterInfo();
+    if (config::is_cloud_mode()) {
+        _cluster_info = new CloudClusterInfo();
+    } else {
+        _cluster_info = new ClusterInfo();
+    }
+
     _load_path_mgr = new LoadPathMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
@@ -349,7 +376,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
                   << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
-        _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+        _storage_engine = std::make_unique<CloudStorageEngine>(options);
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -376,6 +403,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
+
+    init_simdjson_parser();
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
     S3ClientFactory::instance();
@@ -444,7 +473,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     }
 }
 
-Status ExecEnv::_init_mem_env() {
+Status ExecEnv::init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
@@ -452,8 +481,6 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-
-    init_hook();
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
@@ -519,12 +546,21 @@ Status ExecEnv::_init_mem_env() {
     } else {
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
-    // SegmentLoader caches segments in rowset granularity. So the size of
-    // opened files will greater than segment_cache_capacity.
-    int64_t segment_cache_capacity = config::segment_cache_capacity;
-    int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
-        segment_cache_capacity = segment_cache_fd_limit;
+
+    int64_t segment_cache_capacity = 0;
+    if (config::is_cloud_mode()) {
+        // when in cloud mode, segment cache hold no system FD
+        // thus the FD num limit makes no sense
+        // cloud mode use FDCache to control FD
+        segment_cache_capacity = UINT32_MAX;
+    } else {
+        // SegmentLoader caches segments in rowset granularity. So the size of
+        // opened files will greater than segment_cache_capacity.
+        segment_cache_capacity = config::segment_cache_capacity;
+        int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
+        if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
+            segment_cache_capacity = segment_cache_fd_limit;
+        }
     }
 
     int64_t segment_cache_mem_limit =
@@ -577,6 +613,16 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
+
+    // use memory limit
+    int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
+    _condition_cache = ConditionCache::create_global_cache(condition_cache_limit);
+    LOG(INFO) << "Condition cache memory limit: "
+              << PrettyPrinter::print(condition_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::condition_cache_limit;
+
+    // Initialize encoding info resolver
+    _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
 
     // init orc memory pool
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
@@ -759,6 +805,8 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
+    SAFE_DELETE(_condition_cache);
+    SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
@@ -852,6 +900,7 @@ void ExecEnv::destroy() {
 
     _s_tracking_memory = false;
 
+    clear_storage_resource();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

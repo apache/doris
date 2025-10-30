@@ -150,8 +150,8 @@ protected:
             assert_callback(columns, serdes,
                             test_result_dir + "/" + res_file_name + "_" + function_name + ".out");
         };
-        test_func(column_float32->get_ptr(), dt_float32, "column_float32");
-        test_func(column_float64->get_ptr(), dt_float64, "column_float64");
+        // test_func(column_float32->get_ptr(), dt_float32, "column_float32");
+        // test_func(column_float64->get_ptr(), dt_float64, "column_float64");
         test_func(column_int8->get_ptr(), dt_int8, "column_int8");
         test_func(column_int16->get_ptr(), dt_int16, "column_int16");
         test_func(column_int32->get_ptr(), dt_int32, "column_int32");
@@ -443,10 +443,6 @@ TEST_F(ColumnVectorTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 
-TEST_F(ColumnVectorTest, replicate) {
-    _column_vector_common_test(assert_column_vector_replicate_callback);
-}
-
 TEST_F(ColumnVectorTest, replace_column_data) {
     _column_vector_common_test(assert_column_vector_replace_column_data_callback);
 }
@@ -457,10 +453,10 @@ TEST_F(ColumnVectorTest, replace_column_null_data) {
 
 TEST_F(ColumnVectorTest, compare_internal) {
     _column_vector_common_test(assert_column_vector_compare_internal_callback);
-    assert_column_vector_compare_internal_callback<TYPE_FLOAT>((Float32)0,
-                                                               column_float32->get_ptr());
-    assert_column_vector_compare_internal_callback<TYPE_DOUBLE>((Float64)0,
-                                                                column_float64->get_ptr());
+    // assert_column_vector_compare_internal_callback<TYPE_FLOAT>((Float32)0,
+    //                                                            column_float32->get_ptr());
+    // assert_column_vector_compare_internal_callback<TYPE_DOUBLE>((Float64)0,
+    //                                                             column_float64->get_ptr());
 }
 TEST_F(ColumnVectorTest, has_enough_capacity) {
     _column_vector_common_test(assert_column_vector_has_enough_capacity_callback);

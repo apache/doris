@@ -23,12 +23,17 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 public abstract class StorageProperties extends ConnectionProperties {
@@ -45,8 +50,11 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
+    protected static final String URI_KEY = "uri";
 
     public static final String FS_PROVIDER_KEY = "provider";
+
+    protected  final String userFsPropsPrefix = "fs.";
 
     public enum Type {
         HDFS,
@@ -54,6 +62,8 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        GCS,
+        OSS_HDFS,
         MINIO,
         AZURE,
         BROKER,
@@ -62,6 +72,41 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     public abstract Map<String, String> getBackendConfigProperties();
+
+    /**
+     * Hadoop storage configuration used for interacting with HDFS-based systems.
+     * <p>
+     * Currently, some underlying APIs in Hive and Iceberg still rely on the HDFS protocol directly.
+     * Because of this, we must introduce an additional storage layer conversion here to adapt
+     * our system's storage abstraction to the HDFS protocol.
+     * <p>
+     * In the future, once we have unified the storage access layer by implementing our own
+     * FileIO abstraction (a custom, unified interface for file system access),
+     * this conversion layer will no longer be necessary. The FileIO abstraction
+     * will provide seamless and consistent access to different storage backends,
+     * eliminating the need to rely on HDFS protocol specifics.
+     * <p>
+     * This approach will simplify the integration and improve maintainability
+     * by standardizing the way storage systems are accessed.
+     */
+    @Getter
+    public Configuration hadoopStorageConfig;
+
+    /**
+     * Get backend configuration properties with optional runtime properties.
+     * This method allows passing runtime properties (like vended credentials)
+     * that should be merged with the base configuration.
+     *
+     * @param runtimeProperties additional runtime properties to merge, can be null
+     * @return Map of backend properties including runtime properties
+     */
+    public Map<String, String> getBackendConfigProperties(Map<String, String> runtimeProperties) {
+        Map<String, String> properties = new HashMap<>(getBackendConfigProperties());
+        if (runtimeProperties != null && !runtimeProperties.isEmpty()) {
+            properties.putAll(runtimeProperties);
+        }
+        return properties;
+    }
 
     @Getter
     protected Type type;
@@ -91,6 +136,7 @@ public abstract class StorageProperties extends ConnectionProperties {
 
         for (StorageProperties storageProperties : result) {
             storageProperties.initNormalizeAndCheckProps();
+            storageProperties.buildHadoopStorageConfig();
         }
         return result;
     }
@@ -110,6 +156,7 @@ public abstract class StorageProperties extends ConnectionProperties {
             StorageProperties p = func.apply(origProps);
             if (p != null) {
                 p.initNormalizeAndCheckProps();
+                p.buildHadoopStorageConfig();
                 return p;
             }
         }
@@ -131,6 +178,8 @@ public abstract class StorageProperties extends ConnectionProperties {
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
                             || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
+                    props -> (isFsSupport(props, FS_GCS_SUPPORT)
+                            || GCSProperties.guessIsMe(props)) ? new GCSProperties(props) : null,
                     props -> (isFsSupport(props, FS_AZURE_SUPPORT)
                             || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
                     props -> (isFsSupport(props, FS_MINIO_SUPPORT)
@@ -188,4 +237,57 @@ public abstract class StorageProperties extends ConnectionProperties {
     public abstract String validateAndGetUri(Map<String, String> loadProps) throws UserException;
 
     public abstract String getStorageName();
+
+    private void buildHadoopStorageConfig() {
+        initializeHadoopStorageConfig();
+        if (null == hadoopStorageConfig) {
+            return;
+        }
+        appendUserFsConfig(origProps);
+        ensureDisableCache(hadoopStorageConfig, origProps);
+    }
+
+    private void appendUserFsConfig(Map<String, String> userProps) {
+        userProps.forEach((k, v) -> {
+            if (k.startsWith(userFsPropsPrefix) && StringUtils.isNotBlank(v)) {
+                hadoopStorageConfig.set(k, v);
+            }
+        });
+    }
+
+    protected abstract void initializeHadoopStorageConfig();
+
+    protected abstract Set<String> schemas();
+
+    /**
+     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
+     * subsequent calls using the same URI will reuse the same FileSystem object.
+     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
+     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * <p>
+     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
+     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * <p>
+     * Incorrect authentication (using stale credentials)
+     * <p>
+     * Unexpected permission errors or access denial
+     * <p>
+     * Potential data leakage between users
+     * <p>
+     * To avoid such risks, the configuration property
+     * fs.<schema>.impl.disable.cache
+     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
+     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     */
+    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
+        for (String schema : schemas()) {
+            String key = "fs." + schema + ".impl.disable.cache";
+            String userValue = origProps.get(key);
+            if (StringUtils.isNotBlank(userValue)) {
+                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
+            } else {
+                conf.setBoolean(key, true);
+            }
+        }
+    }
 }

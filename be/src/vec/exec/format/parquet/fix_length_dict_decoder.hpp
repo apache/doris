@@ -73,6 +73,8 @@ protected:
         size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
                             (_type_length / primitive_length);
         doris_column->resize(doris_column->size() + scale_size);
+        // doris_column is of type MutableColumnPtr, which uses get_raw_data
+        // to return a StringRef, hence the use of const_cast.
         char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
         size_t dict_index = 0;
         ColumnSelectVector::DataReadType read_type;
@@ -103,7 +105,8 @@ protected:
         return Status::OK();
     }
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override {
+    Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
+                    size_t num_values) override {
         if (num_values * _type_length != length) {
             return Status::Corruption("Wrong dictionary data for fixed length type");
         }

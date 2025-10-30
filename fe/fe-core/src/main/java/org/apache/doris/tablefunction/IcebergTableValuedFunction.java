@@ -17,26 +17,24 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.FileScanTask;
@@ -48,6 +46,8 @@ import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 /**
  * The class of table valued function for iceberg metadata.
@@ -65,7 +65,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     private final Table sysTable;
     private final List<Column> schema;
     private final Map<String, String> hadoopProps;
-    private final PreExecutionAuthenticator preExecutionAuthenticator;
+    private final ExecutionAuthenticator preExecutionAuthenticator;
 
     public static IcebergTableValuedFunction create(Map<String, String> params)
             throws AnalysisException {
@@ -90,7 +90,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         if (names.length != 3) {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
         }
-        TableName icebergTableName = new TableName(names[0], names[1], names[2]);
+        TableNameInfo icebergTableName = new TableNameInfo(names[0], names[1], names[2]);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), icebergTableName, PrivPredicate.SELECT)) {
@@ -101,7 +101,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         return new IcebergTableValuedFunction(icebergTableName, queryType);
     }
 
-    public IcebergTableValuedFunction(TableName icebergTableName, String queryType)
+    public IcebergTableValuedFunction(TableNameInfo icebergTableName, String queryType)
             throws AnalysisException {
         this.queryType = queryType;
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());
@@ -109,8 +109,8 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Catalog " + icebergTableName.getCtl() + " is not an external catalog");
         }
         ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-        hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
-        preExecutionAuthenticator = externalCatalog.getPreExecutionAuthenticator();
+        hadoopProps = externalCatalog.getCatalogProperty().getBackendStorageProperties();
+        preExecutionAuthenticator = externalCatalog.getExecutionAuthenticator();
 
         TableIf dorisTable = externalCatalog.getDbOrAnalysisException(icebergTableName.getDb())
                 .getTableOrAnalysisException(icebergTableName.getTbl());
@@ -135,8 +135,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
-        List<TMetaScanRange> scanRanges = Lists.newArrayList();
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         CloseableIterable<FileScanTask> tasks;
         try {
             tasks = preExecutionAuthenticator.execute(() -> {
@@ -145,17 +144,15 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
         }
-        for (FileScanTask task : tasks) {
-            TMetaScanRange metaScanRange = new TMetaScanRange();
-            metaScanRange.setMetadataType(TMetadataType.ICEBERG);
-            // set iceberg metadata params
-            TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
-            icebergMetadataParams.setHadoopProps(hadoopProps);
-            icebergMetadataParams.setSerializedTask(SerializationUtil.serializeToBase64(task));
-            metaScanRange.setIcebergParams(icebergMetadataParams);
-            scanRanges.add(metaScanRange);
-        }
-        return scanRanges;
+
+        TMetaScanRange tMetaScanRange = new TMetaScanRange();
+        tMetaScanRange.setMetadataType(TMetadataType.ICEBERG);
+        tMetaScanRange.setHadoopProps(hadoopProps);
+        tMetaScanRange.setSerializedTable(SerializationUtil.serializeToBase64(sysTable));
+        tMetaScanRange.setSerializedSplits(StreamSupport.stream(tasks.spliterator(), false)
+                .map(SerializationUtil::serializeToBase64)
+                .collect(Collectors.toList()));
+        return tMetaScanRange;
     }
 
     @Override

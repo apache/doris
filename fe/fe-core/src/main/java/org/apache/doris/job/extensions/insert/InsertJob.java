@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.extensions.insert;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Column;
@@ -45,12 +44,15 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -96,9 +98,16 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("CreateTime", ScalarType.createStringType()))
             .addAll(COMMON_SCHEMA)
             .add(new Column("Comment", ScalarType.createStringType()))
+            // only execute type = streaming need record
+            .add(new Column("Properties", ScalarType.createStringType()))
+            .add(new Column("CurrentOffset", ScalarType.createStringType()))
+            .add(new Column("EndOffset", ScalarType.createStringType()))
+            .add(new Column("LoadStatistic", ScalarType.createStringType()))
+            .add(new Column("ErrorMsg", ScalarType.createStringType()))
+            .add(new Column("JobRuntimeMsg", ScalarType.createStringType()))
             .build();
 
-    private static final ShowResultSetMetaData TASK_META_DATA =
+    public static final ShowResultSetMetaData TASK_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TaskId", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Label", ScalarType.createVarchar(80)))
@@ -106,12 +115,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                     .addColumn(new Column("EtlInfo", ScalarType.createVarchar(100)))
                     .addColumn(new Column("TaskInfo", ScalarType.createVarchar(100)))
                     .addColumn(new Column("ErrorMsg", ScalarType.createVarchar(100)))
-
                     .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
                     .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
                     .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(200)))
                     .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
                     .addColumn(new Column("User", ScalarType.createVarchar(50)))
+                    .addColumn(new Column("FirstErrorMsg", ScalarType.createVarchar(200)))
                     .build();
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
@@ -517,10 +526,50 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
             // comment
             jobInfo.add(getComment());
+            // first error message
+            List<String> firstErrorMsg = insertTaskQueue.stream()
+                    .map(task -> {
+                        if (StringUtils.isNotEmpty(task.getFirstErrorMsg())) {
+                            return task.getFirstErrorMsg();
+                        } else {
+                            return FeConstants.null_string;
+                        }
+                    })
+                    .collect(Collectors.toList());
+            if (firstErrorMsg.isEmpty()) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(firstErrorMsg.toString());
+            }
             return jobInfo;
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(getJobName()));
+        trow.addToColumnValue(new TCell().setStringVal(getCreateUser().getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
+        trow.addToColumnValue(new TCell().setStringVal(getJobConfig().convertRecurringStrategyToString()));
+        trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
+        trow.addToColumnValue(new TCell().setStringVal(getExecuteSql()));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getSucceedTaskCount().get())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
+        trow.addToColumnValue(new TCell().setStringVal(getComment()));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(
+                loadStatistic == null ? FeConstants.null_string : loadStatistic.toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        return trow;
     }
 
     @Override
@@ -530,16 +579,16 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     private String getPriority() {
-        return properties.getOrDefault(LoadStmt.PRIORITY, Priority.NORMAL.name());
+        return properties.getOrDefault(LoadCommand.PRIORITY, Priority.NORMAL.name());
     }
 
     public double getMaxFilterRatio() {
-        return Double.parseDouble(properties.getOrDefault(LoadStmt.MAX_FILTER_RATIO_PROPERTY, "0.0"));
+        return Double.parseDouble(properties.getOrDefault(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "0.0"));
     }
 
     public long getTimeout() {
-        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-            return Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        if (properties.containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+            return Long.parseLong(properties.get(LoadCommand.TIMEOUT_PROPERTY));
         }
         return Config.broker_load_default_timeout_second;
     }

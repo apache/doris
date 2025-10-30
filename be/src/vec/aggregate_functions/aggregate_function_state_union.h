@@ -57,20 +57,20 @@ public:
     DataTypePtr get_return_type() const override { return _return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         //the range is [begin, end]
         _function->deserialize_and_merge_from_column_range(place, *columns[0], row_num, row_num,
                                                            arena);
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena& arena) const override {
         _function->deserialize_and_merge_from_column_range(place, *columns[0], 0, batch_size - 1,
                                                            arena);
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+                   const IColumn** columns, Arena& arena, bool agg_many) const override {
         for (size_t i = 0; i < batch_size; ++i) {
             //the range is [i, i]
             _function->deserialize_and_merge_from_column_range(places[i] + place_offset,
@@ -80,7 +80,7 @@ public:
     void reset(AggregateDataPtr place) const override { _function->reset(place); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         _function->merge(place, rhs, arena);
     }
 
@@ -89,7 +89,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         _function->deserialize(place, buf, arena);
     }
 

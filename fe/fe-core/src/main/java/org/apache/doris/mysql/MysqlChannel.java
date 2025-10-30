@@ -114,7 +114,7 @@ public class MysqlChannel implements BytesChannel {
         this.remoteIp = "";
         this.conn = connection;
 
-        // if proxy protocal is enabled, the remote address will be got from proxy protocal header
+        // if proxy protocol is enabled, the remote address will be got from proxy protocol header
         // and overwrite the original remote address.
         if (connection.getPeerAddress() instanceof InetSocketAddress) {
             InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
@@ -340,12 +340,20 @@ public class MysqlChannel implements BytesChannel {
             readLen = readAll(result, false);
             if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
                 byte[] header = result.array();
-                int packetId = header[3] & 0xFF;
-                if (packetId != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
+                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0xFF) << 8) | ((header[2] & 0xFF) << 16);
+                if (result.position() >= 4 && mysqlPacketLength > 0 && mysqlPacketLength
+                        <= MAX_PHYSICAL_PACKET_LENGTH) {
+                    int packetId = header[3] & 0xFF;
+                    if (packetId != sequenceId) {
+                        LOG.warn("receive packet sequence id[" + packetId + "] want to get[" + sequenceId + "]");
+                        throw new IOException("Bad packet sequence.");
+                    }
+                } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("SSL mode: skipping sequence check, packet length: " + mysqlPacketLength
+                                + ", buffer position: " + result.position());
+                    }
                 }
-                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
                 // remove mysql packet header
                 result.position(4);
                 result.compact();
@@ -630,7 +638,7 @@ public class MysqlChannel implements BytesChannel {
         }
     }
 
-    // for proxy protocal only
+    // for proxy protocol only
     public void setRemoteAddr(String ip, int port) {
         this.remoteIp = ip;
         this.remoteHostPortString = NetUtils.getHostPortInAccessibleFormat(ip, port);

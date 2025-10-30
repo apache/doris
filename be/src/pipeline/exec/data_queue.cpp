@@ -82,6 +82,20 @@ void DataQueue::clear_free_blocks() {
     }
 }
 
+void DataQueue::terminate() {
+    for (int i = 0; i < _queue_blocks.size(); i++) {
+        set_finish(i);
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[i]));
+        if (_cur_blocks_nums_in_queue[i] > 0) {
+            _queue_blocks[i].clear();
+            _cur_bytes_in_queue[i] = 0;
+            _cur_blocks_nums_in_queue[i] = 0;
+            _sink_dependencies[i]->set_always_ready();
+        }
+    }
+    clear_free_blocks();
+}
+
 //check which queue have data, and save the idx in _flag_queue_idx,
 //so next loop, will check the record idx + 1 first
 //maybe it's useful with many queue, others maybe always 0
@@ -130,12 +144,15 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
     return Status::OK();
 }
 
-void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
+Status DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
     if (!block) {
-        return;
+        return Status::OK();
     }
     {
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[child_idx]));
+        if (_is_finished[child_idx]) {
+            return Status::EndOfFile("Already finish");
+        }
         _cur_bytes_in_queue[child_idx] += block->allocated_bytes();
         _queue_blocks[child_idx].emplace_back(std::move(block));
         _cur_blocks_nums_in_queue[child_idx] += 1;
@@ -147,6 +164,7 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
 
         set_source_ready();
     }
+    return Status::OK();
 }
 
 void DataQueue::set_finish(int child_idx) {

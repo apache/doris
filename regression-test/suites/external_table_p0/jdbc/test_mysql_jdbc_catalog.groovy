@@ -20,8 +20,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-    // String driver_url = "mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+    // String driver_url = "mysql-connector-j-8.4.0.jar"
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return;
     }
@@ -30,7 +30,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         if (driver_class.equals("com.mysql.jdbc.Driver")) {
             driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-5.1.49.jar"
         } else  {
-            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
         }
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -326,14 +326,14 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         // test insert into internal.db.table select * from all_types
-        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * EXCEPT(`binary`,`varbinary`),"binary_col","varbinary_col" from all_types; """
         order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
 
         // test CTAS
         sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}
                 PROPERTIES("replication_num" = "1")
-                AS select * from all_types;
+                AS select * EXCEPT(`binary`,`varbinary`) from all_types;
             """
 
         order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
@@ -394,18 +394,18 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
         }
         explain {
-            sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, 1) = 1;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = 1))"
         }
         explain {
-            sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
+            sql ("select k6, k8 from test1 where nvl(nvl(k6, 1), 1) = 1;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = 1))"
         }
         sql """ set enable_ext_func_pred_pushdown = "false"; """
         explain {
-            sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
+            sql ("select k6, k8 from test1 where nvl(k6, 1) = 1 and k8 = 1;")
 
             contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
         }

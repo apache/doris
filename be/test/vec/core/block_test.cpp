@@ -308,6 +308,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
+        EXPECT_GT(block.dump_data_json().size(), 1);
     }
 }
 
@@ -332,6 +333,7 @@ void serialize_and_deserialize_test_one() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -357,6 +359,7 @@ void serialize_and_deserialize_test_int() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -380,6 +383,7 @@ void serialize_and_deserialize_test_int() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -404,6 +408,7 @@ void serialize_and_deserialize_test_long() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -427,6 +432,7 @@ void serialize_and_deserialize_test_long() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -451,6 +457,7 @@ void serialize_and_deserialize_test_string() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -475,6 +482,7 @@ void serialize_and_deserialize_test_string() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -502,6 +510,7 @@ void serialize_and_deserialize_test_nullable() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -526,6 +535,7 @@ void serialize_and_deserialize_test_nullable() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -571,6 +581,7 @@ void serialize_and_deserialize_test_nullable() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -596,6 +607,7 @@ void serialize_and_deserialize_test_decimal() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 
@@ -619,6 +631,7 @@ void serialize_and_deserialize_test_decimal() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(block.dump_data(), block2.dump_data());
+        EXPECT_EQ(block.dump_data_json(), block2.dump_data_json());
         EXPECT_EQ(s1, s2);
     }
 }
@@ -678,6 +691,7 @@ void serialize_and_deserialize_test_bitmap() {
         static_cast<void>(block2.deserialize(pblock));
         std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
+        EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -700,6 +714,7 @@ void serialize_and_deserialize_test_array() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
+        EXPECT_GT(block.dump_data_json().size(), 1);
     }
 }
 
@@ -790,6 +805,7 @@ TEST(BlockTest, dump_data) {
     vectorized::Block block({test_int, test_string, test_decimal, test_nullable_int32, test_date,
                              test_datetime, test_date_v2});
     EXPECT_GT(block.dump_data().size(), 1);
+    EXPECT_GT(block.dump_data_json().size(), 1);
 
     // test dump array int and array string
     vectorized::Block block1;
@@ -797,6 +813,7 @@ TEST(BlockTest, dump_data) {
     fill_block_with_array_string(block1);
     // Note: here we should set 'row_num' in dump_data
     EXPECT_GT(block1.dump_data(10).size(), 1);
+    EXPECT_GT(block.dump_data_json(10).size(), 1);
 
     vectorized::IColumn::Filter filter;
     int size = block1.rows() / 2;
@@ -1362,6 +1379,8 @@ TEST(BlockTest, others) {
     vectorized::MutableBlock mutable_block(&block);
     auto dumped = mutable_block.dump_data();
     ASSERT_GT(dumped.size(), 0) << "Dumped data size: " << dumped.size();
+    auto dumped_json = mutable_block.dump_data_json();
+    ASSERT_GT(dumped_json.size(), 0) << "Dumped data json size: " << dumped_json.size();
 
     mutable_block.clear_column_data();
     ASSERT_EQ(mutable_block.get_column_by_position(0)->size(), 0);

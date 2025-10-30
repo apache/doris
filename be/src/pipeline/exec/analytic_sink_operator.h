@@ -133,7 +133,7 @@ private:
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
     vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
+    vectorized::Arena _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     std::vector<bool> _result_column_nullable_flags;
@@ -201,7 +201,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else {

@@ -46,7 +46,7 @@ public class RollupRenameClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(rollupName)) {
             throw new AnalysisException("Rollup name is not set");
         }

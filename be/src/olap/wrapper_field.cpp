@@ -73,7 +73,7 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
     return new WrapperField(rep, variable_len, is_string_type);
 }
 
-WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_length) {
+WrapperField* WrapperField::create_by_type(const FieldType& type, int64_t var_length) {
     Field* rep = FieldFactory::create_by_type(type);
     if (rep == nullptr) {
         return nullptr;

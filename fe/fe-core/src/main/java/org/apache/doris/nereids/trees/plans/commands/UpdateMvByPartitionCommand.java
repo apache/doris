@@ -32,6 +32,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -85,7 +86,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private static final Logger LOG = LogManager.getLogger(UpdateMvByPartitionCommand.class);
 
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty(), Optional.empty());
+        super(logicalQuery, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     @Override
@@ -101,16 +102,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @param mv materialize view
      * @param partitionNames update partitions in mv and tables
      * @param tableWithPartKey the partitions key for different table
+     * @param statementContext statementContext
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
-            Map<TableIf, String> tableWithPartKey) throws UserException {
+            Map<TableIf, String> tableWithPartKey, StatementContext statementContext) throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionNames, tableWithPartKey);
         List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
-        plan = plan.accept(new PredicateAdder(), new PredicateAddContext(predicates));
         if (plan instanceof Sink) {
             plan = plan.child(0);
         }
@@ -120,6 +121,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
                     sink.treeString());
         }
+        statementContext.setMvRefreshPredicates(predicates);
         return new UpdateMvByPartitionCommand(sink);
     }
 

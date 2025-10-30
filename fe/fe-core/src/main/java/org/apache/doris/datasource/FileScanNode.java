@@ -89,6 +89,10 @@ public abstract class FileScanNode extends ExternalScanNode {
         return tableLevelRowCount;
     }
 
+    public long getTotalFileSize() {
+        return totalFileSize;
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -201,7 +205,6 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
-                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }

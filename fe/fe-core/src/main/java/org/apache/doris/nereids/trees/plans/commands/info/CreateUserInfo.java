@@ -24,11 +24,9 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
@@ -91,11 +89,6 @@ public class CreateUserInfo {
      * validate
      */
     public void validate() throws AnalysisException {
-        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")
-                && AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP) {
-            throw new AnalysisException("Create user is prohibited when Ranger and LDAP are enabled at same time.");
-        }
-
         userIdent.analyze();
 
         if (userIdent.isRootUser()) {

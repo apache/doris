@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -37,7 +36,6 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -47,6 +45,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
@@ -108,18 +107,33 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         } else {
             Env.getCurrentEnv().getRoutineLoadManager().addMultiLoadTaskTxnIdToRoutineLoadJobId(txnId, jobId);
         }
-        tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
-        tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());
-        tRoutineLoadTask.setMaxBatchSize(routineLoadJob.getMaxBatchSizeBytes());
+        adaptiveBatchParam(tRoutineLoadTask, routineLoadJob);
         if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("json")) {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
         } else {
             tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
         }
         tRoutineLoadTask.setMemtableOnSinkNode(routineLoadJob.isMemtableOnSinkNode());
-        tRoutineLoadTask.setQualifiedUser(routineLoadJob.getQualifiedUser());
+        tRoutineLoadTask.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
         tRoutineLoadTask.setCloudCluster(routineLoadJob.getCloudCluster());
         return tRoutineLoadTask;
+    }
+
+    private void adaptiveBatchParam(TRoutineLoadTask tRoutineLoadTask, RoutineLoadJob routineLoadJob) {
+        long maxBatchIntervalS = routineLoadJob.getMaxBatchIntervalS();
+        long maxBatchRows = routineLoadJob.getMaxBatchRows();
+        long maxBatchSize = routineLoadJob.getMaxBatchSizeBytes();
+        if (!isEof) {
+            maxBatchIntervalS = Math.max(maxBatchIntervalS, Config.routine_load_adaptive_min_batch_interval_sec);
+            maxBatchRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
+            maxBatchSize = Math.max(maxBatchSize, RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE);
+            this.timeoutMs = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000;
+        } else {
+            this.timeoutMs = routineLoadJob.getTimeout() * 1000;
+        }
+        tRoutineLoadTask.setMaxIntervalS(maxBatchIntervalS);
+        tRoutineLoadTask.setMaxBatchRows(maxBatchRows);
+        tRoutineLoadTask.setMaxBatchSize(maxBatchSize);
     }
 
     @Override
@@ -151,15 +165,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
                 ConnectContext tmpContext = new ConnectContext();
                 if (Config.isCloudMode()) {
-                    String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getClusterNameByClusterId(routineLoadJob.getCloudClusterId());
-                    if (Strings.isNullOrEmpty(clusterName)) {
-                        LOG.warn("cluster name is empty, cluster id is {}, job id is {}",
-                                routineLoadJob.getCloudClusterId(), routineLoadJob.getTxnId());
-                        throw new UserException(String.format("cluster name is empty, cluster id is %s",
-                                routineLoadJob.getCloudClusterId()));
-                    }
-                    tmpContext.setCloudCluster(clusterName);
+                    tmpContext.setCloudCluster(routineLoadJob.getCloudCluster());
                 }
                 tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
 
@@ -168,7 +174,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                     tmpContext.getSessionVariable().setWorkloadGroup(wgName);
                 }
 
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext);
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext)
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
 
                 if (tWgList.size() != 0) {
                     tExecPlanFragmentParams.setWorkloadGroups(tWgList);

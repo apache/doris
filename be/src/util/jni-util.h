@@ -24,7 +24,6 @@
 #include <stdint.h>
 
 #include <string>
-#include <unordered_map>
 
 #include "common/status.h"
 #include "jni_md.h"
@@ -74,7 +73,7 @@ public:
             }
         }
         if (*env == nullptr) {
-            return Status::RuntimeError("Failed to get JNIEnv: it is nullptr.");
+            return Status::JniError("Failed to get JNIEnv: it is nullptr.");
         }
         return Status::OK();
     }
@@ -101,8 +100,10 @@ public:
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
     static Status get_jni_scanner_class(JNIEnv* env, const char* classname, jclass* loaded_class);
-    static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
-    static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
+    static Status convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map,
+                                      jobject* hashmap_object);
+    static Status convert_to_cpp_map(JNIEnv* env, jobject map,
+                                     std::map<std::string, std::string>* resultMap);
     static size_t get_max_jni_heap_memory_size();
     static Status clean_udf_class_load_cache(const std::string& function_signature);
 
@@ -189,7 +190,7 @@ Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
     // Make sure that 'size' is within the limit of INT_MAX as the use of
     // 'size' below takes int.
     if (size > INT_MAX) {
-        return Status::InternalError(
+        return Status::JniError(
                 "The length of the serialization buffer ({} bytes) exceeds the limit of {} bytes",
                 size, INT_MAX);
     }
@@ -197,7 +198,9 @@ Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
     /// create jbyteArray given buffer
     *serialized_msg = env->NewByteArray(size);
     RETURN_ERROR_IF_EXC(env);
-    if (*serialized_msg == NULL) return Status::InternalError("couldn't construct jbyteArray");
+    if (*serialized_msg == nullptr) {
+        return Status::JniError("couldn't construct jbyteArray");
+    }
     env->SetByteArrayRegion(*serialized_msg, 0, size, reinterpret_cast<jbyte*>(buffer));
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();

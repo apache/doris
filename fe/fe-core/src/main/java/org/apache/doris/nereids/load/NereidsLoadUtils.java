@@ -17,17 +17,18 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
+import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -43,8 +44,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -125,7 +126,7 @@ public class NereidsLoadUtils {
     /**
      * create a load plan tree for stream load, routine load and broker load
      */
-    public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNames partitionNames,
+    public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNamesInfo partitionNamesInfo,
             NereidsParamCreateContext context, boolean isPartialUpdate,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy) throws UserException {
         // context.scanSlots represent columns read from external file
@@ -135,6 +136,8 @@ public class NereidsLoadUtils {
 
         // add prefilter if it exists
         if (context.fileGroup.getPrecedingFilterExpr() != null) {
+            // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
+            // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
             Set<Expression> conjuncts = new HashSet<>();
             conjuncts.add(context.fileGroup.getPrecedingFilterExpr());
             currentRootPlan = new LogicalPreFilter<>(conjuncts, currentRootPlan);
@@ -189,46 +192,46 @@ public class NereidsLoadUtils {
         // create a table sink for dest table
         currentRootPlan = UnboundTableSinkCreator.createUnboundTableSink(targetTable.getFullQualifiers(), colNames,
                 ImmutableList.of(),
-                partitionNames != null && partitionNames.isTemp(),
-                partitionNames != null ? partitionNames.getPartitionNames() : ImmutableList.of(), isPartialUpdate,
-                partialUpdateNewKeyPolicy, DMLCommandType.LOAD, currentRootPlan);
+                partitionNamesInfo != null && partitionNamesInfo.isTemp(),
+                partitionNamesInfo != null ? partitionNamesInfo.getPartitionNames() : ImmutableList.of(),
+                isPartialUpdate, partialUpdateNewKeyPolicy, DMLCommandType.LOAD, currentRootPlan);
 
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);
         ConnectContext ctx = cascadesContext.getConnectContext();
         try {
             ctx.getSessionVariable().setDebugSkipFoldConstant(true);
-            Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                    ImmutableList.of(Rewriter.bottomUp(
-                            new BindExpression(),
-                            new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
-                            new BindSink(),
-                            new AddPostFilter(
-                                    context.fileGroup.getWhereExpr()
-                            ),
-                            // NOTE: the LogicalOneRowRelation usually not contains slots,
-                            //       but NereidsLoadPlanInfoCollector need to parse the slot list.
-                            //       load only need merge continued LogicalProject, but not want to
-                            //       merge LogicalOneRowRelation by MergeProjectable,
-                            //       for example, select cast(id as int), name
-                            //       will generate:
-                            //
-                            //       LogicalProject(projects=[cast(Alias(id#0 as int), name#1)])
-                            //                          |
-                            //              LogicalOneRowRelation(id#0, name#1)
-                            //
-                            //      then NereidsLoadPlanInfoCollector can generate collect slots by the
-                            //      bottom LogicalOneRowRelation, and provide to upper LogicalProject.
-                            //
-                            //      but if we use MergeProjectable, it will be
-                            //          LogicalOneRowRelation(projects=[Alias(cast(id#0 as int)), name#1)])
-                            //
-                            //      the NereidsLoadPlanInfoCollector will not generate slot by id#0,
-                            //      so we must use MergeProjects here
-                            new MergeProjects(),
-                            new ExpressionNormalization())
-                    ))
-                    .execute();
+
+            Analyzer.buildCustomAnalyzer(cascadesContext, ImmutableList.of(Analyzer.bottomUp(
+                    new BindExpression(),
+                    new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
+                    new BindSink(false),
+                    new AddPostFilter(
+                            context.fileGroup.getWhereExpr()
+                    ),
+                    // NOTE: the LogicalOneRowRelation usually not contains slots,
+                    //       but NereidsLoadPlanInfoCollector need to parse the slot list.
+                    //       load only need merge continued LogicalProject, but not want to
+                    //       merge LogicalOneRowRelation by MergeProjectable,
+                    //       for example, select cast(id as int), name
+                    //       will generate:
+                    //
+                    //       LogicalProject(projects=[cast(Alias(id#0 as int), name#1)])
+                    //                          |
+                    //              LogicalOneRowRelation(id#0, name#1)
+                    //
+                    //      then NereidsLoadPlanInfoCollector can generate collect slots by the
+                    //      bottom LogicalOneRowRelation, and provide to upper LogicalProject.
+                    //
+                    //      but if we use MergeProjectable, it will be
+                    //          LogicalOneRowRelation(projects=[Alias(cast(id#0 as int)), name#1)])
+                    //
+                    //      the NereidsLoadPlanInfoCollector will not generate slot by id#0,
+                    //      so we must use MergeProjects here
+                    new MergeProjects(),
+                    new ExpressionNormalization())
+            )).execute();
+            Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext, ImmutableList.of()).execute();
         } catch (Exception exception) {
             throw new UserException(exception.getMessage());
         } finally {
@@ -276,10 +279,10 @@ public class NereidsLoadUtils {
                                     : expression;
                             if (column.isAllowNull() || expression.nullable()) {
                                 newProjects.add(
-                                        new Alias(new JsonbParseNullableErrorToNull(realExpr), expression.getName()));
+                                        new Alias(new JsonbParseErrorToNull(realExpr), expression.getName()));
                             } else {
                                 newProjects.add(
-                                        new Alias(new JsonbParseNotnullErrorToInvalid(realExpr), expression.getName()));
+                                        new Alias(new JsonbParseErrorToValue(realExpr), expression.getName()));
                             }
                         } else {
                             newProjects.add(expression);

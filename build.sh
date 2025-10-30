@@ -35,11 +35,7 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
-
-TARGET_SYSTEM="$(uname -s)"
-TARGET_ARCH="$(uname -m)"
-echo "Target system: ${TARGET_SYSTEM}; Target arch: ${TARGET_ARCH}"
-
+HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -55,6 +51,7 @@ Usage: $0 <options>
      --cloud                    build Cloud. Default OFF.
      --index-tool               build Backend inverted index tool. Default OFF.
      --benchmark                build Google Benchmark. Default OFF.
+     --task-executor-simulator  build Backend task executor simulator. Default OFF.
      --broker                   build Broker. Default ON.
      --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
@@ -70,7 +67,6 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
-    ENABLE_BUILD_FAISS          If set BUILD_FAISS=ON, it will link BE with faiss.
 
   Eg.
     $0                                      build all
@@ -82,6 +78,7 @@ Usage: $0 <options>
     $0 --benchmark                          build Google Benchmark of Backend
     $0 --fe --clean                         clean and build Frontend.
     $0 --fe --be --clean                    clean and build Frontend and Backend
+    $0 --task-executor-simulator            build task executor simulator
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
@@ -141,6 +138,7 @@ if ! OPTS="$(getopt \
     -l 'file-cache-microbench' \
     -l 'index-tool' \
     -l 'benchmark' \
+    -l 'task-executor-simulator' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
@@ -165,6 +163,7 @@ BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
+BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
 CLEAN=0
@@ -173,7 +172,6 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
-BUILD_FAISS='OFF'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -184,6 +182,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
+    BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
     BUILD_INDEX_TOOL='OFF'
     BUILD_BENCHMARK='OFF'
     BUILD_HIVE_UDF=1
@@ -205,6 +204,7 @@ else
             ;;
         --cloud)
             BUILD_CLOUD=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --broker)
@@ -226,6 +226,11 @@ else
         --benchmark)
             BUILD_BENCHMARK='ON'
             BUILD_BE=1 # go into BE cmake building, but benchmark instead of doris_be
+            shift
+            ;;
+        --task-executor-simulator)
+            BUILD_TASK_EXECUTOR_SIMULATOR='ON'
+            BUILD_BE=1
             shift
             ;;
         --spark-dpp)
@@ -288,6 +293,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
+	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
@@ -391,26 +397,9 @@ elif [[ -z "${USE_JEMALLOC}" ]]; then
         USE_JEMALLOC='OFF'
     fi
 fi
-if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
-    # compatible with old thirdparty
-    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
-    rm -rf "${TP_LIB_DIR}/librocksdb.a"
 
-    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    mv "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-    mv -f "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
-fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
-fi
-
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
 fi
 
 if [[ -z "${USE_UNWIND}" ]]; then
@@ -453,20 +442,12 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
-fi
-
-if [[ -n "${ENABLE_BUILD_FAISS}" ]]; then
-    BUILD_FAISS='ON'
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
-fi
-
-if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${BUILD_BENCHMARK}" ]]; then
@@ -496,6 +477,10 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; 
     fi
 fi
 
+if [[ -z "${WITH_TDE_DIR}" ]]; then
+    WITH_TDE_DIR=''
+fi
+
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
@@ -505,6 +490,7 @@ echo "Get params:
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
     BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
+    BUILD_TASK_EXECUTOR_SIMULATOR       -- ${BUILD_TASK_EXECUTOR_SIMULATOR}
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
@@ -512,17 +498,27 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_DWARF                           -- ${USE_DWARF}
     USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
     ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
-    ENABLE_CACHE_LOCK_DEBUG             -- ${ENABLE_CACHE_LOCK_DEBUG}
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
+
+FEAT=()
+FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
+FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
+FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
+FEAT+=($([[ ${BUILD_HIVE_UDF} -eq 1 ]] && echo "+HIVE_UDF" || echo "-HIVE_UDF"))
+FEAT+=($([[ ${BUILD_BE_JAVA_EXTENSIONS} -eq 1 ]] && echo "+BE_JAVA_EXTENSIONS" || echo "-BE_JAVA_EXTENSIONS"))
+
+export DORIS_FEATURE_LIST=$(IFS=','; echo "${FEAT[*]}")
+echo "Feature List: ${DORIS_FEATURE_LIST}"
 
 # Clean and build generated code
 if [[ "${CLEAN}" -eq 1 ]]; then
@@ -536,6 +532,9 @@ modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        modules+=("fe-${WITH_TDE_DIR}")
+    fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -552,8 +551,10 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
-    modules+=("be-java-extensions/lakesoul-scanner")
+    # lakesoul-scanner has been deprecated
+    # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
+    modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -570,8 +571,10 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
-    update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+    update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+    update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+    update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
+    update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -587,10 +590,20 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         BUILD_FS_BENCHMARK=OFF
     fi
 
+    if [[ -z "${BUILD_TASK_EXECUTOR_SIMULATOR}" ]]; then
+        BUILD_TASK_EXECUTOR_SIMULATOR=OFF
+    fi
+
+    if [[ -z "${BUILD_FILE_CACHE_LRU_TOOL}" ]]; then
+        BUILD_FILE_CACHE_LRU_TOOL=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
+    echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
+    echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -599,17 +612,17 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
-        -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
+        -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
+        -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
@@ -621,7 +634,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
-        -DBUILD_FAISS="${BUILD_FAISS}" \
+        -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -657,13 +670,12 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DENABLE_HDFS_STORAGE_VAULT=${ENABLE_HDFS_STORAGE_VAULT:-ON} \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
-        -DBUILD_FAISS="${BUILD_FAISS}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -748,6 +760,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
+    fi
+
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # copy jindofs jars, only support for Linux x64 or arm
@@ -796,10 +812,6 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/bin"/*_be.sh "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
-
-    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
-    fi
 
     if [[ -f "${DORIS_THIRDPARTY}/installed/lib/libz.so" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
@@ -854,6 +866,11 @@ EOF
         cp -r -p "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_OUTPUT}/be/bin/"/
     fi
 
+    if [[ "${BUILD_TASK_EXECUTOR_SIMULATOR}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/bin/run-task-executor-simulator.sh" "${DORIS_OUTPUT}/be/bin/"/
+        cp -r -p "${DORIS_HOME}/be/output/lib/task_executor_simulator" "${DORIS_OUTPUT}/be/lib/"/
+    fi
+
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
@@ -861,9 +878,11 @@ EOF
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
-    extensions_modules+=("lakesoul-scanner")
+    # lakesoul-scanner has been deprecated
+    # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
+    extensions_modules+=("${HADOOP_DEPS_NAME}")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -893,13 +912,34 @@ EOF
         module_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
         module_proj_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-project.jar"
         mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        if [[ -f "${module_jar}" ]]; then
-            cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        echo "Copy Be Extensions ${extensions_module} jar to ${BE_JAVA_EXTENSIONS_DIR}/${extensions_module}"
+     if [[ "${extensions_module}" == "${HADOOP_DEPS_NAME}" ]]; then
+          
+            BE_HADOOP_HDFS_DIR="${DORIS_OUTPUT}/be/lib/hadoop_hdfs/"
+            echo "Copy Be Extensions hadoop deps jars to ${BE_HADOOP_HDFS_DIR}"
+            rm -rf "${BE_HADOOP_HDFS_DIR}"
+            mkdir "${BE_HADOOP_HDFS_DIR}"
+            HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
+            echo "HADOOP_DEPS_JAR_DIR: ${HADOOP_DEPS_JAR_DIR}"
+            if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+                echo "Copy Be Extensions hadoop deps jar to ${BE_HADOOP_HDFS_DIR}"
+                cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${BE_HADOOP_HDFS_DIR}"
+            fi
+            if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+                cp -r "${HADOOP_DEPS_JAR_DIR}/lib" "${BE_HADOOP_HDFS_DIR}/"
+            fi
+        else
+            if [[ -f "${module_jar}" ]]; then
+                cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+            fi
+            if [[ -f "${module_proj_jar}" ]]; then
+                cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+            fi
+            if [[ -d "${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/lib" ]]; then
+                cp -r "${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/lib" "${BE_JAVA_EXTENSIONS_DIR}/${extensions_module}/"
+            fi
         fi
-        if [[ -f "${module_proj_jar}" ]]; then
-            cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        fi
-    done
+    done        
 
     # copy jindofs jars, only support for Linux x64 or arm
     install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
@@ -938,8 +978,13 @@ fi
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
     rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
-    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
+    # If hadoop dependencies are required, building cloud module must be done after building be-java-extensions first
+    # so when running ./build.sh --cloud,we also build be-java-extensions automatically.
+    # If hadoop-depencies are not needed, you can disable it explicitly, by setting DISABLE_BE_JAVA_EXTENSIONS during the build.
+    HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
+    if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi

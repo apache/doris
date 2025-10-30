@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/operator.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -79,7 +80,6 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
-          _agg_arena_pool(std::make_unique<vectorized::Arena>()),
           _agg_data(std::make_unique<AggregatedDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
@@ -185,7 +185,7 @@ void StreamingAggLocalState::_update_memusage_with_serialized_key() {
                        },
                        [&](auto& agg_method) -> void {
                            auto& data = *agg_method.hash_table;
-                           int64_t arena_memory_usage = _agg_arena_pool->size() +
+                           int64_t arena_memory_usage = _agg_arena_pool.size() +
                                                         _aggregate_data_container->memory_usage();
                            int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
 
@@ -287,9 +287,7 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
 
 size_t StreamingAggLocalState::_memory_usage() const {
     size_t usage = 0;
-    if (_agg_arena_pool) {
-        usage += _agg_arena_pool->size();
-    }
+    usage += _agg_arena_pool.size();
 
     if (_aggregate_data_container) {
         usage += _aggregate_data_container->memory_usage();
@@ -358,10 +356,11 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
-    size_t rows = in_block->rows();
+    uint32_t rows = (uint32_t)in_block->rows();
     _places.resize(rows);
 
     if (_should_not_do_pre_agg(rows)) {
@@ -384,7 +383,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
         for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
             SCOPED_TIMER(_insert_values_to_column_timer);
             RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
-                    in_block, value_columns[i], rows, _agg_arena_pool.get()));
+                    in_block, value_columns[i], rows, _agg_arena_pool));
         }
 
         if (!mem_reuse) {
@@ -410,8 +409,8 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
-                    in_block, p._offsets_of_aggregate_states[i], _places.data(),
-                    _agg_arena_pool.get(), _should_expand_hash_table));
+                    in_block, p._offsets_of_aggregate_states[i], _places.data(), _agg_arena_pool,
+                    _should_expand_hash_table));
         }
     }
 
@@ -470,7 +469,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             _values.resize(size + 1);
                         }
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         _aggregate_data_container->init_once();
                         auto& iter = _aggregate_data_container->iterator;
 
@@ -565,7 +564,7 @@ void StreamingAggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr da
 
 void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                       vectorized::ColumnRawPtrs& key_columns,
-                                                      const size_t num_rows) {
+                                                      const uint32_t num_rows) {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -579,7 +578,7 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
 
                            auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                                HashMethodType::try_presis_key_and_origin(key, origin,
-                                                                         *_agg_arena_pool);
+                                                                         _agg_arena_pool);
                                auto mapped = _aggregate_data_container->append_data(origin);
                                auto st = _create_agg_status(mapped);
                                if (!st) {
@@ -589,7 +588,7 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
                            };
 
                            auto creator_for_null_key = [&](auto& mapped) {
-                               mapped = _agg_arena_pool->aligned_alloc(
+                               mapped = _agg_arena_pool.aligned_alloc(
                                        Base::_parent->template cast<StreamingAggOperatorX>()
                                                ._total_size_of_aggregate_states,
                                        Base::_parent->template cast<StreamingAggOperatorX>()
@@ -612,7 +611,8 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
 }
 
 StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
-                                             const TPlanNode& tnode, const DescriptorTbl& descs)
+                                             const TPlanNode& tnode, const DescriptorTbl& descs,
+                                             bool require_bucket_distribution)
         : StatefulOperatorX<StreamingAggLocalState>(pool, tnode, operator_id, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -620,7 +620,21 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _is_merge(false),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
-          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
+          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _partition_exprs(
+                  tnode.__isset.distribute_expr_lists &&
+                                  (require_bucket_distribution ||
+                                   std::any_of(
+                                           tnode.agg_node.aggregate_functions.begin(),
+                                           tnode.agg_node.aggregate_functions.end(),
+                                           [](const TExpr& texpr) -> bool {
+                                               return texpr.nodes[0]
+                                                       .fn.name.function_name.starts_with(
+                                                               vectorized::
+                                                                       DISTINCT_FUNCTION_PREFIX);
+                                           }))
+                          ? tnode.distribute_expr_lists[0]
+                          : tnode.agg_node.grouping_exprs) {}
 
 Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::init(tnode, state));
@@ -640,7 +654,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                tnode.agg_node.grouping_exprs.empty(), &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 

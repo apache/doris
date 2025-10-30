@@ -247,17 +247,6 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
-# abseil patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " ABSEIL " ]]; then
-    cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/absl.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${ABSEIL_SOURCE}"
-fi
-
 # glog patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
@@ -278,17 +267,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
-# gtest patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " GTEST " ]]; then
-    cd "${TP_SOURCE_DIR}/${GTEST_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/googletest-release-1.11.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${GTEST_SOURCE}"
-fi
-
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
@@ -298,19 +276,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     fi
     cd -
     echo "Finished patching ${MYSQL_SOURCE}"
-fi
-
-# libevent patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " LIBEVENT " ]]; then
-    cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/libevent.patch"
-        patch -p1 <"${TP_PATCH_DIR}/libevent-1532.patch"
-        patch -p1 <"${TP_PATCH_DIR}/libevent-keepalive-accepted-socket.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${LIBEVENT_SOURCE}"
 fi
 
 # gsasl2 patch to fix link error such as mutilple func defination
@@ -354,6 +319,9 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ROCKSDB " ]]; then
         cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/rocksdb-5.14.2.patch"
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                patch -p1 <"${TP_PATCH_DIR}/rocksdb-mac-compile-fix.patch"
+            fi 
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -522,6 +490,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
         cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
+            patch -p1 <"${TP_PATCH_DIR}/grpc-absl-fix.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -590,19 +559,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     echo "Finished patching ${THRIFT_SOURCE}"
 fi
 
-# patch faiss cmake so that we can use openblas
-if [[ " ${TP_ARCHIVES[*]} " =~ " FAISS " ]]; then
-    if [[ "${FAISS_SOURCE}" = "faiss-1.10.0" ]]; then
-        cd "${TP_SOURCE_DIR}/${FAISS_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p2 <"${TP_PATCH_DIR}/faiss-1.10.0.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
-    fi
-    echo "Finished patching ${FAISS_SOURCE}"
-fi
-
 # patch re2
 if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
     if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
@@ -617,6 +573,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
         cd -
     fi
     echo "Finished patching ${RE2_SOURCE}"
+fi
+
+# patch azure
+if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/azure-sdk-for-cpp-azure-core_1.16.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${AZURE_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

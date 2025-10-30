@@ -55,13 +55,18 @@ public class SecondsDiff extends ScalarFunction implements BinaryExpression, Exp
         super("seconds_diff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SecondsDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SecondsDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new SecondsDiff(children.get(0), children.get(1));
+        return new SecondsDiff(getFunctionParams(children));
     }
 
     @Override

@@ -22,7 +22,7 @@ suite("test_conflict_name", "p0,external,doris,meta_names_mapping,external_docke
     String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
@@ -57,7 +57,11 @@ suite("test_conflict_name", "p0,external,doris,meta_names_mapping,external_docke
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_conflict_name,EXTERNAL_CONFLICT_NAME"
+            "include_database_list" = "external_conflict_name,EXTERNAL_CONFLICT_NAME",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {

@@ -19,15 +19,19 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.PropertyConverter;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class BrokerProperties extends StorageProperties {
+
+    public static final String BROKER_PREFIX = "broker.";
 
     @Setter
     @Getter
@@ -62,11 +66,9 @@ public class BrokerProperties extends StorageProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        this.brokerParams = new HashMap<>(origProps);
-        //why need this convert
-        this.brokerParams.putAll(PropertyConverter.convertToHadoopFSProperties(origProps));
+        this.brokerParams = Maps.newHashMap(extractBrokerProperties());
     }
 
     @Override
@@ -87,5 +89,26 @@ public class BrokerProperties extends StorageProperties {
     @Override
     public String getStorageName() {
         return "BROKER";
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        // do nothing
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        //not used
+        return ImmutableSet.of();
+    }
+
+    private Map<String, String> extractBrokerProperties() {
+        Map<String, String> brokerProperties = new HashMap<>();
+        for (String key : origProps.keySet()) {
+            if (key.startsWith(BROKER_PREFIX)) {
+                brokerProperties.put(key.substring(BROKER_PREFIX.length()), origProps.get(key));
+            }
+        }
+        return brokerProperties;
     }
 }

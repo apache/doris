@@ -21,6 +21,7 @@
 
 #include <chrono>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -158,7 +159,7 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
                                                                 bool sync_delete_bitmap,
                                                                 SyncRowsetStats* sync_stats,
-                                                                bool force_use_cache) {
+                                                                bool local_only) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
@@ -176,12 +177,17 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
 
-    if (handle == nullptr && force_use_cache) {
-        return ResultError(
-                Status::InternalError("failed to get cloud tablet from cache {}", tablet_id));
-    }
-
     if (handle == nullptr) {
+        if (local_only) {
+            LOG(INFO) << "tablet=" << tablet_id
+                      << "does not exists in local tablet cache, because param local_only=true, "
+                         "treat it as an error";
+            return ResultError(Status::InternalError(
+                    "tablet={} does not exists in local tablet cache, because param "
+                    "local_only=true, "
+                    "treat it as an error",
+                    tablet_id));
+        }
         if (sync_stats) {
             ++sync_stats->tablet_meta_cache_miss;
         }
@@ -391,6 +397,13 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     auto skip = [now, compaction_type](CloudTablet* t) {
+        auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info());
+        if (config::enable_standby_passive_compaction && cloud_cluster_info->is_in_standby()) {
+            if (t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num * config::standby_compaction_version_ratio) {
+                return true;
+            }
+        }
+
         int32_t max_version_config = t->max_version_config();
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             bool is_recent_failure = now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms;

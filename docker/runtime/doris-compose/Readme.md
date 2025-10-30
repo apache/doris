@@ -117,16 +117,24 @@ So if multiple users use different `LOCAL_DORIS_PATH`, their clusters may have d
 ### Create a cluster or recreate its containers
 
 ```shell
-python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?>
     --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
     [--fe-id <fd-id> --be-id <be-id>]
     ...
     [ --cloud ]
+    [ --cluster-snapshot <cluster-snapshot-json> ]
 ```
 
 if it's a new cluster, must specific the image.
 
 add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
+
+The `--cluster-snapshot` parameter allows you to provide a cluster snapshot JSON content for FE-1 first startup in cloud mode only. The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh with --cluster_snapshot parameter. This is only effective on first startup.
+
+Example:
+```shell
+python docker/runtime/doris-compose/doris-compose.py up my-cluster my-image --cloud --cluster-snapshot '{"instance_id":"instance_id_xxx"}'
+```
 
 For create a cloud cluster, steps are as below:
 
@@ -140,6 +148,12 @@ The simplest way to create a cloud cluster:
 
 ```shell
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud
+```
+
+To create a cloud cluster with a custom cluster snapshot:
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud --cluster-snapshot '{"instance_id":"instance_id_xxx"}'
 ```
 
 It will create 1 fdb, 1 meta service server, 1 recycler, 3 fe and 3 be.
@@ -176,10 +190,22 @@ Otherwise it will just list summary of each clusters.
 There are more options about doris-compose. Just try
 
 ```shell
-python docker/runtime/doris-compose/doris-compose.py <command> -h 
+python docker/runtime/doris-compose/doris-compose.py <command> -h
 ```
 
+### Docker suite in regression test
+
+Regression test support running a suite in a docker doris cluster.
+
+See the example [demo_p0/docker_action.groovy](https://github.com/apache/doris/blob/master/regression-test/suites/demo_p0/docker_action.groovy).
+
+The docker suite can specify fe num and be num,  and add/drop/start/stop/restart the fe and be.
+
+Before run a docker suite, read the annotation in `demo_p0/docker_action.groovy` carefully.
+
 ### Generate regression custom conf file
+
+provide a  command for let the regression test connect to a docker cluster.
 
 ```shell
 python docker/runtime/doris-compose/doris-compose.py config <cluster-name>  <doris-root-path>  [-q]  [--connect-follow-fe]
@@ -195,11 +221,189 @@ steps:
 2. Generate regression-conf-custom.groovy: `python docker/runtime/doris-compose/doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
 3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 
+### Multi cloud cluster with shared Meta Service
+
+Doris compose now supports creating multiple cloud clusters that share the same Meta Service (MS), FDB, and Recycler services. This is useful for testing cross-cluster operations (such as cloning, backup/restore) under the same Meta Service instance.
+
+#### Create the first cluster
+
+First, create a complete cloud cluster that will provide MS/FDB/Recycler services:
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py up cluster1 <image> --cloud --add-fe-num 1 --add-be-num 3
+```
+
+This creates the first cluster with:
+- 1 FDB node
+- 1 Meta Service (MS) node
+- 1 Recycler node
+- 1 FE node
+- 3 BE nodes
+
+#### Create additional clusters sharing the same MS
+
+Now you can create additional sql/compute clusters that share the first cluster's Meta Service:
+
+```shell
+# Create second cluster sharing cluster1's MS
+python docker/runtime/doris-compose/doris-compose.py up cluster2 <image> --cloud --external-ms cluster1 --instance-id instance_cluster2 --add-fe-num 1 --add-be-num 3
+
+# Create third cluster sharing cluster1's MS
+python docker/runtime/doris-compose/doris-compose.py up cluster3 <image> --cloud --external-ms cluster1 --instance-id instance_cluster3 --add-fe-num 1 --add-be-num 3
+```
+
+Key points:
+- `--external-ms cluster1`: Specifies that this cluster will use cluster1's MS/FDB/Recycler services
+- `--instance-id`: Must be unique for each cluster. If not specified, will auto-generate as `instance_<cluster-name>`
+- The new clusters will NOT create their own MS/FDB/Recycler nodes, saving resources
+- All clusters share the same object storage and meta service infrastructure
+- Each cluster maintains its own FE/BE nodes for compute isolation
+
+#### Network architecture
+
+When using external MS:
+- Each cluster has its own Docker network
+- Compute clusters join the external MS cluster's network as well
+- DNS resolution is configured automatically for all MS/FDB/Recycler nodes
+- BE and FE nodes can communicate with MS nodes using their container names
+
+#### Validation
+
+Doris compose automatically validates:
+1. External MS cluster exists
+2. External cluster is a cloud cluster
+3. MS and FDB nodes are present
+4. MS and FDB containers are running
+
+If validation fails, you'll get a clear error message explaining what needs to be fixed.
+
+### Rollback Cloud Cluster to Snapshot
+
+The rollback command allows you to rollback a cloud cluster to a specific snapshot state.
+
+#### Basic Usage
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback <cluster-name> \
+    --cluster-snapshot '{"instance_id":"instance_xxx", ...}' \
+    [--instance-id NEW_INSTANCE_ID]
+```
+
+#### What it does
+
+The rollback command performs the following operations on **ALL FE/BE nodes**:
+1. **Stops** all FE and BE nodes
+2. **Cleans** FE `doris-meta/` and BE `storage/` directories (preserves `conf/`, `log/`, etc.)
+3. **Updates** update all nodes conf
+4. **Restarts** all nodes with new `instance_id` and `cluster_snapshot`
+
+#### Parameters
+
+- `--cluster-snapshot` (required): Cluster snapshot JSON content
+  - Example: `'{"instance_id":"instance_id_xxx"}'`
+  - Will be written to FE-1's `conf/cluster_snapshot.json`
+
+- `--instance-id` (optional): New instance ID after rollback
+  - If not specified, auto-generates: `instance_{cluster_name}_{timestamp}`
+
+- `--wait-timeout` (optional): Wait seconds for nodes to be ready (default: 0)
+
+#### Examples
+
+**Full cluster rollback:**
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback my_cluster \
+    --cluster-snapshot '{"instance_id":"backup_instance", ...}' \
+    --wait-timeout 60
+```
+
+**Rollback with custom instance ID:**
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback my_cluster \
+    --cluster-snapshot '{"instance_id":"rollback_instance", ...}' \
+    --instance-id "prod_rollback_20251027"
+```
+
 ## Problem investigation
 
 ### Log
 
 Each cluster has logs in Docker in '/tmp/doris/{cluster-name}/{node-xxx}/log/'. For each node, doris compose will also print log in '/tmp/doris/{cluster-name}/{node-xxx}/log/health.out'
+
+### Core Dump
+
+Doris Compose supports core dump generation for debugging purposes. When a process crashes, it will generate a core dump file that can be analyzed with tools like gdb.
+
+#### Core Dump Location
+
+Core dump files are generated in the following locations:
+
+- **Host System**: `/tmp/doris/{cluster-name}/{node-xxx}/core_dump/`
+- **Container**: `/opt/apache-doris/core_dump/`
+
+The core dump files follow the pattern: `core.{executable}.{pid}.{timestamp}`
+
+For example:
+```
+/tmp/doris/my-cluster/be-1/core_dump/core.doris_be.12345.1755418335
+```
+
+#### Core Pattern Configuration
+
+The system uses the core pattern from `/proc/sys/kernel/core_pattern` on the host system. The default pattern is:
+```
+/opt/apache-doris/core_dump/core.%e.%p.%t
+```
+
+Where:
+- `%e`: executable name
+- `%p`: process ID
+- `%t`: timestamp
+
+#### Core Dump Settings
+
+Doris Compose automatically configures the following settings for core dump generation:
+
+1. **Container Settings**:
+   - `ulimits.core = -1` (unlimited core file size)
+   - `cap_add: ["SYS_ADMIN"]` (required capabilities)
+   - `privileged: true` (privileged mode)
+
+2. **Directory Permissions**:
+   - Core dump directory is created with 777 permissions
+   - Ownership is set to the host user for non-root containers
+
+3. **Non-Root User Support**:
+   - Core dump directory permissions are automatically configured
+   - Works with both root and non-root user containers
+
+#### Troubleshooting
+
+If core dumps are not being generated:
+
+1. **Check ulimit settings**:
+   ```bash
+   ulimit -c
+   # Should return "unlimited" or a positive number
+   ```
+
+2. **Check directory permissions**:
+   ```bash
+   ls -la /tmp/doris/{cluster-name}/{node-xxx}/core_dump/
+   # Should show 777 permissions
+   ```
+
+3. **Check core pattern**:
+   ```bash
+   cat /proc/sys/kernel/core_pattern
+   # Should show the expected pattern
+   ```
+
+4. **Check container logs**:
+   ```bash
+   docker logs {container-name}
+   # Look for core dump related messages
+   ```
 
 ### Up cluster using non-detach mode
 

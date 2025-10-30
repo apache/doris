@@ -1831,6 +1831,58 @@ TEST(function_string_test, function_locate_test) {
         static_cast<void>(
                 check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set));
     }
+
+    // UTF-8 test cases
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{std::string("世界"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(3)},
+                {{std::string("你"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("好"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(2)},
+                {{std::string("界"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(4)},
+                {{std::string("你好"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("好世"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(2)},
+                {{std::string("找不到"), std::string("你好世界"), std::int32_t(1)},
+                 std::int32_t(0)},
+
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(1)},
+                 std::int32_t(1)},
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(2)},
+                 std::int32_t(5)},
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(6)},
+                 std::int32_t(0)},
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(-1)},
+                 std::int32_t(0)},
+
+                {{std::string(""), std::string("你好世界"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string(""), std::string("你好世界"), std::int32_t(2)}, std::int32_t(2)},
+                {{std::string(""), std::string("你好世界"), std::int32_t(5)}, std::int32_t(0)},
+                {{std::string("你"), std::string(""), std::int32_t(1)}, std::int32_t(0)},
+
+                {{std::string("你好"), std::string("Hello你好World世界"), std::int32_t(1)},
+                 std::int32_t(6)},
+                {{std::string("World"), std::string("Hello你好World世界"), std::int32_t(1)},
+                 std::int32_t(8)},
+                {{std::string("界"), std::string("Hello你好World世界"), std::int32_t(1)},
+                 std::int32_t(14)},
+
+                {{std::string("你"), std::string("你好世界"), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("你"), std::string("你好世界"), std::int32_t(100)}, std::int32_t(0)},
+
+                {{std::string("😊"), std::string("你好😊世界"), std::int32_t(1)}, std::int32_t(3)},
+                {{std::string("😊世"), std::string("你好😊世界"), std::int32_t(1)},
+                 std::int32_t(3)},
+
+                {{std::string("世界"), std::string("你好世界"), Null()}, Null()},
+                {{std::string("世界"), Null(), std::int32_t(1)}, Null()},
+                {{Null(), std::string("你好世界"), std::int32_t(1)}, Null()},
+                {{Null(), Null(), Null()}, Null()}};
+
+        static_cast<void>(
+                check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
 }
 
 TEST(function_string_test, function_find_in_set_test) {
@@ -1914,6 +1966,48 @@ TEST(function_string_test, function_md5sum_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {
+                {{VARBINARY("asd你好")}, {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
+                {{VARBINARY("hello world")}, {std::string("5eb63bbbe01eeed093cb22bb8f5acdc3")}},
+                {{VARBINARY("HELLO,!^%")}, {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
+                {{VARBINARY("")}, {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
+                {{VARBINARY(" ")}, {std::string("7215ee9c7d9dc229d2921a40e899ec5f")}},
+                {{Null()}, {Null()}},
+                {{VARBINARY("MYtestSTR")}, {std::string("cd24c90b3fc1192eb1879093029e87d4")}},
+                {{VARBINARY("ò&ø")}, {std::string("fd157b4cb921fa91acc667380184d59c")}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {{{VARBINARY("asd"), VARBINARY("你好")},
+                             {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
+                            {{VARBINARY("hello "), VARBINARY("world")},
+                             {std::string("5eb63bbbe01eeed093cb22bb8f5acdc3")}},
+                            {{VARBINARY("HELLO"), VARBINARY(",!^%")},
+                             {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
+                            {{Null(), VARBINARY("HELLO")}, {Null()}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
+                                    PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {{{VARBINARY("a"), VARBINARY("sd"), VARBINARY("你好")},
+                             {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
+                            {{VARBINARY(""), VARBINARY(""), VARBINARY("")},
+                             {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
+                            {{VARBINARY("HEL"), VARBINARY("LO,!"), VARBINARY("^%")},
+                             {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
+                            {{Null(), VARBINARY("HELLO"), Null()}, {Null()}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
 }
 
 TEST(function_string_test, function_sm3sum_test) {
@@ -1967,6 +2061,58 @@ TEST(function_string_test, function_sm3sum_test) {
                 {{std::string("HEL"), std::string("LO,!"), std::string("^%")},
                  {std::string("5fc6e38f40b31a659a59e1daba9b68263615f20c02037b419d9deb3509e6b5c6")}},
                 {{Null(), std::string("HELLO"), Null()}, {Null()}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {
+                {{VARBINARY("asd你好")},
+                 {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
+                {{VARBINARY("hello world")},
+                 {std::string("44f0061e69fa6fdfc290c494654a05dc0c053da7e5c52b84ef93a9d67d3fff88")}},
+                {{VARBINARY("HELLO,!^%")},
+                 {std::string("5fc6e38f40b31a659a59e1daba9b68263615f20c02037b419d9deb3509e6b5c6")}},
+                {{VARBINARY("")},
+                 {std::string("1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b")}},
+                {{VARBINARY(" ")},
+                 {std::string("2ae1d69bb8483e5944310c877573b21d0a420c3bf4a2a91b1a8370d760ba67c5")}},
+                {{Null()}, {Null()}},
+                {{VARBINARY("MYtestSTR")},
+                 {std::string("3155ae9f834cae035385fc15b69b6f2c051b91de943ea9a03ab8bfd497aef4c6")}},
+                {{VARBINARY("ò&ø")},
+                 {std::string(
+                         "aa47ac31c85aa819d4cc80c932e7900fa26a3073a67aa7eb011bc2ba4924a066")}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {
+                {{VARBINARY("asd"), VARBINARY("你好")},
+                 {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
+                {{VARBINARY("hello "), VARBINARY("world")},
+                 {std::string("44f0061e69fa6fdfc290c494654a05dc0c053da7e5c52b84ef93a9d67d3fff88")}},
+                {{VARBINARY("HELLO "), VARBINARY(",!^%")},
+                 {std::string("1f5866e786ebac9ffed0dbd8f2586e3e99d1d05f7efe7c5915478b57b7423570")}},
+                {{Null(), VARBINARY("HELLO")}, {Null()}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
+                                    PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {
+                {{VARBINARY("a"), VARBINARY("sd"), VARBINARY("你好")},
+                 {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
+                {{VARBINARY(""), VARBINARY(""), VARBINARY("")},
+                 {std::string("1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b")}},
+                {{VARBINARY("HEL"), VARBINARY("LO,!"), VARBINARY("^%")},
+                 {std::string("5fc6e38f40b31a659a59e1daba9b68263615f20c02037b419d9deb3509e6b5c6")}},
+                {{Null(), VARBINARY("HELLO"), Null()}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2369,6 +2515,12 @@ TEST(function_string_test, function_hex_test) {
             {{std::string("23 12 --!__!_!__!")}, std::string("3233203132202D2D215F5F215F215F5F21")},
             {{std::string("112+ + +")}, std::string("3131322B202B202B")},
             {{std::string("     +       23 ")}, std::string("20202020202B20202020202020323320")},
+            {{std::string("😀🍕")}, std::string("F09F9880F09F8D95")},
+            {{std::string("测试")}, std::string("E6B58BE8AF95")},
+            {{std::string("こんにちは")}, std::string("E38193E38293E381ABE381A1E381AF")},
+            {{std::string("안녕하세요")}, std::string("EC9588EB8595ED9598EC84B8EC9A94")},
+            {{std::string("테스트")}, std::string("ED858CEC8AA4ED8AB8")},
+            {{std::string("🎉🍔")}, std::string("F09F8E89F09F8D94")},
     };
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -2379,16 +2531,19 @@ TEST(function_string_test, function_unhex_test) {
     DataSet data_set = {
             {{std::string("41624364456667")}, std::string("AbCdEfg")},
             {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
+            {{std::string("F09F9880F09F8D95")}, std::string("😀🍕")},
+            {{std::string("E6B58BE8AF95")}, std::string("测试")},
             {{std::string("")}, std::string("")},
             {{Null()}, Null()},
             {{std::string("21402324402A2028212623")}, std::string("!@#$@* (!&#")},
             {{std::string("4A534B41422851405F5F21")}, std::string("JSKAB(Q@__!")},
-            // {{std::string("M4D59207465737420537472E4BDA0E5A5BD2020")}, Null()},
             {{std::string("2020202020202020202020202020202020")}, std::string("                 ")},
             {{std::string("3233203132202D2D215F5F215F215F5F21")}, std::string("23 12 --!__!_!__!")},
             {{std::string("3131322B202B202B")}, std::string("112+ + +")},
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
-            // {{std::string("!")}, Null()},
+            {{std::string("E38193E38293E381ABE381A1E381AF")}, std::string("こんにちは")},
+            {{std::string("EC9588EB8595ED9598EC84B8EC9A94")}, std::string("안녕하세요")},
+            {{std::string("ED858CEC8AA4ED8AB8")}, std::string("테스트")},
     };
     check_function_all_arg_comb<DataTypeString, true>(unhex_func_name, input_types, data_set);
 
@@ -2396,6 +2551,8 @@ TEST(function_string_test, function_unhex_test) {
     data_set = {
             {{std::string("41624364456667")}, std::string("AbCdEfg")},
             {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
+            {{std::string("F09F9880F09F8D95")}, std::string("😀🍕")},
+            {{std::string("E6B58BE8AF95")}, std::string("测试")},
             {{std::string("")}, Null()},
             {{Null()}, Null()},
             {{std::string("21402324402A2028212623")}, std::string("!@#$@* (!&#")},
@@ -2407,6 +2564,10 @@ TEST(function_string_test, function_unhex_test) {
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
             {{std::string("41G42")}, Null()},
             {{std::string("!")}, Null()},
+            {{std::string("F09F8E89F09F8D94")}, std::string("🎉🍔")},
+            {{std::string("E38193E38293E381ABE381A1E381AF")}, std::string("こんにちは")},
+            {{std::string("EC9588EB8595ED9598EC84B8EC9A94")}, std::string("안녕하세요")},
+            {{std::string("ED858CEC8AA4ED8AB8")}, std::string("테스트")},
     };
     check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
@@ -3480,6 +3641,178 @@ TEST(function_string_test, function_xpath_string_test) {
             {{Null(), Null()}, Null()}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_count_substring_test) {
+    std::string func_name = "count_substrings";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello world"), std::string("l")}, std::int32_t(3)},
+                            {{std::string("hello world"), std::string("lo")}, std::int32_t(1)},
+                            {{std::string("hello world"), std::string("x")}, std::int32_t(0)},
+                            {{std::string("hello world"), std::string("")}, std::int32_t(0)},
+                            {{std::string(""), std::string("l")}, std::int32_t(0)},
+                            {{std::string(""), std::string("")}, std::int32_t(0)},
+                            // utf-8 characters
+                            {{std::string("你好123世界"), std::string("世")}, std::int32_t(1)},
+                            {{std::string("你好123世界"), std::string("你")}, std::int32_t(1)},
+                            {{std::string("你好123世界"), std::string("好")}, std::int32_t(1)},
+                            {{std::string("你好123世界"), std::string("x")}, std::int32_t(0)},
+                            {{std::string("你好123世界"), std::string("")}, std::int32_t(0)},
+                            // null cases
+                            {{Null(), std::string("l")}, Null()},
+                            {{std::string("hello world"), Null()}, Null()},
+                            {{Null(), Null()}, Null()}};
+
+        check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{std::string("hello world"), std::string("l"), std::int32_t(1)}, std::int32_t(3)},
+                {{std::string("hello world"), std::string("lo"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("hello world"), std::string("x"), std::int32_t(1)}, std::int32_t(0)},
+                {{std::string("hello world"), std::string(""), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string(""), std::string("l"), std::int32_t(1)}, std::int32_t(0)},
+                {{std::string(""), std::string(""), std::int32_t(1)}, std::int32_t(0)},
+                // utf-8 characters
+                {{std::string("你好123世界"), std::string("世"), std::int32_t(3)}, std::int32_t(1)},
+                {{std::string("你好123世界"), std::string("你"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("你好123世界"), std::string("好"), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("你好123世界"), std::string("x"), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("你好123世界"), std::string(""), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("123你好123你好世界"), std::string("你好"), std::int32_t(1)},
+                 std::int32_t(2)},
+                {{std::string("123你好123你好世界"), std::string("你好"), std::int32_t(4)},
+                 std::int32_t(2)},
+                {{std::string("123你好123你好世界"), std::string("你好"), std::int32_t(5)},
+                 std::int32_t(1)},
+
+                // null cases
+                {{Null(), std::string("l"), std::int32_t(0)}, Null()},
+                {{std::string("hello world"), Null(), std::int32_t(0)}, Null()},
+                {{Null(), Null(), std::int32_t(0)}, Null()},
+                // negative start position
+                {{std::string("hello world"), std::string("l"), std::int32_t(-1)}, std::int32_t(0)},
+                {{std::string("hello world"), std::string("lo"), std::int32_t(-1)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string("x"), std::int32_t(-1)}, std::int32_t(0)},
+                {{std::string("hello world"), std::string(""), std::int32_t(-1)}, std::int32_t(0)},
+                // overflow start position
+                {{std::string("hello world"), std::string("l"), std::int32_t(100)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string("lo"), std::int32_t(100)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string("x"), std::int32_t(100)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string(""), std::int32_t(100)},
+                 std::int32_t(0)}};
+
+        check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, soundex_test) {
+    std::string func_name = "soundex";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{std::string("Doris")}, std::string("D620")},
+                {{std::string("ApacheDoris中文测试")}, std::string("A123")},
+                {{std::string("Robert")}, std::string("R163")},
+                {{std::string("Rupert")}, std::string("R163")},
+                {{std::string("Smith")}, std::string("S530")},
+                {{std::string("Smyth")}, std::string("S530")},
+                {{std::string("Johnson")}, std::string("J525")},
+                {{std::string("Jackson")}, std::string("J250")},
+                {{std::string("Ashcraft")}, std::string("A261")},
+                {{std::string("Ashcroft")}, std::string("A261")},
+                {{std::string("Washington")}, std::string("W252")},
+                {{std::string("Lee")}, std::string("L000")},
+                {{std::string("Gutierrez")}, std::string("G362")},
+                {{std::string("Pfister")}, std::string("P236")},
+                {{std::string("Honeyman")}, std::string("H555")},
+                {{std::string("Lloyd")}, std::string("L300")},
+                {{std::string("Tymczak")}, std::string("T522")},
+
+                {{std::string("A")}, std::string("A000")},
+                {{std::string("B")}, std::string("B000")},
+                {{std::string("Z")}, std::string("Z000")},
+
+                {{std::string("robert")}, std::string("R163")},
+                {{std::string("ROBERT")}, std::string("R163")},
+                {{std::string("RoBerT")}, std::string("R163")},
+
+                {{std::string("R@bert")}, std::string("R163")},
+                {{std::string("Rob3rt")}, std::string("R163")},
+                {{std::string("Rob-ert")}, std::string("R163")},
+                {{std::string("123Robert")}, std::string("R163")},
+                {{std::string("123")}, std::string("")},
+                {{std::string("@#$")}, std::string("")},
+                {{std::string("   ")}, std::string("")},
+                {{std::string("")}, std::string("")},
+                {{std::string("Ab_+ %*^cdefghijklmnopqrstuvwxyz")}, std::string("A123")},
+
+                {{std::string("Euler")}, std::string("E460")},
+                {{std::string("Gauss")}, std::string("G200")},
+                {{std::string("Hilbert")}, std::string("H416")},
+                {{std::string("Knuth")}, std::string("K530")},
+                {{std::string("Lloyd")}, std::string("L300")},
+                {{std::string("Lukasiewicz")}, std::string("L222")},
+
+                {{std::string("Huang")}, std::string("H520")},
+                {{std::string("Zhang")}, std::string("Z520")},
+                {{std::string("Wang")}, std::string("W520")}};
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("中文测试")}, std::string("")},
+                            {{std::string("abc 你好")}, std::string("")}};
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
+    }
+}
+
+TEST(function_string_test, function_sha1_test) {
+    std::string func_name = "sha1";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {
+                {{std::string("hello world")},
+                 {std::string("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed")}},
+                {{std::string("doris")}, {std::string("c29bb8e55610dcfecabb065ce5d01be6e3e810e9")}},
+                {{std::string("")}, {std::string("da39a3ee5e6b4b0d3255bfef95601890afd80709")}},
+                {{std::string("abc")}, {std::string("a9993e364706816aba3e25717850c26c9cd0d89d")}},
+                {{Null()}, {Null()}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+        DataSet data_set = {
+                {{VARBINARY("hello world")},
+                 {std::string("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed")}},
+                {{VARBINARY("doris")}, {std::string("c29bb8e55610dcfecabb065ce5d01be6e3e810e9")}},
+                {{VARBINARY("")}, {std::string("da39a3ee5e6b4b0d3255bfef95601890afd80709")}},
+                {{VARBINARY("abc")}, {std::string("a9993e364706816aba3e25717850c26c9cd0d89d")}},
+                {{Null()}, {Null()}}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
 }
 
 } // namespace doris::vectorized

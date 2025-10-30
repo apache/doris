@@ -63,8 +63,6 @@ excludeGroups = "p1,p2"
 
 // this suites will not be executed
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_write_inverted_index_exception_fault_injection," + // cause core dump
-    "test_index_compaction_exception_fault_injection," + // cause memory leak
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 // this directories will not be executed
@@ -73,6 +71,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_github_events_new_p2," +
     "hdfs_vault_p2," +
     "nereids_p0/hbo," +
+    "cloud_p0/multi_cluster," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 // for test csv with header
@@ -119,6 +118,17 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+iceberg_rest_uri_port_s3=19181
+iceberg_rest_uri_port_oss=19182
+iceberg_rest_uri_port_cos=19183
+iceberg_rest_uri_port_obs=19184
+iceberg_rest_uri_port_gcs=19185
+iceberg_rest_uri_port_hdfs=19186
+iceberg_rest_hdfs_port=20020
+
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
 
 enableEsTest=false
 es_6_port=19200

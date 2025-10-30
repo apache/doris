@@ -20,7 +20,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -32,7 +31,7 @@
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/utils/util.hpp"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 
 namespace doris::vectorized {
 

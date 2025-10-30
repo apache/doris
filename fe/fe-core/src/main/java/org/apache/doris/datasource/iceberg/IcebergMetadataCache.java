@@ -39,6 +39,8 @@ import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.view.View;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -48,6 +50,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
 public class IcebergMetadataCache {
+    private static final Logger LOG = LogManager.getLogger(IcebergMetadataCache.class);
 
     private final LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
     private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
@@ -120,7 +123,10 @@ public class IcebergMetadataCache {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
         try {
-            return ((ExternalCatalog) catalog).getPreExecutionAuthenticator().execute(()
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load iceberg table {}", nameMapping, new Exception());
+            }
+            return ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(()
                     -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -161,6 +167,10 @@ public class IcebergMetadataCache {
                 .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.info("invalidate iceberg table cache {} when invalidating catalog cache",
+                                entry.getKey().nameMapping, new Exception());
+                    }
                     tableCache.invalidate(entry.getKey());
                 });
 
@@ -192,6 +202,10 @@ public class IcebergMetadataCache {
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.info("invalidate iceberg table cache {}",
+                                entry.getKey().nameMapping, new Exception());
+                    }
                     tableCache.invalidate(entry.getKey());
                 });
 
@@ -224,6 +238,10 @@ public class IcebergMetadataCache {
                 })
                 .forEach(entry -> {
                     ManifestFiles.dropCache(entry.getValue().io());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.info("invalidate iceberg table cache {} when invalidating db cache",
+                                entry.getKey().nameMapping, new Exception());
+                    }
                     tableCache.invalidate(entry.getKey());
                 });
 
@@ -299,7 +317,7 @@ public class IcebergMetadataCache {
             return null;
         }
         try {
-            return ((ExternalCatalog) catalog).getPreExecutionAuthenticator().execute(() ->
+            return ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(() ->
                     ops.loadView(key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName()));
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

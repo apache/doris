@@ -93,9 +93,11 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             """
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
+            // in 3.0
             // assertTrue(e.getMessage().contains("ComputeGroupException: COMPUTE_GROUPS_NO_ALIVE_BE"))
             // assertTrue(e.getMessage().contains("are in an abnormal state"))
 
+            // in master
             // The new optimizer code modifies the path and returns a different exception message
             // exception: errCode = 2, detailMessage = No backend available as scan node, please check the status of your
 // backends.[1747384136706: not alive, 1747384136705: not alive, 1747384136704: not alive]
@@ -145,7 +147,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         logger.info("ms addr={}, port={}", ms.host, ms.httpPort)
         drop_cluster(currentCluster.cluster, cloudClusterId, ms)
 
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             result = sql_return_maparray """show clusters"""
             logger.info("show cluster2 : {}", result) 
             result.size() == 0

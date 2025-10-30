@@ -61,19 +61,21 @@ public enum SchemaTypeMapper {
     JFS("jfs", StorageProperties.Type.BROKER, FileSystemType.JFS, TFileType.FILE_BROKER),
     VIEWFS("viewfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     FILE("file", StorageProperties.Type.LOCAL, FileSystemType.FILE, TFileType.FILE_LOCAL),
-
+    OSS_HDFS("oss", StorageProperties.Type.OSS_HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     OSS("oss", StorageProperties.Type.OSS, FileSystemType.S3, TFileType.FILE_S3),
     OBS("obs", StorageProperties.Type.OBS, FileSystemType.S3, TFileType.FILE_S3),
     COS("cos", StorageProperties.Type.COS, FileSystemType.S3, TFileType.FILE_S3),
+    GCS("gs", StorageProperties.Type.GCS, FileSystemType.S3, TFileType.FILE_S3),
     //MINIO("minio", StorageProperties.Type.MINIO),
     /*
      * Only secure protocols are supported to ensure safe access to Azure storage services.
      * This implementation allows only "abfss" and "wasbs" schemes, which operate over HTTPS.
      * Insecure or deprecated schemes such as "abfs", "wasb", and "adl" are explicitly unsupported.
      * */
+    ABFS("abfs", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     ABFSS("abfss", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
+    WASB("wasb", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     WASBS("wasbs", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
-    AZURE("azure", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     HDFS("hdfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     LOCAL("local", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS);
     //LAKEFS("lakefs", StorageProperties.Type.LAKEFS),

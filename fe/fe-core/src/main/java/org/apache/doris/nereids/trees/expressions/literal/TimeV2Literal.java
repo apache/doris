@@ -33,8 +33,8 @@ import java.time.LocalDateTime;
 public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
-    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, false);
+    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, true);
+    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, false);
 
     protected int hour;
     protected int minute;
@@ -60,6 +60,26 @@ public class TimeV2Literal extends Literal {
         if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
             throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
                     + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
+        }
+        this.negative = value < 0;
+        long v = (long) Math.abs(value);
+        this.microsecond = (int) (v % 1000000);
+        v /= 1000000;
+        this.second = (int) (v % 60);
+        v /= 60;
+        this.minute = (int) (v % 60);
+        v /= 60;
+        this.hour = (int) v;
+    }
+
+    /**
+     * C'tor time literal with confirmed scale.
+     */
+    public TimeV2Literal(double value, int scale) throws AnalysisException {
+        super(TimeV2Type.of(scale));
+        if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
+            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
+                + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
         }
         this.negative = value < 0;
         long v = (long) Math.abs(value);
@@ -221,9 +241,9 @@ public class TimeV2Literal extends Literal {
 
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
-        DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(
-                LocalDateTime.now(DateUtils.getTimeZone()).plusHours(getHour()).plusMinutes(getMinute())
-                        .plusSeconds(getSecond()).plusNanos(getMicroSecond() * 1000),
+        DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(LocalDateTime
+                .now(DateUtils.getTimeZone()).withHour(0).withMinute(0).withSecond(0).withNano(0).plusHours(getHour())
+                .plusMinutes(getMinute()).plusSeconds(getSecond()).plusNanos(getMicroSecond() * 1000),
                 ((TimeV2Type) dataType).getScale());
         if (targetType.isDateType()) {
             return new DateLiteral(time.getYear(), time.getMonth(), time.getDay());
@@ -270,6 +290,11 @@ public class TimeV2Literal extends Literal {
         return sb.toString();
     }
 
+    @Override
+    protected String castValueToString() {
+        return getStringValue();
+    }
+
     public static boolean isDateOutOfRange(LocalDateTime dateTime) {
         return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }
@@ -279,6 +304,18 @@ public class TimeV2Literal extends Literal {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }
         return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0, 0, false);
+    }
+
+    /**
+     *  construct with precision
+     */
+    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+        if (isDateOutOfRange(dateTime)) {
+            throw new AnalysisException("datetime out of range" + dateTime.toString());
+        }
+        int value = (int) Math.pow(10, TimeV2Type.MAX_SCALE - precision);
+        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                (dateTime.getNano() / 1000) / value * value, precision, false);
     }
 
     public LocalDateTime toJavaDateType() {

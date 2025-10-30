@@ -31,6 +31,7 @@
 #include "util/debug_points.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
@@ -42,8 +43,8 @@ SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
           _compaction_min_size(compaction_min_size) {}
 
 void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
+        Tablet* tablet, const RowsetMetaMapContainer& all_metas, int64_t current_cumulative_point,
+        int64_t* ret_cumulative_point) {
     *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
@@ -56,7 +57,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
-    for (auto& rs : all_metas) {
+    for (const auto& [_, rs] : all_metas) {
         existing_rss.emplace_back(rs);
     }
 
@@ -122,7 +123,7 @@ void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(Tablet* tablet,
                                                                RowsetMetaSharedPtr base_rowset_meta,
                                                                int64_t* promotion_size) {
     int64_t base_size = base_rowset_meta->total_disk_size();
-    *promotion_size = int64_t(base_size * _promotion_ratio);
+    *promotion_size = int64_t(cast_set<double>(base_size) * _promotion_ratio);
 
     // promotion_size is between _promotion_size and _promotion_min_size
     if (*promotion_size >= _promotion_size) {
@@ -181,7 +182,7 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
     // NOTE: tablet._meta_lock is hold
     auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
     // check the base rowset and collect the rowsets of cumulative part
-    for (auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->start_version() < first_version) {
             first_version = rs_meta->start_version();
             first_meta = rs_meta;
@@ -229,8 +230,8 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
     // 128, 16, 16, 16
     // we will choose [16,16,16] to compact.
     for (auto& rs_meta : rowset_to_compact) {
-        int current_level = _level_size(rs_meta->total_disk_size());
-        int remain_level = _level_size(total_size - rs_meta->total_disk_size());
+        int64_t current_level = _level_size(rs_meta->total_disk_size());
+        int64_t remain_level = _level_size(total_size - rs_meta->total_disk_size());
         // if current level less then remain level, score contains current rowset
         // and process return; otherwise, score does not contains current rowset.
         if (current_level <= remain_level) {
@@ -259,7 +260,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 }
             }
         }
-        return input_rowsets->size();
+        return cast_set<uint32_t>(input_rowsets->size());
     })
 
     size_t promotion_size = tablet->cumulative_promotion_size();
@@ -325,8 +326,8 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     size_t new_compaction_score = *compaction_score;
     while (rs_begin != input_rowsets->end()) {
         auto& rs_meta = (*rs_begin)->rowset_meta();
-        int current_level = _level_size(rs_meta->total_disk_size());
-        int remain_level = _level_size(total_size - rs_meta->total_disk_size());
+        int64_t current_level = _level_size(rs_meta->total_disk_size());
+        int64_t remain_level = _level_size(total_size - rs_meta->total_disk_size());
         // if current level less then remain level, input rowsets contain current rowset
         // and process return; otherwise, input rowsets do not contain current rowset.
         if (current_level <= remain_level) {
@@ -406,5 +407,5 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

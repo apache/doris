@@ -36,11 +36,11 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -310,7 +310,7 @@ public class ShowDataCommand extends ShowCommand {
             long remoteSegmentSize = 0;
             for (Partition partition : table.getAllPartitions()) {
                 MaterializedIndex mIndex = partition.getIndex(indexId);
-                indexSize += mIndex.getDataSize(false);
+                indexSize += mIndex.getDataSize(false, false);
                 indexReplicaCount += mIndex.getReplicaCount();
                 indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
                 indexRemoteSize += mIndex.getRemoteDataSize();

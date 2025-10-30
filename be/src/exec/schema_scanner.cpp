@@ -32,11 +32,16 @@
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
+#include "exec/schema_scanner/schema_cluster_snapshot_properties_scanner.h"
+#include "exec/schema_scanner/schema_cluster_snapshots_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
+#include "exec/schema_scanner/schema_column_data_sizes_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
+#include "exec/schema_scanner/schema_encryption_keys_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
+#include "exec/schema_scanner/schema_load_job_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_processlist_scanner.h"
@@ -46,6 +51,7 @@
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_sql_block_rule_status_scanner.h"
 #include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_table_properties_scanner.h"
@@ -235,10 +241,22 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
+    case TSchemaTableType::SCH_LOAD_JOBS:
+        return SchemaLoadJobScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_TABLETS:
         return SchemaTabletsScanner::create_unique();
     case TSchemaTableType::SCH_VIEW_DEPENDENCY:
         return SchemaViewDependencyScanner::create_unique();
+    case TSchemaTableType::SCH_SQL_BLOCK_RULE_STATUS:
+        return SchemaSqlBlockRuleStatusScanner::create_unique();
+    case TSchemaTableType::SCH_ENCRYPTION_KEYS:
+        return SchemaEncryptionKeysScanner::create_unique();
+    case TSchemaTableType::SCH_CLUSTER_SNAPSHOTS:
+        return SchemaClusterSnapshotsScanner::create_unique();
+    case TSchemaTableType::SCH_CLUSTER_SNAPSHOT_PROPERTIES:
+        return SchemaClusterSnapshotPropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_COLUMN_DATA_SIZES:
+        return SchemaColumnDataSizesScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -274,7 +292,7 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
             nullable_column->insert_data(nullptr, 0);
             continue;
         } else {
-            nullable_column->get_null_map_data().emplace_back(0);
+            nullable_column->push_false_to_nullmap(1);
         }
         switch (col_desc.type) {
         case TYPE_HLL: {
@@ -458,7 +476,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         return Status::InternalError(ss.str());
     }
     }
-    nullable_column->get_null_map_data().emplace_back(0);
+    nullable_column->push_false_to_nullmap(1);
     return Status::OK();
 }
 

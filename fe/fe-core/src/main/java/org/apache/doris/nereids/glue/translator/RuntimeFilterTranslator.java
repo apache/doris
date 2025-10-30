@@ -35,6 +35,7 @@ import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -131,7 +132,7 @@ public class RuntimeFilterTranslator {
 
                 // adjust data type
                 if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-                    targetExpr = new CastExpr(src.getType(), targetExpr);
+                    targetExpr = new CastExpr(src.getType(), targetExpr, null);
                 }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
@@ -175,7 +176,7 @@ public class RuntimeFilterTranslator {
         } catch (Exception e) {
             LOG.info("failed to translate runtime filter: " + e.getMessage());
             // throw exception in debug mode
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+            if (SessionVariable.isFeDebug()) {
                 throw e;
             }
         }

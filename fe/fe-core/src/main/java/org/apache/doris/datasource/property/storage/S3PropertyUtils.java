@@ -22,14 +22,16 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.Optional;
 
 public class S3PropertyUtils {
-
-
-    private static final String URI_KEY = "uri";
+    private static final Logger LOG = LogManager.getLogger(S3PropertyUtils.class);
 
     /**
      * Constructs the S3 endpoint from a given URI in the props map.
@@ -47,7 +49,7 @@ public class S3PropertyUtils {
                                                   String stringUsePathStyle,
                                                   String stringForceParsingByStandardUri) {
         Optional<String> uriOptional = props.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .filter(e -> e.getKey().equalsIgnoreCase(StorageProperties.URI_KEY))
                 .map(Map.Entry::getValue)
                 .findFirst();
 
@@ -86,7 +88,7 @@ public class S3PropertyUtils {
                                                 String stringUsePathStyle,
                                                 String stringForceParsingByStandardUri) {
         Optional<String> uriOptional = props.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .filter(e -> e.getKey().equalsIgnoreCase(StorageProperties.URI_KEY))
                 .map(Map.Entry::getValue)
                 .findFirst();
 
@@ -107,7 +109,6 @@ public class S3PropertyUtils {
                     + " forceParsingByStandardUri: " + forceParsingByStandardUri, e);
         }
         return s3uri.getRegion().orElse(null);
-
     }
 
     /**
@@ -157,7 +158,7 @@ public class S3PropertyUtils {
             throw new StoragePropertiesException("props is empty");
         }
         Optional<String> uriOptional = props.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .filter(e -> e.getKey().equalsIgnoreCase(StorageProperties.URI_KEY))
                 .map(Map.Entry::getValue)
                 .findFirst();
 
@@ -165,5 +166,16 @@ public class S3PropertyUtils {
             throw new StoragePropertiesException("props must contain uri");
         }
         return uriOptional.get();
+    }
+
+    public static String convertPathToS3(String path) {
+        try {
+            URI orig = new URI(path);
+            URI s3url = new URI("s3", orig.getRawAuthority(),
+                    orig.getRawPath(), orig.getRawQuery(), orig.getRawFragment());
+            return s3url.toString();
+        } catch (URISyntaxException e) {
+            return path;
+        }
     }
 }

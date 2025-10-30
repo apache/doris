@@ -57,8 +57,6 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                 null, -1, originPlan, jobContext, rules, false, new ProcessState(originPlan)
         );
         jobContext.getCascadesContext().setRewritePlan(root);
-
-        jobContext.getCascadesContext().setRewritePlan(root);
     }
 
     @Override
@@ -123,6 +121,8 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                                 new PlanProcess(currentRule.getRuleType().name(), beforeShape, afterShape)
                         );
                     }
+                    // if rewrite success, record the rule type
+                    cascadesContext.getStatementContext().ruleSetApplied(currentRule.getRuleType());
                     originPlan = newPlan;
                     changed = true;
                     break;

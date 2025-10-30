@@ -44,7 +44,9 @@ struct StatFunc {
 template <typename StatFunc>
 struct AggregateFunctionBinary
         : public IAggregateFunctionDataHelper<typename StatFunc::Data,
-                                              AggregateFunctionBinary<StatFunc>> {
+                                              AggregateFunctionBinary<StatFunc>>,
+          MultiExpression,
+          NullableAggregateFunction {
     static constexpr PrimitiveType ResultType = StatFunc::ResultPrimitiveType;
 
     using ColVecT1 = typename StatFunc::ColVecT1;
@@ -65,7 +67,7 @@ struct AggregateFunctionBinary
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(
                 static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                         static_cast<const ColVecT1&>(*columns[0]).get_data()[row_num]),
@@ -74,7 +76,7 @@ struct AggregateFunctionBinary
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -83,7 +85,7 @@ struct AggregateFunctionBinary
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

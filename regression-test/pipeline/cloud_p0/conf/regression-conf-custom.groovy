@@ -40,7 +40,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_index_lowercase_fault_injection," +
     "test_index_compaction_failure_injection," +
-    "test_partial_update_2pc_schema_change," + // mow 2pc
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
     "test_insert," + // txn insert
@@ -50,11 +49,30 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "test_nereids_show_backup," +
+    "check_meta,"+
+    "test_checker,"+
+    "test_recycler_expired_stage_objects," +
+    "test_recycler_inverted_index," +
+    "test_recycler_with_drop_column," +
+    "test_recycler_with_drop_db," +
+    "test_recycler_with_drop_index," +
+    "test_recycler_with_drop_multi_db," +
+    "test_recycler_with_drop_mv," +
+    "test_recycler_with_drop_partition," +
+    "test_recycler_with_drop_rollup," +
+    "test_recycler_with_dynamic_partition," +
+    "test_recycler_with_internal_copy," +
+    "test_recycler_with_many_partitions," +
+    "test_recycler_with_schema_change," +
+    "test_recycler_with_truncate_table," +
+    "test_recycler_with_txn_label," +
+    "test_recycler," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "external_table_p0," + // run on external pipeline
     "cloud/multi_cluster," + // run in specific regression pipeline
+    "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
@@ -65,7 +83,10 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "ccr_mow_syncer_p0," +
     "hdfs_vault_p2," +
     "inject_hdfs_vault_p0," +
+    "variant_p0/nested," +
+    "variant_p0/nested/sql," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
+    "restore_p0," + // 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50

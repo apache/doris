@@ -36,6 +36,10 @@ suite("test_decimalv3_cast2") {
     sql """
         insert into test_int_to_decimal32_1 values(12);
     """
+    def sessionVarOrigValue = sql("select @@enable_strict_cast")
+    sql """
+        set @@enable_strict_cast = true;
+    """
     // to decimal32
     test {
         sql """
@@ -1087,5 +1091,6 @@ suite("test_decimalv3_cast2") {
         select cast(k2 as decimalv3(76,64)) from test_float_to_decimal32_1;
     """
     */
+    sql("set enable_strict_cast=${sessionVarOrigValue[0][0]}")
     sql "set enable_decimal256=false;"
 }

@@ -17,15 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportDeleteOnStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -41,6 +38,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -57,7 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -118,8 +116,8 @@ public class CreateRoutineLoadInfo {
             .add(MAX_BATCH_SIZE_PROPERTY)
             .add(STRICT_MODE)
             .add(TIMEZONE)
-            .add(LoadStmt.STRICT_MODE)
-            .add(LoadStmt.TIMEZONE)
+            .add(STRICT_MODE)
+            .add(TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
@@ -133,6 +131,7 @@ public class CreateRoutineLoadInfo {
             .add(JsonFileFormatProperties.PROP_JSON_ROOT)
             .add(CsvFileFormatProperties.PROP_ENCLOSE)
             .add(CsvFileFormatProperties.PROP_ESCAPE)
+            .add(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadInfo.class);
@@ -201,6 +200,106 @@ public class CreateRoutineLoadInfo {
         }
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getDBName() {
+        return dbName;
+    }
+
+    public LabelNameInfo getLabelNameInfo() {
+        return labelNameInfo;
+    }
+
+    public Map<String, LoadProperty> getLoadPropertyMap() {
+        return loadPropertyMap;
+    }
+
+    public Map<String, String> getJobProperties() {
+        return jobProperties;
+    }
+
+    public String getTypeName() {
+        return typeName;
+    }
+
+    public int getDesiredConcurrentNum() {
+        return desiredConcurrentNum;
+    }
+
+    public long getMaxErrorNum() {
+        return maxErrorNum;
+    }
+
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
+    }
+
+    public long getMaxBatchIntervalS() {
+        return maxBatchIntervalS;
+    }
+
+    public long getMaxBatchRows() {
+        return maxBatchRows;
+    }
+
+    public long getMaxBatchSizeBytes() {
+        return maxBatchSizeBytes;
+    }
+
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
+    }
+
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public boolean isMultiTable() {
+        return isMultiTable;
+    }
+
+    public AbstractDataSourceProperties getDataSourceProperties() {
+        return dataSourceProperties;
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
+    }
+
+    public String getWorkloadGroupName() {
+        return workloadGroupName;
+    }
+
     /**
      * analyze create table info
      */
@@ -214,10 +313,10 @@ public class CreateRoutineLoadInfo {
             // 64 is the length of regular expression matching
             // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
             throw new AnalysisException(e.getMessage()
-                + " Maybe routine load job name is longer than 64 or contains illegal characters");
+                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
-        checkLoadProperties(ctx);
+        routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType);
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -265,7 +364,20 @@ public class CreateRoutineLoadInfo {
         }
     }
 
-    private void checkLoadProperties(ConnectContext ctx) throws UserException {
+    /**
+     * check load properties
+     * @param ctx connect context
+     * @param loadPropertyMap load property map
+     * @param dbName database name
+     * @param tableName table name
+     * @param isMultiTable whether is multi table
+     * @param mergeType merge type
+     * @return routine load desc
+     * @throws UserException user exception
+     */
+    public static RoutineLoadDesc checkLoadProperties(ConnectContext ctx, Map<String, LoadProperty> loadPropertyMap,
+                        String dbName, String tableName, boolean isMultiTable, LoadTask.MergeType mergeType)
+                        throws UserException {
         Separator columnSeparator = null;
         // TODO(yangzhengguo01): add line delimiter to properties
         Separator lineDelimiter = null;
@@ -273,7 +385,7 @@ public class CreateRoutineLoadInfo {
         ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
-        PartitionNames partitionNames = null;
+        PartitionNamesInfo partitionNamesInfo = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
 
         if (loadPropertyMap != null) {
@@ -315,7 +427,7 @@ public class CreateRoutineLoadInfo {
                                     ctx);
                     precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
-                    partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
+                    partitionNamesInfo = new PartitionNamesInfo(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
                     Expr expr = PlanUtils.translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
@@ -327,13 +439,16 @@ public class CreateRoutineLoadInfo {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
+        return new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
             precedingImportWhereStmt, importWhereStmt,
-            partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+            partitionNamesInfo, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
-    private void checkJobProperties() throws UserException {
+    /**
+     * checkJobProperties
+     */
+    public void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
@@ -375,9 +490,9 @@ public class CreateRoutineLoadInfo {
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
             ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
             SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
-        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
+        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LOAD_TO_SINGLE_TABLET),
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
-            LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+            LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
@@ -387,7 +502,7 @@ public class CreateRoutineLoadInfo {
             if (Config.isCloudMode()) {
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
-            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+            List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);
             if (wgList.size() == 0) {
                 throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
@@ -395,7 +510,7 @@ public class CreateRoutineLoadInfo {
             this.workloadGroupName = inputWorkloadGroupStr;
         }
 
-        if (ConnectContext.get() != null) {
+        if (ConnectContext.get().getSessionVariable().getTimeZone() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
@@ -417,19 +532,5 @@ public class CreateRoutineLoadInfo {
      */
     public RoutineLoadDesc getRoutineLoadDesc() {
         return routineLoadDesc;
-    }
-
-    /**
-     * make legacy create routine load statement after validate by nereids
-     * @return legacy create routine load statement
-     */
-    public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
-        return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
-            ctx.getStatementContext().getOriginStatement(), ctx.getCurrentUserIdentity(),
-            jobProperties, typeName, routineLoadDesc,
-            desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
-            execMemLimit, sendBatchParallelism, timezone, workloadGroupName, loadToSingleTablet,
-            strictMode, isPartialUpdate, dataSourceProperties, fileFormatProperties
-        );
     }
 }

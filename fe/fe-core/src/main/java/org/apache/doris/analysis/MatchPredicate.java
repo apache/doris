@@ -22,12 +22,10 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -37,7 +35,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -244,59 +241,6 @@ public class MatchPredicate extends Predicate {
         msg.match_predicate.setParserLowercase(invertedIndexParserLowercase);
         msg.match_predicate.setParserStopwords(invertedIndexParserStopwords);
         msg.match_predicate.setCustomAnalyzer(invertedIndexCustomAnalyzer);
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (getChild(0).getType().isObjectStored()) {
-            throw new AnalysisException(
-                    "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
-        }
-
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isArrayType()
-                    && !getChild(0).getType().isVariantType()) {
-            throw new AnalysisException(
-                    "left operand of " + op.toString() + " must be of type STRING, ARRAY or VARIANT: " + toSql());
-        }
-
-        fn = getBuiltinFunction(op.toString(),
-                collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        if (fn == null) {
-            throw new AnalysisException(
-                    "no function found for " + op.toString() + "," + toSql());
-        }
-        Expr e1 = getChild(0);
-        Expr e2 = getChild(1);
-
-        // CAST variant to right expr type
-        if (e1.type.isVariantType()) {
-            setChild(0, e1.castTo(e2.getType()));
-        }
-
-        if (e1 instanceof SlotRef) {
-            SlotRef slotRef = (SlotRef) e1;
-            SlotDescriptor slotDesc = slotRef.getDesc();
-            if (slotDesc != null && slotDesc.isScanSlot()) {
-                TupleDescriptor slotParent = slotDesc.getParent();
-                OlapTable olapTbl = (OlapTable) slotParent.getTable();
-                List<Index> indexes = olapTbl.getIndexes();
-                for (Index index : indexes) {
-                    if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                        List<String> columns = index.getColumns();
-                        if (slotRef.getColumnName().equals(columns.get(0))) {
-                            invertedIndexParser = index.getInvertedIndexParser();
-                            invertedIndexParserMode = index.getInvertedIndexParserMode();
-                            invertedIndexCharFilter = index.getInvertedIndexCharFilter();
-                            invertedIndexParserLowercase = index.getInvertedIndexParserLowercase();
-                            invertedIndexParserStopwords = index.getInvertedIndexParserStopwords();
-                            invertedIndexCustomAnalyzer = index.getInvertedIndexCustomAnalyzer();
-                            break;
-                        }
-                    }
-                }
-            }
-        }
     }
 
     @Override

@@ -40,6 +40,8 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+
+#include "common/compile_check_begin.h"
 class Random : public IFunction {
 public:
     static constexpr auto name = "random";
@@ -72,7 +74,7 @@ public:
                 }
                 uint32_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
-                    seed = (*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
+                    seed = (uint32_t)(*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
                 }
                 generator->seed(seed);
             } else if (context->get_num_args() == 2) {
@@ -161,5 +163,5 @@ void register_function_random(SimpleFunctionFactory& factory) {
     factory.register_function<Random>();
     factory.register_alias(Random::name, "rand");
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

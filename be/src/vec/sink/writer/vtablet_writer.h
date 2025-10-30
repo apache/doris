@@ -216,6 +216,7 @@ struct WriterStats {
     int64_t max_wait_exec_time_ns = 0;
     int64_t total_add_batch_num = 0;
     int64_t num_node_channels = 0;
+    int64_t load_back_pressure_version_time_ms = 0;
     VNodeChannelStat channel_stat;
 };
 
@@ -292,6 +293,8 @@ public:
             RuntimeState* state, WriterStats* writer_stats,
             std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map);
 
+    Status check_status();
+
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
@@ -310,6 +313,8 @@ public:
             writer_stats->total_wait_exec_time_ns +=
                     (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
             writer_stats->total_add_batch_num += _add_batch_counter.add_batch_num;
+            writer_stats->load_back_pressure_version_time_ms +=
+                    _load_back_pressure_version_block_ms;
         }
     }
 
@@ -326,6 +331,8 @@ public:
 
     bool is_incremental() const { return _is_incremental; }
 
+    int64_t write_bytes() const { return _write_bytes.load(); }
+
 protected:
     // make a real open request for relative BE's load channel.
     void _open_internal(bool is_incremental);
@@ -336,6 +343,10 @@ protected:
     void _add_block_success_callback(const PTabletWriterAddBlockResult& result,
                                      const WriteBlockCallbackContext& ctx);
     void _add_block_failed_callback(const WriteBlockCallbackContext& ctx);
+
+    void _refresh_back_pressure_version_wait_time(
+            const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                    tablet_load_infos);
 
     VTabletWriter* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
@@ -392,6 +403,7 @@ protected:
     std::atomic<int64_t> _serialize_batch_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
+    std::atomic<int64_t> _load_back_pressure_version_block_ms {0};
 
     VNodeChannelStat _stat;
     // lock to protect _is_closed.
@@ -428,6 +440,9 @@ protected:
     int64_t _wg_id = -1;
 
     bool _is_incremental;
+
+    std::atomic<int64_t> _write_bytes {0};
+    std::atomic<int64_t> _load_back_pressure_version_wait_time_ms {0};
 };
 
 // an IndexChannel is related to specific table and its rollup and mv
@@ -505,7 +520,8 @@ public:
 
     Status close_wait(RuntimeState* state, WriterStats* writer_stats,
                       std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
-                      std::unordered_set<int64_t> unfinished_node_channel_ids);
+                      std::unordered_set<int64_t> unfinished_node_channel_ids,
+                      bool need_wait_after_quorum_success);
 
     Status check_each_node_channel_close(
             std::unordered_set<int64_t>* unfinished_node_channel_ids,
@@ -544,6 +560,8 @@ public:
     // check whether the rows num filtered by different replicas is consistent
     Status check_tablet_filtered_rows_consistency();
 
+    void set_start_time(const int64_t& start_time) { _start_time = start_time; }
+
     vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
 
 private:
@@ -552,6 +570,13 @@ private:
     friend class VRowDistribution;
 
     int _max_failed_replicas(int64_t tablet_id);
+
+    int _load_required_replicas_num(int64_t tablet_id);
+
+    bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
+                         const std::unordered_set<int64_t>& need_finish_tablets);
+
+    int64_t _calc_max_wait_time_ms(const std::unordered_set<int64_t>& unfinished_node_channel_ids);
 
     VTabletWriter* _parent = nullptr;
     int64_t _index_id;
@@ -586,6 +611,8 @@ private:
     // rows num filtered by DeltaWriter per tablet, tablet_id -> <node_Id, filtered_rows_num>
     // used to verify whether the rows num filtered by different replicas is consistent
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
+
+    int64_t _start_time = 0;
 };
 } // namespace vectorized
 } // namespace doris
@@ -715,6 +742,7 @@ private:
     RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
+    RuntimeProfile::Counter* _load_back_pressure_version_time_ms = nullptr;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;

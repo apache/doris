@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/inverted_index/token_filter/token_filter.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 WordDelimiterFilter::WordDelimiterFilter(const TokenStreamPtr& in,
                                          std::vector<char> char_type_table,
@@ -48,11 +49,11 @@ Token* WordDelimiterFilter::next(Token* t) {
             }
             // todo: has(IGNORE_KEYWORDS)
             char* term_buffer = t->termBuffer<char>();
-            int32_t term_length = t->termLength<char>();
+            auto term_length = static_cast<int32_t>(t->termLength<char>());
             std::string_view term(term_buffer, term_length);
 
             _accum_pos_inc += get_position_increment(t);
-            _iterator->set_text(term.data(), term.size());
+            _iterator->set_text(term.data(), static_cast<int32_t>(term.size()));
             _iterator->next();
 
             if ((_iterator->_current == 0 && _iterator->_end == term_length) ||
@@ -246,4 +247,5 @@ bool WordDelimiterFilter::should_generate_parts(int32_t word_type) {
            (has(GENERATE_NUMBER_PARTS) && is_digit(word_type));
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

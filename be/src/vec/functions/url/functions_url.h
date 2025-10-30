@@ -24,7 +24,7 @@
 #include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /** URL processing functions. See implementation in separate .cpp files.
   * All functions are not strictly follow RFC, instead they are maximally simplified for performance reasons.
   *
@@ -93,7 +93,7 @@ struct ExtractSubstringImpl {
             memcpy_small_allow_read_write_overflow15(&res_data[res_offset], start, length);
             res_offset += length;
 
-            res_offsets[i] = res_offset;
+            res_offsets[i] = (ColumnString::Offset)res_offset;
             prev_offset = offsets[i];
         }
         return Status::OK();
@@ -151,5 +151,5 @@ struct CutSubstringImpl {
         res_data.append(start + length, data.data() + data.size());
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

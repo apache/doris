@@ -482,7 +482,7 @@ public class SystemInfoService {
         long minBeTabletsNum = Long.MAX_VALUE;
         int minIndex = -1;
         for (int i = 0; i < beIds.size(); ++i) {
-            long tabletsNum = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(beIds.get(i)).size();
+            long tabletsNum = Env.getCurrentInvertedIndex().getTabletSizeByBackendId(beIds.get(i));
             if (tabletsNum < minBeTabletsNum) {
                 minBeTabletsNum = tabletsNum;
                 minIndex = i;
@@ -1143,14 +1143,12 @@ public class SystemInfoService {
         if (currentBackends.size() == 0) {
             return 1;
         }
-        int minPipelineExecutorSize = Integer.MAX_VALUE;
-        for (Backend be : currentBackends) {
-            int size = be.getPipelineExecutorSize();
-            if (size > 0) {
-                minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);
-            }
-        }
-        return minPipelineExecutorSize;
+
+        return currentBackends.stream()
+                .mapToInt(Backend::getPipelineExecutorSize)
+                .filter(size -> size > 0)
+                .min()
+                .orElse(1);
     }
 
     // CloudSystemInfoService override

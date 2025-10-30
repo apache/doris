@@ -25,7 +25,6 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -36,7 +35,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -129,46 +127,6 @@ public class CompoundPredicate extends Predicate {
         msg.setOpcode(op.toThrift());
     }
 
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-
-        // Check that children are predicates.
-        for (Expr e : children) {
-            if (!e.getType().equals(Type.BOOLEAN) && !e.getType().isNull()) {
-                throw new AnalysisException(String.format(
-                  "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                          + "returns type '%s'.",
-                  e.toSql(), toSql(), e.getType()));
-            }
-        }
-
-        if (getChild(0).selectivity == -1 || children.size() == 2 && getChild(1).selectivity == -1) {
-            // give up if we're missing an input
-            selectivity = -1;
-            return;
-        }
-
-        switch (op) {
-            case AND:
-                selectivity = getChild(0).selectivity * getChild(1).selectivity;
-                break;
-            case OR:
-                selectivity = getChild(0).selectivity + getChild(1).selectivity - getChild(
-                  0).selectivity * getChild(1).selectivity;
-                break;
-            case NOT:
-                selectivity = 1.0 - getChild(0).selectivity;
-                break;
-            default:
-                throw new AnalysisException("not support operator: " + op);
-        }
-        selectivity = Math.max(0.0, Math.min(1.0, selectivity));
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
-        }
-    }
-
     public enum Operator {
         AND("AND", TExprOpcode.COMPOUND_AND),
         OR("OR", TExprOpcode.COMPOUND_OR),
@@ -206,85 +164,6 @@ public class CompoundPredicate extends Predicate {
         return new CompoundPredicate(newOp, negatedLeft, negatedRight);
     }
 
-    // Create an AND predicate between two exprs, 'lhs' and 'rhs'. If
-    // 'rhs' is null, simply return 'lhs'.
-    public static Expr createConjunction(Expr lhs, Expr rhs) {
-        if (rhs == null) {
-            return lhs;
-        }
-        return new CompoundPredicate(Operator.AND, rhs, lhs);
-    }
-
-    /**
-     * Creates a conjunctive predicate from a list of exprs.
-     */
-    public static Expr createConjunctivePredicate(List<Expr> conjuncts) {
-        Expr conjunctivePred = null;
-        for (Expr expr : conjuncts) {
-            if (conjunctivePred == null) {
-                conjunctivePred = expr;
-                continue;
-            }
-            conjunctivePred = new CompoundPredicate(CompoundPredicate.Operator.AND, expr, conjunctivePred);
-        }
-        return conjunctivePred;
-    }
-
-    /**
-     * Creates a disjunctive predicate from a list of exprs,
-     * reserve the expr order
-     */
-    public static Expr createDisjunctivePredicate(List<Expr> disjunctions) {
-        Expr result = null;
-        for (Expr expr : disjunctions) {
-            if (result == null) {
-                result = expr;
-                continue;
-            }
-            result = new CompoundPredicate(CompoundPredicate.Operator.OR, result, expr);
-        }
-        return result;
-    }
-
-    public static boolean isOr(Expr expr) {
-        return expr instanceof CompoundPredicate
-                && ((CompoundPredicate) expr).getOp() == Operator.OR;
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        boolean compoundResult = false;
-        if (op == Operator.NOT) {
-            final Expr childValue = getChild(0);
-            if (!(childValue instanceof BoolLiteral)) {
-                return this;
-            }
-            final BoolLiteral boolChild = (BoolLiteral) childValue;
-            compoundResult = !boolChild.getValue();
-        } else {
-            final Expr leftChildValue = getChild(0);
-            final Expr rightChildValue = getChild(1);
-            if (!(leftChildValue instanceof BoolLiteral)
-                    || !(rightChildValue instanceof BoolLiteral)) {
-                return this;
-            }
-            final BoolLiteral leftBoolValue = (BoolLiteral) leftChildValue;
-            final BoolLiteral rightBoolValue = (BoolLiteral) rightChildValue;
-            switch (op) {
-                case AND:
-                    compoundResult = leftBoolValue.getValue() && rightBoolValue.getValue();
-                    break;
-                case OR:
-                    compoundResult = leftBoolValue.getValue() || rightBoolValue.getValue();
-                    break;
-                default:
-                    Preconditions.checkState(false, "No defined binary operator.");
-            }
-        }
-        return new BoolLiteral(compoundResult);
-    }
-
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
@@ -298,18 +177,6 @@ public class CompoundPredicate extends Predicate {
     @Override
     public String toString() {
         return toSqlImpl();
-    }
-
-    @Override
-    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
-        if (op.equals(Operator.AND)) {
-            for (Expr child : children) {
-                if (child.containsSubPredicate(subExpr)) {
-                    return true;
-                }
-            }
-        }
-        return super.containsSubPredicate(subExpr);
     }
 
     @Override

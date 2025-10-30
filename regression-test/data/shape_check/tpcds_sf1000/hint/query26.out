@@ -31,6 +31,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(catalog_sales customer_demographics date_dim promotion item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

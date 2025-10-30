@@ -76,7 +76,7 @@ enum TPrimitiveType {
   VARCHAR = 15,
   HLL = 16,
   DECIMALV2 = 17,
-  TIME = 18,
+  // TIME = 18, deprecated, use TIMEV2 instead
   BITMAP = 19,
   ARRAY = 20,
   MAP = 21,
@@ -101,6 +101,7 @@ enum TPrimitiveType {
   UINT32 = 40, // only used in BE to represent offsets
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
+  VARBINARY = 43 // represent varbinary type
 }
 
 enum TTypeNodeType {
@@ -140,6 +141,9 @@ struct TScalarType {
     // Only set for DECIMAL
     3: optional i32 precision
     4: optional i32 scale
+
+    // Only set for VARIANT
+    5: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // Represents a field in a STRUCT type.
@@ -277,6 +281,7 @@ struct TColumnType {
   3: optional i32 index_len
   4: optional i32 precision
   5: optional i32 scale
+  6: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // A TNetworkAddress is the standard host, port representation of a
@@ -459,6 +464,7 @@ struct TJdbcExecutorCtorParams {
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
   17: optional string jdbc_driver_checksum
+  18: optional bool is_tvf
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -670,18 +676,13 @@ struct TReplicaInfo {
     3: required TPort  http_port
     4: required TPort  brpc_port
     5: required TReplicaId replica_id
+    6: optional bool is_alive
+    7: optional i64 backend_id
 }
 
 struct TResourceInfo {
     1: required string user
     2: required string group
-}
-
-enum TExportState {
-    RUNNING = 0,
-    FINISHED = 1,
-    CANCELLED = 2,
-    UNKNOWN = 3
 }
 
 enum TFileType {
@@ -748,6 +749,12 @@ enum TMetadataType {
   PARTITIONS = 9,
   PARTITION_VALUES = 10,
   HUDI = 11,
+  PAIMON = 12,
+}
+
+// deprecated
+enum TIcebergQueryType {
+  SNAPSHOTS
 }
 
 enum THudiQueryType {

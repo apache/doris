@@ -28,13 +28,13 @@ class HeapSorter final : public Sorter {
 public:
     HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc);
+               const RowDescriptor& row_desc, bool have_runtime_predicate = true);
 
     ~HeapSorter() override = default;
 
     Status append_block(Block* block) override;
 
-    Status prepare_for_read() override;
+    Status prepare_for_read(bool is_spill) override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
@@ -42,15 +42,24 @@ public:
 
     Field get_top_value() override;
 
+    void init_profile(RuntimeProfile* runtime_profile) override {
+        Sorter::init_profile(runtime_profile);
+        _topn_filter_timer = ADD_TIMER(runtime_profile, "TopNFilterTime");
+        _topn_filter_rows_counter = ADD_COUNTER(runtime_profile, "TopNFilterRows", TUnit::UNIT);
+    }
+
 private:
     Status _prepare_sort_descs(Block* block);
-
+    void _do_filter(MergeSortCursorImpl& block, size_t num_rows);
     size_t _data_size = 0;
     size_t _heap_size = 0;
     size_t _queue_row_num = 0;
     MergeSorterQueue _queue;
     std::unique_ptr<MergeSorterState> _state;
     IColumn::Permutation _reverse_buffer;
+    bool _have_runtime_predicate = true;
+    RuntimeProfile::Counter* _topn_filter_timer = nullptr;
+    RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
 };
 
 #include "common/compile_check_end.h"

@@ -53,7 +53,7 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
     std::string debug_string() const override;
 
-    std::string value() const;
+    MOCK_FUNCTION std::string value() const;
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
     const DataTypePtr& get_data_type() const { return _data_type; }
@@ -61,6 +61,8 @@ public:
     bool is_literal() const override { return true; }
 
     bool equals(const VExpr& other) override;
+
+    uint64_t get_digest(uint64_t seed) const override;
 
 protected:
     ColumnPtr _column_ptr;

@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "gtest/gtest_pred_impl.h"
+#include "olap/file_header.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"
@@ -47,6 +48,123 @@ TEST(TabletMetaTest, SaveAndParse) {
     static_cast<void>(new_tablet_meta.create_from_file(meta_path));
 
     EXPECT_EQ(old_tablet_meta, new_tablet_meta);
+}
+
+TEST(TabletMetaTest, SaveAsBufferAndParse) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+    {
+        TabletMeta dst_tablet_meta;
+        ASSERT_TRUE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+        ASSERT_EQ(src_tablet_meta, dst_tablet_meta);
+    }
+    // Test invalid buffer size
+    {
+        TabletMeta dst_tablet_meta;
+        ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), 10).ok());
+    }
+    // Test invalid buffer content
+    {
+        buffer[buffer.size() - 1] ^= 0xFF;
+        TabletMeta dst_tablet_meta;
+        ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+    }
+}
+
+TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size() - 1);
+    ASSERT_FALSE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithOldHeader) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    std::string proto_string;
+    ASSERT_TRUE(tablet_meta_pb.SerializeToString(&proto_string));
+
+    uint32_t protobuf_checksum =
+            olap_adler32(olap_adler32_init(), proto_string.data(), proto_string.size());
+
+    FixedFileHeader old_header;
+    old_header.file_length = sizeof(FixedFileHeader) + sizeof(uint32_t) + proto_string.size();
+    old_header.checksum = 0;
+    old_header.protobuf_length = proto_string.size();
+    old_header.protobuf_checksum = protobuf_checksum;
+
+    std::vector<uint8_t> buffer(old_header.file_length);
+    uint8_t* ptr = buffer.data();
+    memcpy(ptr, &old_header, sizeof(FixedFileHeader));
+    ptr += sizeof(FixedFileHeader);
+
+    uint32_t extra_value = 0; // Assume extra is 0
+    memcpy(ptr, &extra_value, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+    memcpy(ptr, proto_string.data(), proto_string.size());
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_TRUE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+    ASSERT_EQ(src_tablet_meta, dst_tablet_meta);
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidChecksum) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+    FixedFileHeaderV2* header = reinterpret_cast<FixedFileHeaderV2*>(buffer.data());
+    header->protobuf_checksum += 1; // wrong checksum
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidProtobuf) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+    buffer[sizeof(FixedFileHeaderV2) + sizeof(uint32_t)] ^= 0xFF;
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
 }
 
 TEST(TabletMetaTest, TestReviseMeta) {
@@ -243,6 +361,46 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_TRUE(bm->contains(1104));
         ASSERT_EQ(bm->cardinality(), cached_cardinality);
     }
+
+    dbmp.reset(new DeleteBitmap(10086));
+    auto gen2 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_version,
+                        uint32_t max_row) {
+        for (int64_t i = 0; i < max_rst_id; ++i) {
+            for (uint32_t j = 0; j < max_seg_id; ++j) {
+                for (uint32_t version = 0; version < max_version; ++version) {
+                    for (uint32_t k = 0; k < max_row; ++k) {
+                        if (k % max_version == version) {
+                            dbmp->add({RowsetId {2, 0, 1, i}, j, version}, k);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    gen2(2, 2, 10, 1000);
+    for (uint32_t version = 0; version < 10; ++version) {
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 0}, 0, version});
+        ASSERT_EQ(bm->cardinality(), 100 * (version + 1));
+    }
+
+    std::vector<std::pair<RowsetId, int64_t>> rowset_ids;
+    auto rowset_id1 = RowsetId {2, 0, 1, 0};
+    auto rowset_id2 = RowsetId {2, 0, 1, 1};
+    rowset_ids.emplace_back(std::make_pair(rowset_id1, 2));
+    rowset_ids.emplace_back(std::make_pair(rowset_id2, 2));
+    DeleteBitmap subset_delete_map(10086);
+    dbmp->subset_and_agg(rowset_ids, 5, 9, &subset_delete_map);
+    ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 4);
+
+    roaring::Roaring d;
+    subset_delete_map.get({rowset_id1, 0, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id1, 1, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id2, 0, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id2, 1, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
 }
 
 } // namespace doris

@@ -17,22 +17,12 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.BitmapFilterPredicate;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
@@ -46,10 +36,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -351,278 +337,6 @@ public final class RuntimeFilter {
         return builderNode;
     }
 
-    /**
-     * Static function to create a RuntimeFilter from 'joinPredicate' that is assigned
-     * to the join node 'filterSrcNode'. Returns an instance of RuntimeFilter
-     * or null if a runtime filter cannot be generated from the specified predicate.
-     */
-    public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
-            int exprOrder, HashJoinNode filterSrcNode, TRuntimeFilterType type,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, HashSet<TupleId> tupleHasConjuncts) {
-        Preconditions.checkNotNull(idGen);
-        Preconditions.checkNotNull(joinPredicate);
-        Preconditions.checkNotNull(filterSrcNode);
-        // Only consider binary equality predicates and not contain Null-safe equals.
-        // The predicate could not be pushed down when there is Null-safe equal operator. Because the runtimeFilter
-        // will filter the null value in child[0] while it is needed in the Null-safe equal join.
-        // For example: select * from a join b where a.id<=>b.id
-        // the null value in table a should be return by scan node instead of filtering it by runtimeFilter.
-        if (!Predicate.isUnNullSafeEquivalencePredicate(joinPredicate)) {
-            return null;
-        }
-
-        BinaryPredicate normalizedJoinConjunct = getNormalizedEqPred(joinPredicate,
-                filterSrcNode.getChild(0).getTupleIds(),
-                filterSrcNode.getChild(1).getTupleIds(), analyzer);
-        if (normalizedJoinConjunct == null) {
-            return null;
-        }
-
-        // Ensure that the target expr does not contain TupleIsNull predicates as these
-        // can't be evaluated at a scan node.
-        Expr targetExpr =
-                TupleIsNullPredicate.unwrapExpr(normalizedJoinConjunct.getChild(0).clone());
-        Expr srcExpr = normalizedJoinConjunct.getChild(1);
-
-        Type srcType = srcExpr.getType();
-        if (srcType.equals(ScalarType.HLL) || srcType.equals(ScalarType.BITMAP) || srcType.equals(ScalarType.BOOLEAN)) {
-            return null;
-        }
-
-        targetExpr = targetExpr.getRealSlotRef();
-        Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr, filterSrcNode.getChild(0));
-        Preconditions.checkNotNull(targetSlots);
-        if (targetSlots.isEmpty()) {
-            return null;
-        }
-
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("Generating runtime filter from predicate " + joinPredicate);
-        }
-        if (ConnectContext.get().getSessionVariable().isEnableRuntimeFilterPrune()) {
-            if (srcExpr instanceof SlotRef) {
-                if (!tupleHasConjuncts.contains(((SlotRef) srcExpr).getDesc().getParent().getId())) {
-                    // src tuple has no conjunct, don't create runtime filter
-                    return null;
-                } else {
-                    // runtime filter itself is a valid conjunct, add all the target tuple ids
-                    for (TupleId tupleId : targetSlots.keySet()) {
-                        tupleHasConjuncts.add(tupleId);
-                    }
-                }
-            }
-        }
-
-        return new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
-                ImmutableList.of(targetExpr), ImmutableList.of(targetSlots), type, filterSizeLimits, -1L);
-    }
-
-    public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
-            int exprOrder, NestedLoopJoinNode filterSrcNode, TRuntimeFilterType type,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
-        Preconditions.checkNotNull(idGen);
-        Preconditions.checkNotNull(joinPredicate);
-        Preconditions.checkNotNull(filterSrcNode);
-
-        if (type.equals(TRuntimeFilterType.BITMAP)) {
-            if (!(joinPredicate instanceof BitmapFilterPredicate)) {
-                return null;
-            }
-
-            Expr targetExpr = Expr.getFirstBoundChild(joinPredicate, filterSrcNode.getChild(0).getTupleIds());
-            Expr srcExpr = Expr.getFirstBoundChild(joinPredicate, filterSrcNode.getChild(1).getTupleIds());
-            if (targetExpr == null || srcExpr == null) {
-                return null;
-            }
-
-            Type srcType = srcExpr.getType();
-            if (!srcType.equals(ScalarType.BITMAP)) {
-                return null;
-            }
-
-            Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr, filterSrcNode.getChild(0));
-            Preconditions.checkNotNull(targetSlots);
-            if (targetSlots.isEmpty()) {
-                return null;
-            }
-            while (targetExpr instanceof CastExpr && targetExpr.getChild(0).getType().isIntegerType()) {
-                targetExpr = targetExpr.getChild(0);
-            }
-
-            RuntimeFilter runtimeFilter =
-                    new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
-                            ImmutableList.of(targetExpr), ImmutableList.of(targetSlots),
-                            type, filterSizeLimits, -1L);
-            runtimeFilter.setBitmapFilterNotIn(((BitmapFilterPredicate) joinPredicate).isNotIn());
-            return runtimeFilter;
-        }
-        return null;
-    }
-
-    /**
-     * Returns the ids of base table tuple slots on which a runtime filter expr can be
-     * applied. Due to the existence of equivalence classes, a filter expr may be
-     * applicable at multiple scan nodes. The returned slot ids are grouped by tuple id.
-     * Returns an empty collection if the filter expr cannot be applied at a base table
-     * or if applying the filter might lead to incorrect results.
-     * Returns the slot id of the base table expected to use this target expr.
-     */
-    private static Map<TupleId, List<SlotId>> getTargetSlots(Analyzer analyzer, Expr expr, PlanNode root) {
-        // 'expr' is not a SlotRef and may contain multiple SlotRefs
-        List<TupleId> tids = new ArrayList<>();
-        List<SlotId> sids = new ArrayList<>();
-        expr.getIds(tids, sids);
-
-        /*
-          If the target expression evaluates to a non-NULL value for outer-join non-matches, then assigning the
-          filter below the nullable side of an outer join may produce incorrect query results.
-          This check is conservative but correct to keep the code simple. In particular, it would otherwise be
-          difficult to identify incorrect runtime filter assignments through outer-joined inline views because
-          the 'expr' has already been fully resolved.
-          TODO(zxy) We rely on the value-transfer graph to check whether 'expr' could potentially be assigned
-           below an outer-joined inline view.
-
-          Queries with the following characteristics may produce wrong results due to an incorrectly assigned
-          runtime filter:
-               1）The query has an outer join
-               2）A scan on the nullable side of that outer join has a runtime filter with a NULL-checking
-                 expression such as COALESCE/IFNULL/CASE
-               3）The latter point imples that there is another join above the outer join with a NULL-checking
-                 expression in it's join condition
-
-           Reproduction:
-               TPC-DS 1T Benchmarks test
-               "
-                   select count(*) from store t1 left outer join store t2 on t1.s_store_sk = t2.s_store_sk
-                   where coalesce(t2.s_store_sk + 100, 100) in (select ifnull(100, s_store_sk) from store);
-
-                   select count(*) from store t1 left outer join store t2 on t1.s_store_sk = t2.s_store_sk
-                   where case when t2.s_store_sk is NULL then 100 else t2.s_store_sk end
-                   in (select ifnull(100, s_store_sk) from store limit 10);
-               "
-               We expect a count of 0. A count of 1024 is incorrect.
-               Query plan:
-                   |   4:HASH JOIN
-                   |   |  join op: LEFT SEMI JOIN (BROADCAST)
-                   |   |  equal join conjunct: coalesce(`t2`.`s_store_sk` + 100, 100) = ifnull(100, `s_store_sk`)
-                   |   |  runtime filters: RF000[in] <- ifnull(100, `s_store_sk`)
-                   |   |  cardinality=1002
-                   |   |----7:EXCHANGE
-                   |   3:HASH JOIN
-                   |   |  join op: LEFT OUTER JOIN
-                   |   |  equal join conjunct: `t1`.`s_store_sk` = `t2`.`s_store_sk`
-                   |   |----1:OlapScanNode
-                   |   |       TABLE: store
-                   |   |       runtime filters: RF000[in] -> coalesce(`t2`.`s_store_sk` + 100, 100)
-                   |   0:OlapScanNode
-                   |      TABLE: store
-               Explanation:
-                   RF000 filters out all rows in scan 01.
-                   In join 03 there are no join matches since the right-hand is empty. All rows from the right-hand
-                   side are nulled.
-                   The join condition in join 04 now satisfies all input rows because every "t2.id" is NULL,
-                   so after the COALESCE() the join condition becomes 100 = 100.
-         */
-        if (analyzer.hasOuterJoinedValueTransferTarget(sids)) {
-            // Do not push down when contains NULL-checking expression COALESCE/IFNULL/CASE
-            // TODO(zxy) Returns true if 'p' evaluates to true when all its referenced slots are NULL, returns false
-            //  otherwise. Throws if backend expression evaluation fails.
-            if (expr.isContainsFunction("COALESCE") || expr.isContainsFunction("IFNULL")
-                    || expr.isContainsClass("org.apache.doris.analysis.CaseExpr")) {
-                return Collections.emptyMap();
-            }
-        }
-
-        Map<TupleId, List<SlotId>> slotsByTid = new HashMap<>();
-        // We need to iterate over all the slots of 'expr' and check if they have
-        // equivalent slots that are bound by the same base table tuple(s).
-        for (SlotId slotId : sids) {
-            Map<TupleId, List<SlotId>> currSlotsByTid = getBaseTblEquivSlots(analyzer, slotId);
-            if (currSlotsByTid.isEmpty()) {
-                return Collections.emptyMap();
-            }
-            if (slotsByTid.isEmpty()) {
-                slotsByTid.putAll(currSlotsByTid);
-                continue;
-            }
-
-            // Compute the intersection between tuple ids from 'slotsByTid' and
-            // 'currSlotsByTid'. If the intersection is empty, an empty collection
-            // is returned.
-            Iterator<Map.Entry<TupleId, List<SlotId>>> iter = slotsByTid.entrySet().iterator();
-            while (iter.hasNext()) {
-                Map.Entry<TupleId, List<SlotId>> entry = iter.next();
-                List<SlotId> slotIds = currSlotsByTid.get(entry.getKey());
-                // Take the intersection of the tuple ids of all slots in expr to
-                // form <tupleid, slotid> and return.
-                // A.a + B.b = C.c, when the tuple IDs of the two slots A.a and B.b are different, at this
-                // time cannot be pushed down, so remove. If you can get A.a and transferd to B.a, then
-                // the tuple IDs of A.a and B.b have intersection B, So target expr is available, the tuple
-                // ID of this intersection is the scan node that is expected to use this runtime fitler
-                if (slotIds == null) {
-                    iter.remove();
-                } else {
-                    entry.getValue().addAll(slotIds);
-                }
-            }
-            if (slotsByTid.isEmpty()) {
-                return Collections.emptyMap();
-            }
-        }
-
-        // rf shouldn't push down through any analytic node
-        // remove the slots if there is any analytic node in the middle
-        Map<TupleId, List<SlotId>> result = new HashMap<>();
-        for (Map.Entry<TupleId, List<SlotId>> entry : slotsByTid.entrySet()) {
-            Pair<Boolean, Boolean> isValid =
-                    hasAnalyticNodeInSearchPath(entry.getKey(), root, false);
-            if (isValid.first && !isValid.second) {
-                result.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return result;
-    }
-
-    /**
-     * deep first search the child having the corresponding tupleId
-     * and record if meets any analytic node during the search
-     * Returns Pair.first -> find a child's tupleId is id, Pair.second -> if met any analytic node during the search
-     */
-    private static Pair<Boolean, Boolean> hasAnalyticNodeInSearchPath(TupleId id, PlanNode parent,
-            boolean hasAnalyticParent) {
-        if (parent.getTupleIds().contains(id)) {
-            return Pair.of(true, hasAnalyticParent);
-        } else {
-            for (PlanNode child : parent.getChildren()) {
-                Pair<Boolean, Boolean> result = hasAnalyticNodeInSearchPath(id, child,
-                        hasAnalyticParent || parent instanceof AnalyticEvalNode);
-                if (result.first) {
-                    return result;
-                }
-            }
-        }
-        return Pair.of(false, false);
-    }
-
-    /**
-     * Static function that returns the ids of slots bound by base table tuples for which
-     * there is a value transfer from 'srcSid'. The slots are grouped by tuple id.
-     * That is, srcSid can be calculated from the <tuple id, slot id> of the base table.
-     */
-    private static Map<TupleId, List<SlotId>> getBaseTblEquivSlots(Analyzer analyzer,
-                                                                   SlotId srcSid) {
-        Map<TupleId, List<SlotId>> slotsByTid = new HashMap<>();
-        for (SlotId targetSid : analyzer.getValueTransferTargets(srcSid)) {
-            TupleDescriptor tupleDesc = analyzer.getSlotDesc(targetSid).getParent();
-            if (tupleDesc.getTable() == null) {
-                continue;
-            }
-            List<SlotId> sids = slotsByTid.computeIfAbsent(tupleDesc.getId(), k -> new ArrayList<>());
-            sids.add(targetSid);
-        }
-        return slotsByTid;
-    }
-
     public Expr getTargetExpr(PlanNodeId targetPlanNodeId) {
         for (RuntimeFilterTarget target : targets) {
             if (target.node.getId() != targetPlanNodeId) {
@@ -752,20 +466,6 @@ public final class RuntimeFilter {
         }
     }
 
-    public void registerToPlan(Analyzer analyzer) {
-        PlanNode node = getBuilderNode();
-        if (node instanceof HashJoinNode) {
-            setIsBroadcast(((HashJoinNode) node).getDistributionMode() == HashJoinNode.DistributionMode.BROADCAST);
-        } else {
-            setIsBroadcast(true);
-        }
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("Runtime filter: " + debugString());
-        }
-        assignToPlanNodes();
-        analyzer.putAssignedRuntimeFilter(this);
-    }
-
     public long getFilterSizeBytes() {
         return filterSizeBytes;
     }
@@ -812,49 +512,7 @@ public final class RuntimeFilter {
         return filterStr.toString();
     }
 
-
-    public boolean isBloomFilterSizeCalculatedByNdv() {
-        return bloomFilterSizeCalculatedByNdv;
-    }
-
     public void setBloomFilterSizeCalculatedByNdv(boolean bloomFilterSizeCalculatedByNdv) {
         this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
-    }
-
-    /**
-     * Returns a normalized version of a binary equality predicate 'expr' where the lhs
-     * child expr is bound by some tuple in 'lhsTids' and the rhs child expr is bound by
-     * some tuple in 'rhsTids'. Returns 'expr' if this predicate is already normalized.
-     * Returns null in any of the following cases:
-     * 1. It is not an equality predicate
-     * 2. One of the operands is a constant
-     * 3. Both children of this predicate are the same expr
-     * The so-called normalization is to ensure that the above conditions are met, and then
-     * to ensure that the order of expr is consistent with the order of node
-     */
-    public static BinaryPredicate getNormalizedEqPred(Expr expr, List<TupleId> lhsTids,
-            List<TupleId> rhsTids, Analyzer analyzer) {
-        if (!(expr instanceof BinaryPredicate)) {
-            return null;
-        }
-        BinaryPredicate pred = (BinaryPredicate) expr;
-        if (!pred.getOp().isEquivalence()) {
-            return null;
-        }
-        if (pred.getChild(0).isConstant() || pred.getChild(1).isConstant()) {
-            return null;
-        }
-
-        // Use the child that contains lhsTids as lhsExpr, for example, A join B on B.k = A.k,
-        // where lhsExpr=A.k, rhsExpr=B.k, changed the order, A.k = B.k
-        Expr lhsExpr = Expr.getFirstBoundChild(pred, lhsTids);
-        Expr rhsExpr = Expr.getFirstBoundChild(pred, rhsTids);
-        if (lhsExpr == null || rhsExpr == null || lhsExpr == rhsExpr) {
-            return null;
-        }
-
-        BinaryPredicate result = new BinaryPredicate(pred.getOp(), lhsExpr, rhsExpr);
-        result.analyzeNoThrow(analyzer);
-        return result;
     }
 }

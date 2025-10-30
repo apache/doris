@@ -34,7 +34,7 @@ suite("test_ranger_access_workload_group", "p2,ranger,external") {
 		List<String> workloadGroupList = ['ranger_wg1', 'ranger_wg2']
 		workloadGroupList.forEach {
 			sql """DROP WORKLOAD GROUP IF EXISTS ${it}"""
-			sql """CREATE WORKLOAD GROUP ${it} properties ("cpu_share"="1024");"""
+			sql """CREATE WORKLOAD GROUP ${it} properties ("min_cpu_percent"="1");"""
 		}
 		// prepare user
 		List<String> userList = ['ranger_test_wg_user1', 'ranger_test_wg_user2']

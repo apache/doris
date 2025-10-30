@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = n2.n_nationkey)) otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalProject
@@ -35,15 +35,15 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[nation]
+--------------------------------------PhysicalOlapScan[nation(n1)]
 ------------------------------------PhysicalProject
 --------------------------------------filter((region.r_name = 'AMERICA'))
 ----------------------------------------PhysicalOlapScan[region]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[nation]
+----------------------PhysicalOlapScan[nation(n2)]
 
 Hint log:
-Used: leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 ) 
-UnUsed: 
+Used: leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 )
+UnUsed:
 SyntaxError:
 

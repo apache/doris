@@ -32,7 +32,8 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "parquet_pred_cmp.h"
+#include "io/fs/tracing_file_reader.h"
+#include "parquet_predicate.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -45,17 +46,21 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 #include "vec/exec/format/parquet/vparquet_page_index.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vbloom_predicate.h"
+#include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vtopn_pred.h"
 
 namespace cctz {
 class time_zone;
@@ -78,9 +83,9 @@ namespace doris::vectorized {
 
 #include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
-                             bool enable_lazy_mat)
+                             const TFileRangeDesc& range, size_t batch_size,
+                             const cctz::time_zone* ctz, io::IOContext* io_ctx, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -90,18 +95,19 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx),
           _state(state),
-          _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
                                    : state->query_options().enable_parquet_filter_by_min_max) {
+    _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat)
+                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
+                             bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -111,6 +117,7 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _enable_filter_by_min_max(
                   state == nullptr ? true
                                    : state->query_options().enable_parquet_filter_by_min_max) {
+    _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
 }
@@ -118,6 +125,14 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
 ParquetReader::~ParquetReader() {
     _close_internal();
 }
+
+#ifdef BE_TEST
+// for unit test
+void ParquetReader::set_file_reader(io::FileReaderSPtr file_reader) {
+    _file_reader = file_reader;
+    _tracing_file_reader = file_reader;
+}
+#endif
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
@@ -150,6 +165,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileOpenTime", parquet_profile, 1);
         _parquet_profile.open_file_num =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_index_read_calls =
+                ADD_COUNTER_WITH_LEVEL(_profile, "PageIndexReadCalls", TUnit::UNIT, 1);
         _parquet_profile.page_index_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexFilterTime", parquet_profile, 1);
         _parquet_profile.read_page_index_time =
@@ -158,14 +175,10 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexParseTime", parquet_profile, 1);
         _parquet_profile.row_group_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
-
-        _parquet_profile.file_read_time = ADD_TIMER_WITH_LEVEL(_profile, "FileReadTime", 1);
-        _parquet_profile.file_read_calls =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
-        _parquet_profile.file_meta_read_calls =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileMetaReadCalls", TUnit::UNIT, 1);
-        _parquet_profile.file_read_bytes =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
+        _parquet_profile.file_footer_read_calls =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
+        _parquet_profile.file_footer_hit_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
         _parquet_profile.decompress_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecompressTime", parquet_profile, 1);
         _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -216,35 +229,45 @@ Status ParquetReader::_open_file() {
         _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        _tracing_file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(
+                                                 _file_reader, _io_ctx->file_reader_stats)
+                                       : _file_reader;
     }
+
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
-        if (_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
+        if (_tracing_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
             // Some system may generate parquet file with only 4 bytes: PAR1
             // Should consider it as empty file.
             return Status::EndOfFile("open file failed, empty parquet file {} with size: {}",
-                                     _scan_range.path, _file_reader->size());
+                                     _scan_range.path, _tracing_file_reader->size());
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            auto st = parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx);
-            // wrap it with unique ptr, so that it can be released finally.
-            _file_metadata_ptr.reset(_file_metadata);
-            RETURN_IF_ERROR(st);
+            // wrap _file_metadata with unique ptr, so that it can be released finally.
+            RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
+                                                &meta_size, _io_ctx));
+            _file_metadata = _file_metadata_ptr.get();
 
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
-            _column_statistics.meta_read_calls += 1;
+            _statistics.file_footer_read_calls += 1;
         } else {
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx,
-                                                            _file_description.mtime, &meta_size,
-                                                            &_meta_cache_handle));
-            _column_statistics.read_bytes += meta_size;
-            if (meta_size > 0) {
-                _column_statistics.meta_read_calls += 1;
+            const auto& file_meta_cache_key =
+                    FileMetaCache::get_key(_tracing_file_reader, _file_description);
+            if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
+                RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata_ptr, &meta_size,
+                                                    _io_ctx));
+                // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
+                _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
+                                    &_meta_cache_handle);
+                _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                _column_statistics.read_bytes += meta_size;
+                _statistics.file_footer_read_calls += 1;
+            } else {
+                _statistics.file_footer_hit_cache++;
             }
-
-            _file_metadata = (FileMetaData*)_meta_cache_handle.data<FileMetaData>();
+            _file_metadata = _meta_cache_handle.data<FileMetaData>();
         }
 
         if (_file_metadata == nullptr) {
@@ -288,12 +311,6 @@ void ParquetReader::_init_file_description() {
     }
 }
 
-void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_columns) {
-    if (_file_metadata != nullptr) {
-        _file_metadata->iceberg_sanitize(read_columns);
-    }
-}
-
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
@@ -310,6 +327,7 @@ Status ParquetReader::init_reader(
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _colname_to_value_range = colname_to_value_range;
     _table_info_node_ptr = table_info_node_ptr;
+    _filter_groups = filter_groups;
 
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());
@@ -344,8 +362,23 @@ Status ParquetReader::init_reader(
     }
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
-    RETURN_IF_ERROR(_init_row_groups(filter_groups));
     return Status::OK();
+}
+
+bool ParquetReader::_exists_in_file(const VSlotRef* slot_ref) const {
+    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name());
+}
+
+bool ParquetReader::_type_matches(const VSlotRef* slot_ref) const {
+    auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+    auto table_col_type = remove_nullable(slot->type());
+
+    const auto& file_col_name = _table_info_node_ptr->children_file_column_name(slot->col_name());
+    const auto& file_col_type =
+            remove_nullable(_file_metadata->schema().get_column(file_col_name)->data_type);
+
+    return (table_col_type->get_primitive_type() == file_col_type->get_primitive_type()) &&
+           !is_complex_type(table_col_type->get_primitive_type());
 }
 
 Status ParquetReader::set_fill_columns(
@@ -355,8 +388,10 @@ Status ParquetReader::set_fill_columns(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
-        if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
+        if (expr->is_slot_ref()) {
+            VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
             auto expr_name = slot_ref->expr_name();
             predicate_columns.emplace(expr_name,
                                       std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
@@ -364,32 +399,82 @@ Status ParquetReader::set_fill_columns(
                 _lazy_read_ctx.resize_first_column = false;
             }
             return;
-        } else if (VRuntimeFilterWrapper* runtime_filter =
-                           typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
-            if (VBloomPredicate* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
-                for (auto& child : bloom_predicate->children()) {
-                    visit_slot(child.get());
-                }
-            } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (in_predicate->get_num_children() > 0) {
-                    visit_slot(in_predicate->children()[0].get());
-                }
-            } else {
-                for (auto& child : filter_impl->children()) {
-                    visit_slot(child.get());
-                }
-            }
-        } else {
-            for (auto& child : expr->children()) {
-                visit_slot(child.get());
-            }
+        }
+        for (auto& child : expr->children()) {
+            visit_slot(child.get());
         }
     };
 
-    if (!_lazy_read_ctx.conjuncts.empty()) {
-        for (auto& conjunct : _lazy_read_ctx.conjuncts) {
-            visit_slot(conjunct->root().get());
+    for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+        auto expr = conjunct->root();
+
+        if (expr->is_rf_wrapper()) {
+            // REF: src/runtime_filter/runtime_filter_consumer.cpp
+            VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
+
+            auto filter_impl = runtime_filter->get_impl();
+            visit_slot(filter_impl.get());
+
+            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
+            if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
+                (runtime_filter->op() == TExprOpcode::GE ||
+                 runtime_filter->op() == TExprOpcode::LE)) {
+                expr = filter_impl;
+            } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
+                       runtime_filter->op() == TExprOpcode::FILTER_IN) {
+                VDirectInPredicate* direct_in_predicate =
+                        assert_cast<VDirectInPredicate*>(filter_impl.get());
+
+                int max_in_size =
+                        _state->query_options().__isset.max_pushdown_conditions_per_column
+                                ? _state->query_options().max_pushdown_conditions_per_column
+                                : 1024;
+                if (direct_in_predicate->get_set_func()->size() == 0 ||
+                    direct_in_predicate->get_set_func()->size() > max_in_size) {
+                    continue;
+                }
+
+                VExprSPtr new_in_slot = nullptr;
+                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
+                    expr = new_in_slot;
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get())) {
+            // top runtime filter : only le && ge.
+            DCHECK(topn_pred->children().size() > 0);
+            visit_slot(topn_pred->children()[0].get());
+
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
+                expr = binary_expr;
+            } else {
+                continue;
+            }
+        } else {
+            visit_slot(expr.get());
+        }
+
+        if (check_expr_can_push_down(expr)) {
+            _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
+            if (expr->node_type() != TExprNodeType::COMPOUND_PRED) {
+                // for page index filter.
+                VSlotRef* slot_ref = static_cast<VSlotRef*>(expr->children()[0].get());
+                if (!_push_down_simple_predicates.contains(slot_ref->slot_id())) {
+                    _push_down_simple_predicates.emplace(
+                            slot_ref->slot_id(), std::vector<std::unique_ptr<ColumnPredicate>> {});
+                }
+                RETURN_IF_ERROR(convert_predicates(
+                        {expr}, _push_down_simple_predicates[slot_ref->slot_id()],
+                        _push_down_predicates.back(), _arena));
+            } else {
+                RETURN_IF_ERROR(convert_predicates({expr}, _useless_predicates,
+                                                   _push_down_predicates.back(), _arena));
+            }
         }
     }
 
@@ -461,6 +546,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
+    RETURN_IF_ERROR(_init_row_groups(_filter_groups));
     _fill_all_columns = true;
     return Status::OK();
 }
@@ -568,12 +654,12 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
-    int64_t* delete_rows = const_cast<int64_t*>(&(*_delete_rows)[0]);
-    int64_t* delete_rows_end = delete_rows + _delete_rows->size();
-    int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
-                                          row_group_index.first_row);
+    const int64_t* delete_rows = &(*_delete_rows)[0];
+    const int64_t* delete_rows_end = delete_rows + _delete_rows->size();
+    const int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
+                                                row_group_index.first_row);
     int64_t start_index = start_pos - delete_rows;
-    int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
+    const int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
     int64_t end_index = end_pos - delete_rows;
     _delete_rows_index = end_index;
     return RowGroupReader::PositionDeleteContext(*_delete_rows, row_group.num_rows,
@@ -608,16 +694,24 @@ Status ParquetReader::_next_row_group_reader() {
         size_t avg_io_size = 0;
         const std::vector<io::PrefetchRange> io_ranges =
                 _generate_random_access_ranges(row_group_index, &avg_io_size);
+        int64_t merged_read_slice_size = -1;
+        if (_state != nullptr && _state->query_options().__isset.merge_read_slice_size) {
+            merged_read_slice_size = _state->query_options().merge_read_slice_size;
+        }
         // The underlying page reader will prefetch data in column.
         // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                                    ? std::make_shared<io::MergeRangeFileReader>(
-                                              _profile, _file_reader, io_ranges)
-                                    : _file_reader;
+        group_file_reader =
+                avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                        ? std::make_shared<io::MergeRangeFileReader>(
+                                  _profile, _file_reader, io_ranges, merged_read_slice_size)
+                        : _file_reader;
     }
-    _current_group_reader.reset(new RowGroupReader(
-            group_file_reader, _read_table_columns, row_group_index.row_group_id, row_group, _ctz,
-            _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
+    _current_group_reader.reset(
+            new RowGroupReader(_io_ctx ? std::make_shared<io::TracingFileReader>(
+                                                 group_file_reader, _io_ctx->file_reader_stats)
+                                       : group_file_reader,
+                               _read_table_columns, row_group_index.row_group_id, row_group, _ctz,
+                               _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(row_group_index);
@@ -759,7 +853,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         return Status::EndOfFile("stop");
     }
 
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
         return Status::OK();
     }
@@ -769,16 +863,19 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     std::function<void()> read_whole_row_group = [&]() {
         candidate_row_ranges.emplace_back(0, row_group.num_rows);
         _statistics.read_rows += row_group.num_rows;
+        if (_io_ctx) {
+            _io_ctx->file_reader_stats->read_rows += row_group.num_rows;
+        }
     };
 
-    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
-        _lazy_read_ctx.conjuncts.empty() || _colname_to_value_range == nullptr ||
-        _colname_to_value_range->empty()) {
+    if (!_enable_filter_by_min_max || _lazy_read_ctx.has_complex_type ||
+        _lazy_read_ctx.conjuncts.empty()) {
         read_whole_row_group();
         return Status::OK();
     }
     PageIndex page_index;
-    if (!config::enable_parquet_page_index || !_has_page_index(row_group.columns, page_index)) {
+    if (!config::enable_parquet_page_index || !_has_page_index(row_group.columns, page_index) ||
+        _colname_to_slot_id == nullptr) {
         read_whole_row_group();
         return Status::OK();
     }
@@ -787,31 +884,32 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     Slice result(col_index_buff.data(), page_index._column_index_size);
     {
         SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
-        RETURN_IF_ERROR(_file_reader->read_at(page_index._column_index_start, result, &bytes_read,
-                                              _io_ctx));
+        RETURN_IF_ERROR(_tracing_file_reader->read_at(page_index._column_index_start, result,
+                                                      &bytes_read, _io_ctx));
     }
     _column_statistics.read_bytes += bytes_read;
-    auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     std::vector<uint8_t> off_index_buff(page_index._offset_index_size);
     Slice res(off_index_buff.data(), page_index._offset_index_size);
     {
         SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
-        RETURN_IF_ERROR(
-                _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
+        RETURN_IF_ERROR(_tracing_file_reader->read_at(page_index._offset_index_start, res,
+                                                      &bytes_read, _io_ctx));
     }
     _column_statistics.read_bytes += bytes_read;
     // read twice: parse column index & parse offset index
-    _column_statistics.meta_read_calls += 2;
+    _column_statistics.page_index_read_calls += 2;
     SCOPED_RAW_TIMER(&_statistics.parse_page_index_time);
 
     for (size_t idx = 0; idx < _read_table_columns.size(); idx++) {
         const auto& read_table_col = _read_table_columns[idx];
         const auto& read_file_col = _read_file_columns[idx];
-        auto conjunct_iter = _colname_to_value_range->find(read_table_col);
-        if (_colname_to_value_range->end() == conjunct_iter) {
+        if (!_colname_to_slot_id->contains(read_table_col)) {
+            // equal delete may add column to read_table_col, but this column no slot_id.
             continue;
         }
+        auto slot_id = _colname_to_slot_id->at(read_table_col);
+
         int parquet_col_id =
                 _file_metadata->schema().get_column(read_file_col)->physical_column_index;
         if (parquet_col_id < 0) {
@@ -819,6 +917,19 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto& chunk = row_group.columns[parquet_col_id];
+        if (chunk.offset_index_length == 0) {
+            continue;
+        }
+        tparquet::OffsetIndex offset_index;
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
+        _col_offsets[parquet_col_id] = offset_index;
+
+        if (!_push_down_simple_predicates.contains(slot_id) ||
+            _push_down_simple_predicates[slot_id].empty()) {
+            continue;
+        }
+        const auto& predicates = _push_down_simple_predicates[slot_id];
+
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
@@ -828,16 +939,49 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (num_of_pages <= 0) {
             continue;
         }
-        auto& conjuncts = conjunct_iter->second;
+
         std::vector<int> skipped_page_range;
-        const FieldSchema* col_schema = schema_desc.get_column(read_file_col);
-        RETURN_IF_ERROR(page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
-                                                              skipped_page_range, *_ctz));
+        const std::vector<std::string>& encoded_min_vals = column_index.min_values;
+        const std::vector<std::string>& encoded_max_vals = column_index.max_values;
+        DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
+
+        for (int page_id = 0; page_id < num_of_pages; page_id++) {
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                    [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                        auto* slot = _tuple_descriptor->slots()[cid];
+                        if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                            return false;
+                        }
+                        if (!column_index.__isset.null_counts) {
+                            return false;
+                        }
+
+                        const auto& file_col_name =
+                                _table_info_node_ptr->children_file_column_name(slot->col_name());
+                        const FieldSchema* col_schema =
+                                _file_metadata->schema().get_column(file_col_name);
+                        stat->col_schema = col_schema;
+                        stat->is_all_null = column_index.null_pages[page_id];
+                        stat->has_null = column_index.null_counts[page_id] > 0;
+                        stat->encoded_min_value = encoded_min_vals[page_id];
+                        stat->encoded_max_value = encoded_max_vals[page_id];
+                        return true;
+                    };
+
+            ParquetPredicate::ColumnStat stat;
+            stat.ctz = _ctz;
+            stat.get_stat_func = &get_stat_func;
+            for (const auto& predicate : predicates) {
+                if (!predicate->evaluate_and(&stat)) {
+                    skipped_page_range.emplace_back(page_id);
+                    break;
+                }
+            }
+        }
+
         if (skipped_page_range.empty()) {
             continue;
         }
-        tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
@@ -845,7 +989,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();
@@ -877,6 +1020,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         read_rows += row_group.num_rows - skip_end;
     }
     _statistics.read_rows += read_rows;
+    if (_io_ctx) {
+        _io_ctx->file_reader_stats->read_rows += read_rows;
+    }
     _statistics.filtered_page_rows += row_group.num_rows - read_rows;
     return Status::OK();
 }
@@ -884,16 +1030,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 Status ParquetReader::_process_row_group_filter(
         const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
         bool* filter_group) {
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         auto group_start = row_group_index.first_row;
         auto group_end = row_group_index.last_row;
 
-        while (!_read_lines.empty()) {
-            auto v = _read_lines.front();
+        while (!_row_ids.empty()) {
+            auto v = _row_ids.front();
             if (v >= group_start && v < group_end) {
                 _read_line_mode_row_ranges[row_group_index.row_group_id].emplace_back(
                         RowRange {v - group_start, v - group_start + 1});
-                _read_lines.pop_front();
+                _row_ids.pop_front();
             } else {
                 break;
             }
@@ -903,7 +1049,7 @@ Status ParquetReader::_process_row_group_filter(
             *filter_group = true;
         }
     } else {
-        RETURN_IF_ERROR(_process_column_stat_filter(row_group.columns, filter_group));
+        RETURN_IF_ERROR(_process_column_stat_filter(row_group, filter_group));
         _init_chunk_dicts();
         RETURN_IF_ERROR(_process_dict_filter(filter_group));
         _init_bloom_filter();
@@ -912,92 +1058,41 @@ Status ParquetReader::_process_row_group_filter(
     return Status::OK();
 }
 
-Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& columns,
+Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_group,
                                                   bool* filter_group) {
-    if ((!_enable_filter_by_min_max) || _colname_to_value_range == nullptr ||
-        _colname_to_value_range->empty()) {
+    if (!_enable_filter_by_min_max) {
         return Status::OK();
     }
-    auto& schema_desc = _file_metadata->schema();
-    for (auto& table_col_name : _read_table_columns) {
-        if (_table_info_node_ptr->children_column_exists(table_col_name)) {
-            continue;
-        }
 
-        auto slot_iter = _colname_to_value_range->find(table_col_name);
-        if (slot_iter == _colname_to_value_range->end()) {
-            continue;
-        }
-
-        auto file_col_name = _table_info_node_ptr->children_file_column_name(table_col_name);
-        int parquet_col_id =
-                _file_metadata->schema().get_column(file_col_name)->physical_column_index;
-        if (parquet_col_id < 0) {
-            // complex type, not support filter yet.
-            continue;
-        }
-        auto& meta_data = columns[parquet_col_id].meta_data;
-        auto& statistic = meta_data.statistics;
-        bool is_all_null =
-                (statistic.__isset.null_count && statistic.null_count == meta_data.num_values);
-        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min) ||
-                              (statistic.__isset.max_value && statistic.__isset.min_value);
-        if ((!is_set_min_max) && (!is_all_null)) {
-            continue;
-        }
-        const FieldSchema* col_schema = schema_desc.get_column(file_col_name);
-        bool ignore_min_max_stats = false;
-        // Min-max of statistic is plain-encoded value
-        if (statistic.__isset.min_value && statistic.__isset.max_value) {
-            ColumnOrderName column_order =
-                    col_schema->physical_type == tparquet::Type::INT96 ||
-                                    col_schema->parquet_schema.logicalType.__isset.UNKNOWN
-                            ? ColumnOrderName::UNDEFINED
-                            : ColumnOrderName::TYPE_DEFINED_ORDER;
-            if ((statistic.min_value != statistic.max_value) &&
-                (column_order != ColumnOrderName::TYPE_DEFINED_ORDER)) {
-                ignore_min_max_stats = true;
-            }
-            *filter_group = ParquetPredicate::filter_by_stats(
-                    slot_iter->second, col_schema, ignore_min_max_stats, statistic.min_value,
-                    statistic.max_value, is_all_null, *_ctz, true);
-        } else {
-            if (statistic.__isset.min && statistic.__isset.max) {
-                bool max_equals_min = statistic.min == statistic.max;
-
-                SortOrder sort_order = _determine_sort_order(col_schema->parquet_schema);
-                bool sort_orders_match = SortOrder::SIGNED == sort_order;
-                if (!sort_orders_match && !max_equals_min) {
-                    ignore_min_max_stats = true;
-                }
-                bool should_ignore_corrupted_stats = false;
-                if (_ignored_stats.count(col_schema->physical_type) == 0) {
-                    if (CorruptStatistics::should_ignore_statistics(_t_metadata->created_by,
-                                                                    col_schema->physical_type)) {
-                        _ignored_stats[col_schema->physical_type] = true;
-                        should_ignore_corrupted_stats = true;
-                    } else {
-                        _ignored_stats[col_schema->physical_type] = false;
+    for (const auto& predicate : _push_down_predicates) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    auto* slot = _tuple_descriptor->slots()[cid];
+                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        return false;
                     }
-                } else if (_ignored_stats[col_schema->physical_type]) {
-                    should_ignore_corrupted_stats = true;
-                }
-                if (should_ignore_corrupted_stats) {
-                    ignore_min_max_stats = true;
-                } else if (!sort_orders_match && !max_equals_min) {
-                    ignore_min_max_stats = true;
-                }
-            } else {
-                ignore_min_max_stats = true;
-            }
-            *filter_group = ParquetPredicate::filter_by_stats(
-                    slot_iter->second, col_schema, ignore_min_max_stats, statistic.min,
-                    statistic.max, is_all_null, *_ctz, false);
-        }
-        if (*filter_group) {
-            break;
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
+                    stat->col_schema = col_schema;
+                    return ParquetPredicate::read_column_stats(col_schema, meta_data,
+                                                               &_ignored_stats,
+                                                               _t_metadata->created_by, stat)
+                            .ok();
+                };
+        ParquetPredicate::ColumnStat stat;
+        stat.ctz = _ctz;
+        stat.get_stat_func = &get_stat_func;
+
+        if (!predicate->evaluate_and(&stat)) {
+            *filter_group = true;
+            return Status::OK();
         }
     }
+
     return Status::OK();
 }
 
@@ -1042,16 +1137,16 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.read_page_index_time, _statistics.read_page_index_time);
     COUNTER_UPDATE(_parquet_profile.parse_page_index_time, _statistics.parse_page_index_time);
     COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
+    COUNTER_UPDATE(_parquet_profile.file_footer_read_calls, _statistics.file_footer_read_calls);
+    COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache, _statistics.file_footer_hit_cache);
 
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
     COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time, _statistics.dict_filter_rewrite_time);
-    COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
-    COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
-    COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);
-    COUNTER_UPDATE(_parquet_profile.file_read_bytes, _column_statistics.read_bytes);
+    COUNTER_UPDATE(_parquet_profile.page_index_read_calls,
+                   _column_statistics.page_index_read_calls);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
     COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
     COUNTER_UPDATE(_parquet_profile.decode_header_time, _column_statistics.decode_header_time);
@@ -1065,61 +1160,5 @@ void ParquetReader::_collect_profile_before_close() {
     _collect_profile();
 }
 
-SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& parquet_schema) {
-    tparquet::Type::type physical_type = parquet_schema.type;
-    const tparquet::LogicalType& logical_type = parquet_schema.logicalType;
-
-    // Assume string type is SortOrder::SIGNED, use ParquetPredicate::_try_read_old_utf8_stats() to handle it.
-    if (logical_type.__isset.STRING && (physical_type == tparquet::Type::BYTE_ARRAY ||
-                                        physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY)) {
-        return SortOrder::SIGNED;
-    }
-
-    if (logical_type.__isset.INTEGER) {
-        if (logical_type.INTEGER.isSigned) {
-            return SortOrder::SIGNED;
-        } else {
-            return SortOrder::UNSIGNED;
-        }
-    } else if (logical_type.__isset.DATE) {
-        return SortOrder::SIGNED;
-    } else if (logical_type.__isset.ENUM) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.BSON) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.JSON) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.STRING) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.DECIMAL) {
-        return SortOrder::UNKNOWN;
-    } else if (logical_type.__isset.MAP) {
-        return SortOrder::UNKNOWN;
-    } else if (logical_type.__isset.LIST) {
-        return SortOrder::UNKNOWN;
-    } else if (logical_type.__isset.TIME) {
-        return SortOrder::SIGNED;
-    } else if (logical_type.__isset.TIMESTAMP) {
-        return SortOrder::SIGNED;
-    } else if (logical_type.__isset.UNKNOWN) {
-        return SortOrder::UNKNOWN;
-    } else {
-        switch (physical_type) {
-        case tparquet::Type::BOOLEAN:
-        case tparquet::Type::INT32:
-        case tparquet::Type::INT64:
-        case tparquet::Type::FLOAT:
-        case tparquet::Type::DOUBLE:
-            return SortOrder::SIGNED;
-        case tparquet::Type::BYTE_ARRAY:
-        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            return SortOrder::UNSIGNED;
-        case tparquet::Type::INT96:
-            return SortOrder::UNKNOWN;
-        default:
-            return SortOrder::UNKNOWN;
-        }
-    }
-}
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

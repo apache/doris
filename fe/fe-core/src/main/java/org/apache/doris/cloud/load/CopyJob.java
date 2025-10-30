@@ -18,9 +18,7 @@
 package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -33,7 +31,6 @@ import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -230,21 +227,6 @@ public class CopyJob extends CloudBrokerLoadJob {
     protected LoadJobFinalOperation getLoadJobFinalOperation() {
         return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                 finishTimestamp, state, failMsg, copyId, loadFilePaths, properties);
-    }
-
-    @Override
-    protected void analyzeStmt(StatementBase stmtBase, Database db) throws UserException {
-        CopyStmt stmt = (CopyStmt) stmtBase;
-        stmt.analyzeWhenReplay(getUser(), db.getFullName());
-        // check if begin copy happened
-        checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
-        this.stageId = stmt.getStageId();
-        this.stageType = stmt.getStageType();
-        this.sizeLimit = stmt.getSizeLimit();
-        this.pattern = stmt.getPattern();
-        this.objectInfo = stmt.getObjectInfo();
-        this.forceCopy = stmt.isForce();
-        this.isReplay = true;
     }
 
     protected void setSelectedFiles(Map<FileGroupAggKey, List<List<TBrokerFileStatus>>> fileStatusMap) {

@@ -37,12 +37,7 @@ suite("test_constant_having") {
             test_constant_having_t0
         GROUP BY
             test_constant_having_t0.c0
-        HAVING
-            (
-                NOT (
-                    CAST(false AS DATETIME) NOT IN (CAST(-994966193 AS DATETIME))
-                )
-            )
+        HAVING NULL
         ORDER BY
             1;
     """

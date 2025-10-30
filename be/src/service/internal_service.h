@@ -227,6 +227,11 @@ public:
                                   PAbortRefreshDictionaryResponse* response,
                                   google::protobuf::Closure* done) override;
 
+    void get_tablet_rowsets(google::protobuf::RpcController* controller,
+                            const PGetTabletRowsetsRequest* request,
+                            PGetTabletRowsetsResponse* response,
+                            google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -237,8 +242,6 @@ private:
                                     bool compact,
                                     const std::function<void(RuntimeState*, Status*)>& cb =
                                             std::function<void(RuntimeState*, Status*)>());
-
-    Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

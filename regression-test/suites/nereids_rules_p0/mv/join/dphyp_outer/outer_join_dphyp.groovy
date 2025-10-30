@@ -21,7 +21,6 @@ suite("outer_join_dphyp") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_dphyp_optimizer = true"
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
 
     sql """
     drop table if exists orders
@@ -305,7 +304,11 @@ suite("outer_join_dphyp") {
             where o_orderstatus = 'o' AND o_orderkey = 1;
     """
     order_qt_query4_0_before "${query4_0}"
-    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
+    // DP Hyper can not use pre materialized view rewrite
+    sql """SET enable_dphyp_optimizer = false"""
+    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    sql """SET enable_dphyp_optimizer = true"""
+    async_mv_rewrite_fail(db, mv4_0, query4_0, "mv4_0", [NOT_IN_RBO])
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
@@ -348,12 +351,20 @@ suite("outer_join_dphyp") {
             "from lineitem " +
             "left join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate "
-    def query6_0 = "select l_partkey, l_suppkey, l_shipdate " +
-            "from lineitem t1 " +
-            "left join (select * from orders where o_orderdate = '2023-12-08') t2 " +
-            "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate "
+    def query6_0 = """
+            select l_partkey, l_suppkey, l_shipdate
+            from lineitem t1
+            left join (select * from orders where o_orderdate = '2023-12-08') t2
+            on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate;
+            """
     order_qt_query6_0_before "${query6_0}"
-    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+    // because enable enable_dphyp_optimizer, so all failed
+    async_mv_rewrite_fail(db, mv6_0, query6_0, "mv6_0", [TRY_IN_RBO, FORCE_IN_RBO, NOT_IN_RBO])
+    sql "SET enable_dphyp_optimizer = false"
+    // but if disable enable_dphyp_optimizer, it can rewrite
+    async_mv_rewrite_fail(db, mv6_0, query6_0, "mv6_0", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    sql "SET enable_dphyp_optimizer = true"
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
@@ -370,7 +381,12 @@ suite("outer_join_dphyp") {
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
             "where l_partkey = 3"
     order_qt_query7_0_before "${query7_0}"
-    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
+    async_mv_rewrite_fail(db, mv7_0, query7_0, "mv7_0", [TRY_IN_RBO, FORCE_IN_RBO, NOT_IN_RBO])
+    sql "SET enable_dphyp_optimizer = false"
+    // but if disable enable_dphyp_optimizer, it can rewrite
+    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv7_0, query7_0, "mv7_0", [NOT_IN_RBO])
+    sql "SET enable_dphyp_optimizer = true"
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 

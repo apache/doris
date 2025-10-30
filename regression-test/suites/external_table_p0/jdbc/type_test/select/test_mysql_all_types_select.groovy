@@ -20,7 +20,7 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
 
@@ -46,6 +46,15 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
         qt_select_char """select * from t_char order by 1;"""
 
         qt_select_all_types_multi_block """select count(`int`),count(`varchar`) from all_types_multi_block;"""
+
+
+        sql """use mysql_all_type_test.test_varbinary_db"""
+        qt_desc_varbinary_type """desc test_varbinary;"""
+        qt_select_varbinary_type """select * from test_varbinary order by id;"""
+        qt_select_varbinary_type2 """insert into test_varbinary values(3, X'48656C6C6F20576F726C6421');"""
+        qt_select_varbinary_type3 """insert into test_varbinary values(4, NULL);"""
+        qt_select_varbinary_type4 """insert into test_varbinary values(5, X'AB');"""
+        qt_select_varbinary_type5 """select * from test_varbinary order by id;"""
 
         sql """drop catalog if exists mysql_all_type_test """
     }

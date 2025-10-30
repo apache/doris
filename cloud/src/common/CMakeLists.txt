@@ -17,8 +17,8 @@ set(COMMON_FILES
 
 if (USE_JEMALLOC)
     set(COMMON_FILES ${COMMON_FILES}
-        jemalloc_hook.cpp
-        )
+        ${BUILD_DIR}/../../be/src/runtime/memory/jemalloc_hook.cpp
+    )
 endif()
 
 add_library(Common STATIC

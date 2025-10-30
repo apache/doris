@@ -26,10 +26,12 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
@@ -247,15 +249,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql)
-                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .getPlan();
         List<LogicalProject<?>> projectList = Lists.newArrayList();
+        List<LogicalPlan> plansAboveApply = Lists.newArrayList();
         root.foreach(plan -> {
             if (plan instanceof LogicalProject && plan.child(0) instanceof LogicalApply) {
                 projectList.add((LogicalProject<?>) plan);
-                return true;
-            } else {
-                return false;
+            }
+            if (!(plan instanceof LogicalApply) && plan.anyMatch(p -> p instanceof LogicalApply)) {
+                plansAboveApply.add((LogicalPlan) plan);
             }
         });
 
@@ -272,10 +274,26 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                 .findFirst().orElse(null);
         Assertions.assertNotNull(output);
         Assertions.assertEquals(outputNullable, output.nullable());
-        output = apply.getOutput().stream()
+
+        Slot applySubqueySlot = apply.getOutput().stream()
                 .filter(e -> slotKName.contains(e.getName()))
                 .findFirst().orElse(null);
-        Assertions.assertNotNull(output);
-        Assertions.assertEquals(outputNullable, output.nullable());
+        Assertions.assertNotNull(applySubqueySlot);
+        if (apply.isCorrelated()) {
+            // apply will change to outer join
+            Assertions.assertTrue(applySubqueySlot.nullable());
+        } else {
+            Assertions.assertEquals(outputNullable, applySubqueySlot.nullable());
+        }
+
+        for (LogicalPlan plan : plansAboveApply) {
+            Assertions.assertTrue(plan.getInputSlots().stream()
+                    .filter(slot -> slot.getExprId().equals(applySubqueySlot.getExprId()))
+                    .allMatch(slot -> slot.nullable() == applySubqueySlot.nullable()));
+
+            Assertions.assertTrue(plan.getOutput().stream()
+                    .filter(slot -> slot.getExprId().equals(applySubqueySlot.getExprId()))
+                    .allMatch(slot -> slot.nullable() == applySubqueySlot.nullable()));
+        }
     }
 }

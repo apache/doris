@@ -46,13 +46,18 @@ public class ToIpv4OrDefault extends ScalarFunction
         super("to_ipv4_or_default", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToIpv4OrDefault(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ToIpv4OrDefault withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "to_ipv4_or_default accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ToIpv4OrDefault(children.get(0));
+        return new ToIpv4OrDefault(getFunctionParams(children));
     }
 
     @Override

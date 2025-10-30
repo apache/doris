@@ -222,10 +222,14 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             // avoid throw exception even if having have slot from its child.
                             // because we will add a project between having and project.
                             Resolver resolver = new Resolver(agg, false, outerScope);
-                            having.getConjuncts().forEach(resolver::resolve);
+                            Set<Expression> adjustAggNullableConjuncts = having.getConjuncts().stream()
+                                    .map(conjunct -> AdjustAggregateNullableForEmptySet.replaceExpression(
+                                            conjunct, true))
+                                    .collect(Collectors.toSet());
+                            adjustAggNullableConjuncts.forEach(resolver::resolve);
                             agg = agg.withAggOutput(resolver.getNewOutputSlots());
                             Set<Expression> newConjuncts = ExpressionUtils.replace(
-                                    having.getConjuncts(), resolver.getSubstitution());
+                                    adjustAggNullableConjuncts, resolver.getSubstitution());
                             ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
                             projects.addAll(project.getOutputs()).addAll(agg.getOutput());
                             return new LogicalHaving<>(newConjuncts, new LogicalProject<>(projects.build(), agg));

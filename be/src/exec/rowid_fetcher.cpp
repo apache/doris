@@ -45,6 +45,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
+#include "common/signal_handler.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
@@ -58,6 +59,8 @@
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
 #include "runtime/types.h"
+#include "runtime/workload_group/workload_group_manager.h"
+#include "semaphore"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -76,6 +79,8 @@
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
@@ -127,10 +132,6 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
     mget_req.set_be_exec_version(_fetch_option.runtime_state->be_exec_version());
     mget_req.set_fetch_row_store(_fetch_option.t_fetch_opt.fetch_row_store);
     return mget_req;
-}
-
-static void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
 }
 
 Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
@@ -245,9 +246,9 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
             *vectorized::remove_nullable(column_row_ids).get()));
     std::vector<PMultiGetResponse> resps(_stubs.size());
     std::vector<brpc::Controller> cntls(_stubs.size());
-    bthread::CountdownEvent counter(_stubs.size());
+    bthread::CountdownEvent counter(cast_set<int>(_stubs.size()));
     for (size_t i = 0; i < _stubs.size(); ++i) {
-        cntls[i].set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
+        cntls[i].set_timeout_ms(_fetch_option.runtime_state->execution_timeout() * 1000);
         auto callback = brpc::NewCallback(fetch_callback, &counter);
         _stubs[i]->multiget_data(&cntls[i], &mget_req, &resps[i], callback);
     }
@@ -266,13 +267,14 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     for (size_t i = 0; i < rows_locs.size(); ++i) {
         RowsetId rowset_id;
         rowset_id.init(rows_locs[i].rowset_id());
-        GlobalRowLoacation grl(rows_locs[i].tablet_id(), rowset_id, rows_locs[i].segment_id(),
-                               rows_locs[i].ordinal_id());
+        GlobalRowLoacation grl(rows_locs[i].tablet_id(), rowset_id,
+                               cast_set<uint32_t>(rows_locs[i].segment_id()),
+                               cast_set<uint32_t>(rows_locs[i].ordinal_id()));
         positions[grl] = i;
     };
     // TODO remove this warning code
     if (positions.size() < rows_locs.size()) {
-        LOG(WARNING) << "contains duplicated row entry";
+        LOG(WARNING) << "cwntains duplicated row entry";
     }
     vectorized::IColumn::Permutation permutation;
     permutation.reserve(column_row_ids->size());
@@ -314,6 +316,30 @@ struct IteratorKey {
     }
 };
 
+struct SegKey {
+    int64_t tablet_id;
+    RowsetId rowset_id;
+    uint64_t segment_id;
+
+    // unordered map std::equal_to
+    bool operator==(const SegKey& rhs) const {
+        return tablet_id == rhs.tablet_id && rowset_id == rhs.rowset_id &&
+               segment_id == rhs.segment_id;
+    }
+};
+
+struct HashOfSegKey {
+    size_t operator()(const SegKey& key) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&key.tablet_id, sizeof(key.tablet_id), seed);
+        seed = HashUtil::hash64(&key.rowset_id.hi, sizeof(key.rowset_id.hi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.mi, sizeof(key.rowset_id.mi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.lo, sizeof(key.rowset_id.lo), seed);
+        seed = HashUtil::hash64(&key.segment_id, sizeof(key.segment_id), seed);
+        return seed;
+    }
+};
+
 struct HashOfIteratorKey {
     size_t operator()(const IteratorKey& key) const {
         size_t seed = 0;
@@ -329,6 +355,14 @@ struct HashOfIteratorKey {
 
 struct IteratorItem {
     std::unique_ptr<ColumnIterator> iterator;
+    SegmentSharedPtr segment;
+    // for holding the reference of storage read options to avoid use after release
+    StorageReadOptions storage_read_options;
+};
+
+struct SegItem {
+    BaseTabletSPtr tablet;
+    BetaRowsetSharedPtr rowset;
     // for holding the reference of segment to avoid use after release
     SegmentSharedPtr segment;
 };
@@ -358,7 +392,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
     // read row by row
-    for (size_t i = 0; i < request.row_locs_size(); ++i) {
+    for (int i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
         MonotonicStopWatch watch;
         watch.start();
@@ -409,11 +443,12 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         }
         segment_v2::SegmentSharedPtr segment = *it;
         GlobalRowLoacation row_location(row_loc.tablet_id(), rowset->rowset_id(),
-                                        row_loc.segment_id(), row_loc.ordinal_id());
+                                        cast_set<uint32_t>(row_loc.segment_id()),
+                                        cast_set<uint32_t>(row_loc.ordinal_id()));
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
             CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
-            RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
+            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_loc.ordinal_id()));
             std::string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(
                     [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
@@ -443,10 +478,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
             if (iterator_item.segment == nullptr) {
                 // hold the reference
                 iterator_map[iterator_key].segment = segment;
+                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
-                                                            column, stats, iterator_item.iterator));
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                    full_read_schema, &slots[x], row_id, column, iterator_item.storage_read_options,
+                    iterator_item.iterator));
         }
     }
     // serialize block if not empty
@@ -463,16 +501,17 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
     LOG(INFO) << "Query stats: "
               << fmt::format(
+                         "query_id:{}, "
                          "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                          "io_latency:{}ns, "
                          "uncompressed_bytes_read:{},"
                          "bytes_read:{},"
                          "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
                          "lookup_row_data_ms:{}",
-                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
-                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                         lookup_row_data_ms);
+                         print_id(request.query_id()), stats.cached_pages_num,
+                         stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
+                         stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
+                         acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms);
     return Status::OK();
 }
 
@@ -488,8 +527,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         int64_t acquire_segments_ms = 0;
         int64_t lookup_row_data_ms = 0;
 
-        int64_t external_init_reader_ms = 0;
-        int64_t external_get_block_ms = 0;
+        int64_t external_init_reader_avg_ms = 0;
+        int64_t external_get_block_avg_ms = 0;
+        size_t external_scan_range_cnt = 0;
 
         // Add counters for different file mapping types
         std::unordered_map<FileMappingType, int64_t> file_type_counts;
@@ -507,6 +547,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
             const auto& request_block_desc = request.request_block_descs(i);
+            PMultiGetBlockV2* pblock = response->add_blocks();
             if (request_block_desc.row_id_size() >= 1) {
                 // Since this block belongs to the same table, we only need to take the first type for judgment.
                 auto first_file_id = request_block_desc.file_id(0);
@@ -542,9 +583,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                 &acquire_segments_ms, &lookup_row_data_ms));
                     } else {
                         RETURN_IF_ERROR(read_batch_external_row(
-                                request_block_desc, id_file_map, slots, first_file_mapping,
-                                tquery_id, result_blocks[i], &external_init_reader_ms,
-                                &external_get_block_ms));
+                                request.wg_id(), request_block_desc, id_file_map, slots,
+                                first_file_mapping, tquery_id, result_blocks[i],
+                                pblock->mutable_profile(), &external_init_reader_avg_ms,
+                                &external_get_block_avg_ms, &external_scan_range_cnt));
                     }
                 } catch (const Exception& e) {
                     return Status::Error<false>(e.code(), "Row id fetch failed because {}",
@@ -558,9 +600,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
             [[maybe_unused]] size_t compressed_size = 0;
             [[maybe_unused]] size_t uncompressed_size = 0;
             int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-            RETURN_IF_ERROR(result_blocks[i].serialize(
-                    be_exec_version, response->add_blocks()->mutable_block(), &uncompressed_size,
-                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
+            RETURN_IF_ERROR(result_blocks[i].serialize(be_exec_version, pblock->mutable_block(),
+                                                       &uncompressed_size, &compressed_size,
+                                                       segment_v2::CompressionTypePB::LZ4));
         }
 
         // Build file type statistics string
@@ -574,17 +616,20 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         LOG(INFO) << "Query stats: "
                   << fmt::format(
+                             "query_id:{}, "
                              "Internal table:"
                              "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                              "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
                              "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
                              "lookup_row_data_ms:{}, file_types:[{}]; "
-                             "External table : init_reader_ms:{}, get_block_ms:{}",
-                             stats.cached_pages_num, stats.total_pages_num,
-                             stats.compressed_bytes_read, stats.io_ns,
+                             "External table : init_reader_ms:{}, get_block_ms:{}, "
+                             "external_scan_range_cnt:{}",
+                             print_id(request.query_id()), stats.cached_pages_num,
+                             stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
                              stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
-                             file_type_stats, external_init_reader_ms, external_get_block_ms);
+                             file_type_stats, external_init_reader_avg_ms,
+                             external_get_block_avg_ms, external_scan_range_cnt);
     }
 
     if (request.has_gc_id_map() && request.gc_id_map()) {
@@ -602,12 +647,13 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     if (result_block.is_empty_column()) [[likely]] {
         result_block = vectorized::Block(slots, request_block_desc.row_id_size());
     }
-
     TabletSchema full_read_schema;
     for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
         full_read_schema.append_column(TabletColumn(column_pb));
     }
+
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+    std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
     std::string row_store_buffer;
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
@@ -618,39 +664,56 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         }
     }
 
-    for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+    std::vector<uint32_t> row_ids;
+    int k = 1;
+    auto max_k = 0;
+    for (int j = 0; j < request_block_desc.row_id_size();) {
         auto file_id = request_block_desc.file_id(j);
+        row_ids.emplace_back(request_block_desc.row_id(j));
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
             return Status::InternalError(
                     "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
                     BackendOptions::get_localhost(), print_id(query_id), file_id);
         }
+        for (k = 1; j + k < request_block_desc.row_id_size(); ++k) {
+            if (request_block_desc.file_id(j + k) == file_id) {
+                row_ids.emplace_back(request_block_desc.row_id(j + k));
+            } else {
+                break;
+            }
+        }
 
         RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
-                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
-                acquire_segments_ms, lookup_row_data_ms, iterator_map, result_block));
+                id_file_map, file_mapping, row_ids, slots, full_read_schema, row_store_read_struct,
+                stats, acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
+                lookup_row_data_ms, seg_map, iterator_map, result_block));
+
+        j += k;
+        max_k = std::max(max_k, k);
+        row_ids.clear();
     }
+
     return Status::OK();
 }
 
-Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& request_block_desc,
-                                                   std::shared_ptr<IdFileMap> id_file_map,
-                                                   std::vector<SlotDescriptor>& slots,
-                                                   std::shared_ptr<FileMapping> first_file_mapping,
-                                                   const TUniqueId& query_id,
-                                                   vectorized::Block& result_block,
-                                                   int64_t* init_reader_ms, int64_t* get_block_ms) {
+const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunningTime";
+const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgTime";
+const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
+const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
+
+Status RowIdStorageReader::read_batch_external_row(
+        const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
+        std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
+        std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
+        vectorized::Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
+        int64_t* get_block_avg_ms, size_t* scan_range_cnt) {
     TFileScanRangeParams rpc_scan_params;
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
     std::unordered_map<std::string, int> colname_to_slot_id;
-    std::unique_ptr<RuntimeState> runtime_state = nullptr;
-    std::unique_ptr<RuntimeProfile> runtime_profile;
-    runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
+    std::shared_ptr<RuntimeState> runtime_state = nullptr;
 
-    std::unique_ptr<vectorized::FileScanner> vfile_scanner_ptr = nullptr;
-
+    int max_file_scanners = 0;
     {
         if (result_block.is_empty_column()) [[likely]] {
             result_block = vectorized::Block(slots, request_block_desc.row_id_size());
@@ -698,17 +761,40 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
          * To ensure the same behavior as the scan stage, I get query_options query_globals from id_file_map, then create runtime_state
          * and pass it to vfile_scanner so that the runtime_state information is the same as the scan stage and the behavior is also consistent.
          */
-        runtime_state = RuntimeState::create_unique(query_id, -1, query_options, query_globals,
-                                                    ExecEnv::GetInstance());
+        runtime_state = RuntimeState::create_shared(
+                query_id, -1, query_options, query_globals, ExecEnv::GetInstance(),
+                ExecEnv::GetInstance()->rowid_storage_reader_tracker());
 
-        vfile_scanner_ptr = vectorized::FileScanner::create_unique(
-                runtime_state.get(), runtime_profile.get(), &rpc_scan_params, &colname_to_slot_id,
-                &tuple_desc);
-
-        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_one_line(first_scan_range_desc));
+        max_file_scanners = id_file_map->get_max_file_scanners();
     }
 
-    for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+    // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. } +  file mapping
+    // std::multimap<segment_v2::rowid_t, size_t> : The reason for using multimap is: may need the same row of data multiple times.
+    std::map<std::string,
+             std::pair<std::multimap<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
+            scan_rows;
+
+    // Block corresponding to the order of `scan_rows` map.
+    std::vector<vectorized::Block> scan_blocks;
+
+    // row_id (Indexing of vectors) => < In which block, which line in the block >
+    std::vector<std::pair<size_t, size_t>> row_id_block_idx;
+
+    // Count the time/bytes it takes to read each TFileRangeDesc. (for profile)
+    std::vector<ExternalFetchStatistics> fetch_statistics;
+
+    auto hash_file_range = [](const TFileRangeDesc& file_range_desc) {
+        std::string value;
+        value.resize(file_range_desc.path.size() + sizeof(file_range_desc.start_offset));
+        auto* ptr = value.data();
+
+        memcpy(ptr, &file_range_desc.start_offset, sizeof(file_range_desc.start_offset));
+        ptr += sizeof(file_range_desc.start_offset);
+        memcpy(ptr, file_range_desc.path.data(), file_range_desc.path.size());
+        return value;
+    };
+
+    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
         auto file_id = request_block_desc.file_id(j);
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
@@ -717,95 +803,305 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
                     BackendOptions::get_localhost(), print_id(query_id), file_id);
         }
 
-        auto& external_info = file_mapping->get_external_file_info();
-        auto& scan_range_desc = external_info.scan_range_desc;
+        const auto& external_info = file_mapping->get_external_file_info();
+        const auto& scan_range_desc = external_info.scan_range_desc;
 
-        // Clear to avoid reading iceberg position delete file...
-        scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
-
-        // Clear to avoid reading hive transactional delete delta file...
-        scan_range_desc.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
-
-        RETURN_IF_ERROR(vfile_scanner_ptr->read_one_line_from_range(
-                scan_range_desc, request_block_desc.row_id(j), &result_block, external_info,
-                init_reader_ms, get_block_ms));
+        auto scan_range_hash = hash_file_range(scan_range_desc);
+        if (scan_rows.contains(scan_range_hash)) {
+            scan_rows.at(scan_range_hash).first.emplace(request_block_desc.row_id(j), j);
+        } else {
+            std::multimap<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
+            scan_rows.emplace(scan_range_hash, std::make_pair(tmp, file_mapping));
+        }
     }
+
+    scan_blocks.resize(scan_rows.size());
+    row_id_block_idx.resize(request_block_desc.row_id_size());
+    fetch_statistics.resize(scan_rows.size());
+
+    // Get the workload group for subsequent scan task submission.
+    std::vector<uint64_t> workload_group_ids;
+    workload_group_ids.emplace_back(workload_group_id);
+    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(workload_group_ids);
+    doris::pipeline::TaskScheduler* exec_sched = nullptr;
+    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
+    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
+    DCHECK(remote_scan_sched);
+
+    int64_t scan_running_time = 0;
+    RETURN_IF_ERROR(scope_timer_run(
+            [&]() -> Status {
+                // Make sure to insert data into result_block only after all scan tasks have been executed.
+                std::atomic<int> producer_count {0};
+                std::condition_variable cv;
+                std::mutex mtx;
+
+                //semaphore: Limit the number of scan tasks submitted at one time
+                std::counting_semaphore semaphore {max_file_scanners};
+
+                size_t idx = 0;
+                for (const auto& [_, scan_info] : scan_rows) {
+                    semaphore.acquire();
+                    RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
+                            vectorized::SimplifiedScanTask(
+                                    [&, scan_info, idx]() {
+                                        auto& row_ids = scan_info.first;
+                                        auto& file_mapping = scan_info.second;
+
+                                        SCOPED_ATTACH_TASK(
+                                                ExecEnv::GetInstance()
+                                                        ->rowid_storage_reader_tracker());
+                                        signal::set_signal_task_id(query_id);
+
+                                        std::list<int64_t> read_ids;
+                                        //Generate an ordered list with the help of the orderliness of the map.
+                                        for (const auto& [row_id, result_block_idx] : row_ids) {
+                                            if (read_ids.empty() || read_ids.back() != row_id) {
+                                                read_ids.emplace_back(row_id);
+                                            }
+                                            row_id_block_idx[result_block_idx] =
+                                                    std::make_pair(idx, read_ids.size() - 1);
+                                        }
+
+                                        scan_blocks[idx] =
+                                                vectorized::Block(slots, read_ids.size());
+
+                                        auto& external_info =
+                                                file_mapping->get_external_file_info();
+                                        auto& scan_range_desc = external_info.scan_range_desc;
+
+                                        // Clear to avoid reading iceberg position delete file...
+                                        scan_range_desc.table_format_params.iceberg_params =
+                                                TIcebergFileDesc {};
+
+                                        // Clear to avoid reading hive transactional delete delta file...
+                                        scan_range_desc.table_format_params
+                                                .transactional_hive_params =
+                                                TTransactionalHiveDesc {};
+
+                                        std::unique_ptr<RuntimeProfile> sub_runtime_profile =
+                                                std::make_unique<RuntimeProfile>(
+                                                        "ExternalRowIDFetcher");
+                                        {
+                                            std::unique_ptr<vectorized::FileScanner>
+                                                    vfile_scanner_ptr =
+                                                            vectorized::FileScanner::create_unique(
+                                                                    runtime_state.get(),
+                                                                    sub_runtime_profile.get(),
+                                                                    &rpc_scan_params,
+                                                                    &colname_to_slot_id,
+                                                                    &tuple_desc);
+
+                                            RETURN_IF_ERROR(
+                                                    vfile_scanner_ptr->prepare_for_read_lines(
+                                                            scan_range_desc));
+                                            RETURN_IF_ERROR(
+                                                    vfile_scanner_ptr->read_lines_from_range(
+                                                            scan_range_desc, read_ids,
+                                                            &scan_blocks[idx], external_info,
+                                                            &fetch_statistics[idx].init_reader_ms,
+                                                            &fetch_statistics[idx].get_block_ms));
+                                        }
+
+                                        auto file_read_bytes_counter =
+                                                sub_runtime_profile->get_counter(
+                                                        vectorized::FileScanner::
+                                                                FileReadBytesProfile);
+
+                                        if (file_read_bytes_counter != nullptr) {
+                                            fetch_statistics[idx].file_read_bytes =
+                                                    PrettyPrinter::print(
+                                                            file_read_bytes_counter->value(),
+                                                            file_read_bytes_counter->type());
+                                        }
+
+                                        auto file_read_times_counter =
+                                                sub_runtime_profile->get_counter(
+                                                        vectorized::FileScanner::
+                                                                FileReadTimeProfile);
+                                        if (file_read_times_counter != nullptr) {
+                                            fetch_statistics[idx].file_read_times =
+                                                    PrettyPrinter::print(
+                                                            file_read_times_counter->value(),
+                                                            file_read_times_counter->type());
+                                        }
+
+                                        semaphore.release();
+                                        if (++producer_count == scan_rows.size()) {
+                                            std::lock_guard<std::mutex> lock(mtx);
+                                            cv.notify_one();
+                                        }
+                                        return Status::OK();
+                                    },
+                                    nullptr, nullptr),
+                            fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
+                    idx++;
+                }
+
+                {
+                    std::unique_lock<std::mutex> lock(mtx);
+                    cv.wait(lock, [&] { return producer_count == scan_rows.size(); });
+                }
+                return Status::OK();
+            },
+            &scan_running_time));
+
+    // Insert the read data into result_block.
+    for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+        auto dst_col =
+                const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
+
+        std::vector<const vectorized::IColumn*> scan_src_columns;
+        scan_src_columns.reserve(row_id_block_idx.size());
+        std::vector<size_t> scan_positions;
+        scan_positions.reserve(row_id_block_idx.size());
+        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
+            DCHECK(scan_blocks.size() > pos_block);
+            DCHECK(scan_blocks[pos_block].get_columns().size() > column_id);
+            scan_src_columns.emplace_back(scan_blocks[pos_block].get_columns()[column_id].get());
+            scan_positions.emplace_back(block_idx);
+        }
+        dst_col->insert_from_multi_column(scan_src_columns, scan_positions);
+    }
+
+    // Statistical runtime profile information.
+    std::unique_ptr<RuntimeProfile> runtime_profile =
+            std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
+    {
+        runtime_profile->add_info_string(ScannersRunningTimeProfile,
+                                         std::to_string(scan_running_time) + "ms");
+        fmt::memory_buffer file_read_lines_buffer;
+        format_to(file_read_lines_buffer, "[");
+        fmt::memory_buffer file_read_bytes_buffer;
+        format_to(file_read_bytes_buffer, "[");
+        fmt::memory_buffer file_read_times_buffer;
+        format_to(file_read_times_buffer, "[");
+
+        size_t idx = 0;
+        for (const auto& [_, scan_info] : scan_rows) {
+            format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
+            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
+            *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
+            format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
+            format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
+            idx++;
+        }
+
+        format_to(file_read_lines_buffer, "]");
+        format_to(file_read_bytes_buffer, "]");
+        format_to(file_read_times_buffer, "]");
+
+        *init_reader_avg_ms /= fetch_statistics.size();
+        *get_block_avg_ms /= fetch_statistics.size();
+        runtime_profile->add_info_string(InitReaderAvgTimeProfile,
+                                         std::to_string(*init_reader_avg_ms) + "ms");
+        runtime_profile->add_info_string(GetBlockAvgTimeProfile,
+                                         std::to_string(*init_reader_avg_ms) + "ms");
+        runtime_profile->add_info_string(FileReadLinesProfile,
+                                         fmt::to_string(file_read_lines_buffer));
+        runtime_profile->add_info_string(vectorized::FileScanner::FileReadBytesProfile,
+                                         fmt::to_string(file_read_bytes_buffer));
+        runtime_profile->add_info_string(vectorized::FileScanner::FileReadTimeProfile,
+                                         fmt::to_string(file_read_times_buffer));
+    }
+
+    runtime_profile->to_proto(pprofile, 2);
+
+    *scan_range_cnt = scan_rows.size();
+
     return Status::OK();
 }
 
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,
-        const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
+        const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_ids,
         std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
         RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-        int64_t* lookup_row_data_ms,
+        int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
         vectorized::Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
-    BaseTabletSPtr tablet = scope_timer_run(
-            [&]() {
-                auto res = ExecEnv::get_tablet(tablet_id);
-                return !res.has_value() ? nullptr
-                                        : std::dynamic_pointer_cast<BaseTablet>(res.value());
-            },
-            acquire_tablet_ms);
-    if (!tablet) {
-        return Status::InternalError(
-                "Backend:{} tablet not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
-                "row_id: {}",
-                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
-                row_id);
-    }
+    SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
 
-    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-            scope_timer_run([&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
-                            acquire_rowsets_ms));
-    if (!rowset) {
-        return Status::InternalError(
-                "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
-                "row_id: {}",
-                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
-                row_id);
-    }
+    BaseTabletSPtr tablet;
+    BetaRowsetSharedPtr rowset;
+    SegmentSharedPtr segment;
+    if (seg_map.find(seg_key) == seg_map.end()) {
+        tablet = scope_timer_run(
+                [&]() {
+                    auto res = ExecEnv::get_tablet(tablet_id);
+                    return !res.has_value() ? nullptr
+                                            : std::dynamic_pointer_cast<BaseTablet>(res.value());
+                },
+                acquire_tablet_ms);
+        if (!tablet) {
+            return Status::InternalError(
+                    "Backend:{} tablet not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                    "row_id: {}",
+                    BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                    row_ids[0]);
+        }
 
-    SegmentCacheHandle segment_cache;
-    RETURN_IF_ERROR(scope_timer_run(
-            [&]() {
-                return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
-            },
-            acquire_segments_ms));
+        rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
+                [&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
+                acquire_rowsets_ms));
+        if (!rowset) {
+            return Status::InternalError(
+                    "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                    "row_id: {}",
+                    BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                    row_ids[0]);
+        }
 
-    auto it =
-            std::find_if(segment_cache.get_segments().cbegin(), segment_cache.get_segments().cend(),
-                         [segment_id](const segment_v2::SegmentSharedPtr& seg) {
-                             return seg->id() == segment_id;
-                         });
-    if (it == segment_cache.get_segments().end()) {
-        return Status::InternalError(
-                "Backend:{} segment not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
-                "row_id: {}",
-                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
-                row_id);
+        SegmentCacheHandle segment_cache;
+        RETURN_IF_ERROR(scope_timer_run(
+                [&]() {
+                    return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
+                },
+                acquire_segments_ms));
+
+        auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                               segment_cache.get_segments().cend(),
+                               [segment_id](const segment_v2::SegmentSharedPtr& seg) {
+                                   return seg->id() == segment_id;
+                               });
+        if (it == segment_cache.get_segments().end()) {
+            return Status::InternalError(
+                    "Backend:{} segment not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                    "row_id: {}",
+                    BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                    row_ids[0]);
+        }
+        segment = *it;
+        seg_map[seg_key] = SegItem {.tablet = tablet, .rowset = rowset, .segment = segment};
+    } else {
+        auto& seg_item = seg_map[seg_key];
+        tablet = seg_item.tablet;
+        rowset = seg_item.rowset;
+        segment = seg_item.segment;
     }
-    segment_v2::SegmentSharedPtr segment = *it;
 
     // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
         CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
-        RowLocation loc(rowset_id, segment->id(), row_id);
-        row_store_read_struct.row_store_buffer.clear();
-        RETURN_IF_ERROR(scope_timer_run(
-                [&]() {
-                    return tablet->lookup_row_data({}, loc, rowset, stats,
-                                                   row_store_read_struct.row_store_buffer);
-                },
-                lookup_row_data_ms));
+        for (auto row_id : row_ids) {
+            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
+            row_store_read_struct.row_store_buffer.clear();
+            RETURN_IF_ERROR(scope_timer_run(
+                    [&]() {
+                        return tablet->lookup_row_data({}, loc, rowset, stats,
+                                                       row_store_read_struct.row_store_buffer);
+                    },
+                    lookup_row_data_ms));
 
-        RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
-                row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
-                row_store_read_struct.row_store_buffer.size(), row_store_read_struct.col_uid_to_idx,
-                result_block, row_store_read_struct.default_values, {}));
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+                    row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
+                    row_store_read_struct.row_store_buffer.size(),
+                    row_store_read_struct.col_uid_to_idx, result_block,
+                    row_store_read_struct.default_values, {}));
+        }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             vectorized::MutableColumnPtr column =
@@ -817,14 +1113,19 @@ Status RowIdStorageReader::read_doris_format_row(
             IteratorItem& iterator_item = iterator_map[iterator_key];
             if (iterator_item.segment == nullptr) {
                 iterator_map[iterator_key].segment = segment;
+                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
-            segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
-                                                            column, stats, iterator_item.iterator));
+            for (auto row_id : row_ids) {
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                        full_read_schema, &slots[x], row_id, column,
+                        iterator_item.storage_read_options, iterator_item.iterator));
+            }
         }
     }
-
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

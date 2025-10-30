@@ -26,7 +26,7 @@
 #include "olap/olap_define.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // This is a C++ implementation of the Java CountDownLatch
 // class.
 // See http://docs.oracle.com/javase/6/docs/api/java/util/concurrent/CountDownLatch.html
@@ -38,7 +38,7 @@ public:
     // Decrement the count of this latch by 'amount'
     // If the new count is less than or equal to zero, then all waiting threads are woken up.
     // If the count is already zero, this has no effect.
-    void count_down(int amount) {
+    void count_down(int64_t amount) {
         DCHECK_GE(amount, 0);
         std::lock_guard<std::mutex> lock(_lock);
         if (_count == 0) {
@@ -82,7 +82,7 @@ public:
     // Reset the latch with the given count. This is equivalent to reconstructing
     // the latch. If 'count' is 0, and there are currently waiters, those waiters
     // will be triggered as if you counted down to 0.
-    void reset(uint64_t count) {
+    void reset(int64_t count) {
         std::lock_guard<std::mutex> lock(_lock);
         _count = count;
         if (_count == 0) {
@@ -125,5 +125,5 @@ private:
     CountDownOnScopeExit(const CountDownOnScopeExit&) = delete;
     void operator=(const CountDownOnScopeExit&) = delete;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

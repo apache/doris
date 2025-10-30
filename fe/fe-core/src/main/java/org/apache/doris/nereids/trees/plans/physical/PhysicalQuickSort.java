@@ -29,12 +29,14 @@ import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical quick sort plan.
@@ -103,7 +105,17 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
 
     @Override
     public String shapeInfo() {
-        return this.getClass().getSimpleName() + "[" + phase + "]";
+        StringBuilder builder = new StringBuilder();
+        builder.append(getClass().getSimpleName()).append('[').append(phase);
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            builder.append(", orderKeys=");
+            builder.append(orderKeys.stream().map(OrderKey::toSql)
+                    .collect(Collectors.joining(", ", "(", ")")));
+        }
+        builder.append(']');
+        return builder.toString();
     }
 
     @Override

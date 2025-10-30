@@ -100,7 +100,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Do aggregation.
     const IColumn* column[1] = {test_col_data.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -177,7 +177,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     // Do aggregation.
     const IColumn* column[1] = {test_col_data.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -271,7 +271,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_array_string.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -336,7 +336,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_array_string_nullable.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.

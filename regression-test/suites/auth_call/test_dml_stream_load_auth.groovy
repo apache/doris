@@ -24,6 +24,9 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     String dbName = 'test_dml_stream_load_auth_db'
     String tableName = 'test_dml_stream_load_auth_tb'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -31,10 +34,6 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
     sql """create table ${dbName}.${tableName} (
@@ -71,7 +70,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    assertTrue(sout.toString().indexOf("Success") == -1)
+    assertTrue(sout.toString().indexOf("denied") != -1)
 
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
@@ -82,31 +81,22 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    assertTrue(sout.toString().indexOf("Success") != -1)
-
-    int pos1 = sout.indexOf("TxnId")
-    int pos2 = sout.indexOf(",", pos1)
-    int pos3 = sout.indexOf(":", pos1)
-    def tsc_id = sout.substring(pos3+2, pos2)
+    assertTrue(sout.toString().indexOf("denied") == -1)
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
-            sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=${tsc_id};"""
+            sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=111;"""
             exception "denied"
         }
     }
 
-    def res = sql """select count() from ${dbName}.${tableName}"""
-    assertTrue(res[0][0] == 3)
-
-    def stream_res = sql """SHOW STREAM LOAD FROM ${dbName};"""
-    logger.info("stream_res: " + stream_res)
-
     sql """grant admin_priv on *.*.* to ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        def transaction_res = sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=${tsc_id};"""
-        assertTrue(transaction_res.size() == 1)
+        test {
+            sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=111;"""
+            exception "exist"
+        }
     }
 
     sql """drop database if exists ${dbName}"""

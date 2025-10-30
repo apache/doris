@@ -27,7 +27,6 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -131,21 +130,6 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (isNotNull) {
-            fn = getBuiltinFunction(IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        } else {
-            fn = getBuiltinFunction(IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        }
-        Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
-
-        // determine selectivity
-        selectivity = 0.1;
-        // LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
     }
@@ -161,20 +145,5 @@ public class IsNullPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return false;
-    }
-
-    /**
-     * fix issue 6390
-     */
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        // Don't push down predicate to view for is null predicate because the value can contain null
-        // after outer join
-        recursiveResetChildrenResult(!forPushDownPredicatesToView);
-        final Expr childValue = getChild(0);
-        if (forPushDownPredicatesToView || !(childValue instanceof LiteralExpr)) {
-            return this;
-        }
-        return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);
     }
 }

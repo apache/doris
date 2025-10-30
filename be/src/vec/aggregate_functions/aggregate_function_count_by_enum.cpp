@@ -32,13 +32,9 @@ AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& 
                                                              const DataTypes& argument_types,
                                                              const bool result_is_nullable,
                                                              const AggregateFunctionAttr& attr) {
-    if (argument_types.size() < 1) {
-        LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
-                                    argument_types.size(), name);
-        return nullptr;
-    }
+    assert_arity_range(name, argument_types, 1, 1024);
 
-    auto type = argument_types[0].get();
+    const auto* type = argument_types[0].get();
     if (type->is_nullable()) {
         type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
     }

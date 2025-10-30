@@ -30,6 +30,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
@@ -76,6 +77,9 @@ public class AgentTaskTest {
     private TStorageType storageType = TStorageType.COLUMN;
     private long rowStorePageSize = 16384L;
     private long storagePageSize = 65536L;
+
+    private long storageDictPageSize = 262144L;
+
     private List<Column> columns;
     private MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(3);
 
@@ -112,7 +116,7 @@ public class AgentTaskTest {
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
-                storagePageSize);
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);

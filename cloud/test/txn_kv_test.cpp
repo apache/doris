@@ -33,7 +33,6 @@
 
 #include "common/config.h"
 #include "common/defer.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
@@ -274,6 +273,69 @@ TEST(TxnKvTest, AtomicAddTest) {
     ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
     ASSERT_EQ(val.size(), 8);
     ASSERT_EQ(*(int64_t*)val.data(), 60);
+}
+
+TEST(TxnKvTest, GetVersionstampTest) {
+    std::unique_ptr<Transaction> txn;
+    std::string key_prefix = "versionstamp_test_";
+
+    // Test without enabling versionstamp
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT);
+    }
+
+    // Test with versionstamp enabled but no commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Test with versionstamp enabled and commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Enable versionstamp and perform versioned operations
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "key1", "value1");
+        txn->atomic_set_ver_value(key_prefix + "key2", "value2");
+
+        // Commit transaction
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Get versionstamp
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK);
+
+        std::cout << "Versionstamp: " << versionstamp.to_string() << std::endl;
+    }
+
+    // Test multiple transactions get different versionstamps
+    Versionstamp versionstamp1, versionstamp2;
+    {
+        // First transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx1", "value1");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp1), TxnErrorCode::TXN_OK);
+
+        // Small delay to ensure different timestamps
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Second transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx2", "value2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp2), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_NE(versionstamp1, versionstamp2);
+    ASSERT_LT(versionstamp1, versionstamp2); // Later transaction should have larger versionstamp
 }
 
 TEST(TxnKvTest, CompatibleGetTest) {
@@ -1395,4 +1457,294 @@ TEST(TxnKvTest, ReverseFullRangeGet2) {
                 << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
                 << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
     }
+}
+
+TEST(TxnKvTest, BatchScan) {
+    std::vector<std::pair<std::string, std::string>> test_data = {
+            {"BatchScan_different_key", "different_value"},
+            {"BatchScan_prefix1", "value1"},
+            {"BatchScan_prefix1_sub1", "sub_value1"},
+            {"BatchScan_prefix1_sub2", "sub_value2"},
+            {"BatchScan_prefix2", "value2"},
+            {"BatchScan_prefix2_sub1", "sub_value3"},
+            {"BatchScan_prefix3", "value3"}};
+
+    std::unique_ptr<Transaction> txn;
+
+    {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        for (const auto& [key, val] : test_data) {
+            txn->put(key, val);
+        }
+        ret = txn->commit();
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        bool reverse;
+        std::vector<std::string> scan_keys;
+        std::vector<std::optional<std::string>> expected_keys;
+    };
+
+    std::vector<TestCase> test_cases = {
+            {
+                    false,
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+            },
+            {
+                    false,
+                    {"BatchScan_prefix1_", "BatchScan_prefix2_"},
+                    {"BatchScan_prefix1_sub1", "BatchScan_prefix2_sub1"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix1_", "BatchScan_prefix2_"},
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix4"},
+                    {std::nullopt},
+            }};
+
+    size_t count = 0;
+    for (auto& tc : test_cases) {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        std::vector<std::optional<std::pair<std::string, std::string>>> results;
+        Transaction::BatchGetOptions opts;
+        opts.reverse = tc.reverse; // Reverse order
+        opts.snapshot = false;
+
+        ret = txn->batch_scan(&results, tc.scan_keys, opts);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(results.size(), tc.scan_keys.size());
+
+        count += 1;
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (tc.expected_keys[i].has_value()) {
+                ASSERT_TRUE(results[i].has_value());
+                std::string& key = results[i].value().first;
+                ASSERT_EQ(key, tc.expected_keys[i]) << tc.scan_keys[i] << ", tc: " << count;
+            } else {
+                ASSERT_FALSE(results[i].has_value()) << tc.scan_keys[i] << ", tc: " << count;
+            }
+        }
+    }
+}
+
+TEST(TxnKvTest, ReportConflictingRange) {
+    config::enable_logging_conflict_keys = true;
+
+    constexpr std::string_view key_prefix = "txn_kv_test__report_conflicting_range";
+    std::string key = std::string(key_prefix) + std::to_string(time(nullptr));
+
+    {
+        // 1. write a common key
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, "value0");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // 2. two txns, conflicting writes
+    std::unique_ptr<Transaction> txn1, txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+
+    std::string val1, val2;
+    ASSERT_EQ(txn1->get(key, &val1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn2->get(key, &val2), TxnErrorCode::TXN_OK);
+
+    txn1->put(key, "value1");
+    txn2->put(key, "value2");
+
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_CONFLICT);
+
+    // 3. get the conflicting ranges.
+    std::vector<std::pair<std::string, std::string>> values;
+    ASSERT_EQ(reinterpret_cast<fdb::Transaction*>(txn2.get())->get_conflicting_range(&values),
+              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(values.size(), 2);
+    ASSERT_EQ(values[0].first, key);
+    ASSERT_EQ(values[1].second, "0");
+    ASSERT_TRUE(values[1].first.starts_with(key));
+}
+
+TEST(TxnKvTest, WatchKey) {
+    std::string key = "watch_key_test_" + std::to_string(time(nullptr));
+    std::string initial_val = "initial_value";
+    std::string new_val = "new_value";
+
+    // Test 1: Watch a key that gets modified
+    {
+        // Set initial value
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the key
+        std::atomic<bool> watch_triggered {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(val, initial_val);
+
+            // This will block until the key is modified
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK);
+            watch_triggered = true;
+        });
+
+        // Wait a bit to ensure the watch is registered
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Modify the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Wait for the watch to be triggered
+        watcher.join();
+        ASSERT_TRUE(watch_triggered);
+    }
+
+    // Test 2: Watch a key that gets deleted
+    {
+        std::string key2 = key + "_delete";
+
+        // Set initial value
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key2, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the key
+        std::atomic<bool> watch_triggered {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key2, &val), TxnErrorCode::TXN_OK);
+
+            ASSERT_EQ(watch_txn->watch_key(key2), TxnErrorCode::TXN_OK);
+            watch_triggered = true;
+        });
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Delete the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(key2);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher.join();
+        ASSERT_TRUE(watch_triggered);
+    }
+
+    // Test 3: Watch a non-existent key that gets created
+    {
+        std::string key3 = key + "_create";
+
+        // Ensure the key doesn't exist
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(key3);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the non-existent key
+        std::atomic<bool> watch_triggered {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            auto ret = watch_txn->get(key3, &val);
+            ASSERT_EQ(ret, TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+            ASSERT_EQ(watch_txn->watch_key(key3), TxnErrorCode::TXN_OK);
+            watch_triggered = true;
+        });
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Create the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key3, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher.join();
+        ASSERT_TRUE(watch_triggered);
+    }
+
+    // Test 4: Multiple watches on the same key
+    {
+        std::string key4 = key + "_multiple";
+
+        // Set initial value
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key4, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create multiple watches on the same key
+        std::atomic<int> watch_count {0};
+        std::thread watcher1([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key4, &val), TxnErrorCode::TXN_OK);
+
+            ASSERT_EQ(watch_txn->watch_key(key4), TxnErrorCode::TXN_OK);
+            watch_count++;
+        });
+
+        std::thread watcher2([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key4, &val), TxnErrorCode::TXN_OK);
+
+            ASSERT_EQ(watch_txn->watch_key(key4), TxnErrorCode::TXN_OK);
+            watch_count++;
+        });
+
+        std::thread watcher3([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key4, &val), TxnErrorCode::TXN_OK);
+
+            ASSERT_EQ(watch_txn->watch_key(key4), TxnErrorCode::TXN_OK);
+            watch_count++;
+        });
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Modify the key - all watches should be triggered
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key4, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher1.join();
+        watcher2.join();
+        watcher3.join();
+
+        ASSERT_EQ(watch_count.load(), 3);
+    }
+
+    std::cout << "WatchKey test completed successfully" << std::endl;
 }

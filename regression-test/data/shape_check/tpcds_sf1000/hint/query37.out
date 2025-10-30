@@ -27,6 +27,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(catalog_sales { inventory item date_dim } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

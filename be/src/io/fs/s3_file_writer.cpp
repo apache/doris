@@ -40,8 +40,10 @@
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/s3_util.h"
+#include "util/stopwatch.hpp"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
 bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
@@ -61,13 +63,8 @@ S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string 
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
     Aws::Http::SetCompliantRfc3986Encoding(true);
-    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
-        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
-                BlockFileCache::hash(_obj_storage_path_opts.path.filename().native()),
-                FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_obj_storage_path_opts.path.filename().native()))});
-    }
+
+    init_cache_builder(opts, _obj_storage_path_opts.path);
 }
 
 S3FileWriter::~S3FileWriter() {
@@ -282,7 +279,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
+void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     VLOG_DEBUG << "upload_one_part " << _obj_storage_path_opts.path.native()
                << " part=" << part_num;
     if (buf.is_cancelled()) {
@@ -386,14 +383,14 @@ Status S3FileWriter::_complete() {
     }
 
     // check number of parts
-    int expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
-                              !!(_bytes_appended % config::s3_write_buffer_size);
-    int expected_num_parts2 =
+    int64_t expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
+                                  !!(_bytes_appended % config::s3_write_buffer_size);
+    int64_t expected_num_parts2 =
             (_bytes_appended % config::s3_write_buffer_size) ? _cur_part_num : _cur_part_num - 1;
     DCHECK_EQ(expected_num_parts1, expected_num_parts2)
             << " bytes_appended=" << _bytes_appended << " cur_part_num=" << _cur_part_num
             << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    if (_failed || _completed_parts.size() != expected_num_parts1 ||
+    if (_failed || _completed_parts.size() != static_cast<size_t>(expected_num_parts1) ||
         expected_num_parts1 != expected_num_parts2) {
         _st = Status::InternalError(
                 "failed to complete multipart upload, error status={} failed={} #complete_parts={} "
@@ -444,8 +441,9 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
-              << " size=" << _bytes_appended;
+    MonotonicStopWatch timer;
+    timer.start();
+
     if (state() == State::CLOSED) {
         DCHECK(state() != State::CLOSED)
                 << "state=" << (int)state() << " path=" << _obj_storage_path_opts.path.native();
@@ -461,9 +459,12 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     }
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
     auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
+    timer.stop();
+
     if (resp.status.code != ErrorCode::OK) {
-        LOG_WARNING("failed to put object, put object failed because {}, file path {}",
-                    resp.status.msg, _obj_storage_path_opts.path.native());
+        LOG_WARNING("failed to put object, put object failed because {}, file path {}, time={}ms",
+                    resp.status.msg, _obj_storage_path_opts.path.native(),
+                    timer.elapsed_time_milliseconds());
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }
@@ -475,7 +476,11 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         return;
     }
 
+    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
+              << " size=" << _bytes_appended << " time=" << timer.elapsed_time_milliseconds()
+              << "ms";
     s3_file_created_total << 1;
+    s3_bytes_written_total << buf.get_size();
 }
 
 std::string S3FileWriter::_dump_completed_part() const {
@@ -486,5 +491,6 @@ std::string S3FileWriter::_dump_completed_part() const {
     }
     return ss.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

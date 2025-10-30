@@ -37,6 +37,16 @@ public class ArrayFirst extends ElementAt
         super(new ArrayFilter(arg), new BigIntLiteral(1));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayFirst(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public ElementAt withChildren(List<Expression> children) {
+        return new ArrayFirst(getFunctionParams(children));
+    }
+
     @Override
     public List<FunctionSignature> getImplSignature() {
         return SIGNATURES;

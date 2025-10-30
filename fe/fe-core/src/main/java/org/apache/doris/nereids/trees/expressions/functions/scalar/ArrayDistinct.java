@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -48,13 +50,33 @@ public class ArrayDistinct extends ScalarFunction
         super("array_distinct", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayDistinct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
+     * array_distinct needs to compare whether the sub-elements in the array are equal.
+     * so the element type must be comparable.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (itemType.isMapType() || itemType.isStructType()) {
+                throw new AnalysisException("array_distinct does not support complex types: " + toSql());
+            }
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayDistinct withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayDistinct(children.get(0));
+        return new ArrayDistinct(getFunctionParams(children));
     }
 
     @Override

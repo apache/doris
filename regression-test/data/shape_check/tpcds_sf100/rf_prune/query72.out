@@ -35,20 +35,24 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((d1.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------------PhysicalOlapScan[date_dim(d1)]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
 --------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalOlapScan[date_dim(d3)]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[item]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim(d2)]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[warehouse]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[catalog_returns]
+
+
+
+ group expression count exceeds memo_max_group_expression_size(15000)
 

@@ -29,7 +29,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /** Cursor allows to compare rows in different blocks (and parts).
   * Cursor moves inside single block.
   * It is used in priority queue.
@@ -75,6 +75,11 @@ struct MergeSortCursorImpl {
         reset();
     }
 
+    void filter_block(IColumn::Filter& filter) {
+        Block::filter_block_internal(block.get(), filter, block->columns());
+        reset();
+    }
+
     /// Set the cursor to the beginning of the new block.
     void reset() {
         sort_columns.clear();
@@ -86,14 +91,11 @@ struct MergeSortCursorImpl {
             columns.push_back(col.get());
         }
         for (auto& column_desc : desc) {
-            size_t column_number = !column_desc.column_name.empty()
-                                           ? block->get_position_by_name(column_desc.column_name)
-                                           : column_desc.column_number;
-            sort_columns.push_back(columns[column_number]);
+            sort_columns.push_back(columns[column_desc.column_number]);
         }
 
         pos = 0;
-        rows = block->rows();
+        rows = (int)block->rows();
     }
 
     bool is_first() const { return pos == 0; }
@@ -154,7 +156,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             MergeSortCursorImpl::reset();
         } else {
             pos = 0;
-            rows = block->rows();
+            rows = (int)block->rows();
         }
     }
 
@@ -473,4 +475,5 @@ template <typename Cursor>
 using SortingQueue = SortingQueueImpl<Cursor, SortingQueueStrategy::Default>;
 template <typename Cursor>
 using SortingQueueBatch = SortingQueueImpl<Cursor, SortingQueueStrategy::Batch>;
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

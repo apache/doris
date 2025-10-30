@@ -44,8 +44,8 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
      */
     public HiveInsertExecutor(ConnectContext ctx, HMSExternalTable table,
             String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
     }
 
     @Override

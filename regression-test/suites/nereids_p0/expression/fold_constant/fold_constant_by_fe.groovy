@@ -49,6 +49,7 @@ suite("test_fold_constant_by_fe") {
     for (date in test_date) {
         qt_sql "select year('${date}'), month('${date}'), dayofyear('${date}'), dayofmonth('${date}'), dayofweek('${date}'), day('${date}')"
         qt_sql "select hour('${date}'), minute('${date}'), second('${date}')"
+        qt_sql "select extract(dow from '${date}'), extract(dayofweek from '${date}'), extract(doy from '${date}'), extract(dayofyear from '${date}')"
     }
 
     for (date in test_date) {
