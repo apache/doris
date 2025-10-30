@@ -167,6 +167,11 @@ struct VOlapTablePartition {
     int64_t load_tablet_idx = -1;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
+    // for random tablet switching optimization (local state per load job)
+    int64_t current_tablet_rows = 0;
+    int64_t switching_threshold = 0;
+    // rows accumulated in current batch (reset at each find_tablets call)
+    int64_t rows_in_batch = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.
@@ -258,6 +263,7 @@ public:
                     // for compatible with old version, just do random
                     return cast_set<uint32_t>(butil::fast_rand() % partition.num_buckets);
                 }
+
                 return cast_set<uint32_t>(partition.load_tablet_idx % partition.num_buckets);
             };
         }
@@ -308,6 +314,10 @@ public:
         _transformed_slot_locs = new_slots;
     }
 
+    void set_random_bucket_switching_threshold(int64_t threshold) {
+        _random_bucket_switching_threshold = threshold;
+    }
+
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
 
@@ -317,6 +327,9 @@ private:
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;
     TOlapTablePartitionParam _t_param;
+
+    // Random bucket switching threshold for controlling when to switch to next tablet
+    int64_t _random_bucket_switching_threshold = 0;
 
     const std::vector<SlotDescriptor*>& _slots;
     std::vector<uint16_t> _partition_slot_locs;

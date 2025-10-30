@@ -135,12 +135,22 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         try {
             // TODO refactor this to avoid call legacy planner's function
             long timeout = getTimeout();
+            long randomTabletSwitchingThreshold =
+                    ctx.getSessionVariable().getRandomBucketSwitchingThreshold();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("OlapInsertExecutor: table={}, queryId={}, "
+                        + "random_bucket_switching_threshold={}, "
+                        + "distributionInfo={}",
+                        table.getName(), ctx.queryId(),
+                        randomTabletSwitchingThreshold,
+                        olapTable.getDefaultDistributionInfo().getType());
+            }
             olapTableSink.init(ctx.queryId(), txnId, database.getId(),
                     timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
                     isStrictMode,
-                    timeout, olapInsertCtx);
+                    timeout, randomTabletSwitchingThreshold, olapInsertCtx);
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
