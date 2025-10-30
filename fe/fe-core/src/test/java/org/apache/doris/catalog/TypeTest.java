@@ -29,15 +29,15 @@ public class TypeTest {
     public void testArrayOfArrayExactMatch() {
         ArrayType a1 = new ArrayType(new ArrayType(Type.INT, true), true);
         ArrayType a2 = new ArrayType(new ArrayType(Type.INT, true), true);
-        Assert.assertTrue(Type.matchExactType(a1, a2));
+        Assert.assertTrue(Type.matchExactType(a1, a2, false));
 
         // inner type mismatch
         ArrayType a3 = new ArrayType(new ArrayType(Type.BIGINT, true), true);
-        Assert.assertFalse(Type.matchExactType(a1, a3));
+        Assert.assertFalse(Type.matchExactType(a1, a3, false));
 
         // containsNull differs -> matchesType fails
         ArrayType a4 = new ArrayType(new ArrayType(Type.INT, true), false);
-        Assert.assertFalse(Type.matchExactType(a1, a4));
+        Assert.assertFalse(Type.matchExactType(a1, a4, false));
 
         // array nested decimal test
         ArrayType a5 = new ArrayType(new ArrayType(ScalarType.createDecimalV3Type(8, 2), true), true);
@@ -55,7 +55,7 @@ public class TypeTest {
         ArrayType arrayOfD = new ArrayType(d10s2, true);
         MapType m1 = new MapType(Type.INT, arrayOfD, true, true);
         MapType m2 = new MapType(Type.INT, new ArrayType(ScalarType.createDecimalV3Type(10, 2), true), true, true);
-        Assert.assertTrue(Type.matchExactType(m1, m2));
+        Assert.assertTrue(Type.matchExactType(m1, m2, false));
 
         // value decimal precision differs, same scale
         MapType m3 = new MapType(Type.INT, new ArrayType(ScalarType.createDecimalV3Type(12, 2), true), true, true);
@@ -65,7 +65,7 @@ public class TypeTest {
 
         // key/value containsNull differs -> doesn't matter for matching
         MapType m4 = new MapType(Type.INT, arrayOfD, false, true);
-        Assert.assertTrue(Type.matchExactType(m1, m4));
+        Assert.assertTrue(Type.matchExactType(m1, m4, false));
     }
 
     // ===================== StructType =====================
@@ -81,21 +81,21 @@ public class TypeTest {
                 new StructField("y", new ArrayType(Type.INT, true), null, true)
         );
         // names are ignored by matchExactType recursion; matchesType requires containsNull equal
-        Assert.assertTrue(Type.matchExactType(s1, s2));
+        Assert.assertTrue(Type.matchExactType(s1, s2, false));
 
         // inner element type differs
         StructType s3 = new StructType(
                 new StructField("f1", Type.INT, null, true),
                 new StructField("f2", new ArrayType(Type.BIGINT, true), null, true)
         );
-        Assert.assertFalse(Type.matchExactType(s1, s3));
+        Assert.assertFalse(Type.matchExactType(s1, s3, false));
 
         // field nullability differs -> matchesType fails upfront
         StructType s4 = new StructType(
                 new StructField("f1", Type.INT, null, false),
                 new StructField("f2", new ArrayType(Type.INT, true), null, true)
         );
-        Assert.assertFalse(Type.matchExactType(s1, s4));
+        Assert.assertFalse(Type.matchExactType(s1, s4, false));
     }
 
     // ===================== VariantType =====================
@@ -111,21 +111,21 @@ public class TypeTest {
         fields2.add(new VariantField("x", Type.INT, ""));
         fields2.add(new VariantField("y", new ArrayType(ScalarType.createDecimalV3Type(10, 2), true), ""));
         VariantType v2 = new VariantType(fields2);
-        Assert.assertTrue(Type.matchExactType(v1, v2));
+        Assert.assertTrue(Type.matchExactType(v1, v2, false));
 
         // change type of second field
         ArrayList<VariantField> fields3 = new ArrayList<>();
         fields3.add(new VariantField("a", Type.INT, ""));
         fields3.add(new VariantField("b", new ArrayType(ScalarType.createDecimalV3Type(12, 2), true), ""));
         VariantType v3 = new VariantType(fields3);
-        Assert.assertFalse(Type.matchExactType(v1, v3));
+        Assert.assertFalse(Type.matchExactType(v1, v3, false));
 
         // same types but different order -> index-wise comparison fails
         ArrayList<VariantField> fields4 = new ArrayList<>();
         fields4.add(new VariantField("b", new ArrayType(ScalarType.createDecimalV3Type(10, 2), true), ""));
         fields4.add(new VariantField("a", Type.INT, ""));
         VariantType v4 = new VariantType(fields4);
-        Assert.assertFalse(Type.matchExactType(v1, v4));
+        Assert.assertFalse(Type.matchExactType(v1, v4, false));
     }
 
     // ===================== Mixed Nesting & Precision =====================
@@ -185,6 +185,6 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, false));
         Assert.assertFalse(Type.matchExactType(dtv2s3, dtv2s6, true));
         // Same scale -> match
-        Assert.assertTrue(Type.matchExactType(dtv2s6, ScalarType.createDatetimeV2Type(6)));
+        Assert.assertTrue(Type.matchExactType(dtv2s6, ScalarType.createDatetimeV2Type(6), false));
     }
 }

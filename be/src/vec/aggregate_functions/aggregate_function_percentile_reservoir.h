@@ -32,8 +32,8 @@ class Arena;
 class BufferReadable;
 
 struct QuantileReservoirSampler {
-    void add(const double x, const double level) {
-        this->level = level;
+    void add(const double x, const double input_level) {
+        this->level = input_level;
         data.insert(x);
     }
 

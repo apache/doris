@@ -21,6 +21,7 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudTabletRebalancer;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
@@ -1319,6 +1320,32 @@ public final class MetricRepo {
 
         String key = clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + clusterName;
         CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(key);
+
+        LongCounterMetric clusterCloudPartitionBalanceNum =
+                CloudMetrics.CLUSTER_CLOUD_PARTITION_BALANCE_NUM.getOrAdd(clusterId);
+        clusterCloudPartitionBalanceNum.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(clusterCloudPartitionBalanceNum);
+
+        LongCounterMetric clusterCloudTableBalanceNum =
+                CloudMetrics.CLUSTER_CLOUD_TABLE_BALANCE_NUM.getOrAdd(clusterId);
+        clusterCloudTableBalanceNum.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(clusterCloudTableBalanceNum);
+
+        LongCounterMetric clusterCloudGlobalBalanceNum =
+                CloudMetrics.CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.getOrAdd(clusterId);
+        clusterCloudGlobalBalanceNum.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(clusterCloudGlobalBalanceNum);
+
+        LongCounterMetric clusterCloudSmoothUpgradeBalanceNum =
+                CloudMetrics.CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.getOrAdd(clusterId);
+        clusterCloudSmoothUpgradeBalanceNum.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(clusterCloudSmoothUpgradeBalanceNum);
+
+        LongCounterMetric clusterCloudWarmUpBalanceNum =
+                CloudMetrics.CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.getOrAdd(clusterId);
+        clusterCloudWarmUpBalanceNum.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(clusterCloudWarmUpBalanceNum);
+
     }
 
     public static void increaseClusterRequestAll(String clusterName) {
@@ -1531,5 +1558,142 @@ public final class MetricRepo {
         }
         String key = clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + clusterName;
         CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(key).update(elapseMs);
+    }
+
+    public static void updateClusterCloudBalanceNum(String clusterName, String clusterId,
+                                                    CloudTabletRebalancer.StatType type, long num) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)
+                || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = null;
+        switch (type) {
+            case PARTITION:
+                counter = CloudMetrics.CLUSTER_CLOUD_PARTITION_BALANCE_NUM.getOrAdd(clusterId);
+                break;
+            case TABLE:
+                counter = CloudMetrics.CLUSTER_CLOUD_TABLE_BALANCE_NUM.getOrAdd(clusterId);
+                break;
+            case GLOBAL:
+                counter = CloudMetrics.CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.getOrAdd(clusterId);
+                break;
+            case SMOOTH_UPGRADE:
+                counter = CloudMetrics.CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.getOrAdd(clusterId);
+                break;
+            case WARM_UP_CACHE:
+                counter = CloudMetrics.CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.getOrAdd(clusterId);
+                break;
+            default:
+                return;
+        }
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.update(num);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void unregisterCloudMetrics(String clusterId, String clusterName, List<Backend> backends) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LOG.debug("unregister cloud metrics for cluster {}", clusterId);
+        try {
+            List<MetricLabel> labels = new ArrayList<>();
+            labels.add(new MetricLabel("cluster_id", clusterId));
+            labels.add(new MetricLabel("cluster_name", clusterName));
+
+            LongCounterMetric requestAllCounter = CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(requestAllCounter.getName(), labels);
+
+            LongCounterMetric queryAllCounter = CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(queryAllCounter.getName(), labels);
+
+            LongCounterMetric queryErrCounter = CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(queryErrCounter.getName(), labels);
+
+            LongCounterMetric warmUpJobExecCounter = CloudMetrics.CLUSTER_WARM_UP_JOB_EXEC_COUNT.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_WARM_UP_JOB_EXEC_COUNT.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(warmUpJobExecCounter.getName(), labels);
+
+            LongCounterMetric warmUpJobRequestedTablets =
+                    CloudMetrics.CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(warmUpJobRequestedTablets.getName(), labels);
+
+            LongCounterMetric warmUpJobFinishedTablets =
+                    CloudMetrics.CLUSTER_WARM_UP_JOB_FINISHED_TABLETS.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_WARM_UP_JOB_FINISHED_TABLETS.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(warmUpJobFinishedTablets.getName(), labels);
+
+            GaugeMetricImpl<Double> requestPerSecondGauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE
+                    .getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(requestPerSecondGauge.getName(), labels);
+
+            GaugeMetricImpl<Double> queryPerSecondGauge = CloudMetrics.CLUSTER_QUERY_PER_SECOND_GAUGE
+                    .getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_QUERY_PER_SECOND_GAUGE.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(queryPerSecondGauge.getName(), labels);
+
+            GaugeMetricImpl<Double> queryErrRateGauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.remove(clusterId);
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(queryErrRateGauge.getName(), labels);
+
+            LongCounterMetric clusterCloudPartitionBalanceNum = CloudMetrics
+                    .CLUSTER_CLOUD_PARTITION_BALANCE_NUM.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_CLOUD_PARTITION_BALANCE_NUM.remove(clusterId);
+            MetricRepo.DORIS_METRIC_REGISTER
+                .removeMetricsByNameAndLabels(clusterCloudPartitionBalanceNum.getName(), labels);
+
+            LongCounterMetric clusterCloudTableBalanceNum = CloudMetrics
+                    .CLUSTER_CLOUD_TABLE_BALANCE_NUM.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_CLOUD_TABLE_BALANCE_NUM.remove(clusterId);
+            MetricRepo.DORIS_METRIC_REGISTER
+                .removeMetricsByNameAndLabels(clusterCloudTableBalanceNum.getName(), labels);
+
+            LongCounterMetric clusterCloudGlobalBalanceNum = CloudMetrics
+                    .CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.remove(clusterId);
+            MetricRepo.DORIS_METRIC_REGISTER
+                .removeMetricsByNameAndLabels(clusterCloudGlobalBalanceNum.getName(), labels);
+
+            LongCounterMetric clusterCloudUpgradeBalanceNum = CloudMetrics
+                    .CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.remove(clusterId);
+            MetricRepo.DORIS_METRIC_REGISTER
+                .removeMetricsByNameAndLabels(clusterCloudUpgradeBalanceNum.getName(), labels);
+
+            LongCounterMetric clusterCloudWarmUpBalanceNum = CloudMetrics
+                    .CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.remove(clusterId);
+            MetricRepo.DORIS_METRIC_REGISTER
+                .removeMetricsByNameAndLabels(clusterCloudWarmUpBalanceNum.getName(), labels);
+
+            METRIC_REGISTER.getHistograms().keySet().stream()
+                    .filter(k -> k.contains(clusterId))
+                    .forEach(METRIC_REGISTER::remove);
+
+            for (Backend backend : backends) {
+                List<MetricLabel> backendLabels = new ArrayList<>();
+                backendLabels.add(new MetricLabel("cluster_id", clusterId));
+                backendLabels.add(new MetricLabel("cluster_name", clusterName));
+                backendLabels.add(new MetricLabel("address", backend.getAddress()));
+                String key = clusterId + "_" + backend.getAddress();
+                GaugeMetricImpl<Integer> metric = CloudMetrics.CLUSTER_BACKEND_ALIVE.getOrAdd(key);
+                MetricRepo.DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(metric.getName(), backendLabels);
+            }
+
+            GaugeMetricImpl<Integer> backendAliveTotal = CloudMetrics.CLUSTER_BACKEND_ALIVE_TOTAL.getOrAdd(clusterId);
+            CloudMetrics.CLUSTER_BACKEND_ALIVE_TOTAL.remove(clusterId);
+            MetricRepo.DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(backendAliveTotal.getName(), labels);
+
+        } catch (Throwable t) {
+            LOG.warn("unregister cloud metrics for cluster {} failed", clusterId, t);
+        }
     }
 }

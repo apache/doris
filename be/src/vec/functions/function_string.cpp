@@ -1346,6 +1346,8 @@ using FunctionStringAppendTrailingCharIfAbsent =
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
+using FunctionMakeSet = FunctionNeedsToHandleNull<MakeSetImpl, PrimitiveType::TYPE_STRING>;
+
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
@@ -1455,6 +1457,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringDigestMulti<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
     factory.register_alias(FunctionStringLocatePos::name, "position");
+    factory.register_alias(FunctionStringLength::name, "octet_length");
+    factory.register_alias(FunctionOverlay::name, "insert");
 }
 
 } // namespace doris::vectorized

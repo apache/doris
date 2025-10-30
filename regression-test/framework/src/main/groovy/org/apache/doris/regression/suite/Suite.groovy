@@ -412,9 +412,11 @@ class Suite implements GroovyInterceptable {
      *   - If using externalMsCluster, the referenced cluster must appear earlier in the map
      *
      * @param clusterConfigs LinkedHashMap of cluster name to ClusterOptions
+     * @param manual_init_clusters Set of cluster names to skip automatic initialization
      * @param actionSupplier Closure receiving Map<String, SuiteCluster> for test execution
      */
-    void dockers(LinkedHashMap<String, ClusterOptions> clusterConfigs, Closure actionSupplier) throws Exception {
+    void dockers(LinkedHashMap<String, ClusterOptions> clusterConfigs,
+        Set<String> manual_init_clusters = new HashSet<>(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             logger.info("do not run the docker suite {}, because regression config excludeDockerTest=true", name)
             return
@@ -423,6 +425,10 @@ class Suite implements GroovyInterceptable {
         if (RegressionTest.getGroupExecType(group) != RegressionTest.GroupExecType.DOCKER) {
             throw new Exception("Need to add 'docker' to docker suite's belong groups, "
                     + "see example demo_p0/docker_action.groovy")
+        }
+
+        if (context.isMultiDockerClusterRunning) {
+            throw new Exception("Nested dockers() calls are not supported")
         }
 
         // Validate cluster configs
@@ -474,6 +480,11 @@ class Suite implements GroovyInterceptable {
                 ClusterOptions options = entry.value
                 SuiteCluster cluster = clusters.get(clusterName)
 
+                if (manual_init_clusters.contains(clusterName)) {
+                    logger.info("Skipping initialization of cluster: ${clusterName}")
+                    continue
+                }
+
                 // Determine cloud mode
                 boolean isCloud = false
                 if (options.cloudMode == null) {
@@ -504,7 +515,19 @@ class Suite implements GroovyInterceptable {
             // Wait for BE to report
             Thread.sleep(5000)
 
-            actionSupplier.call(clusters)
+            Connection originConnection = context.threadLocalConn.get()
+            context.threadLocalConn.remove()
+            context.isMultiDockerClusterRunning = true
+            try {
+                actionSupplier.call(clusters)
+            } finally {
+                context.isMultiDockerClusterRunning = false
+                if (originConnection == null) {
+                    context.threadLocalConn.remove()
+                } else {
+                    context.threadLocalConn.set(originConnection)
+                }
+            }
         } finally {
             // Destroy clusters in reverse order
             if (!context.config.dockerEndNoKill) {
