@@ -33,6 +33,7 @@ under the License.
         <!-- <module>lakesoul-scanner</module> -->
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
+        <module>hadoop-deps</module>
     </modules>
 
     <parent>
