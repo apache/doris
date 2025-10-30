@@ -199,7 +199,9 @@ suite("test_custom_analyzer", "p0") {
     qt_sql """ select tokenize("BAR", '"analyzer"="lowercase_delimited"'); """
 
     sql """ alter table ${indexTbName1} add index idx_ch_default(`ch`)  using inverted; """
+    wait_for_last_build_index_finish("${indexTbName1}", 60000)
     sql """ alter table ${indexTbName1} add index idx_ch(`ch`) using inverted properties("support_phrase" = "true", "analyzer" = "lowercase_delimited"); """
+    wait_for_last_build_index_finish("${indexTbName1}", 60000)
 
     qt_sql """ select * from ${indexTbName1} where ch match_all 'FOO'; """
     qt_sql """ select * from ${indexTbName1} where ch match_all 'BAR'; """
