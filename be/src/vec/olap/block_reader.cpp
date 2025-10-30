@@ -309,7 +309,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
             return res;
         }
 
-        if (!_get_next_row_same()) {
+        if (!_next_row.is_same) {
             if (target_block_row == _reader_context.batch_size) {
                 break;
             }
@@ -530,13 +530,5 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
     }
 }
 
-bool BlockReader::_get_next_row_same() {
-    if (_next_row.is_same) {
-        return true;
-    } else {
-        auto* block = _next_row.block.get();
-        return block->get_same_bit(_next_row.row_pos);
-    }
-}
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

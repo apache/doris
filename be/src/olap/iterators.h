@@ -159,6 +159,13 @@ struct CompactionSampleInfo {
     int64_t group_data_size;
 };
 
+struct BlockWithSameBit {
+    vectorized::Block* block;
+    std::vector<bool>& same_bit;
+
+    bool empty() const { return block->rows() == 0; }
+};
+
 class RowwiseIterator;
 using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
@@ -187,7 +194,11 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
-    virtual Status next_block_view(vectorized::BlockView* block_view) {
+    virtual Status next_batch(BlockWithSameBit* block_with_same_bit) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status next_batch(vectorized::BlockView* block_view) {
         return Status::NotSupported("to be implemented");
     }
 

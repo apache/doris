@@ -554,7 +554,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
 
-        auto st = rowset_reader->next_block(ref_block.get());
+        auto st = rowset_reader->next_batch(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
                 if (ref_block->rows() == 0) {
@@ -622,7 +622,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
     bool eof = false;
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
-        auto st = rowset_reader->next_block(ref_block.get());
+        auto st = rowset_reader->next_batch(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
                 if (ref_block->rows() == 0) {

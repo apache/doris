@@ -135,9 +135,9 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
 }
 
 // `advanced = false` when current block finished
-Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
+Status VMergeIteratorContext::copy_rows(BlockWithSameBit* block_with_same_bit, bool advanced) {
     Block& src = *_block;
-    Block& dst = *block;
+    Block& dst = *block_with_same_bit->block;
     if (_cur_batch_num == 0) {
         return Status::OK();
     }
@@ -157,7 +157,9 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
         }
     });
     const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
-    dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
+    block_with_same_bit->same_bit.insert(block_with_same_bit->same_bit.end(),
+                                         tmp_pre_ctx_same_bit.begin(),
+                                         tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
     return Status::OK();
 }
