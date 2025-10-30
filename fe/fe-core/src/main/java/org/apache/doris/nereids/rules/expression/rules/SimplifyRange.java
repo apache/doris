@@ -24,6 +24,8 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNotNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNullValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
@@ -135,6 +137,16 @@ public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVis
     @Override
     public Expression visitNotDiscreteValue(NotDiscreteValue value, Void context) {
         return new Not(getDiscreteExpression(value.reference, value.values));
+    }
+
+    @Override
+    public Expression visitIsNullValue(IsNullValue value, Void context) {
+        return new IsNull(value.getReference());
+    }
+
+    @Override
+    public Expression visitIsNotNullValue(IsNotNullValue value, Void context) {
+        return value.getNotExpression();
     }
 
     @Override
