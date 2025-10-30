@@ -832,7 +832,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
 
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
-              << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
+              << ", origin vault=" << encryt_sk(hide_ak(origin_vault_info))
+              << ", new vault=" << encryt_sk(hide_ak(new_vault_info));
 
     DCHECK_EQ(new_vault.id(), vault_id);
     response->set_storage_vault_id(new_vault.id());

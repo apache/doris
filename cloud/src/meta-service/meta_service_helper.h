@@ -164,7 +164,8 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
     } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
-                         std::is_same_v<Request, CreateStageRequest>) {
+                         std::is_same_v<Request, CreateStageRequest> ||
+                         std::is_same_v<Request, AlterObjStoreInfoRequest>) {
         std::string debug_string = encryt_sk(req->ShortDebugString());
         debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_begin_rpc", &debug_string);

@@ -89,6 +89,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
             "s3.access-key-id"},
             required = false,
+            sensitive = true,
             description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
