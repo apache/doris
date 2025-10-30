@@ -742,6 +742,7 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const {
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
@@ -819,6 +820,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
     }
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
