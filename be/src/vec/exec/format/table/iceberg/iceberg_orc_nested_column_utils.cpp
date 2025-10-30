@@ -97,6 +97,26 @@ void IcebergOrcNestedColumnUtils::extract_nested_column_ids(
             } else if (i == 1) {
                 child_field_id = "VALUES";
             }
+            // Special handling for Orc MAP structure:
+            // When accessing only VALUES, we still need KEY structure for levels
+            // Check if we're at key child (i==0) and only VALUES is requested (no KEYS)
+            if (i == 0) {
+                bool has_keys_access =
+                        child_paths_by_field_id.find("KEYS") != child_paths_by_field_id.end();
+                bool has_values_access =
+                        child_paths_by_field_id.find("VALUES") != child_paths_by_field_id.end();
+
+                // If only VALUES is accessed (not KEYS), still include key structure for deduplicate_keys
+                if (!has_keys_access && has_values_access) {
+                    uint64_t key_start_id = child->getColumnId();
+                    uint64_t key_max_id = child->getMaximumColumnId();
+                    for (uint64_t id = key_start_id; id <= key_max_id; ++id) {
+                        column_ids.insert(id);
+                    }
+                    has_child_columns = true;
+                    continue; // Skip further processing of key child
+                }
+            }
             break;
         default:
             child_field_id = "";

@@ -770,7 +770,8 @@ protected:
     }
 
     // Helper function: run Parquet test with different column ID extraction methods
-    void run_parquet_test_with_method(const std::vector<ColumnAccessPathConfig>& access_configs,
+    void run_parquet_test_with_method(const std::vector<std::string>& table_column_names,
+                                      const std::vector<ColumnAccessPathConfig>& access_configs,
                                       const std::set<uint64_t>& expected_column_ids,
                                       const std::set<uint64_t>& expected_filter_column_ids,
                                       bool use_top_level_method = false,
@@ -792,12 +793,13 @@ protected:
         TTableDescriptor t_table_desc;
 
         // Define all columns according to the schema
-        std::vector<std::string> table_column_names = {
-                "name",       "profile",           "tags", "friends", "recent_activity",
-                "attributes", "complex_attributes"};
-        std::vector<int> table_column_positions = {1, 2, 3, 4, 5, 6, 7};
-        std::vector<TPrimitiveType::type> table_column_types = {
-                // TPrimitiveType::BIGINT,    // id
+        std::vector<std::string> all_table_column_names = {"id",         "name",
+                                                           "profile",    "tags",
+                                                           "friends",    "recent_activity",
+                                                           "attributes", "complex_attributes"};
+        std::vector<int> all_table_column_positions = {0, 1, 2, 3, 4, 5, 6, 7};
+        std::vector<TPrimitiveType::type> all_table_column_types = {
+                TPrimitiveType::BIGINT, // id
                 TPrimitiveType::STRING, // name
                 TPrimitiveType::STRUCT, // profile
                 TPrimitiveType::ARRAY,  // tags
@@ -806,6 +808,18 @@ protected:
                 TPrimitiveType::MAP,    // attributes
                 TPrimitiveType::MAP     // complex_attributes
         };
+
+        std::vector<int> table_column_positions;
+        std::vector<TPrimitiveType::type> table_column_types;
+        for (const auto& col_name : table_column_names) {
+            auto it = std::find(all_table_column_names.begin(), all_table_column_names.end(),
+                                col_name);
+            if (it != all_table_column_names.end()) {
+                int idx = std::distance(all_table_column_names.begin(), it);
+                table_column_positions.push_back(idx);
+                table_column_types.push_back(all_table_column_types[idx]);
+            }
+        }
 
         const TupleDescriptor* tuple_descriptor = create_tuple_descriptor(
                 &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
@@ -827,7 +841,8 @@ protected:
     }
 
     // Helper function: run Orc test with different column ID extraction methods
-    void run_orc_test_with_method(const std::vector<ColumnAccessPathConfig>& access_configs,
+    void run_orc_test_with_method(const std::vector<std::string>& table_column_names,
+                                  const std::vector<ColumnAccessPathConfig>& access_configs,
                                   const std::set<uint64_t>& expected_column_ids,
                                   const std::set<uint64_t>& expected_filter_column_ids,
                                   bool use_top_level_method = false,
@@ -849,12 +864,13 @@ protected:
         TTableDescriptor t_table_desc;
 
         // Define all columns according to the schema
-        std::vector<std::string> table_column_names = {
-                "name",       "profile",           "tags", "friends", "recent_activity",
-                "attributes", "complex_attributes"};
-        std::vector<int> table_column_positions = {1, 2, 3, 4, 5, 6, 7};
-        std::vector<TPrimitiveType::type> table_column_types = {
-                // TPrimitiveType::BIGINT,    // id
+        std::vector<std::string> all_table_column_names = {"id",         "name",
+                                                           "profile",    "tags",
+                                                           "friends",    "recent_activity",
+                                                           "attributes", "complex_attributes"};
+        std::vector<int> all_table_column_positions = {0, 1, 2, 3, 4, 5, 6, 7};
+        std::vector<TPrimitiveType::type> all_table_column_types = {
+                TPrimitiveType::BIGINT, // id
                 TPrimitiveType::STRING, // name
                 TPrimitiveType::STRUCT, // profile
                 TPrimitiveType::ARRAY,  // tags
@@ -863,6 +879,18 @@ protected:
                 TPrimitiveType::MAP,    // attributes
                 TPrimitiveType::MAP     // complex_attributes
         };
+
+        std::vector<int> table_column_positions;
+        std::vector<TPrimitiveType::type> table_column_types;
+        for (const auto& col_name : table_column_names) {
+            auto it = std::find(all_table_column_names.begin(), all_table_column_names.end(),
+                                col_name);
+            if (it != all_table_column_names.end()) {
+                int idx = std::distance(all_table_column_names.begin(), it);
+                table_column_positions.push_back(idx);
+                table_column_types.push_back(all_table_column_types[idx]);
+            }
+        }
 
         const TupleDescriptor* tuple_descriptor = create_tuple_descriptor(
                 &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
@@ -898,14 +926,15 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_1) {
                                       {"3", "11", "*", "23"}};
     access_config.predicate_paths = {{"3", "9", "14", "15"}, {"3", "10", "17"}};
 
+    std::vector<std::string> table_column_names = {"name", "profile"};
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-    // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
     std::set<uint64_t> expected_column_ids = {2, 3, 4, 7, 8, 9, 10, 11, 15, 16, 18};
-    // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 10, 11};
 
-    run_parquet_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
-    run_orc_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
+    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                                 expected_filter_column_ids);
+    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                             expected_filter_column_ids);
 }
 
 TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_2) {
@@ -940,15 +969,16 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_2) {
     access_config.all_column_paths = {{"3"}};
     access_config.predicate_paths = {{"3", "9", "14", "15"}, {"3", "10", "17"}};
 
+    std::vector<std::string> table_column_names = {"name", "profile"};
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-    // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
     std::set<uint64_t> expected_column_ids = {2,  3,  4,  5,  6,  7,  8,  9, 10,
                                               11, 12, 13, 14, 15, 16, 17, 18};
-    // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 10, 11};
 
-    run_parquet_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
-    run_orc_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
+    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                                 expected_filter_column_ids);
+    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                             expected_filter_column_ids);
 }
 
 TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_3) {
@@ -987,14 +1017,15 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_3) {
     // access_config.predicate_paths = {{"profile", "address", "coordinates"},
     //                                  {"profile", "contact", "email"}};
 
+    std::vector<std::string> table_column_names = {"name", "profile"};
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-    // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
     std::set<uint64_t> expected_column_ids = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
-    // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 9, 10, 11};
 
-    run_parquet_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
-    run_orc_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
+    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                                 expected_filter_column_ids);
+    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                             expected_filter_column_ids);
 }
 
 TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_4) {
@@ -1006,14 +1037,16 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_4) {
     access_config.all_column_paths = {};
     access_config.predicate_paths = {};
 
+    std::vector<std::string> table_column_names = {"name", "profile"};
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-    // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-    std::set<uint64_t> expected_column_ids = {2};
-    // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
+    std::set<uint64_t> expected_column_ids = {2,  3,  4,  5,  6,  7,  8,  9, 10,
+                                              11, 12, 13, 14, 15, 16, 17, 18};
     std::set<uint64_t> expected_filter_column_ids = {};
 
-    run_parquet_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
-    run_orc_test_with_method({access_config}, expected_column_ids, expected_filter_column_ids);
+    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                                 expected_filter_column_ids);
+    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
+                             expected_filter_column_ids);
 }
 
 TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_5) {
@@ -1060,14 +1093,15 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_5) {
         access_configs.push_back(access_config);
     }
 
+    std::vector<std::string> table_column_names = {"name", "friends", "recent_activity"};
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-    // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
     std::set<uint64_t> expected_column_ids = {2, 21, 22, 24, 25, 26, 27, 28, 29, 30, 32};
-    // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
     std::set<uint64_t> expected_filter_column_ids = {21, 22, 24, 26, 27, 28};
 
-    run_parquet_test_with_method(access_configs, expected_column_ids, expected_filter_column_ids);
-    run_orc_test_with_method(access_configs, expected_column_ids, expected_filter_column_ids);
+    run_parquet_test_with_method(table_column_names, access_configs, expected_column_ids,
+                                 expected_filter_column_ids);
+    run_orc_test_with_method(table_column_names, access_configs, expected_column_ids,
+                             expected_filter_column_ids);
 }
 
 TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
@@ -1148,29 +1182,29 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
     }
 
     {
+        std::vector<std::string> table_column_names = {"name", "complex_attributes"};
         // parquet values should access keys
         // column_ids should contain all necessary column IDs (set automatically deduplicates)
-        // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
         std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52, 53,
                                                   54, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
                                                   72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
-        // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
         std::set<uint64_t> expected_filter_column_ids = {36, 37, 38, 39, 40};
 
-        run_parquet_test_with_method(access_configs, expected_column_ids,
+        run_parquet_test_with_method(table_column_names, access_configs, expected_column_ids,
                                      expected_filter_column_ids);
     }
 
     {
+        std::vector<std::string> table_column_names = {"name", "complex_attributes"};
+        // orc values should access keys because need to deduplicate by keys
         // column_ids should contain all necessary column IDs (set automatically deduplicates)
-        // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-        std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52,
-                                                  53, 54, 61, 63, 64, 65, 66, 67, 68, 69, 70,
-                                                  71, 72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
-        // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
+        std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52, 53,
+                                                  54, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
+                                                  72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
         std::set<uint64_t> expected_filter_column_ids = {36, 37, 38, 39, 40};
 
-        run_orc_test_with_method(access_configs, expected_column_ids, expected_filter_column_ids);
+        run_orc_test_with_method(table_column_names, access_configs, expected_column_ids,
+                                 expected_filter_column_ids);
     }
 }
 

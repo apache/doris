@@ -114,7 +114,10 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
                     uint64_t key_start_id = child.get_column_id();
                     uint64_t key_max_id = child.get_max_column_id();
                     for (uint64_t id = key_start_id; id <= key_max_id; ++id) {
-                        column_ids.insert(id);
+                        auto inserted = column_ids.insert(id);
+                        if (inserted.second) {
+                            std::cout << "[IcebergNested] added column id: " << id << std::endl;
+                        }
                     }
                     has_child_columns = true;
                     continue; // Skip further processing of key child
@@ -144,7 +147,10 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
                 uint64_t start_id = child.get_column_id();
                 uint64_t max_column_id = child.get_max_column_id();
                 for (uint64_t id = start_id; id <= max_column_id; ++id) {
-                    column_ids.insert(id);
+                    auto inserted = column_ids.insert(id);
+                    if (inserted.second) {
+                        std::cout << "[IcebergNested] added column id: " << id << std::endl;
+                    }
                 }
                 has_child_columns = true;
             } else {
@@ -166,7 +172,11 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
     // This ensures parent struct/container nodes are included when their children are needed
     if (has_child_columns) {
         // Set automatically handles deduplication, so no need to check if it already exists
-        column_ids.insert(field_schema.get_column_id());
+        auto inserted = column_ids.insert(field_schema.get_column_id());
+        if (inserted.second) {
+            std::cout << "[IcebergNested] added parent column id: " << field_schema.get_column_id()
+                      << std::endl;
+        }
     }
 }
 
