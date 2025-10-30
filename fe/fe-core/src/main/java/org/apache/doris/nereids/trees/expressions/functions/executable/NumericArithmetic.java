@@ -256,7 +256,7 @@ public class NumericArithmetic {
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
         int precision = t1.getPrecision() + t2.getPrecision();
         int scale = t1.getScale() + t2.getScale();
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(precision, scale), result);
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(precision, scale), result);
     }
 
     /**
@@ -291,11 +291,11 @@ public class NumericArithmetic {
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
         if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return new NullLiteral(DecimalV3Type.createDecimalV3TypeLooseCheck(
+            return new NullLiteral(DecimalV3Type.createDecimalV3Type(
                     t1.getPrecision(), t1.getScale() - t2.getScale()));
         }
         BigDecimal result = first.getValue().divide(second.getValue());
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(
                 t1.getPrecision(), t1.getScale() - t2.getScale()), result);
     }
 
@@ -360,7 +360,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(0).getDouble());
     }
 
@@ -369,7 +370,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
     }
 
@@ -395,7 +397,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(0).getDouble());
     }
 
@@ -404,7 +407,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());
     }
 
@@ -430,7 +434,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(0).getDouble());
     }
 
@@ -439,7 +444,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
     }
 

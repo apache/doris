@@ -47,7 +47,7 @@ public class DecimalV3Literal extends FractionalLiteral {
      * Constructor for DecimalV3Literal
      */
     public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
-        super(DecimalV3Type.createDecimalV3TypeLooseCheck(
+        super(DecimalV3Type.createDecimalV3Type(
                 dataType.getPrecision() == -1 ? value.precision() : dataType.getPrecision(),
                 dataType.getScale() == -1 ? value.scale() : dataType.getScale())
         );
@@ -60,6 +60,14 @@ public class DecimalV3Literal extends FractionalLiteral {
         logger.info("DecimalV3Literal orig bigDecimal: " + value
                 + ", targetType: " + dataType + ", result big decimal: " + adjustedValue);
         this.value = Objects.requireNonNull(adjustedValue);
+    }
+
+    public static DecimalV3Literal createWithCheck256(BigDecimal value) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(value), value);
+    }
+
+    public static DecimalV3Literal createWithoutCheck256(BigDecimal value) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeNotCheck256(value), value);
     }
 
     @Override
@@ -96,7 +104,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.CEILING));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.CEILING));
     }
 
     /**
@@ -108,7 +116,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.FLOOR));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.FLOOR));
     }
 
     /**
@@ -120,7 +128,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.HALF_UP));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.HALF_UP));
     }
 
     /**

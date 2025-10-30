@@ -41,10 +41,14 @@ public class Multiply extends BinaryArithmetic implements PropagateNullable {
         super(children, Operator.MULTIPLY);
     }
 
+    private Multiply(Params param) {
+        super(param);
+    }
+
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Multiply(children);
+        return new Multiply(getParams(children));
     }
 
     @Override

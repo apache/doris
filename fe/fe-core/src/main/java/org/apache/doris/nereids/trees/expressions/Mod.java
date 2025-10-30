@@ -42,10 +42,14 @@ public class Mod extends BinaryArithmetic implements AlwaysNullable, PropagateNu
         super(children, Operator.MOD);
     }
 
+    private Mod(Params params) {
+        super(params);
+    }
+
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Mod(children);
+        return new Mod(getParams(children));
     }
 
     @Override

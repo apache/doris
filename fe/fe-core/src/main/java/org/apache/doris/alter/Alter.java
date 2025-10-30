@@ -97,6 +97,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -836,11 +837,12 @@ public class Alter {
 
         String tableName = tableNameInfo.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
-        modifyViewDef(db, view, alterViewInfo.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+        modifyViewDef(db, view, alterViewInfo.getInlineViewDef(),
+                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()),
                 alterViewInfo.getColumns(), alterViewInfo.getComment());
     }
 
-    private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
+    private void modifyViewDef(Database db, View view, String inlineViewDef, Map<String, String> variables,
                                List<Column> newFullSchema, String comment) throws DdlException {
         db.writeLockOrDdlException();
         try {
@@ -851,14 +853,14 @@ public class Alter {
                 }
                 // when do alter view modify comment, inlineViewDef and newFullSchema will be empty.
                 if (!Strings.isNullOrEmpty(inlineViewDef)) {
-                    view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
+                    view.setInlineViewDefWithSessionVariables(inlineViewDef, variables);
                     view.setNewFullSchema(newFullSchema);
                 }
                 String viewName = view.getName();
                 db.unregisterTable(viewName);
                 db.registerTable(view);
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
-                        inlineViewDef, newFullSchema, sqlMode, comment);
+                        inlineViewDef, newFullSchema, variables, comment);
                 Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);
                 LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
@@ -887,7 +889,7 @@ public class Alter {
             if (comment != null) {
                 view.setComment(comment);
             } else {
-                view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
+                view.setInlineViewDefWithSessionVariables(inlineViewDef, alterViewInfo.getSessionVariables());
                 view.setNewFullSchema(newFullSchema);
             }
 
