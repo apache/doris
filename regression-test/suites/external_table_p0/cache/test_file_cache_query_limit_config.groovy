@@ -65,6 +65,13 @@ suite("test_file_cache_query_limit_config", "external_docker,hive,external_docke
         logger.info("SQL failed as expected: ${e.message}")
     }
 
+    try {
+        sql """set file_cache_query_limit_percent = 1000000"""
+        assertTrue(false, ERROR_SQL_SUCCEED_MSG)
+    } catch (Exception e) {
+        logger.info("SQL failed as expected: ${e.message}")
+    }
+
     sql """set policy_file_cache_query_limit_percent = 1"""
     def policyFileCacheQueryLimitPercentResult = sql """show variables like 'policy_file_cache_query_limit_percent';"""
     logger.info("policy_file_cache_query_limit_percent configuration: " + policyFileCacheQueryLimitPercentResult)
@@ -101,6 +108,13 @@ suite("test_file_cache_query_limit_config", "external_docker,hive,external_docke
 
     try {
         sql """set policy_file_cache_query_limit_percent = 101"""
+        assertTrue(false, ERROR_SQL_SUCCEED_MSG)
+    } catch (Exception e) {
+        logger.info("SQL failed as expected: ${e.message}")
+    }
+
+    try {
+        sql """set policy_file_cache_query_limit_percent = 1000000"""
         assertTrue(false, ERROR_SQL_SUCCEED_MSG)
     } catch (Exception e) {
         logger.info("SQL failed as expected: ${e.message}")
