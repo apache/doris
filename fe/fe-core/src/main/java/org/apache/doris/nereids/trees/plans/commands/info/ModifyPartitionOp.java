@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -103,11 +101,6 @@ public class ModifyPartitionOp extends AlterTableOp {
         checkProperties(Maps.newHashMap(properties));
     }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyPartitionClause(partitionNames, properties, isTempPartition, needExpand);
-    }
-
     // Check the following properties' legality before modifying partition.
     // 1. replication_num or replication_allocation
     // 2. storage_medium && storage_cooldown_time
@@ -138,6 +131,10 @@ public class ModifyPartitionOp extends AlterTableOp {
 
     public boolean isTempPartition() {
         return isTempPartition;
+    }
+
+    public boolean isNeedExpand() {
+        return this.needExpand;
     }
 
     @Override

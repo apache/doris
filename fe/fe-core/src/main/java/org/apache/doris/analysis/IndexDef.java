@@ -17,16 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
