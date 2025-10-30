@@ -612,12 +612,17 @@ Status ParquetReader::_next_row_group_reader() {
         size_t avg_io_size = 0;
         const std::vector<io::PrefetchRange> io_ranges =
                 _generate_random_access_ranges(row_group_index, &avg_io_size);
+        int64_t merged_read_slice_size = -1;
+        if (_state != nullptr && _state->query_options().__isset.merge_read_slice_size) {
+            merged_read_slice_size = _state->query_options().merge_read_slice_size;
+        }
         // The underlying page reader will prefetch data in column.
         // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                                    ? std::make_shared<io::MergeRangeFileReader>(
-                                              _profile, _file_reader, io_ranges)
-                                    : _file_reader;
+        group_file_reader =
+                avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                        ? std::make_shared<io::MergeRangeFileReader>(
+                                  _profile, _file_reader, io_ranges, merged_read_slice_size)
+                        : _file_reader;
     }
     _current_group_reader.reset(
             new RowGroupReader(_io_ctx ? std::make_shared<io::TracingFileReader>(
