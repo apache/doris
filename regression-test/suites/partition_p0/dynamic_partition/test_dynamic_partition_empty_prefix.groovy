@@ -94,6 +94,61 @@ suite('test_dynamic_partition_empty_prefix', 'nonConcurrent') {
     assertNotNull(dynamicInfo2)
     assertEquals("", dynamicInfo2.Prefix)
     
+    // Test dropping partitions with empty prefix
+    def tableName3 = "test_dynamic_partition_drop_empty_prefix"
+    sql "DROP TABLE IF EXISTS ${tableName3} FORCE"
+    
+    sql """
+        CREATE TABLE ${tableName3} (
+            `k1` datetime NULL
+        )
+        PARTITION BY RANGE (k1)(
+            PARTITION `20251028` VALUES LESS THAN ("2025-10-29"),
+            PARTITION `20251029` VALUES LESS THAN ("2025-10-30"),
+            PARTITION `20251030` VALUES LESS THAN ("2025-10-31"),
+            PARTITION `20251031` VALUES LESS THAN ("2025-11-01"),
+            PARTITION `20251101` VALUES LESS THAN ("2025-11-02")
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+    
+    // Get partition names before dropping
+    def partitionsBefore = sql_return_maparray "SHOW PARTITIONS FROM ${tableName3}"
+    assertTrue(partitionsBefore.size() > 0)
+    def partitionNamesBefore = partitionsBefore.collect { it.PartitionName }
+    logger.info("Partitions before drop: " + partitionNamesBefore)
+    
+    // Drop a specific partition with empty prefix (date format only)
+    def partitionToDrop = partitionNamesBefore[0]
+    sql "ALTER TABLE ${tableName3} DROP PARTITION `${partitionToDrop}`"
+    
+    // Verify partition was dropped
+    def partitionsAfter = sql_return_maparray "SHOW PARTITIONS FROM ${tableName3}"
+    def partitionNamesAfter = partitionsAfter.collect { it.PartitionName }
+    logger.info("Partitions after drop: " + partitionNamesAfter)
+    
+    assertFalse(partitionNamesAfter.contains(partitionToDrop), "Partition ${partitionToDrop} should be dropped")
+    assertEquals(partitionsBefore.size() - 1, partitionsAfter.size(), "Partition count should decrease by 1")
+    
+    // Test dropping multiple partitions with empty prefix
+    if (partitionNamesAfter.size() >= 2) {
+        def partitionsToDrop = partitionNamesAfter.take(2)
+        partitionsToDrop.each { partition ->
+            sql "ALTER TABLE ${tableName3} DROP PARTITION `${partition}`"
+        }
+        
+        def partitionsAfterMultiDrop = sql_return_maparray "SHOW PARTITIONS FROM ${tableName3}"
+        def partitionNamesAfterMultiDrop = partitionsAfterMultiDrop.collect { it.PartitionName }
+        
+        partitionsToDrop.each { partition ->
+            assertFalse(partitionNamesAfterMultiDrop.contains(partition), "Partition ${partition} should be dropped")
+        }
+    }
+    
     sql "DROP TABLE IF EXISTS ${tableName} FORCE"
     sql "DROP TABLE IF EXISTS ${tableName2} FORCE"
+    sql "DROP TABLE IF EXISTS ${tableName3} FORCE"
 }
