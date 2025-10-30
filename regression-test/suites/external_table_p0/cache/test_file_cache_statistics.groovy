@@ -87,7 +87,7 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     assertFalse(fileCache2qlruColdBlocksPromotionMsResult.size() == 0 || fileCache2qlruColdBlocksPromotionMsResult[0][3] == null ||
             fileCache2qlruColdBlocksPromotionMsResult[0][3].trim().isEmpty(), "file_cache_2qlru_cold_blocks_promotion_ms is empty or not set to true")
 
-    def fileCache2qlruColdBlocksPromotionMs = Double.valueOf(fileCache2qlruColdBlocksPromotionMsResult) as Integer
+    def fileCache2qlruColdBlocksPromotionMs = Double.valueOf(fileCache2qlruColdBlocksPromotionMsResult[0][3]) as Integer
 
     sql """switch ${catalog_name}"""
 

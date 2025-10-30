@@ -24,7 +24,7 @@ import org.awaitility.Awaitility;
 final String BACKEND_CONFIG_CHECK_FAILED_PREFIX = "Backend configuration check failed: "
 final String ENABLE_FILE_CACHE_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_file_cache is empty or not set to true"
 final String FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_background_monitor_interval_ms is empty or not set to true"
-final String ENABLE_NORMAL_QUEUE_COLD_HOT_SEPARATION_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_normal_queue_cold_hot_separation is empty or not set to true"
+final String ENABLE_FILE_CACHE_NORMAL_QUEUE_2QLRU_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_file_cache_normal_queue_2qlru is empty or not set to true"
 final String WEB_SERVER_PORT_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "webserver_port is empty or not configured"
 // Constants for cache query features check
 final String FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX = "File cache features check failed: "
@@ -56,14 +56,12 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
             fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG)
 
-    def enableNormalQueueColdHotSeparationResult = sql """show backend config like 'enable_normal_queue_cold_hot_separation';"""
-    logger.info("enable_normal_queue_cold_hot_separation configuration: " + enableNormalQueueColdHotSeparationResult)
-    assertFalse(enableNormalQueueColdHotSeparationResult.size() == 0 || enableNormalQueueColdHotSeparationResult[0][3] == null ||
-            enableNormalQueueColdHotSeparationResult[0][3].trim().isEmpty(), ENABLE_NORMAL_QUEUE_COLD_HOT_SEPARATION_CHECK_FAILED_MSG)
+    def enableFileCacheNormalQueue2qlruResult = sql """show backend config like 'file_cache_2qlru_cold_blocks_promotion_ms';"""
+    logger.info("file_cache_2qlru_cold_blocks_promotion_ms configuration: " + enableFileCacheNormalQueue2qlruResult)
 
-    if (enableNormalQueueColdHotSeparationResult.size() == 0 || enableNormalQueueColdHotSeparationResult[0][3] == null ||
-                    enableNormalQueueColdHotSeparationResult[0][3].trim().isEmpty()) {
-        logger.info(ENABLE_NORMAL_QUEUE_COLD_HOT_SEPARATION_CHECK_FAILED_MSG)
+    if (enableFileCacheNormalQueue2qlruResult.size() == 0 || enableFileCacheNormalQueue2qlruResult[0][3] == null ||
+                    enableFileCacheNormalQueue2qlruResult[0][3].trim().isEmpty()) {
+        logger.info(ENABLE_FILE_CACHE_NORMAL_QUEUE_2QLRU_CHECK_FAILED_MSG)
         return
     }
 
