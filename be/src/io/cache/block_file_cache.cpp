@@ -1258,8 +1258,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                     auto new_cache_type = config::enable_normal_queue_cold_hot_separation
                                                   ? FileCacheType::COLD_NORMAL
                                                   : FileCacheType::NORMAL;
-                    st = cell.file_block->change_cache_type_between_ttl_and_others(
-                            new_cache_type);
+                    st = cell.file_block->change_cache_type_between_ttl_and_others(new_cache_type);
                     if (st.ok()) {
                         if (cell.queue_iterator) {
                             ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
@@ -1272,8 +1271,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                         cell.queue_iterator = queue.add(
                                 cell.file_block->get_hash_value(), cell.file_block->offset(),
                                 cell.file_block->range().size(), cache_lock);
-                        _lru_recorder->record_queue_event(new_cache_type,
-                                                          CacheLRULogType::ADD,
+                        _lru_recorder->record_queue_event(new_cache_type, CacheLRULogType::ADD,
                                                           cell.file_block->get_hash_value(),
                                                           cell.file_block->offset(), cell.size());
                     } else {
