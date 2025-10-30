@@ -106,8 +106,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private Optional<String> labelName;
     private Optional<String> branchName;
     private Optional<Plan> parsedPlan;
-    // TODO: refactor this field
-    private boolean isRewriteOperation = false;
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -166,10 +164,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.jobId = command.jobId;
         this.needNormalizePlan = true;
         this.branchName = command.branchName;
-    }
-
-    public void setRewriteOperation(boolean isRewriteOperation) {
-        this.isRewriteOperation = isRewriteOperation;
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -267,13 +261,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             insertExecutor = buildResult.executor;
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
             if (!needBeginTransaction) {
-                // we need to finalize sink for rewrite operation
-                if (isRewriteOperation) {
-                    insertExecutor.finalizeSink(
-                            buildResult.planner.getFragments().get(0), buildResult.dataSink,
-                            buildResult.physicalSink
-                    );
-                }
                 return insertExecutor;
             }
 
@@ -452,11 +439,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         planner,
                         dataSink,
                         physicalSink,
-                        () -> !isRewriteOperation ? new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
+                        () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                                         Optional.of(icebergInsertCtx),
-                                emptyInsert, jobId)
-                                : new IcebergRewriteExecutor(ctx, icebergExternalTable, label, planner,
-                                Optional.of(icebergInsertCtx),
                                 emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalJdbcTableSink) {

@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.RewriteTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -114,7 +114,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             taskConnectContext.getStatementContext().setIcebergRewriteFileScanTasks(group.getTasks());
 
             // Step 2: Build logical plan for this task
-            InsertIntoTableCommand taskLogicalPlan = buildRewriteLogicalPlan();
+            RewriteTableCommand taskLogicalPlan = buildRewriteLogicalPlan();
             LogicalPlanAdapter taskParsedStmt = new LogicalPlanAdapter(
                     taskLogicalPlan,
                     taskConnectContext.getStatementContext());
@@ -162,13 +162,13 @@ public class RewriteGroupTask implements TransientTaskExecutor {
      * Execute rewrite group with task-specific logical plan and parsed statement
      */
     private void executeGroup(ConnectContext taskConnectContext,
-            InsertIntoTableCommand taskLogicalPlan,
+            RewriteTableCommand taskLogicalPlan,
             StatementBase taskParsedStmt) throws Exception {
         // Step 1: Create stmt executor
         stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
 
-        // Step 2: Create insert executor, but not to begin a transaction
-        AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor, false);
+        // Step 2: Create insert executor
+        AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor);
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
 
@@ -185,7 +185,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
      * Build logical plan for rewrite operation (INSERT INTO ... SELECT ...)
      * Each task creates its own independent InsertIntoTableCommand instance
      */
-    private InsertIntoTableCommand buildRewriteLogicalPlan() {
+    private RewriteTableCommand buildRewriteLogicalPlan() {
         // Build table name parts
         List<String> tableNameParts = ImmutableList.of(
                 dorisTable.getCatalog().getName(),
@@ -215,17 +215,14 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 Optional.empty(), // branchName
                 sourceRelation);
 
-        // Create InsertIntoTableCommand for rewrite operation
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(
+        // Create RewriteTableCommand for rewrite operation
+        return new RewriteTableCommand(
                 tableSink,
                 Optional.empty(), // labelName
                 Optional.empty(), // insertCtx
                 Optional.empty(), // cte
-                true, // needNormalizePlan
                 Optional.empty() // branchName
         );
-        insertCommand.setRewriteOperation(true);
-        return insertCommand;
     }
 
     /**
