@@ -369,15 +369,15 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
                 LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
                              << st.msg() << ", block state=" << block_state;
-                size_t bytes_read {0};
+                size_t nest_bytes_read {0};
                 stats.hit_cache = false;
                 remote_read_counter << 1;
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
                         current_offset, Slice(result.data + (current_offset - offset), read_size),
-                        &bytes_read));
+                        &nest_bytes_read));
                 indirect_read_bytes += read_size;
-                DCHECK(bytes_read == read_size);
+                DCHECK(nest_bytes_read == read_size);
             }
         }
         *bytes_read += read_size;

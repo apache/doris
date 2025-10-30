@@ -239,7 +239,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         auto delta_writer = create_delta_writer(wrequest);
         {
             // here we modify _tablet_writers. so need lock.
-            std::lock_guard<std::mutex> l(_tablet_writers_lock);
+            std::lock_guard<std::mutex> lt(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
 
