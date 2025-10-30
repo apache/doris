@@ -405,6 +405,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             // ATTN: Empty clusters are treated as dropped clusters.
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
+                MetricRepo.unregisterCloudMetrics(clusterId, clusterName, toDel);
                 boolean succ = clusterNameToId.remove(clusterName, clusterId);
 
                 // remove from computeGroupIdToComputeGroup
