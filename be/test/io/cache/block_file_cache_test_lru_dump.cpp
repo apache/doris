@@ -636,7 +636,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_sepa
     io::CacheContext context1;
     ReadStatistics rstats;
     context1.stats = &rstats;
-    context1.cache_type = io::FileCacheType::NORMAL;
+    context1.cache_type = io::FileCacheType::COLD_NORMAL;
     context1.query_id = query_id;
     auto key1 = io::BlockFileCache::hash("key1");
 
@@ -657,6 +657,13 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_sepa
         blocks.clear();
     }
 
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 0);
+    ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 0);
+    ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 0);
+    ASSERT_EQ(cache._lru_recorder->_cold_normal_lru_log_queue.size_approx(), 10);
+    ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(config::normal_queue_cold_time_ms));
     offset = 0;
 
     for (; offset < 500000; offset += 100000) {
@@ -675,14 +682,12 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_sepa
     ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 500000);
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
 
-    // all queue are filled, let's check the lru log records
     ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 0);
     ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 0);
     ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 5);
-    ASSERT_EQ(cache._lru_recorder->_cold_normal_lru_log_queue.size_approx(), 15);
+    ASSERT_EQ(cache._lru_recorder->_cold_normal_lru_log_queue.size_approx(), 5);
     ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 0);
 
-    // then check the log replay
     std::this_thread::sleep_for(std::chrono::milliseconds(
             2 * config::file_cache_background_lru_log_replay_interval_ms));
     ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 0);

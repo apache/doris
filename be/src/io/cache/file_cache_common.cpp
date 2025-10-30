@@ -159,7 +159,10 @@ std::string UInt128Wrapper::to_string() const {
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset,
                                                                      size_t size) const {
     CacheContext ctx;
-    ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
+    ctx.cache_type = _expiration_time == 0 ? (config::enable_normal_queue_cold_hot_separation
+                                                      ? FileCacheType::COLD_NORMAL
+                                                      : FileCacheType::NORMAL)
+                                           : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
     ctx.is_cold_data = _is_cold_data;
     ReadStatistics stats;

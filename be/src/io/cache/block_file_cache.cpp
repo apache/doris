@@ -597,7 +597,9 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     }
     if (auto iter = _key_to_time.find(hash);
         // TODO(zhengyu): Why the hell the type is NORMAL while context set expiration_time?
-        (context.cache_type == FileCacheType::NORMAL || context.cache_type == FileCacheType::TTL) &&
+        (context.cache_type == FileCacheType::NORMAL ||
+         context.cache_type == FileCacheType::COLD_NORMAL ||
+         context.cache_type == FileCacheType::TTL) &&
         iter != _key_to_time.end() && iter->second != context.expiration_time) {
         // remove from _time_to_key
         auto _time_to_key_iter = _time_to_key.equal_range(iter->second);
@@ -618,8 +620,10 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
             for (auto& [_, cell] : file_blocks) {
                 auto cache_type = cell.file_block->cache_type();
                 if (cache_type != FileCacheType::TTL) continue;
-                auto st = cell.file_block->change_cache_type_between_ttl_and_others(
-                        FileCacheType::NORMAL);
+                auto new_cache_type = config::enable_normal_queue_cold_hot_separation
+                                              ? FileCacheType::COLD_NORMAL
+                                              : FileCacheType::NORMAL;
+                auto st = cell.file_block->change_cache_type_between_ttl_and_others(new_cache_type);
                 if (st.ok()) {
                     if (cell.queue_iterator) {
                         auto& ttl_queue = get_queue(FileCacheType::TTL);
@@ -629,11 +633,12 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
                                                           cell.file_block->get_hash_value(),
                                                           cell.file_block->offset(), cell.size());
                     }
-                    auto& queue = get_queue(FileCacheType::NORMAL);
+
+                    auto& queue = get_queue(new_cache_type);
                     cell.queue_iterator =
                             queue.add(cell.file_block->get_hash_value(), cell.file_block->offset(),
                                       cell.file_block->range().size(), cache_lock);
-                    _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
+                    _lru_recorder->record_queue_event(new_cache_type, CacheLRULogType::ADD,
                                                       cell.file_block->get_hash_value(),
                                                       cell.file_block->offset(), cell.size());
                 } else {
@@ -1247,9 +1252,14 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                         LOG_WARNING("Failed to update expiration time to 0").error(st);
                     }
 
-                    if (cell.file_block->cache_type() == FileCacheType::NORMAL) continue;
+                    if (cell.file_block->cache_type() == FileCacheType::NORMAL ||
+                        cell.file_block->cache_type() == FileCacheType::COLD_NORMAL)
+                        continue;
+                    auto new_cache_type = config::enable_normal_queue_cold_hot_separation
+                                                  ? FileCacheType::COLD_NORMAL
+                                                  : FileCacheType::NORMAL;
                     st = cell.file_block->change_cache_type_between_ttl_and_others(
-                            FileCacheType::NORMAL);
+                            new_cache_type);
                     if (st.ok()) {
                         if (cell.queue_iterator) {
                             ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
@@ -1258,11 +1268,11 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                                     cell.file_block->get_hash_value(), cell.file_block->offset(),
                                     cell.size());
                         }
-                        auto& queue = get_queue(FileCacheType::NORMAL);
+                        auto& queue = get_queue(new_cache_type);
                         cell.queue_iterator = queue.add(
                                 cell.file_block->get_hash_value(), cell.file_block->offset(),
                                 cell.file_block->range().size(), cache_lock);
-                        _lru_recorder->record_queue_event(FileCacheType::NORMAL,
+                        _lru_recorder->record_queue_event(new_cache_type,
                                                           CacheLRULogType::ADD,
                                                           cell.file_block->get_hash_value(),
                                                           cell.file_block->offset(), cell.size());
