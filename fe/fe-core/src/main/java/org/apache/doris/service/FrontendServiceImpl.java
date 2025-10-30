@@ -2176,6 +2176,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         : false;
                 coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             }
+            // coord.getQueryOptions().setNewVersionUnixTimestamp(true);
             httpStreamParams.setParams(coord.getStreamLoadPlan());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
