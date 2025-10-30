@@ -676,6 +676,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     std::string begin_k(begin.data(), begin.size());
     std::string end_k(end.data(), end.size());
     if (begin_k >= end_k) {
+        LOG(WARNING) << "invalid remove range: [" << hex(begin_k) << ", " << hex(end_k) << ")";
         aborted_ = true;
     } else {
         // ATTN: we do not support read your writes about delete range.
@@ -696,10 +697,12 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
 TxnErrorCode Transaction::commit() {
     std::lock_guard<std::mutex> l(lock_);
     if (aborted_) {
+        LOG(WARNING) << "transaction aborted, cannot commit";
         return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
     }
     auto code = kv_->update(read_set_, op_list_, read_version_, &committed_version_);
     if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "transaction commit failed, code=" << static_cast<int>(code);
         return code;
     }
     commited_ = true;

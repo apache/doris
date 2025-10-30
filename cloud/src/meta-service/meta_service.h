@@ -496,6 +496,12 @@ public:
     [[nodiscard]] const std::shared_ptr<ResourceManager>& resource_mgr() const {
         return impl_->resource_mgr();
     }
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return impl_->txn_lazy_committer();
+    }
+    [[nodiscard]] const std::shared_ptr<SnapshotManager>& snapshot_manager() const {
+        return impl_->snapshot_manager();
+    }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
                    BeginTxnResponse* response, ::google::protobuf::Closure* done) override {
