@@ -223,5 +223,6 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public int getQueueLength();
 
-    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId, Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap);
+    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId,
+            Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap);
 }

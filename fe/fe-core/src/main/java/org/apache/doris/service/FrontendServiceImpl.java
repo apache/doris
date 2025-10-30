@@ -3727,7 +3727,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
          *                             P2:exist
          *                                 ↓
          *                             P3:t5,t6
-         * -------------------------------------- 
+         * --------------------------------------
          *       tablet rebalance during ...
          *     t1 - be1                 t3 - be1 <-
          *     t2 - be2                 t4 - be1
@@ -3800,7 +3800,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         Multimap<Long, Long> finalResultTablets = HashMultimap.create();
-        Env.getCurrentGlobalTransactionMgr().getOrSetAutoPartitionInfo(dbId, txnId, tempResultTablets, finalResultTablets);
+        Env.getCurrentGlobalTransactionMgr().getOrSetAutoPartitionInfo(dbId, txnId,
+                tempResultTablets, finalResultTablets);
 
         for (Long tabletId : finalResultTablets.keySet()) {
             Collection<Long> beIds = finalResultTablets.get(tabletId);

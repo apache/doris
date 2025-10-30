@@ -219,7 +219,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     // inMap  : partitionId -> tabletId -> BeId
     // outMap : tabletId -> BeId
-    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId, 
+    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId,
                     Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap) {
         synchronized (autoPartitionInfoLock) {
             Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
