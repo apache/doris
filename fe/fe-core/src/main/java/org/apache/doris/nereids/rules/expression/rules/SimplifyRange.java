@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -47,6 +49,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -126,8 +129,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVis
 
     @Override
     public Expression visitDiscreteValue(DiscreteValue value, Void context) {
-        return ExpressionUtils.toInPredicateOrEqualTo(value.getReference(),
-                value.getValues().stream().map(Literal.class::cast).collect(Collectors.toList()));
+        return getDiscreteExpression(value.reference, value.values);
+    }
+
+    @Override
+    public Expression visitNotDiscreteValue(NotDiscreteValue value, Void context) {
+        return new Not(getDiscreteExpression(value.reference, value.values));
     }
 
     @Override
@@ -138,6 +145,14 @@ public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVis
     @Override
     public Expression visitUnknownValue(UnknownValue value, Void context) {
         return value.getReference();
+    }
+
+    private Expression getDiscreteExpression(Expression reference, Set<ComparableLiteral> values) {
+        ImmutableList.Builder<Expression> options = ImmutableList.builderWithExpectedSize(values.size());
+        for (ComparableLiteral value : values) {
+            options.add((Expression) value);
+        }
+        return ExpressionUtils.toInPredicateOrEqualTo(reference, options.build());
     }
 
     /** getExpression */

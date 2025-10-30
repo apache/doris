@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.expression.rules.AddMinMax.MinMaxValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
@@ -302,6 +303,11 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
             exprMinMaxValues.put(reference, new MinMaxValue(Range.encloseAll(value.getValues()), true, 0));
         }
         return exprMinMaxValues;
+    }
+
+    @Override
+    public Map<Expression, MinMaxValue> visitNotDiscreteValue(NotDiscreteValue value, Void context) {
+        return ImmutableMap.of();
     }
 
     @Override
