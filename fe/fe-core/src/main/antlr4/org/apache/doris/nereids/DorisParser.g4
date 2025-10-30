@@ -206,6 +206,8 @@ supportedAlterStatement
               commentSpec? AS query)                                               #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause       #alterStorageVault
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier         #alterSystemRenameComputeGroup
+    | ALTER COMPUTE GROUP name=identifierOrText
+        properties=propertyClause?                                                 #alterComputeGroup
     ;
 
 supportedDropStatement

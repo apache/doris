@@ -823,8 +823,12 @@ public class ShowExecutor {
         clusterNameSet.addAll(clusterNames);
 
         for (String clusterName : clusterNameSet) {
-            ArrayList<String> row = Lists.newArrayList(clusterName);
             // current_used, users
+            ComputeGroup cg = cloudSys.getComputeGroupByName(clusterName);
+            if (cg == null) {
+                continue;
+            }
+            ArrayList<String> row = Lists.newArrayList(clusterName);
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
@@ -861,16 +865,13 @@ public class ShowExecutor {
                 rows.add(row);
                 row.add(subClusterNames);
                 row.add(policy);
+                row.add(cg.getProperties().toString());
                 continue;
             }
             // virtual compute group
             // virtual cg backends eq 0
             row.add(String.valueOf(0));
             rows.add(row);
-            ComputeGroup cg = cloudSys.getComputeGroupByName(clusterName);
-            if (cg == null) {
-                continue;
-            }
             String activeCluster = cg.getPolicy().getActiveComputeGroup();
             String standbyCluster = cg.getPolicy().getStandbyComputeGroup();
             // first active, second standby
@@ -879,6 +880,7 @@ public class ShowExecutor {
 
             // Policy
             row.add(cg.getPolicy().toString());
+            row.add(cg.getProperties().toString());
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
