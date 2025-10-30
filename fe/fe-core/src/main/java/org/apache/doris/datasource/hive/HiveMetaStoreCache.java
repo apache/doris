@@ -379,9 +379,8 @@ public class HiveMetaStoreCache {
         if (status.ok()) {
             for (RemoteFile remoteFile : remoteFiles) {
                 String srcPath = remoteFile.getPath().toString();
-                LocationPath remoteFileLocationPath = LocationPath.of(srcPath, catalog.getCatalogProperty()
-                        .getStoragePropertiesMap());
-                result.addFile(remoteFile, remoteFileLocationPath);
+                LocationPath srcLocationPath = LocationPath.of(srcPath, locationPath.getStorageProperties());
+                result.addFile(remoteFile, srcLocationPath);
             }
         } else if (status.getErrCode().equals(ErrCode.NOT_FOUND)) {
             // User may manually remove partition under HDFS, in this case,
