@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/status.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
@@ -32,28 +33,45 @@ struct ComplexTypeDeserializeUtil {
         char delimiter = 0;
     };
 
+    // Enhanced version with error handling
     template <typename Func>
-    static std::vector<SplitResult> split_by_delimiter(StringRef& str, char escape_char,
-                                                       Func func) {
+    static Status split_by_delimiter(StringRef& str, char escape_char,
+                                     Func func,
+                                     std::vector<SplitResult>& elements) {
         char quote_char = 0;
         int last_pos = 0;
         int nested_level = 0;
-        bool has_quote = false;
+        bool has_quote = false;  
         char delimiter = 0;
-        std::vector<SplitResult> elements;
+        elements.clear();     // 
         for (int pos = 0; pos < str.size; ++pos) {
             char c = str.data[pos];
+            // Idea from simdjson to handle escape characters
+            // Handle escape characters first
+            if (c == '\\') {  
+                // count the number of consecutive backslashes
+                int backslash_count = 0;  
+                while (pos < str.size && str.data[pos] == '\\') {  
+                    backslash_count++;  
+                    pos++;  
+                }  
+                  
+                // if the number of backslashes is odd, the next character is escaped
+                if (backslash_count % 2 == 1 && pos < str.size) {  
+                    pos++;  // skip the escaped character
+                }  
+                pos--;  // backtrack, because the for loop will ++pos
+                continue;  
+            }  
+            
+            // Handle quotes
             if (c == '"' || c == '\'') {
                 if (!has_quote) {
                     quote_char = c;
-                    has_quote = !has_quote;
+                    has_quote = true;
                 } else if (has_quote && quote_char == c) {
-                    // skip the quote character if it is escaped
-                    if (pos > 0 && str.data[pos - 1] == escape_char) {
-                        continue;
-                    }
                     quote_char = 0;
-                    has_quote = !has_quote;
+                    has_quote = false;
                 }
             } else if (!has_quote && (c == '[' || c == '{')) {
                 ++nested_level;
@@ -71,13 +89,24 @@ struct ComplexTypeDeserializeUtil {
             }
         }
 
-        elements.push_back({StringRef(str.data + last_pos, str.size - last_pos), delimiter});
+        // Validate final state
+        if (has_quote) {
+            return Status::InvalidArgument("Unclosed quote detected in string");
+        }
+        
+        if (nested_level != 0) {
+            return Status::InvalidArgument("Unmatched brackets detected in string");
+        }
+
+        // Add the last element with no delimiter (or empty delimiter)
+        elements.push_back({StringRef(str.data + last_pos, str.size - last_pos), 0});
 
         for (auto& e : elements) {
             e.element = e.element.trim_whitespace();
         }
-        return elements;
+        return Status::OK();
     }
+
 
     static bool is_null_string(const StringRef& str) {
         if (str.size == 4) {
