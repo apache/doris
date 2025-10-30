@@ -2411,6 +2411,46 @@ TEST(MetaReaderTest, GetCompactRowsetMetas) {
     }
 }
 
+TEST(MetaReaderTest, HasSnapshot) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+
+    {
+        // Test when snapshot does not exist
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_snapshot = true; // Initialize to true to test the change
+        TxnErrorCode err = meta_reader.has_snapshot(&has_snapshot);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(has_snapshot);
+    }
+
+    {
+        // Create a snapshot entry
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string snapshot_key = versioned::snapshot_full_key({instance_id});
+        snapshot_key = encode_versioned_key(snapshot_key, Versionstamp(1, 1));
+        SnapshotPB snapshot_pb;
+        snapshot_pb.set_label("test_snapshot");
+        snapshot_pb.set_instance_id(instance_id);
+
+        ASSERT_TRUE(versioned::document_put(txn.get(), snapshot_key, std::move(snapshot_pb)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test when snapshot exists
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_snapshot = false; // Initialize to false to test the change
+        TxnErrorCode err = meta_reader.has_snapshot(&has_snapshot);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_snapshot);
+    }
+}
+
 TEST(MetaReaderTest, HasSnapshotReferences) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);

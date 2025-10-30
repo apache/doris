@@ -2157,6 +2157,23 @@ TEST(KeysTest, VersionedKeyPrefixTest) {
     }
 
     {
+        // versioned::snapshot_key_prefix - 0x03 "snapshot" ${instance_id}
+        std::string snapshot_prefix = versioned::snapshot_key_prefix(instance_id);
+        std::cout << "versioned::snapshot_key_prefix: " << hex(snapshot_prefix) << std::endl;
+
+        std::string dec_snapshot_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(snapshot_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", dec_snapshot_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    {
         // versioned::log_key_prefix - 0x03 "log" ${instance_id}
         std::string log_prefix = versioned::log_key_prefix(instance_id);
         std::cout << "versioned::log_key_prefix: " << hex(log_prefix) << std::endl;
