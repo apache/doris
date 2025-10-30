@@ -3716,16 +3716,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        // During a single transaction, two createPartition RPCs might have overlapping partitions.
-        // For example: RPC1: [P1, P2], RPC2: [P2, P3]
-        // needRecordTablets : used to incrementally record the tablet distribution information
-        //                     that needs to be cached in the current transaction.
-        // resultTablets : record the tablets should be contained in this createPartition
-        Multimap<Long, Long> tabletToBeIds = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
-        Multimap<Long, Long> needRecordTablets = HashMultimap.create();
-        Multimap<Long, Long> resultTablets = HashMultimap.create();
-
         // build partition & tablets
+        /*
+         * RPC [P1, P2]              RPC [P2, P3]
+         *       |                         |
+         *    P1:t1, t2                    |
+         *       ↓                         |
+         *    P2:t3, t4                    |
+         *                                 ↓
+         *                             P2:exist
+         *                                 ↓
+         *                             P3:t5,t6
+         * -------------------------------------- 
+         *       tablet rebalance during ...
+         *     t1 - be1                 t3 - be1 <-
+         *     t2 - be2                 t4 - be1
+         *     t3 - be2 <-              t5 - be2
+         *     t4 - be1                 t6 - be2
+         * --------------------------------------
+         * We ensure that only one view of the replica distribution in P2:t3,t4 above takes effect for this txn
+         * to avoid tablets being written to multiple BEs within the same transaction (assuming single replica)
+        */
+
+        // first we collect all the tablets replica distribution
+        Map<Long, Multimap<Long, Long>> tempResultTablets = new HashMap<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
@@ -3734,6 +3748,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
+            Multimap<Long, Long> tabletIdToBeID = HashMultimap.create();
             try {
                 OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
             } catch (UserException ex) {
@@ -3755,72 +3770,37 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     Multimap<Long, Long> bePathsMap;
-                    // we have created this tablet in this partition
-                    if (tabletToBeIds != null && tabletToBeIds.containsKey(tablet.getId())) {
-                        bePathsMap = HashMultimap.create();
-                        for (Long beId : tabletToBeIds.get(tablet.getId())) {
-                            // we only use the beId, val is useless
-                            bePathsMap.put(beId, 0L);
+                    try {
+                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
+                            bePathsMap = ((CloudTablet) tablet)
+                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                        } else {
+                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
-                    } else {
-                        try {
-                            if (Config.isCloudMode() && request.isSetBeEndpoint()) {
-                                bePathsMap = ((CloudTablet) tablet)
-                                        .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
-                            } else {
-                                bePathsMap = tablet.getNormalReplicaBackendPathMap();
-                            }
-                            Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, bePathsMap);
-                        } catch (UserException ex) {
-                            errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
-                            result.setStatus(errorStatus);
-                            return result;
-                        }
+                    } catch (UserException ex) {
+                        errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                        result.setStatus(errorStatus);
+                        return result;
+                    }
 
-                        if (bePathsMap.keySet().size() < quorum) {
-                            LOG.warn("auto go quorum exception");
-                        }
-
-                        // cached the info
-                        for (Long beId : bePathsMap.keySet()) {
-                            needRecordTablets.put(tablet.getId(), beId);
-                        }
+                    if (bePathsMap.keySet().size() < quorum) {
+                        LOG.warn("auto go quorum exception");
                     }
 
                     for (Long beId : bePathsMap.keySet()) {
-                        resultTablets.put(tablet.getId(), beId);
+                        tabletIdToBeID.put(tablet.getId(), beId);
                     }
                 }
             }
-        }
-
-        Multimap<Long, Long> finalResultTablets;
-
-        if (!needRecordTablets.isEmpty()) {
-            if (Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, needRecordTablets)) {
-                // this writer is succeed, we just use the resultTablets
-                Log.info("Cache the tablet replica distribution");
-                finalResultTablets = resultTablets;
+            if (!tabletIdToBeID.isEmpty()) {
+                tempResultTablets.put(partition.getId(), tabletIdToBeID);
             } else {
-                // this writer is failed, we shoud reread from the AutoPartitionInfo
-                Log.info("Conflict, we should reread from cache");
-                tabletToBeIds = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
-                finalResultTablets = HashMultimap.create();
-                for (Long tabletId : resultTablets.keySet()) {
-                    if (!tabletToBeIds.containsKey(tabletId)) {
-                        errorStatus.setErrorMsgs(Lists.newArrayList("AutoPartitionInfo should contain this tabletId."));
-                        result.setStatus(errorStatus);
-                        LOG.warn("we should have cached this tablet replica distribution: {}", result);
-                        return result;
-                    }
-                    for (Long beId : tabletToBeIds.get(tabletId)) {
-                        finalResultTablets.put(tabletId, beId);
-                    }
-                }
+                Log.warn("tabletIdToBeID is empty, maybe create partition something wrong");
             }
-        } else {
-            finalResultTablets = resultTablets;
         }
+
+        Multimap<Long, Long> finalResultTablets = HashMultimap.create();
+        Env.getCurrentGlobalTransactionMgr().getOrSetAutoPartitionInfo(dbId, txnId, tempResultTablets, finalResultTablets);
 
         for (Long tabletId : finalResultTablets.keySet()) {
             Collection<Long> beIds = finalResultTablets.get(tabletId);

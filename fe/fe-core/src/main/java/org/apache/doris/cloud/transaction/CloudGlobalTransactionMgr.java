@@ -126,6 +126,7 @@ import org.apache.doris.transaction.TxnStateChangeCallback;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -215,37 +216,57 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, Map<Long, Multimap<Long, Long>>> autoPartitionInfo = Maps.newHashMap();
     private final Object autoPartitionInfoLock = new Object();
 
-    public boolean recordAutoPartitionInfo(Long dbId, Long txnId, Multimap<Long, Long> tabletMap) {
+
+    // inMap  : partitionId -> tabletId -> BeId
+    // outMap : tabletId -> BeId
+    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId, 
+                    Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap) {
         synchronized (autoPartitionInfoLock) {
             Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
             if (txnMap == null) {
                 txnMap = Maps.newHashMap();
                 autoPartitionInfo.put(dbId, txnMap);
             }
-            if (!tabletMap.isEmpty()) {
-                Multimap<Long, Long> existingTabletMap = txnMap.get(txnId);
-                if (existingTabletMap != null) {
-                    for (Long tabletId : tabletMap.keySet()) {
-                        if (existingTabletMap.containsKey(tabletId)) {
-                            return true;
+            Multimap<Long, Long> tabletMap = txnMap.get(txnId);
+            // first create partition in this txn, so just use the tablet info in inMap
+            if (tabletMap == null) {
+                tabletMap = HashMultimap.create();
+                for (Map.Entry<Long, Multimap<Long, Long>> entry : inMap.entrySet()) {
+                    Multimap<Long, Long> partitionTabletMap = entry.getValue();
+                    for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
+                        Long tabletId = tabletEntry.getKey();
+                        Long beId = tabletEntry.getValue();
+                        tabletMap.put(tabletId, beId);
+                        outMap.put(tabletId, beId);
+                    }
+                }
+                txnMap.put(txnId, tabletMap);
+            } else {
+                // not first create partition, check every partition in inMap
+                for (Map.Entry<Long, Multimap<Long, Long>> entry : inMap.entrySet()) {
+                    Multimap<Long, Long> partitionTabletMap = entry.getValue();
+                    if (partitionTabletMap.isEmpty()) {
+                        continue;
+                    }
+                    Long firstTabletId = partitionTabletMap.keys().iterator().next();
+                    // the tablets in this partition have been cached
+                    if (tabletMap.containsKey(firstTabletId)) {
+                        for (Long tabletId : partitionTabletMap.keySet()) {
+                            if (tabletMap.containsKey(tabletId)) {
+                                outMap.putAll(tabletId, tabletMap.get(tabletId));
+                            }
+                        }
+                    } else {
+                        // newly create partition
+                        for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
+                            Long tabletId = tabletEntry.getKey();
+                            Long beId = tabletEntry.getValue();
+                            tabletMap.put(tabletId, beId);
+                            outMap.put(tabletId, beId);
                         }
                     }
                 }
             }
-            txnMap.put(txnId, tabletMap);
-            return false;
-        }
-    }
-
-    // the caller will check the NULL val, so we do not need to handle it
-    public Multimap<Long, Long> getAutoPartitionInfo(Long dbId, Long txnId) {
-        synchronized (autoPartitionInfoLock) {
-            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-            if (txnMap == null) {
-                return null;
-            }
-            Multimap<Long, Long> tabletMap = txnMap.get(txnId);
-            return tabletMap;
         }
     }
 

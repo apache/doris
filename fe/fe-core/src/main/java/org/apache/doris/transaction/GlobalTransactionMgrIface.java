@@ -223,7 +223,5 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public int getQueueLength();
 
-    public boolean recordAutoPartitionInfo(Long dbId, Long txnId, Multimap<Long, Long> tabletMap);
-
-    public Multimap<Long, Long> getAutoPartitionInfo(Long dbId, Long txnId);
+    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId, Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap);
 }
