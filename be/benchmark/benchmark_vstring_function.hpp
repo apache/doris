@@ -21,12 +21,12 @@
 
 namespace doris {
 
-    static std::string create_test_data(size_t length, char fill_char = 'a') {
-        return std::string(length, fill_char);
-    }
+static std::string create_test_data(size_t length, char fill_char = 'a') {
+    return std::string(length, fill_char);
+}
 } // namespace doris
 
-static void BM_Vstring_RTrim(benchmark::State& state) {
+static void BM_VString_RTrim(benchmark::State& state) {
     size_t data_size = state.range(0);
 
     std::string test_data = 'a' + doris::create_test_data(data_size, ' ');
@@ -36,15 +36,14 @@ static void BM_Vstring_RTrim(benchmark::State& state) {
     doris::StringRef remove_str(" ");
 
     for (auto _ : state) {
-        const auto* result =
-                doris::simd::VStringFunctions::rtrim<true>(begin, end, remove_str);
+        const auto* result = doris::simd::VStringFunctions::rtrim<true>(begin, end, remove_str);
         benchmark::DoNotOptimize(result);
     }
 
     state.SetBytesProcessed(state.iterations() * test_data.size());
 }
 
-static void BM_Vstring_LTrim(benchmark::State& state) {
+static void BM_VString_LTrim(benchmark::State& state) {
     size_t data_size = state.range(0);
 
     std::string test_data = doris::create_test_data(data_size, ' ') + 'a';
@@ -54,15 +53,14 @@ static void BM_Vstring_LTrim(benchmark::State& state) {
     doris::StringRef remove_str(" ");
 
     for (auto _ : state) {
-        const auto* result =
-                doris::simd::VStringFunctions::ltrim<true>(begin, end, remove_str);
+        const auto* result = doris::simd::VStringFunctions::ltrim<true>(begin, end, remove_str);
         benchmark::DoNotOptimize(result);
     }
 
     state.SetBytesProcessed(state.iterations() * test_data.size());
 }
 
-static void BM_Vstring_IsAscii(benchmark::State& state) {
+static void BM_VString_IsAscii(benchmark::State& state) {
     size_t data_size = state.range(0);
 
     std::string test_data = doris::create_test_data(data_size, 'a');
@@ -76,32 +74,32 @@ static void BM_Vstring_IsAscii(benchmark::State& state) {
     state.SetBytesProcessed(state.iterations() * test_data.size());
 }
 
-BENCHMARK(BM_Vstring_RTrim)
-    ->Unit(benchmark::kNanosecond)
-    ->Arg(16) // 16 bytes
-    ->Arg(32) // 32 bytes
-    ->Arg(64) // 64 bytes
-    ->Arg(256) // 256 bytes
-    ->Arg(1024) // 1KB
-    ->Repetitions(5)
-    ->DisplayAggregatesOnly();
+BENCHMARK(BM_VString_RTrim)
+        ->Unit(benchmark::kNanosecond)
+        ->Arg(16)   // 16 bytes
+        ->Arg(32)   // 32 bytes
+        ->Arg(64)   // 64 bytes
+        ->Arg(256)  // 256 bytes
+        ->Arg(1024) // 1KB
+        ->Repetitions(5)
+        ->DisplayAggregatesOnly();
 
-BENCHMARK(BM_Vstring_LTrim)
-    ->Unit(benchmark::kNanosecond)
-    ->Arg(16) // 16 bytes
-    ->Arg(32) // 32 bytes
-    ->Arg(64) // 64 bytes
-    ->Arg(256) // 256 bytes
-    ->Arg(1024) // 1KB
-    ->Repetitions(5)
-    ->DisplayAggregatesOnly();
+BENCHMARK(BM_VString_LTrim)
+        ->Unit(benchmark::kNanosecond)
+        ->Arg(16)   // 16 bytes
+        ->Arg(32)   // 32 bytes
+        ->Arg(64)   // 64 bytes
+        ->Arg(256)  // 256 bytes
+        ->Arg(1024) // 1KB
+        ->Repetitions(5)
+        ->DisplayAggregatesOnly();
 
-BENCHMARK(BM_Vstring_IsAscii)
-    ->Unit(benchmark::kNanosecond)
-    ->Arg(16) // 16 bytes
-    ->Arg(32) // 32 bytes
-    ->Arg(64) // 64 bytes
-    ->Arg(256) // 256 bytes
-    ->Arg(1024) // 1KB
-    ->Repetitions(5)
-    ->DisplayAggregatesOnly();
+BENCHMARK(BM_VString_IsAscii)
+        ->Unit(benchmark::kNanosecond)
+        ->Arg(16)   // 16 bytes
+        ->Arg(32)   // 32 bytes
+        ->Arg(64)   // 64 bytes
+        ->Arg(256)  // 256 bytes
+        ->Arg(1024) // 1KB
+        ->Repetitions(5)
+        ->DisplayAggregatesOnly();
