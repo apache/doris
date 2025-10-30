@@ -357,6 +357,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             for (ExprId exprId : childDistributionSpecHash.getOrderedShuffledColumns()) {
                 if (!projections.containsKey(exprId) || !projections.get(exprId).equals(exprId)) {
                     canUseChildProperties = false;
+                    break;
                 }
             }
 
