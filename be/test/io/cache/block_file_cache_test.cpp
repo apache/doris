@@ -8289,7 +8289,8 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
     ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 60);
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
+    std::this_thread::sleep_for(
+            std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
     offset = 0;
 
     for (; offset < 30; offset += 5) {
@@ -8416,7 +8417,8 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation_cold_time) {
     ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 60);
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
+    std::this_thread::sleep_for(
+            std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
     offset = 0;
 
     for (; offset < 30; offset += 5) {
