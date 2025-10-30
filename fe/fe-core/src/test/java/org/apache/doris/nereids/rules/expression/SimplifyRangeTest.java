@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
@@ -69,13 +70,11 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     public void testRangeInference() {
         ValueDesc valueDesc = getValueDesc("TA IS NULL");
         Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
-        List<ValueDesc> sourceValues = ((UnknownValue) valueDesc).getSourceValues();
-        Assertions.assertEquals(0, sourceValues.size());
         Assertions.assertEquals("TA IS NULL", valueDesc.getReference().toSql());
 
         valueDesc = getValueDesc("TA IS NULL AND TB IS NULL AND NULL");
-        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
-        sourceValues = ((UnknownValue) valueDesc).getSourceValues();
+        Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
+        List<ValueDesc> sourceValues = ((CompoundValue) valueDesc).getSourceValues();
         Assertions.assertEquals(3, sourceValues.size());
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
@@ -83,8 +82,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
 
         valueDesc = getValueDesc("L + RANDOM(1, 10) > 8 AND L + RANDOM(1, 10) <  1");
-        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
-        sourceValues = ((UnknownValue) valueDesc).getSourceValues();
+        Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
+        sourceValues = ((CompoundValue) valueDesc).getSourceValues();
         Assertions.assertEquals(2, sourceValues.size());
         for (ValueDesc value : sourceValues) {
             Assertions.assertInstanceOf(RangeValue.class, value);
