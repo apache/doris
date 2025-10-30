@@ -496,8 +496,15 @@ public:
     Status _calculate_offsets(ssize_t start,
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        return _offset_iterator->read_by_rowids(rowids, count, dst);
+    }
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
+    // reuse a tiny column for peek to avoid frequent allocations
+    vectorized::MutableColumnPtr _peek_tmp_col;
 };
 
 // This iterator is used to read map value column
