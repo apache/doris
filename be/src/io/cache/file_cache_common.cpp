@@ -136,13 +136,14 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
             std::max(settings.query_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
 
-    if (config::enable_normal_queue_cold_hot_separation) {
+    if (config::enable_file_cache_normal_queue_2qlru) {
         size_t normal_queue_per_size = settings.query_queue_size / 100;
         size_t normal_queue_per_elements = settings.query_queue_elements / 100;
 
-        settings.cold_query_queue_size = normal_queue_per_size * config::normal_queue_cold_percent;
+        settings.cold_query_queue_size =
+                normal_queue_per_size * config::file_cache_2qlru_cold_blocks_percent;
         settings.cold_query_queue_elements =
-                normal_queue_per_elements * config::normal_queue_cold_percent;
+                normal_queue_per_elements * config::file_cache_2qlru_cold_blocks_percent;
 
         settings.query_queue_size -= settings.cold_query_queue_size;
         settings.query_queue_elements -= settings.cold_query_queue_elements;
@@ -159,7 +160,7 @@ std::string UInt128Wrapper::to_string() const {
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset,
                                                                      size_t size) const {
     CacheContext ctx;
-    ctx.cache_type = _expiration_time == 0 ? (config::enable_normal_queue_cold_hot_separation
+    ctx.cache_type = _expiration_time == 0 ? (config::enable_file_cache_normal_queue_2qlru
                                                       ? FileCacheType::COLD_NORMAL
                                                       : FileCacheType::NORMAL)
                                            : FileCacheType::TTL;

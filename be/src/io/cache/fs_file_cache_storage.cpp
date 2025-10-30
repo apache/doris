@@ -632,8 +632,8 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
     if (expiration_time > 0) {
         *cache_type = FileCacheType::TTL;
     } else if (*cache_type == FileCacheType::TTL && expiration_time == 0) {
-        *cache_type = config::enable_normal_queue_cold_hot_separation ? FileCacheType::COLD_NORMAL
-                                                                      : FileCacheType::NORMAL;
+        *cache_type = config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL
+                                                                   : FileCacheType::NORMAL;
     }
 
     if (!parsed) {

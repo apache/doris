@@ -82,10 +82,21 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
         'hadoop.username' = 'hive'
     );"""
 
+    def fileCache2qlruColdBlocksPromotionMsResult = sql """show backend config like 'file_cache_2qlru_cold_blocks_promotion_ms';"""
+    logger.info("file_cache_2qlru_cold_blocks_promotion_ms configuration: " + fileCache2qlruColdBlocksPromotionMsResult)
+    assertFalse(fileCache2qlruColdBlocksPromotionMsResult.size() == 0 || fileCache2qlruColdBlocksPromotionMsResult[0][3] == null ||
+            fileCache2qlruColdBlocksPromotionMsResult[0][3].trim().isEmpty(), "file_cache_2qlru_cold_blocks_promotion_ms is empty or not set to true")
+
+    def fileCache2qlruColdBlocksPromotionMs = Double.valueOf(fileCache2qlruColdBlocksPromotionMsResult) as Integer
+
     sql """switch ${catalog_name}"""
 
     // load the table into file cache
     sql """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table where l_orderkey=1 and l_partkey=1534 limit 1;"""
+
+    Thread.sleep(fileCache2qlruColdBlocksPromotionMs)
+    logger.info("Waited for ${fileCache2qlruColdBlocksPromotionMs} seconds")
+
     // do it twice to make sure the table block could hit the cache
     order_qt_1 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table where l_orderkey=1 and l_partkey=1534 limit 1;"""
 

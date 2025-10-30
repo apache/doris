@@ -479,7 +479,7 @@ void BlockFileCache::use_cell(FileBlockCell& cell, FileBlocks* result, bool move
             auto now_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::steady_clock::now().time_since_epoch())
                                     .count();
-            if (now_time - cell.atime > config::normal_queue_cold_time_ms) {
+            if (now_time - cell.atime > config::file_cache_2qlru_cold_blocks_promotion_ms) {
                 queue.remove(*cell.queue_iterator, cache_lock);
                 _lru_recorder->record_queue_event(
                         FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
@@ -620,7 +620,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
             for (auto& [_, cell] : file_blocks) {
                 auto cache_type = cell.file_block->cache_type();
                 if (cache_type != FileCacheType::TTL) continue;
-                auto new_cache_type = config::enable_normal_queue_cold_hot_separation
+                auto new_cache_type = config::enable_file_cache_normal_queue_2qlru
                                               ? FileCacheType::COLD_NORMAL
                                               : FileCacheType::NORMAL;
                 auto st = cell.file_block->change_cache_type_between_ttl_and_others(new_cache_type);
@@ -955,8 +955,8 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
         st = cell.file_block->change_cache_type_between_ttl_and_others(
-                config::enable_normal_queue_cold_hot_separation ? FileCacheType::COLD_NORMAL
-                                                                : FileCacheType::NORMAL);
+                config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL
+                                                             : FileCacheType::NORMAL);
     } else if (context.cache_type != FileCacheType::TTL && context.expiration_time != 0) {
         st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
     }
@@ -1255,7 +1255,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                     if (cell.file_block->cache_type() == FileCacheType::NORMAL ||
                         cell.file_block->cache_type() == FileCacheType::COLD_NORMAL)
                         continue;
-                    auto new_cache_type = config::enable_normal_queue_cold_hot_separation
+                    auto new_cache_type = config::enable_file_cache_normal_queue_2qlru
                                                   ? FileCacheType::COLD_NORMAL
                                                   : FileCacheType::NORMAL;
                     st = cell.file_block->change_cache_type_between_ttl_and_others(new_cache_type);

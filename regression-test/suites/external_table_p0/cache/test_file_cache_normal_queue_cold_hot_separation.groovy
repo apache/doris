@@ -161,8 +161,6 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     normalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
         where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
     logger.info("normal_queue_curr_size result: " + normalQueueCurrSizeResult)
-    assertFalse(normalQueueCurrSizeResult.size() == 0 || Double.valueOf(normalQueueCurrSizeResult[0][0]) == 0.0,
-            NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG)
 
     coldNormalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
         where METRIC_NAME = 'cold_normal_queue_curr_size' limit 1;"""

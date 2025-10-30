@@ -930,7 +930,7 @@ TEST_F(BlockFileCacheTest, init) {
         ]
         )");
     config::enable_file_cache_query_limit = true;
-    config::enable_normal_queue_cold_hot_separation = false;
+    config::enable_file_cache_normal_queue_2qlru = false;
     std::vector<CachePath> cache_paths;
     EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
     EXPECT_EQ(cache_paths.size(), 2);
@@ -8224,7 +8224,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
 }
 
 TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
-    config::enable_normal_queue_cold_hot_separation = true;
+    config::enable_file_cache_normal_queue_2qlru = true;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -8289,7 +8289,7 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
     ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 60);
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(config::normal_queue_cold_time_ms));
+    std::this_thread::sleep_for(std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
     offset = 0;
 
     for (; offset < 30; offset += 5) {
@@ -8327,13 +8327,13 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
         fs::remove_all(cache_base_path);
     }
 
-    config::enable_normal_queue_cold_hot_separation = false;
+    config::enable_file_cache_normal_queue_2qlru = false;
 }
 
 TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation_cold_time) {
     config::enable_evict_file_cache_in_advance = false;
-    config::enable_normal_queue_cold_hot_separation = true;
-    config::normal_queue_cold_time_ms = 10000;
+    config::enable_file_cache_normal_queue_2qlru = true;
+    config::file_cache_2qlru_cold_blocks_promotion_ms = 10000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -8416,7 +8416,7 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation_cold_time) {
     ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 60);
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(config::normal_queue_cold_time_ms));
+    std::this_thread::sleep_for(std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
     offset = 0;
 
     for (; offset < 30; offset += 5) {
@@ -8438,8 +8438,8 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation_cold_time) {
         fs::remove_all(cache_base_path);
     }
 
-    config::enable_normal_queue_cold_hot_separation = false;
-    config::normal_queue_cold_time_ms = 1000;
+    config::enable_file_cache_normal_queue_2qlru = false;
+    config::file_cache_2qlru_cold_blocks_promotion_ms = 1000;
 }
 
 } // namespace doris::io

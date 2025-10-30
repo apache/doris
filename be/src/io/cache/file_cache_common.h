@@ -152,7 +152,7 @@ struct CacheContext {
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
         } else {
-            cache_type = doris::config::enable_normal_queue_cold_hot_separation
+            cache_type = doris::config::enable_file_cache_normal_queue_2qlru
                                  ? FileCacheType::COLD_NORMAL
                                  : FileCacheType::NORMAL;
         }

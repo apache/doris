@@ -24,7 +24,7 @@ namespace doris::io {
 
 TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     config::enable_evict_file_cache_in_advance = false;
-    config::enable_normal_queue_cold_hot_separation = false;
+    config::enable_file_cache_normal_queue_2qlru = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
@@ -595,7 +595,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
 
 TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_separation) {
     config::enable_evict_file_cache_in_advance = false;
-    config::enable_normal_queue_cold_hot_separation = true;
+    config::enable_file_cache_normal_queue_2qlru = true;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
@@ -663,7 +663,8 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_sepa
     ASSERT_EQ(cache._lru_recorder->_cold_normal_lru_log_queue.size_approx(), 10);
     ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(config::normal_queue_cold_time_ms));
+    std::this_thread::sleep_for(
+            std::chrono::milliseconds(config::file_cache_2qlru_cold_blocks_promotion_ms));
     offset = 0;
 
     for (; offset < 500000; offset += 100000) {
@@ -770,7 +771,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_sepa
         fs::remove_all(cache_base_path);
     }
 
-    config::enable_normal_queue_cold_hot_separation = false;
+    config::enable_file_cache_normal_queue_2qlru = false;
 }
 
 } // namespace doris::io

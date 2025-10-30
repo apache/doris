@@ -1167,9 +1167,9 @@ DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
-DEFINE_mBool(enable_normal_queue_cold_hot_separation, "true");
-DEFINE_Int32(normal_queue_cold_percent, "20");
-DEFINE_mInt32(normal_queue_cold_time_ms, "1000");
+DEFINE_mBool(enable_file_cache_normal_queue_2qlru, "true");
+DEFINE_Int32(file_cache_2qlru_cold_blocks_percent, "20");
+DEFINE_mInt32(file_cache_2qlru_cold_blocks_promotion_ms, "1000");
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
