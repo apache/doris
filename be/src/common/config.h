@@ -1180,6 +1180,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
+DECLARE_mInt32(file_cache_num_parallel_prefetch);
+DECLARE_mInt64(file_cache_tail_read_extra_bytes_threshold);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 // inverted index searcher cache

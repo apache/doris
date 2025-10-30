@@ -69,6 +69,10 @@ private:
 
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        bool is_inverted_index) const;
+
+    std::atomic<int> _parallel_ref {0};
+    std::mutex _parallel_mtx;
+    std::condition_variable _parallel_cv;
 };
 
 } // namespace doris::io

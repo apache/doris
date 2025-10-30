@@ -149,8 +149,7 @@ private:
             const vectorized::ColumnDictI32& column) const {
         std::vector<bool>* res = nullptr;
         if (_segment_id_to_cached_res_flags.if_contains(
-                    column.get_rowset_segment_id(),
-                    [&res](auto& pair) { res = &pair.second; })) {
+                    column.get_rowset_segment_id(), [&res](auto& pair) { res = &pair.second; })) {
             return res;
         }
 
@@ -175,8 +174,8 @@ private:
                     std::pair {column.get_rowset_segment_id(), tmp_res});
         }
 
-        _segment_id_to_cached_res_flags.if_contains(
-                column.get_rowset_segment_id(), [&res](auto& pair) { res = &pair.second; });
+        _segment_id_to_cached_res_flags.if_contains(column.get_rowset_segment_id(),
+                                                    [&res](auto& pair) { res = &pair.second; });
         return res;
     }
 

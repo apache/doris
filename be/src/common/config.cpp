@@ -1143,6 +1143,13 @@ DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+// number of prefetch parallel when the read is missed
+DEFINE_mInt32(file_cache_num_parallel_prefetch, "0");
+// if we read the tail data less than `threshold` we extend this read with extra
+// block of data, e.g. by default, if the read is the tail 10KB, the actual IO is
+// config::file_cache_each_block_size + 10KB
+// if tail read is 101KB, the actual IO is 101KB
+DEFINE_mInt64(file_cache_tail_read_extra_bytes_threshold, "102400");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
