@@ -196,12 +196,16 @@ public:
 
     void reset_read_options() override {}
 
-    Status next_block(vectorized::Block* block) override {
-        return Status::NotSupported("MockRowsetReader::next_block not implemented");
+    Status next_batch(vectorized::Block* block) override {
+        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
-    Status next_block_view(vectorized::BlockView* block_view) override {
-        return Status::NotSupported("MockRowsetReader::next_block_view not implemented");
+    Status next_batch(vectorized::BlockView* block_view) override {
+        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
+    }
+
+    Status next_batch(BlockWithSameBit* block_view) override {
+        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
     bool delete_flag() override { return false; }
