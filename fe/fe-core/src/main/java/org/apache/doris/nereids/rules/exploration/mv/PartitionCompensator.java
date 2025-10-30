@@ -24,8 +24,9 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -64,18 +66,16 @@ public class PartitionCompensator {
     /**
      * Maybe only some partitions is invalid in materialized view, or base table maybe add, modify, delete partition
      * So we should calc the invalid partition used in query
-     * @param queryUsedBaseTablePartitionNameSet partitions used by query related partition table
+     * @param queryUsedBaseTablePartitionMap partitions used by query related partition table
      * @param rewrittenPlan tmp rewrittenPlan when mv rewrite
      * @param materializationContext the context of materialization,which hold materialized view meta and other info
      * @param cascadesContext the context of cascades
      * @return the key in pair is mvNeedRemovePartitionNameSet, the value in pair is baseTableNeedUnionPartitionNameSet
      */
-    public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> calcInvalidPartitions(
-            Set<String> queryUsedBaseTablePartitionNameSet, Plan rewrittenPlan,
+    public static Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap, Plan rewrittenPlan,
             AsyncMaterializationContext materializationContext, CascadesContext cascadesContext)
             throws AnalysisException {
-        Set<String> mvNeedRemovePartitionNameSet = new HashSet<>();
-        Set<String> baseTableNeedUnionPartitionNameSet = new HashSet<>();
         // check partition is valid or not
         MTMV mtmv = materializationContext.getMtmv();
         PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
@@ -83,70 +83,142 @@ public class PartitionCompensator {
             // if not partition, if rewrite success, it means mv is available
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
-        MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
-        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
-        if (relatedPartitionTable == null || queryUsedBaseTablePartitionNameSet.isEmpty()) {
+        if (mtmv.getMvPartitionInfo().getPctTables().isEmpty() || queryUsedBaseTablePartitionMap.isEmpty()) {
             // if mv is not partitioned or query not query any partition, doesn't compensate
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
+        // get mv valid partitions
         Collection<Partition> mvValidPartitions = cascadesContext.getStatementContext()
                 .getMvCanRewritePartitionsMap().get(new BaseTableInfo(mtmv));
+        Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();
+        List<LogicalOlapScan> mvOlapScanList = rewrittenPlan.collectToList(node ->
+                node instanceof LogicalOlapScan
+                        && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()));
+        for (LogicalOlapScan olapScan : mvOlapScanList) {
+            olapScan.getSelectedPartitionIds().forEach(id ->
+                    rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
+        }
+        Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap
+                = materializationContext.calculatePartitionMappings();
+        boolean allCompensateIsNull = true;
+
+        Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
+        Map<BaseColInfo, Set<String>> baseTablePartitionNeedUnionNameMap = new HashMap<>();
+
+        Map<BaseTableInfo, BaseColInfo> pctInfoMap = new HashMap<>();
+        mtmv.getMvPartitionInfo().getPctInfos().forEach(
+                colInfo -> pctInfoMap.put(colInfo.getTableInfo(), colInfo));
+
+        for (Map.Entry<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMapping
+                : mtmvRelatedTableIfMapMap.entrySet()) {
+            MTMVRelatedTableIf relatedTable = partitionMapping.getKey();
+            Set<String> relatedTableUsedPartitionSet
+                    = queryUsedBaseTablePartitionMap.get(relatedTable.getFullQualifiers());
+            Pair<Pair<BaseTableInfo, Set<String>>, Pair<BaseColInfo, Set<String>>> needCompensatePartitions
+                    = getNeedCompensatePartitions(mvValidPartitions, relatedTableUsedPartitionSet,
+                    rewrittenPlanUsePartitionNameSet, pctInfoMap.get(new BaseTableInfo(relatedTable)),
+                    partitionMapping.getValue(), materializationContext);
+            allCompensateIsNull &= needCompensatePartitions == null;
+            if (needCompensatePartitions == null) {
+                continue;
+            }
+            Pair<BaseTableInfo, Set<String>> mvNeedRemovePartition = needCompensatePartitions.key();
+            Pair<BaseColInfo, Set<String>> baseTableNeedUnionTable = needCompensatePartitions.value();
+            if ((mvNeedRemovePartition.value().isEmpty() && baseTableNeedUnionTable.value().isEmpty())) {
+                continue;
+            }
+            if (!mvNeedRemovePartition.value().isEmpty()) {
+                mvPartitionNeedRemoveNameMap
+                        .computeIfAbsent(mvNeedRemovePartition.key(), k -> new HashSet<>())
+                        .addAll(mvNeedRemovePartition.value());
+            }
+            if (!baseTableNeedUnionTable.value().isEmpty()) {
+                baseTablePartitionNeedUnionNameMap
+                        .computeIfAbsent(baseTableNeedUnionTable.key(), k -> new HashSet<>())
+                        .addAll(baseTableNeedUnionTable.value());
+            }
+            // merge all partition to delete or union
+            Set<String> needRemovePartitionSet = new HashSet<>();
+            mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
+            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
+
+            // consider multi base table partition name not same, how to handle it?
+            Set<String> needUnionPartitionSet = new HashSet<>();
+            baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
+            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
+        }
+        if (allCompensateIsNull) {
+            return null;
+        }
+        return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
+    }
+
+    private static Pair<Pair<BaseTableInfo, Set<String>>, Pair<BaseColInfo, Set<String>>> getNeedCompensatePartitions(
+            Collection<Partition> mvValidPartitions,
+            Set<String> queryUsedBaseTablePartitionNameSet,
+            Set<String> rewrittenPlanUsePartitionNameSet,
+            BaseColInfo relatedPartitionTable,
+            Map<String, Set<String>> partitionMapping,
+            MaterializationContext materializationContext
+    ) {
+        // compensated result
+        Set<String> baseTableNeedUnionPartitionNameSet = new HashSet<>();
+        // the middle result when compensate
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();
-        Pair<Map<String, Set<String>>, Map<String, String>> partitionMapping = mtmv.calculateDoublyPartitionMappings();
+        MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
         for (Partition mvValidPartition : mvValidPartitions) {
             mvValidPartitionNameSet.add(mvValidPartition.getName());
-            Set<String> relatedBaseTablePartitions = partitionMapping.key().get(mvValidPartition.getName());
+            Set<String> relatedBaseTablePartitions = partitionMapping.get(mvValidPartition.getName());
             if (relatedBaseTablePartitions != null) {
                 mvValidBaseTablePartitionNameSet.addAll(relatedBaseTablePartitions);
-            }
-            if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId())).isEmpty()) {
-                if (relatedBaseTablePartitions != null) {
+                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId())).isEmpty()) {
                     mvValidHasDataRelatedBaseTableNameSet.addAll(relatedBaseTablePartitions);
                 }
             }
         }
         if (Sets.intersection(mvValidHasDataRelatedBaseTableNameSet, queryUsedBaseTablePartitionNameSet).isEmpty()) {
-            // if mv can not offer any partition for query, query rewrite bail out
+            // if mv couldn't offer any partition for query, query rewrite should bail out
             return null;
         }
-        // Check when mv partition relates base table partition data change or delete partition
-        Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();
-        List<Object> mvOlapScanList = rewrittenPlan.collectToList(node ->
-                node instanceof LogicalOlapScan
-                        && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()));
-        for (Object olapScanObj : mvOlapScanList) {
-            LogicalOlapScan olapScan = (LogicalOlapScan) olapScanObj;
-            olapScan.getSelectedPartitionIds().forEach(id ->
-                    rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
-        }
-        // If rewritten plan use but not in mv valid partition name set, need remove in mv and base table union
+        // Check when mv partition relates base table partition data change or delete partition,
+        // the mv partition would be invalid.
+        // Partitions rewritten plan used but not in mv valid partition name set,
+        // need to be removed in mv and union base table
+        Set<String> mvNeedRemovePartitionNameSet = new HashSet<>();
         Sets.difference(rewrittenPlanUsePartitionNameSet, mvValidPartitionNameSet)
                 .copyInto(mvNeedRemovePartitionNameSet);
         for (String partitionName : mvNeedRemovePartitionNameSet) {
-            baseTableNeedUnionPartitionNameSet.addAll(partitionMapping.key().get(partitionName));
+            Set<String> baseTablePartitions = partitionMapping.get(partitionName);
+            if (baseTablePartitions == null) {
+                // Base table partition maybe deleted, need not union
+                continue;
+            }
+            baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
         }
-        // If related base table create partitions or mv is created with ttl, need base table union
+        // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)
                 .copyInto(baseTableNeedUnionPartitionNameSet);
         // Construct result map
-        Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
+        Pair<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = Pair.of(
+                new BaseTableInfo(mtmv), ImmutableSet.of());
         if (!mvNeedRemovePartitionNameSet.isEmpty()) {
-            mvPartitionNeedRemoveNameMap.put(new BaseTableInfo(mtmv), mvNeedRemovePartitionNameSet);
+            mvPartitionNeedRemoveNameMap = Pair.of(new BaseTableInfo(mtmv), mvNeedRemovePartitionNameSet);
         }
-        Map<BaseTableInfo, Set<String>> baseTablePartitionNeedUnionNameMap = new HashMap<>();
+        Pair<BaseColInfo, Set<String>> baseTablePartitionNeedUnionNameMap = Pair.of(
+                relatedPartitionTable, ImmutableSet.of());
         if (!baseTableNeedUnionPartitionNameSet.isEmpty()) {
-            baseTablePartitionNeedUnionNameMap.put(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
+            baseTablePartitionNeedUnionNameMap = Pair.of(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }
 
     public static boolean needUnionRewrite(
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions,
+            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions,
             CascadesContext cascadesContext) {
         return invalidPartitions != null
-                && (!invalidPartitions.key().isEmpty() || !invalidPartitions.value().isEmpty());
+                && (!invalidPartitions.key().values().isEmpty() || !invalidPartitions.value().values().isEmpty());
     }
 
     /**
@@ -158,8 +230,8 @@ public class PartitionCompensator {
         }
         MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
         PartitionType type = mtmv.getPartitionInfo().getType();
-        BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
-        return !PartitionType.UNPARTITIONED.equals(type) && relatedTableInfo != null;
+        List<BaseColInfo> pctInfos = mtmv.getMvPartitionInfo().getPctInfos();
+        return !PartitionType.UNPARTITIONED.equals(type) && !pctInfos.isEmpty();
     }
 
     /**

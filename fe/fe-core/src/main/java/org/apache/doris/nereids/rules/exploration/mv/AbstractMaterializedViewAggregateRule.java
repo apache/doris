@@ -18,9 +18,10 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -67,7 +68,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -341,10 +341,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * compensate union all.
      */
     @Override
-    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+    protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
+            CascadesContext cascadesContext) {
         // Check query plan is contain the partition column
         // Query plan in the current rule must contain aggregate node, because the rule pattern is
-        //
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
                 queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
         if (!logicalAggregateOptional.isPresent()) {
@@ -355,19 +355,24 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             // Scalar aggregate can not compensate union all
             return false;
         }
-        final String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
-        final BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+        MTMVPartitionInfo mvPartitionInfo = context.getMtmv().getMvPartitionInfo();
+        List<BaseColInfo> pctInfos = mvPartitionInfo.getPctInfos();
         boolean canUnionRewrite = false;
         // Check the query plan group by expression contains partition col or not
         List<? extends Expression> groupByShuttledExpressions =
                 ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan, new BitSet());
         for (Expression expression : groupByShuttledExpressions) {
-            canUnionRewrite = !expression.collectToSet(expr -> expr instanceof SlotReference
-                    && ((SlotReference) expr).isColumnFromTable()
-                    && Objects.equals(((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null),
-                    relatedCol)
-                    && Objects.equals(((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new).orElse(null),
-                    relatedTableInfo)).isEmpty();
+            canUnionRewrite = !expression.collectToSet(expr -> {
+                if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
+                    return false;
+                }
+                String columnName = ((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null);
+                BaseTableInfo baseTableInfo = ((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new)
+                        .orElse(null);
+                return pctInfos.stream().anyMatch(colInfo -> colInfo.getTableInfo().equals(baseTableInfo)
+                        && colInfo.getColName().equals(columnName));
+            }
+            ).isEmpty();
             if (canUnionRewrite) {
                 break;
             }
