@@ -161,7 +161,7 @@ suite("test_drop_partition_range") {
     List<List<Object>> result13 = sql "show partitions from drop_range_partition_6;"
     assertEquals(result13.size(), 4)
 
-    // Test 8: Delete partitions by date number without intervals
+    // Test 7: Delete partitions by date number without intervals
     sql """
         CREATE TABLE drop_range_partition_7
         (
@@ -185,29 +185,4 @@ suite("test_drop_partition_range") {
     sql "ALTER TABLE drop_range_partition_7 DROP PARTITION FROM (1) TO (3);"
     List<List<Object>> result14 = sql "show partitions from drop_range_partition_7;"
     assertEquals(result14.size(), 2)
-    
-    // Test 8: Delete partitions by date range without intervals
-    sql """
-        CREATE TABLE drop_range_partition_8
-        (
-            `k1` LARGEINT NOT NULL,
-            `age` SMALLINT,
-            `k2` VARCHAR(20)
-        )
-        ENGINE=OLAP
-        UNIQUE KEY(`k1`, `age`)
-        PARTITION BY RANGE(`age`)
-        (
-            PARTITION p_1 VALUES [("1"), ("10")),
-            PARTITION p_2 VALUES [("10"), ("20")),
-            PARTITION p_3 VALUES [("20"), ("30")),
-            PARTITION p_4 VALUES [("30"), ("40"))
-        )
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-        PROPERTIES ("replication_num" = "1");
-    """
-    
-    sql "ALTER TABLE drop_range_partition_8 DROP PARTITION FROM (1) TO (3);"
-    List<List<Object>> result15 = sql "show partitions from drop_range_partition_8;"
-    assertEquals(result15.size(), 2)
 }
