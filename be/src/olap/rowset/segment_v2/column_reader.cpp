@@ -1329,7 +1329,7 @@ Status StructFileColumnIterator::set_access_paths(
 
         if (!no_predicate_sub_column) {
             for (const auto& paths : sub_predicate_access_paths) {
-                if (!StringCaseEqual()(paths.data_access_path.path[0], name)) {
+                if (StringCaseEqual()(paths.data_access_path.path[0], name)) {
                     sub_predicate_access_paths_of_this.emplace_back(paths);
                 }
             }
