@@ -538,6 +538,32 @@ Status VOlapTablePartitionParam::init() {
         }
     }
 
+    // Debug: dump all partitions BE currently holds
+    if (_is_in_partition) {
+        LOG(WARNING) << "=== BE PARTITIONS (LIST) count=" << _partitions.size();
+        for (auto* part : _partitions) {
+            LOG(WARNING) << "Partition id=" << part->id << " in_keys=" << part->in_keys.size();
+            for (size_t ik = 0; ik < part->in_keys.size(); ++ik) {
+                auto& br = part->in_keys[ik];
+                LOG(WARNING) << "  in_key[" << ik
+                             << "]: " << br.first->dump_data_json(br.second, 1);
+            }
+        }
+    } else {
+        LOG(WARNING) << "=== BE PARTITIONS (RANGE) count=" << _partitions.size();
+        for (auto* part : _partitions) {
+            std::string start =
+                    part->start_key.second == -1
+                            ? std::string("(min)")
+                            : part->start_key.first->dump_data_json(part->start_key.second, 1);
+            std::string end = part->end_key.second == -1 ? std::string("(max)")
+                                                         : part->end_key.first->dump_data_json(
+                                                                   part->end_key.second, 1);
+            LOG(WARNING) << "Partition id=" << part->id << " range: [" << start << ", " << end
+                         << ")";
+        }
+    }
+
     _mem_usage = _partition_block.allocated_bytes();
     _mem_tracker->consume(_mem_usage);
     return Status::OK();
@@ -584,12 +610,18 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else {
+            // TYPE_DATE (DATEV1) or TYPE_DATETIME (DATETIMEV1)
             VecDateTimeValue dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
+            }
+            if (vectorized::DataTypeFactory::instance()
+                        .create_data_type(t_expr.type)
+                        ->get_primitive_type() == TYPE_DATE) {
+                dt.cast_to_date();
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         }

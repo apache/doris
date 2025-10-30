@@ -442,6 +442,11 @@ March
 2	2024-02-16T00:00	feb1
 3	2024-03-16T00:00	mar1
 
+-- !datev1_list_partitionv4 --
+1	2024-01-17	jan1
+2	2024-02-16	feb1
+3	2024-03-16	mar1
+
 -- !datev1_bucket --
 1	2024-01-15	val1
 2	2024-02-16	val2
