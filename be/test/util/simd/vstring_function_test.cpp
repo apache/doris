@@ -62,7 +62,7 @@ TEST(VStringFunctionsTest, Rtrim) {
         begin = reinterpret_cast<const unsigned char*>(str.data());
         end = begin + str.size();
     };
-    
+
     // remove str
     // positive
     set_ptrs("hello worldabcabcabc");
@@ -124,7 +124,7 @@ TEST(VStringFunctionsTest, Ltrim) {
         begin = reinterpret_cast<const unsigned char*>(str.data());
         end = begin + str.size();
     };
-    
+
     // remove str
     // positive
     set_ptrs("abcabcabchello world");
@@ -189,7 +189,8 @@ TEST(VStringFunctionsTest, IterateUtf8WithLimitLength) {
     EXPECT_EQ(s.size(), res.second);
 
     // "ab中c" => bytes: 'a'(1) 'b'(1) '中'(3) 'c'(1) => total 6 bytes, 4 chars
-    s = "ab\xE4\xB8\xAD" "c";
+    s = "ab\xE4\xB8\xAD"
+        "c";
     res = VStringFunctions::iterate_utf8_with_limit_length(s.data(), s.data() + s.size(), 1);
     EXPECT_EQ(1U, res.first);
     EXPECT_EQ(1U, res.second);
@@ -208,7 +209,8 @@ TEST(VStringFunctionsTest, IterateUtf8WithLimitLength) {
     EXPECT_EQ(4U, res.second);
 
     // "你好a" => 你(3) 好(3) a(1) => total 7 bytes, 3 chars
-    s = "\xE4\xBD\xA0\xE5\xA5\xBD" "a";
+    s = "\xE4\xBD\xA0\xE5\xA5\xBD"
+        "a";
     res = VStringFunctions::iterate_utf8_with_limit_length(s.data(), s.data() + s.size(), 1);
     EXPECT_EQ(3U, res.first);
     EXPECT_EQ(1U, res.second);
@@ -227,7 +229,8 @@ TEST(VStringFunctionsTest, IterateUtf8WithLimitLength) {
     EXPECT_EQ(3U, res.second);
 
     // "😀a" => 😀(4 bytes) + 'a'(1) => total 5 bytes, 2 chars
-    s = "\xF0\x9F\x98\x80" "a";
+    s = "\xF0\x9F\x98\x80"
+        "a";
     res = VStringFunctions::iterate_utf8_with_limit_length(s.data(), s.data() + s.size(), 1);
     EXPECT_EQ(4U, res.first);
     EXPECT_EQ(1U, res.second);
@@ -293,21 +296,35 @@ TEST(VStringFunctionsTest, Reverse) {
     reverse_check(zh, std::string("\xE6\x96\x87\xE4\xB8\xAD", 6));
 
     // mixed ASCII + Chinese: "ab中c" -> "c中ba"
-    std::string mixed = "ab\xE4\xB8\xAD" "c";
-    reverse_check(mixed, std::string("c\xE4\xB8\xAD" "ba", 6));
+    std::string mixed =
+            "ab\xE4\xB8\xAD"
+            "c";
+    reverse_check(mixed, std::string("c\xE4\xB8\xAD"
+                                                      "ba",
+                                                      6));
 
     // emoji (4-byte) + ASCII: "😀a" -> "a😀"
-    std::string emoji_a = "\xF0\x9F\x98\x80" "a";
+    std::string emoji_a =
+            "\xF0\x9F\x98\x80"
+            "a";
     reverse_check(emoji_a, std::string("a\xF0\x9F\x98\x80", 5));
 
     // mixed multi-codepoint: "你😀好" -> "好😀你"
-    std::string mix2 = "\xE4\xBD\xA0" "\xF0\x9F\x98\x80" "\xE5\xA5\xBD";
-    reverse_check(mix2, std::string("\xE5\xA5\xBD" "\xF0\x9F\x98\x80" "\xE4\xBD\xA0", 10));
+    std::string mix2 =
+            "\xE4\xBD\xA0"
+            "\xF0\x9F\x98\x80"
+            "\xE5\xA5\xBD";
+    reverse_check(mix2, std::string("\xE5\xA5\xBD"
+                                                    "\xF0\x9F\x98\x80"
+                                                    "\xE4\xBD\xA0",
+                                                    10));
 
     // illegal UTF-8 leading byte without continuation: "A\xC2" -> "\xC2A"
     std::string invalid = "A";
     invalid.push_back('\xC2'); // leading byte of a 2-byte sequence without continuation
-    reverse_check(invalid, std::string("\xC2" "A", 2));
+    reverse_check(invalid, std::string("\xC2"
+                                                        "A", 
+                                                        2));
 }
 
 TEST(VStringFunctionsTest, HexEncode) {
@@ -318,43 +335,43 @@ TEST(VStringFunctionsTest, HexEncode) {
     };
 
     // empty
-    std::vector<unsigned char> empty{};
+    std::vector<unsigned char> empty {};
     EXPECT_EQ(std::string(), encode_ptr(empty.data(), empty.size()));
 
     // single byte: 'A' -> 0x41
-    std::vector<unsigned char> one{'A'};
+    std::vector<unsigned char> one {'A'};
     EXPECT_EQ("41", encode_ptr(one.data(), one.size()));
 
     // ASCII "hello" -> 68 65 6C 6C 6F
-    std::vector<unsigned char> hello{'h','e','l','l','o'};
+    std::vector<unsigned char> hello {'h','e','l','l','o'};
     EXPECT_EQ("68656C6C6F", encode_ptr(hello.data(), hello.size()));
 
     // mixed values incl. 0x00 and 0xFF
-    std::vector<unsigned char> bytes{0x00, 0xFF, 0x1A, 0xB0, 0x5E, 0x7F};
+    std::vector<unsigned char> bytes {0x00, 0xFF, 0x1A, 0xB0, 0x5E, 0x7F};
     EXPECT_EQ("00FF1AB05E7F", encode_ptr(bytes.data(), bytes.size()));
 
     // embedded zero
-    std::vector<unsigned char> with_zero{0x01, 0x00, 0x02};
+    std::vector<unsigned char> with_zero {0x01, 0x00, 0x02};
     EXPECT_EQ("010002", encode_ptr(with_zero.data(), with_zero.size()));
 
     // small string to skip SIMD path
-    std::vector<unsigned char> small{0x12, 0x34, 0x56, 0x78, 0x9A};
+    std::vector<unsigned char> small {0x12, 0x34, 0x56, 0x78, 0x9A};
     EXPECT_EQ("123456789A", encode_ptr(small.data(), small.size()));
 
     // large string to cover SIMD path
-    std::vector<unsigned char> large{0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
+    std::vector<unsigned char> large {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
                                      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
                                      0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
-    EXPECT_EQ("123456789ABCDEF0112233445566778899AABBCCDDEEFF", encode_ptr(large.data(), large.size()));
+    EXPECT_EQ("123456789ABCDEF0112233445566778899AABBCCDDEEFF",
+              encode_ptr(large.data(), large.size()));
 }
 
 TEST(VStringFunctionsTest, ToLower) {
     auto check_to_lower = [](const std::string& in, const std::string& expected) {
         std::string dst(in.size(), '\0');
-        VStringFunctions::to_lower(
-            reinterpret_cast<const uint8_t*>(in.data()),
-            static_cast<int64_t>(in.size()),
-            reinterpret_cast<uint8_t*>(dst.data()));
+        VStringFunctions::to_lower(reinterpret_cast<const uint8_t*>(in.data()),
+                                   static_cast<int64_t>(in.size()),
+                                   reinterpret_cast<uint8_t*>(dst.data()));
         EXPECT_EQ(dst, expected);
     };
 
@@ -378,10 +395,9 @@ TEST(VStringFunctionsTest, ToLower) {
 TEST(VStringFunctionsTest, ToUpper) {
     auto check_to_upper = [](const std::string& in, const std::string& expected) {
         std::string dst(in.size(), '\0');
-        VStringFunctions::to_upper(
-            reinterpret_cast<const uint8_t*>(in.data()),
-            static_cast<int64_t>(in.size()),
-            reinterpret_cast<uint8_t*>(dst.data()));
+        VStringFunctions::to_upper(reinterpret_cast<const uint8_t*>(in.data()),
+                                   static_cast<int64_t>(in.size()),
+                                   reinterpret_cast<uint8_t*>(dst.data()));
         EXPECT_EQ(dst, expected);
     };
 
@@ -403,7 +419,8 @@ TEST(VStringFunctionsTest, ToUpper) {
 }
 
 TEST(VStringFunctionsTest, GetCharLen) {
-    auto check = [](const std::string& s, size_t expected_count, const std::vector<size_t>& expected_idx) {
+    auto check = [](const std::string& s, size_t expected_count,
+                              const std::vector<size_t>& expected_idx) {
         // overload with index vector
         std::vector<size_t> idx;
         size_t c1 = VStringFunctions::get_char_len(s.data(), s.size(), idx);
@@ -430,11 +447,16 @@ TEST(VStringFunctionsTest, GetCharLen) {
     check(zh, 2, {0, 3});
 
     // "ab中c" => 'a'(0) 'b'(1) '中'(2) 'c'(5)
-    std::string mixed = "ab\xE4\xB8\xAD" "c";
+    std::string mixed =
+            "ab\xE4\xB8\xAD"
+            "c";
     check(mixed, 4, {0, 1, 2, 5});
 
     // "你😀好" => 你(0,3 bytes), 😀(3,4 bytes), 好(7,3 bytes)
-    std::string emoji_mix = "\xE4\xBD\xA0" "\xF0\x9F\x98\x80" "\xE5\xA5\xBD";
+    std::string emoji_mix =
+            "\xE4\xBD\xA0"
+            "\xF0\x9F\x98\x80"
+            "\xE5\xA5\xBD";
     check(emoji_mix, 3, {0, 3, 7});
 }
 } //namespace doris::simd

@@ -97,7 +97,7 @@ inline bool validate_ascii_fast_avx(const char* src, size_t len) {
 }
 #elif defined(__ARM_FEATURE_SVE)
 inline bool validate_ascii_fast_sve(const char* src, size_t len) {
-    for (size_t i = 0; i < len; i+= svcntb()) {
+    for (size_t i = 0; i < len; i += svcntb()) {
         svbool_t pg = svwhilelt_b8(i, len);
         svuint8_t v = svld1_u8(pg, reinterpret_cast<const uint8_t*>(src + i));
         // Check sign bit set => byte < 0 as int8 => non-ASCII
