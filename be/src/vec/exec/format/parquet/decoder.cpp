@@ -43,6 +43,26 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new ByteArrayPlainDecoder());
             break;
         case tparquet::Type::INT32:
+        case tparquet::Type::INT64:
+        case tparquet::Type::INT96:
+        case tparquet::Type::FLOAT:
+        case tparquet::Type::DOUBLE:
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            decoder.reset(new FixLengthPlainDecoder());
+            break;
+        default:
+            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
+                                         tparquet::to_string(type), tparquet::to_string(encoding));
+        }
+        break;
+    case tparquet::Encoding::RLE_DICTIONARY:
+        switch (type) {
+        case tparquet::Type::BOOLEAN:
+            return Status::InternalError("Bool type can't has dictionary page");
+        case tparquet::Type::BYTE_ARRAY:
+            decoder.reset(new ByteArrayDictDecoder());
+            break;
+        case tparquet::Type::INT32:
             decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT32>());
             break;
         case tparquet::Type::INT64:
@@ -59,26 +79,6 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             decoder.reset(new FixLengthDictDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY>());
-            break;
-        default:
-            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
-                                         tparquet::to_string(type), tparquet::to_string(encoding));
-        }
-        break;
-    case tparquet::Encoding::RLE_DICTIONARY:
-        switch (type) {
-        case tparquet::Type::BOOLEAN:
-            return Status::InternalError("Bool type can't has dictionary page");
-        case tparquet::Type::BYTE_ARRAY:
-            decoder.reset(new ByteArrayDictDecoder());
-            break;
-        case tparquet::Type::INT32:
-        case tparquet::Type::INT64:
-        case tparquet::Type::INT96:
-        case tparquet::Type::FLOAT:
-        case tparquet::Type::DOUBLE:
-        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new FixLengthDictDecoder());
             break;
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
