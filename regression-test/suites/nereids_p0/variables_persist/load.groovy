@@ -15,15 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_alias_function") {
-    // 打开enable_decimal256建表
+suite("load") {
     multi_sql """
-        set enable_decimal256=true;
-        drop function if exists multiply_plus_1(decimalv3(20,5), decimalv3(20,6));
-        CREATE ALIAS FUNCTION multiply_plus_1(decimalv3(20,5), decimalv3(20,6)) WITH PARAMETER(a,b) AS add(multiply(a,b),1);
-        set enable_decimal256=false;
+        drop table if exists test_decimal_mul_overflow1;
+        CREATE TABLE `test_decimal_mul_overflow1` (
+            `f1` decimal(20,5) NULL,
+            `f2` decimal(21,6) NULL
+        )DISTRIBUTED BY HASH(f1)
+        PROPERTIES("replication_num" = "1");
+        insert into test_decimal_mul_overflow1 values(999999999999999.12345,999999999999999.123456);
     """
-    // 预期为256精度计算的结果：999999999999998246906000000001.76833464320
-    qt_multiply_add "select multiply_plus_1(f1,f2) from test_decimal_mul_overflow1;"
 
+    multi_sql """
+        drop table if exists t_decimalv3;
+        create table t_decimalv3(a decimal(38,9),b decimal(38,10))
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        set enable_decimal256=false;
+        insert into t_decimalv3 values(1.012345678,1.0123456789);
+    """
 }

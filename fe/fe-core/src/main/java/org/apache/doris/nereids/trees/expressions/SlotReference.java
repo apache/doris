@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -195,9 +196,12 @@ public class SlotReference extends Slot {
     public String toString() {
         if (subPath.isEmpty()) {
             // Just return name and exprId, add another method to show fully qualified name when it's necessary.
-            return name.get() + "#" + exprId + "___" + getDataType();
+            return name.get() + "#" + exprId
+                    + (this instanceof Unbound ? "" : "____type:" + getDataType().toString());
         }
-        return name.get() + "['" + String.join("']['", subPath) + "']" + "#" + exprId + "___" + getDataType();
+        return name.get() + "['" + String.join("']['", subPath) + "']" + "#" + exprId
+                + (this instanceof Unbound ? "" : "____type:" + getDataType().toString());
+
     }
 
     @Override

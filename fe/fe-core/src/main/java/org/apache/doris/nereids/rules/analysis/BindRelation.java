@@ -89,13 +89,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
-import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
@@ -577,20 +576,23 @@ public class BindRelation extends OneAnalysisRuleFactory {
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
             analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
-        }
-        // Wrap the analyzed view plan outputs with SessionVarGuardExpr to preserve session variables
-        if (analyzedPlan instanceof LogicalPlan) {
-            List<NamedExpression> guardedProjects = analyzedPlan.getOutput().stream()
-                    .map(NamedExpression.class::cast)
-                    .map(ne -> new Alias(
-                            new org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr(ne, viewInfo.second),
-                            ne.getName()))
-                    .collect(ImmutableList.toImmutableList());
-            LogicalProject<Plan> newProject = new LogicalProject<>(guardedProjects, (LogicalPlan) analyzedPlan);
-            if (analyzedPlan instanceof ProjectMergeable) {
-                return ProjectMergeable.mergeContinuedProjects(guardedProjects, analyzedPlan).orElse(newProject);
-            }
-            return newProject;
+            SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
+            analyzedPlan = analyzedPlan.accept(new DefaultPlanRewriter<Void>() {
+                @Override
+                public Plan visit(Plan plan, Void ctx) {
+                    plan = super.visit(plan, ctx);
+                    return exprRewriter.rewriteExpr(plan);
+                }
+            }, null);
+            // 这个方法似乎无法解决物化视图改写的问题，看来可能还是要把使用到aggfunc的改写去挨个改一下，把session var带上
+            // CacheSignature cacheSignature = new CacheSignature(parentContext);
+            // analyzedPlan.accept(new DefaultPlanRewriter<Void>() {
+            //     @Override
+            //     public Plan visit(Plan plan, Void ctx) {
+            //         plan = super.visit(plan, ctx);
+            //         return cacheSignature.rewriteExpr(plan);
+            //     }
+            // }, null);
         }
         return analyzedPlan;
     }

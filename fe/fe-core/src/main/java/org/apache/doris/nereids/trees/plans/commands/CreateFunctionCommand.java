@@ -80,6 +80,7 @@ import org.apache.doris.proto.FunctionService;
 import org.apache.doris.proto.PFunctionServiceGrpc;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -993,8 +994,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
             }
         }
+        Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultSessionVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx));
+                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
+                sessionVariables);
     }
 
     private boolean checkParams(Expression expr, String param) {
