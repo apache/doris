@@ -61,7 +61,6 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
