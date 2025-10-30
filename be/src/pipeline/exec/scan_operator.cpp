@@ -33,6 +33,7 @@
 #include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
@@ -174,6 +175,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     M(DATETIME)                     \
     M(DATEV2)                       \
     M(DATETIMEV2)                   \
+    M(TIMESTAMPTZ)                  \
     M(VARCHAR)                      \
     M(STRING)                       \
     M(HLL)                          \
@@ -499,7 +501,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     } else if ((child_contains_slot->data_type()->get_primitive_type() ==
                         PrimitiveType::TYPE_DATETIME ||
                 child_contains_slot->data_type()->get_primitive_type() ==
-                        PrimitiveType::TYPE_DATETIMEV2) &&
+                        PrimitiveType::TYPE_DATETIMEV2 ||
+                child_contains_slot->data_type()->get_primitive_type() ==
+                        PrimitiveType::TYPE_TIMESTAMPTZ) &&
                child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
         // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
         // push down.
@@ -935,7 +939,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
-                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
+                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2) ||
+                         (PrimitiveType == TYPE_TIMESTAMPTZ)) {
         if constexpr (IsFixed) {
             func(temp_range,
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
