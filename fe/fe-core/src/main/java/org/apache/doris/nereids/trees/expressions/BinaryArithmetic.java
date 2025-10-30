@@ -26,21 +26,31 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
 public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable {
 
+    protected final Supplier<DataType> dataTypeCache;
     private final Operator legacyOperator;
 
     public BinaryArithmetic(List<Expression> children, Operator legacyOperator) {
         super(children, legacyOperator.toString());
         this.legacyOperator = legacyOperator;
+        this.dataTypeCache = buildExpressionDataTypeCache(null);
+    }
+
+    public BinaryArithmetic(Params params) {
+        super(params.children, params.legacyOperator.toString());
+        this.legacyOperator = params.legacyOperator;
+        this.dataTypeCache = buildExpressionDataTypeCache(params.getOriginDataType());
     }
 
     public Operator getLegacyOperator() {
@@ -52,8 +62,8 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
         return NumericType.INSTANCE;
     }
 
-    @Override
-    public DataType getDataType() throws UnboundException {
+    /**computeDataType*/
+    public DataType computeDataType() throws UnboundException {
         DataType t1 = left().getDataType();
         DataType t2 = right().getDataType();
         if (t1.isDecimalV2Type() && t2.isDecimalV2Type()) {
@@ -115,5 +125,22 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
             }
         }
         return DecimalV3Type.createDecimalV3Type(precision, scale);
+    }
+
+    private Supplier<DataType> buildExpressionDataTypeCache(Supplier<DataType> specifiedDataType) {
+        if (specifiedDataType != null) {
+            return specifiedDataType;
+        } else {
+            return LazyCompute.of(this::computeDataType);
+        }
+    }
+
+    public Params getParams(List<Expression> children) {
+        return new Params(this, getLegacyOperator(), children, isInferred());
+    }
+
+    @Override
+    public DataType getDataType() {
+        return dataTypeCache.get();
     }
 }

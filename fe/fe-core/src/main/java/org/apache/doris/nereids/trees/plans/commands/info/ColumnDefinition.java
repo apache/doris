@@ -38,6 +38,8 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -516,7 +518,9 @@ public class ColumnDefinition {
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis,
+                // 这里所有的列都加上了变量，以后改一下
+                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -531,7 +535,9 @@ public class ColumnDefinition {
                 defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis,
+                // 这里所有的列都加上了变量，以后改一下
+                ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

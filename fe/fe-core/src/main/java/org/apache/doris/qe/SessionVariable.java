@@ -5092,30 +5092,9 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
                 // set config field
-                switch (f.getType().getSimpleName()) {
-                    case "short":
-                        f.setShort(this, Short.parseShort(val));
-                        break;
-                    case "int":
-                        f.setInt(this, Integer.parseInt(val));
-                        break;
-                    case "long":
-                        f.setLong(this, Long.parseLong(val));
-                        break;
-                    case "double":
-                        f.setDouble(this, Double.parseDouble(val));
-                        break;
-                    case "boolean":
-                        f.setBoolean(this, Boolean.parseBoolean(val));
-                        break;
-                    case "String":
-                        f.set(this, val);
-                        break;
-                    default:
-                        throw new IllegalArgumentException("Unknown field type: " + f.getType().getSimpleName());
-                }
+                VariableMgr.setValue(this, val, f, varAttr.name());
             }
-        } catch (IllegalAccessException e) {
+        } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
     }
@@ -5762,6 +5741,52 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().feDebug;
         } else {
             return false;
+        }
+    }
+
+    public Map<String, String> getAffectQueryResultVariables() {
+        HashMap<String, String> map = new HashMap<String, String>();
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.affectQueryResult() || VariableAnnotation.DEPRECATED.equals(
+                        varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                map.put(varAttr.name(), String.valueOf(f.get(this)));
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to get affect query result variables", e);
+        }
+        return map;
+    }
+
+    public void setAffectQueryResultSessionVariables(Map<String, String> variables) {
+        if (variables.isEmpty()) {
+            return;
+        }
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                f.setAccessible(true);
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.affectQueryResult() || VariableAnnotation.DEPRECATED.equals(
+                        varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                String val = variables.get(varAttr.name());
+                if (val == null) {
+                    continue;
+                }
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set affect query result variable: {} = {}", varAttr.name(), val);
+                }
+                VariableMgr.setValue(this, val, f, varAttr.name());
+            }
+        } catch (Throwable e) {
+            LOG.error("failed to set forward variables", e);
         }
     }
 }

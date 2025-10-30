@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -108,6 +109,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -567,13 +569,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeDorisView(View view, List<String> tableQualifier, CascadesContext parentContext) {
-        Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
-        long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
-        parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
-        try {
+        Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
+                .getAndCacheViewInfo(tableQualifier, view);
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
+                viewInfo.second)) {
             return parseAndAnalyzeView(view, viewInfo.first, parentContext);
-        } finally {
-            parentContext.getConnectContext().getSessionVariable().setSqlMode(originalSqlMode);
         }
     }
 

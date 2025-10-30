@@ -179,7 +179,7 @@ public class DecimalV2Type extends FractionalType {
     @Override
     public DataType conversion() {
         if (Config.enable_decimal_conversion && shouldConversion) {
-            return DecimalV3Type.createDecimalV3Type(precision, scale);
+            return DecimalV3Type.createDecimalV3TypeNotCheck256(precision, scale);
         }
         Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
                 "precision should in (0, " + MAX_PRECISION + "], but real precision is " + precision);

@@ -4722,7 +4722,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Literal visitDecimalLiteral(DecimalLiteralContext ctx) {
         try {
             if (Config.enable_decimal_conversion) {
-                return new DecimalV3Literal(new BigDecimal(ctx.getText()));
+                return DecimalV3Literal.createWithCheck256(new BigDecimal(ctx.getText()));
             } else {
                 return new DecimalLiteral(new BigDecimal(ctx.getText()));
             }

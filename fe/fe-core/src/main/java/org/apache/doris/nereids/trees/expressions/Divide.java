@@ -46,10 +46,14 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable, Propagat
         super(children, Operator.DIVIDE);
     }
 
+    private Divide(Params param) {
+        super(param);
+    }
+
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Divide(children);
+        return new Divide(getParams(children));
     }
 
     @Override
@@ -58,13 +62,13 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable, Propagat
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
+    public DataType computeDataType() throws UnboundException {
         if (left().getDataType().isDecimalV3Type()) {
             DecimalV3Type dt1 = (DecimalV3Type) left().getDataType();
             DecimalV3Type dt2 = (DecimalV3Type) right().getDataType();
             return DecimalV3Type.createDecimalV3Type(dt1.getPrecision(), dt1.getScale() - dt2.getScale());
         }
-        return super.getDataType();
+        return super.computeDataType();
     }
 
     @Override

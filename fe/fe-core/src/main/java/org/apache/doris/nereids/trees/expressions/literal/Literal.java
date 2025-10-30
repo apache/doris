@@ -577,7 +577,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             String value = new String(bytes);
             BigDecimal v = new BigDecimal(value);
             if (Config.enable_decimal_conversion) {
-                return new DecimalV3Literal(v);
+                return DecimalV3Literal.createWithCheck256(v);
             }
             return new DecimalLiteral(v);
         } catch (NumberFormatException e) {
