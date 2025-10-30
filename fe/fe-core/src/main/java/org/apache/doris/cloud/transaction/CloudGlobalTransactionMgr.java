@@ -212,31 +212,51 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     // To distinguish the idempotence of the createPartition RPC during incremental partition creation
     // for automatic partitioned tables, record the dbId -> txnId -> tabletId -> BE id
-    private Map<Long, Map<Long, Multimap<Long, Long>>> autoPartitionInfo = Maps.newConcurrentMap();
+    private Map<Long, Map<Long, Multimap<Long, Long>>> autoPartitionInfo = Maps.newHashMap();
+    private final Object autoPartitionInfoLock = new Object();
 
-    public void recordAutoPartitionInfo(Long dbId, Long txnId, Multimap<Long, Long> tabletMap) {
-        autoPartitionInfo.compute(dbId, (k, v) -> {
-            if (v == null) {
-                v = Maps.newConcurrentMap();
+    public boolean recordAutoPartitionInfo(Long dbId, Long txnId, Multimap<Long, Long> tabletMap) {
+        synchronized (autoPartitionInfoLock) {
+            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
+            if (txnMap == null) {
+                txnMap = Maps.newHashMap();
+                autoPartitionInfo.put(dbId, txnMap);
             }
-            v.put(txnId, tabletMap);
-            return v;
-        });
+            if (!tabletMap.isEmpty()) {
+                Multimap<Long, Long> existingTabletMap = txnMap.get(txnId);
+                if (existingTabletMap != null) {
+                    for (Long tabletId : tabletMap.keySet()) {
+                        if (existingTabletMap.containsKey(tabletId)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            txnMap.put(txnId, tabletMap);
+            return false;
+        }
     }
 
     // the caller will check the NULL val, so we do not need to handle it
     public Multimap<Long, Long> getAutoPartitionInfo(Long dbId, Long txnId) {
-        Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-        Multimap<Long, Long> tabletMap = txnMap.get(txnId);
-        return tabletMap;
+        synchronized (autoPartitionInfoLock) {
+            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
+            if (txnMap == null) {
+                return null;
+            }
+            Multimap<Long, Long> tabletMap = txnMap.get(txnId);
+            return tabletMap;
+        }
     }
 
     public void clearAutoPartitionInfo(Long dbId, Long txnId) {
-        Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-        if (txnMap != null) {
-            txnMap.remove(txnId);
-            if (txnMap.isEmpty()) {
-                autoPartitionInfo.remove(dbId);
+        synchronized (autoPartitionInfoLock) {
+            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
+            if (txnMap != null) {
+                txnMap.remove(txnId);
+                if (txnMap.isEmpty()) {
+                    autoPartitionInfo.remove(dbId);
+                }
             }
         }
     }
@@ -2597,3 +2617,4 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         });
     }
 }
+
