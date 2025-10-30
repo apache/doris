@@ -289,10 +289,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.protobuf.InvalidProtocolBufferException;
-
-import javolution.io.Struct.Bool;
 import jline.internal.Log;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -3721,8 +3718,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // During a single transaction, two createPartition RPCs might have overlapping partitions.
         // For example: RPC1: [P1, P2], RPC2: [P2, P3]
-        // Therefore, we use recordTablets to incrementally record the tablet distribution information
-        // that needs to be cached in the current transaction.
+        // needRecordTablets : used to incrementally record the tablet distribution information
+        //                     that needs to be cached in the current transaction.
+        // resultTablets : record the tablets should be contained in this createPartition
         Multimap<Long, Long> tabletToBeIds = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
         Multimap<Long, Long> needRecordTablets = HashMultimap.create();
         Multimap<Long, Long> resultTablets = HashMultimap.create();
@@ -3791,7 +3789,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                     for (Long beId : bePathsMap.keySet()) {
                         resultTablets.put(tablet.getId(), beId);
-                    }                    
+                    }
                 }
             }
         }
@@ -3805,7 +3803,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 finalResultTablets = resultTablets;
             } else {
                 // this writer is failed, we shoud reread from the AutoPartitionInfo
-                Log.info("conflict, we should reread from cache");
+                Log.info("Conflict, we should reread from cache");
                 tabletToBeIds = Env.getCurrentGlobalTransactionMgr().getAutoPartitionInfo(dbId, txnId);
                 finalResultTablets = HashMultimap.create();
                 for (Long tabletId : resultTablets.keySet()) {
@@ -3838,7 +3836,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(beIds)));
             }
         }
-    
+
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);
