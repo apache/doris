@@ -323,8 +323,8 @@ TEST(VStringFunctionsTest, Reverse) {
     std::string invalid = "A";
     invalid.push_back('\xC2'); // leading byte of a 2-byte sequence without continuation
     reverse_check(invalid, std::string("\xC2"
-                                                 "A", 
-                                                 2));
+                                       "A", 
+                                       2));
 }
 
 TEST(VStringFunctionsTest, HexEncode) {
