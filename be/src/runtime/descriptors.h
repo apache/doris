@@ -93,6 +93,7 @@ public:
     bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
+    bool has_default_value() const { return _has_default_value; }
     PrimitiveType col_type() const;
 
     std::shared_ptr<doris::TExpr> get_virtual_column_expr() const {
@@ -140,6 +141,11 @@ private:
 
     const bool _is_auto_increment;
     const std::string _col_default_value;
+
+    // When the default value is NULL, _col_default_value will be initialized to an empty string.
+    // This parameter is used to distinguish whether the empty string
+    // of `_col_default_value` is the default value or NULL.
+    const bool _has_default_value;
 
     std::shared_ptr<doris::TExpr> virtual_column_expr = nullptr;
 

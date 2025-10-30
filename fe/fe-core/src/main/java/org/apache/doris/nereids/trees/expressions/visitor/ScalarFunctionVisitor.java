@@ -190,6 +190,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Default;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
@@ -2740,6 +2741,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitPeriodDiff(PeriodDiff periodDiff, C context) {
         return visitScalarFunction(periodDiff, context);
+    }
+
+    default R visitDefault(Default defaultFunc, C context) {
+        return visitScalarFunction(defaultFunc, context);
     }
 
     default R visitUnicodeNormalize(UnicodeNormalize func, C context) {
