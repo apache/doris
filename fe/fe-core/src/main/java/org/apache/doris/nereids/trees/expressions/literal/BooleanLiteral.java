@@ -146,4 +146,12 @@ public class BooleanLiteral extends Literal implements ComparableLiteral {
         }
         return super.uncheckedCastTo(targetType);
     }
+
+    protected String castValueToString() {
+        if (value) {
+            return "1";
+        } else {
+            return "0";
+        }
+    }
 }

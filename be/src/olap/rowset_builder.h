@@ -126,6 +126,9 @@ public:
 
     Status commit_txn();
 
+    // Cast `BaseTablet` to `Tablet`
+    Tablet* tablet();
+
 private:
     void _init_profile(RuntimeProfile* profile) override;
 
@@ -135,8 +138,6 @@ private:
 
     void _garbage_collection();
 
-    // Cast `BaseTablet` to `Tablet`
-    Tablet* tablet();
     TabletSharedPtr tablet_sptr();
 
     StorageEngine& _engine;

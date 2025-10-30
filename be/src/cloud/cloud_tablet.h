@@ -446,9 +446,9 @@ private:
         int64_t num_inverted_idx_warmed_up = 0;
         std::chrono::steady_clock::time_point start_tp;
 
-        void done(int64_t num_segments, int64_t num_inverted_idx) {
-            num_segments_warmed_up += num_segments;
-            num_inverted_idx_warmed_up += num_inverted_idx;
+        void done(int64_t input_num_segments, int64_t input_num_inverted_idx) {
+            num_segments_warmed_up += input_num_segments;
+            num_inverted_idx_warmed_up += input_num_inverted_idx;
             update_state();
         }
 

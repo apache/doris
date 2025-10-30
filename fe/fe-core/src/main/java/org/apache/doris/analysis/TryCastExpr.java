@@ -41,11 +41,6 @@ public class TryCastExpr extends CastExpr {
         opcode = TExprOpcode.TRY_CAST;
     }
 
-    public TryCastExpr(TypeDef targetTypeDef, Expr e) {
-        super(targetTypeDef, e);
-        opcode = TExprOpcode.TRY_CAST;
-    }
-
     protected TryCastExpr(TryCastExpr other) {
         super(other);
         opcode = TExprOpcode.TRY_CAST;

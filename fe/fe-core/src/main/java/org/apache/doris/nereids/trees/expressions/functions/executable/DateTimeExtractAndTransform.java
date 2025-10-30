@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -709,6 +710,34 @@ public class DateTimeExtractAndTransform {
         return dayValue > 0
                 ? DateV2Literal.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
                 : new NullLiteral(DateV2Type.INSTANCE);
+    }
+
+    /**
+     * time transformation function: maketime
+     */
+    @ExecFunction(name = "maketime")
+    public static Expression makeTime(BigIntLiteral hour, BigIntLiteral minute, DoubleLiteral second) {
+        long hourValue = hour.getValue();
+        long minuteValue = minute.getValue();
+        double secondValue = second.getValue();
+
+        if (minuteValue < 0 || minuteValue >= 60 || secondValue < 0 || secondValue >= 60) {
+            return new NullLiteral(TimeV2Type.INSTANCE);
+        }
+        if (Math.abs(hourValue) > 838) {
+            hourValue = hourValue > 0 ? 838 : -838;
+            minuteValue = 59;
+            secondValue = 59;
+        } else if (Math.abs(hourValue) == 838 && secondValue > 59) {
+            secondValue = 59;
+        }
+
+        double totalSeconds = Math.abs(hourValue) * 3600 + minuteValue * 60
+                + Math.round(secondValue * 1000000.0) / 1000000.0;
+        if (hourValue < 0) {
+            totalSeconds = -totalSeconds;
+        }
+        return new TimeV2Literal(totalSeconds);
     }
 
     /**

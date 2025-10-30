@@ -27,25 +27,21 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class TermWeight : public Weight {
 public:
     TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term,
-               SimilarityPtr similarity, bool enable_scoring, std::string logical_field = {})
+               SimilarityPtr similarity, bool enable_scoring)
             : _context(std::move(context)),
               _field(std::move(field)),
               _term(std::move(term)),
               _similarity(std::move(similarity)),
-              _enable_scoring(enable_scoring),
-              _logical_field(std::move(logical_field)) {}
+              _enable_scoring(enable_scoring) {}
     ~TermWeight() override = default;
 
-    ScorerPtr scorer(const QueryExecutionContext& ctx) override { return scorer(ctx, {}); }
-
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
-        auto reader = lookup_reader(ctx, binding_key);
-        auto field_name =
-                _logical_field.empty() ? std::string(_field.begin(), _field.end()) : _logical_field;
+        auto reader = lookup_reader(_field, ctx, binding_key);
+        auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
         auto make_scorer = [&](auto segment_postings) -> ScorerPtr {
             using PostingsT = decltype(segment_postings);
             return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings), _similarity,
-                                                           field_name);
+                                                           logical_field);
         };
 
         if (!reader) {
@@ -72,30 +68,12 @@ public:
     }
 
 private:
-    std::shared_ptr<lucene::index::IndexReader> lookup_reader(
-            const QueryExecutionContext& ctx, const std::string& binding_key) const {
-        if (!binding_key.empty()) {
-            if (auto it = ctx.reader_bindings.find(binding_key); it != ctx.reader_bindings.end()) {
-                return it->second;
-            }
-        }
-        if (auto it = ctx.field_reader_bindings.find(_field);
-            it != ctx.field_reader_bindings.end()) {
-            return it->second;
-        }
-        if (!ctx.readers.empty()) {
-            return ctx.readers.front();
-        }
-        return nullptr;
-    }
-
     IndexQueryContextPtr _context;
 
     std::wstring _field;
     std::wstring _term;
     SimilarityPtr _similarity;
     bool _enable_scoring = false;
-    std::string _logical_field;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

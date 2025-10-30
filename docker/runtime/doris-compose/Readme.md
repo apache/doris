@@ -122,11 +122,19 @@ python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image
     [--fe-id <fd-id> --be-id <be-id>]
     ...
     [ --cloud ]
+    [ --cluster-snapshot <cluster-snapshot-json> ]
 ```
 
 if it's a new cluster, must specific the image.
 
 add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
+
+The `--cluster-snapshot` parameter allows you to provide a cluster snapshot JSON content for FE-1 first startup in cloud mode only. The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh with --cluster_snapshot parameter. This is only effective on first startup.
+
+Example:
+```shell
+python docker/runtime/doris-compose/doris-compose.py up my-cluster my-image --cloud --cluster-snapshot '{"instance_id":"instance_id_xxx"}'
+```
 
 For create a cloud cluster, steps are as below:
 
@@ -140,6 +148,12 @@ The simplest way to create a cloud cluster:
 
 ```shell
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud
+```
+
+To create a cloud cluster with a custom cluster snapshot:
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud --cluster-snapshot '{"instance_id":"instance_id_xxx"}'
 ```
 
 It will create 1 fdb, 1 meta service server, 1 recycler, 3 fe and 3 be.
@@ -262,6 +276,53 @@ Doris compose automatically validates:
 4. MS and FDB containers are running
 
 If validation fails, you'll get a clear error message explaining what needs to be fixed.
+
+### Rollback Cloud Cluster to Snapshot
+
+The rollback command allows you to rollback a cloud cluster to a specific snapshot state.
+
+#### Basic Usage
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback <cluster-name> \
+    --cluster-snapshot '{"instance_id":"instance_xxx", ...}' \
+    [--instance-id NEW_INSTANCE_ID]
+```
+
+#### What it does
+
+The rollback command performs the following operations on **ALL FE/BE nodes**:
+1. **Stops** all FE and BE nodes
+2. **Cleans** FE `doris-meta/` and BE `storage/` directories (preserves `conf/`, `log/`, etc.)
+3. **Updates** update all nodes conf
+4. **Restarts** all nodes with new `instance_id` and `cluster_snapshot`
+
+#### Parameters
+
+- `--cluster-snapshot` (required): Cluster snapshot JSON content
+  - Example: `'{"instance_id":"instance_id_xxx"}'`
+  - Will be written to FE-1's `conf/cluster_snapshot.json`
+
+- `--instance-id` (optional): New instance ID after rollback
+  - If not specified, auto-generates: `instance_{cluster_name}_{timestamp}`
+
+- `--wait-timeout` (optional): Wait seconds for nodes to be ready (default: 0)
+
+#### Examples
+
+**Full cluster rollback:**
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback my_cluster \
+    --cluster-snapshot '{"instance_id":"backup_instance", ...}' \
+    --wait-timeout 60
+```
+
+**Rollback with custom instance ID:**
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback my_cluster \
+    --cluster-snapshot '{"instance_id":"rollback_instance", ...}' \
+    --instance-id "prod_rollback_20251027"
+```
 
 ## Problem investigation
 

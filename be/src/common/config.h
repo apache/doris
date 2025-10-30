@@ -877,6 +877,11 @@ DECLARE_mInt32(max_tablet_version_num);
 
 DECLARE_mInt32(time_series_max_tablet_version_num);
 
+// the max sleep time when meeting high pressure load task
+DECLARE_mInt64(max_load_back_pressure_version_wait_time_ms);
+// the threshold of rowset number gap that triggers back pressure
+DECLARE_mInt64(load_back_pressure_version_threshold);
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DECLARE_String(thrift_server_type_of_fe);
@@ -1122,6 +1127,7 @@ DECLARE_Bool(enable_graceful_exit_check);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
+DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
@@ -1665,6 +1671,8 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 DECLARE_mString(aws_credentials_provider_version);
 
 DECLARE_mString(binary_plain_encoding_default_impl);
+
+DECLARE_mBool(integer_type_default_use_plain_encoding);
 
 #ifdef BE_TEST
 // test s3

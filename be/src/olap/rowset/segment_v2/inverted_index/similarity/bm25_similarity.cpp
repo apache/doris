@@ -55,6 +55,29 @@ void BM25Similarity::for_one_term(const IndexQueryContextPtr& context,
     compute_tf_cache();
 }
 
+void BM25Similarity::for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
+                               const std::vector<std::wstring>& terms) {
+    if (terms.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "BM25 requires at least one term");
+    }
+
+    _avgdl = context->collection_statistics->get_or_calculate_avg_dl(field_name);
+
+    if (terms.size() == 1) {
+        _idf = context->collection_statistics->get_or_calculate_idf(field_name, terms[0]);
+    } else {
+        float idf_sum = 0.0F;
+        for (const auto& term : terms) {
+            float term_idf = context->collection_statistics->get_or_calculate_idf(field_name, term);
+            idf_sum += term_idf;
+        }
+        _idf = idf_sum;
+    }
+
+    _weight = _boost * _idf * (_k1 + 1.0F);
+    compute_tf_cache();
+}
+
 float BM25Similarity::score(float freq, int64_t encoded_norm) {
     float norm_inverse = _cache[((uint8_t)encoded_norm) & 0xFF];
     return _weight - _weight / (1.0F + freq * norm_inverse);

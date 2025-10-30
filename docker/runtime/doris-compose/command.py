@@ -481,6 +481,16 @@ class UpCommand(Command):
             "Example: --instance-id prod_instance_1"
         )
 
+        parser.add_argument(
+            "--cluster-snapshot",
+            type=str,
+            help=
+            "Cluster snapshot JSON content for FE-1 first startup in cloud mode only. " \
+            "The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh " \
+            "with --cluster_snapshot parameter. Only effective on first startup. " \
+            "Example: --cluster-snapshot '{\"instance_id\":\"instance_id_xxx\"}'"
+        )
+
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-metaservice-endpoint",
@@ -641,6 +651,7 @@ class UpCommand(Command):
                     args.sql_mode_node_mgr = True
 
             instance_id = getattr(args, 'instance_id', None)
+            cluster_snapshot = getattr(args, 'cluster_snapshot', '')
 
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
@@ -649,7 +660,7 @@ class UpCommand(Command):
                 args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
-                external_ms_cluster, instance_id)
+                external_ms_cluster, instance_id, cluster_snapshot)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -1590,6 +1601,187 @@ class AddRWPermCommand(Command):
         return ""
 
 
+class RollbackCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "rollback",
+            help="Rollback cloud cluster to a snapshot. " \
+                 "Stop ALL FE/BE, clean metadata/data, and restart with new cloud_unique_id and instance_id. " \
+                 "Only available for cloud mode clusters."
+        )
+        parser.add_argument("NAME", help="Specify cluster name.")
+        parser.add_argument(
+            "--cluster-snapshot",
+            type=str,
+            required=True,
+            help="Cluster snapshot JSON content for rollback. " \
+                 "Example: '{\"instance_id\":\"instance_id_xxx\"}'"
+        )
+        parser.add_argument(
+            "--instance-id",
+            type=str,
+            help="New instance ID for the cluster after rollback. " \
+                 "If not specified, will generate a new one based on timestamp."
+        )
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help="Specify wait seconds for fe/be ready for service: 0 not wait (default), " \
+                 "> 0 max wait seconds, -1 wait unlimited."
+        )
+        self._add_parser_common_args(parser)
+        return parser
+
+    def _update_config_cloud_unique_id(self, conf_path, new_cloud_unique_id):
+        """Update cloud_unique_id in fe.conf or be.conf file.
+
+        This method updates the cloud_unique_id value in the config file.
+        If the line exists, it will be replaced; if not found, it will be added.
+        """
+        updated = False
+        lines = []
+
+        # Read existing config
+        with open(conf_path, "r") as f:
+            lines = f.readlines()
+
+        # Try to update existing cloud_unique_id line
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # Match lines like: cloud_unique_id = xxx or cloud_unique_id=xxx
+            if stripped.startswith("cloud_unique_id") and ("=" in stripped):
+                lines[i] = f"cloud_unique_id = {new_cloud_unique_id}\n"
+                updated = True
+                break
+
+        # If not found, add it to the doris-compose section
+        if not updated:
+            raise Exception("cloud_unique_id not found in config file: " + conf_path)
+
+        # Write back to file
+        with open(conf_path, "w") as f:
+            f.writelines(lines)
+
+    def run(self, args):
+        cluster = CLUSTER.Cluster.load(args.NAME)
+
+        # Validate: only cloud clusters support rollback
+        if not cluster.is_cloud:
+            raise Exception("Rollback is only supported for cloud clusters")
+
+        # Rollback must include ALL FE/BE nodes
+        fe_nodes = cluster.get_all_nodes(CLUSTER.Node.TYPE_FE)
+        be_nodes = cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
+
+        if not fe_nodes and not be_nodes:
+            raise Exception("No FE or BE nodes to rollback")
+
+        # Generate new instance_id and rollback timestamp
+        rollback_ts = str(int(time.time()))
+        new_instance_id = args.instance_id or f"instance_{cluster.name}_{rollback_ts}"
+
+        LOG.info(f"Starting rollback with instance_id: {new_instance_id}, timestamp: {rollback_ts}")
+
+        # Step 1: Stop FE/BE nodes
+        LOG.info("Step 1/5: Stopping FE/BE nodes...")
+        fe_ids = [node.id for node in fe_nodes]
+        be_ids = [node.id for node in be_nodes]
+
+        stop_nodes = fe_nodes + be_nodes
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "stop",
+            options=["-t", "1"],
+            nodes=stop_nodes
+        )
+        LOG.info(f"Stopped {len(fe_nodes)} FE and {len(be_nodes)} BE nodes")
+
+        cluster.is_rollback = True  # Add ROLLBACK envs
+
+        # Step 2: Clean metadata and data
+        LOG.info("Step 2/5: Cleaning metadata and data directories...")
+
+        for fe in fe_nodes:
+            fe_meta_path = os.path.join(fe.get_path(), "doris-meta")
+            if os.path.exists(fe_meta_path):
+                utils.enable_dir_with_rw_perm(fe_meta_path)
+                shutil.rmtree(fe_meta_path)
+                os.makedirs(fe_meta_path, exist_ok=True)
+                LOG.info(f"  Cleaned FE-{fe.id} doris-meta/")
+
+        for be in be_nodes:
+            be_storage_path = os.path.join(be.get_path(), "storage")
+            if os.path.exists(be_storage_path):
+                utils.enable_dir_with_rw_perm(be_storage_path)
+                shutil.rmtree(be_storage_path)
+                # Recreate storage directories based on disk configuration
+                be.init_disk(cluster.be_disks)
+                LOG.info(f"  Cleaned BE-{be.id} storage/")
+
+        # Step 3: Update cluster configuration
+        LOG.info("Step 3/5: Updating cluster configuration...")
+
+        # Update instance_id
+        old_instance_id = cluster.instance_id
+        cluster.instance_id = new_instance_id
+        LOG.info(f"  Updated instance_id: {old_instance_id} -> {new_instance_id}")
+
+        # Update cluster_snapshot for FE-1
+        cluster.cluster_snapshot = args.cluster_snapshot
+        fe1 = cluster.get_node(CLUSTER.Node.TYPE_FE, 1)
+        snapshot_file = os.path.join(fe1.get_path(), "conf", "cluster_snapshot.json")
+        with open(snapshot_file, "w") as f:
+            f.write(args.cluster_snapshot)
+        LOG.info(f"  Written cluster_snapshot to {snapshot_file}")
+
+        # Step 4: Update cloud_unique_id by setting rollback_timestamp in node meta
+        LOG.info("Step 4/5: Generating new cloud_unique_id...")
+
+        for fe in fe_nodes:
+            fe.meta["rollback_timestamp"] = rollback_ts
+            old_id = f"{cluster.name}_sql_server_{fe.id}"
+            new_id = fe.cloud_unique_id()
+            LOG.info(f"  FE-{fe.id}: {old_id} -> {new_id}")
+
+            fe_conf_path = os.path.join(fe.get_path(), "conf", "fe.conf")
+            if os.path.exists(fe_conf_path):
+                self._update_config_cloud_unique_id(fe_conf_path, new_id)
+
+        for be in be_nodes:
+            be.meta["rollback_timestamp"] = rollback_ts
+            old_id = f"{cluster.name}_compute_node_{be.id}"
+            new_id = be.cloud_unique_id()
+            LOG.info(f"  BE-{be.id}: {old_id} -> {new_id}")
+
+            be_conf_path = os.path.join(be.get_path(), "conf", "be.conf")
+            if os.path.exists(be_conf_path):
+                self._update_config_cloud_unique_id(be_conf_path, new_id)
+
+        # Save updated cluster configuration
+        cluster.save()
+        LOG.info("  Saved cluster configuration")
+
+        # Step 5: Start FE/BE nodes
+        LOG.info("Step 5/5: Starting FE/BE nodes with new configuration...")
+
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "up",
+            options=["-d"],
+            nodes=stop_nodes
+        )
+
+        # Wait for services to be ready
+        if not cluster.is_host_network():
+            wait_service(True, args.wait_timeout, cluster, fe_ids, be_ids)
+
+        LOG.info("Rollback completed successfully.")
+
+        return "Rollback completed successfully."
+
+
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
@@ -1602,4 +1794,5 @@ ALL_COMMANDS = [
     InfoCommand("info"),
     ListCommand("ls"),
     AddRWPermCommand("add-rw-perm"),
+    RollbackCommand("rollback"),
 ]

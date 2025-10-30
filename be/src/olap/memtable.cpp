@@ -45,6 +45,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
+bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
 
 using namespace ErrorCode;
 
@@ -665,7 +666,12 @@ bool MemTable::need_flush() const {
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
-    return memory_usage() >= max_size;
+
+    if (memory_usage() >= max_size) {
+        g_flush_cuz_memtable_full << 1;
+        return true;
+    }
+    return false;
 }
 
 int64_t MemTable::_adaptive_write_buffer_size() const {

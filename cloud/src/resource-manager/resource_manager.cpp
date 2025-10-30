@@ -92,18 +92,12 @@ int ResourceManager::init() {
                 LOG(WARNING) << "malformed instance, unable to deserialize, key=" << hex(k);
                 return -1;
             }
-            // 0x01 "instance" ${instance_id} -> InstanceInfoPB
-            k.remove_prefix(1); // Remove key space
-            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-            int ret = decode_key(&k, &out);
-            if (ret != 0) {
-                LOG(WARNING) << "failed to decode key, ret=" << ret;
+
+            std::string_view key(k);
+            if (!decode_instance_key(&key, &instance_id)) {
+                LOG(WARNING) << "failed to decode instance key, key=" << hex(k);
                 return -2;
             }
-            if (out.size() != 2) {
-                LOG(WARNING) << "decoded size no match, expect 2, given=" << out.size();
-            }
-            instance_id = std::get<std::string>(std::get<0>(out[1]));
 
             LOG(INFO) << "get an instance, instance_id=" << instance_id
                       << " instance json=" << proto_to_json(inst);
@@ -608,6 +602,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
         return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_key=" << hex(key);
     err = txn->commit();
@@ -757,6 +752,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
         return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_key=" << hex(key);
     err = txn->commit();
@@ -896,6 +892,7 @@ std::string ResourceManager::update_cluster(
         return msg;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instanace_key=" << hex(key);
     TxnErrorCode err_code = txn->commit();
@@ -1365,6 +1362,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         return msg;
     }
 
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_key=" << hex(key);
     TxnErrorCode err_code = txn->commit();

@@ -386,4 +386,7 @@ CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,
                [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
 
+CONF_mBool(enable_notify_instance_update, "true");
+CONF_Bool(enable_instance_update_watcher, "true");
+
 } // namespace doris::cloud::config

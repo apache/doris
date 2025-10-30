@@ -22,7 +22,7 @@
 #include <utility>
 #include <vector>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/buffered_union_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
@@ -271,7 +271,7 @@ private:
         if (!result.null_bitmap.isEmpty()) {
             null_ptr = std::make_shared<roaring::Roaring>(std::move(result.null_bitmap));
         }
-        return std::make_shared<BitmapScorer>(std::move(true_ptr), std::move(null_ptr));
+        return std::make_shared<BitSetScorer>(std::move(true_ptr), std::move(null_ptr));
     }
 
     OperatorType _type;

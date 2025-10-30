@@ -98,27 +98,6 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
-void ParquetBuildHelper::build_schema_repetition_type(
-        parquet::Repetition::type& parquet_repetition_type,
-        const TParquetRepetitionType::type& column_repetition_type) {
-    switch (column_repetition_type) {
-    case TParquetRepetitionType::REQUIRED: {
-        parquet_repetition_type = parquet::Repetition::REQUIRED;
-        break;
-    }
-    case TParquetRepetitionType::REPEATED: {
-        parquet_repetition_type = parquet::Repetition::REPEATED;
-        break;
-    }
-    case TParquetRepetitionType::OPTIONAL: {
-        parquet_repetition_type = parquet::Repetition::OPTIONAL;
-        break;
-    }
-    default:
-        parquet_repetition_type = parquet::Repetition::UNDEFINED;
-    }
-}
-
 void ParquetBuildHelper::build_compression_type(
         parquet::WriterProperties::Builder& builder,
         const TParquetCompressionType::type& compression_type) {

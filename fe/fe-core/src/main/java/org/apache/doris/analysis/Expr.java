@@ -1271,28 +1271,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return true;
     }
 
-
-    protected void recursiveResetChildrenResult(boolean forPushDownPredicatesToView) throws AnalysisException {
-        for (int i = 0; i < children.size(); i++) {
-            final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue(forPushDownPredicatesToView);
-            if (newChild != child) {
-                setChild(i, newChild);
-            }
-        }
-    }
-
-    /**
-     * For calculating expr.
-     * @return value returned can't be null, if this and it's children are't constant expr, return this.
-     * @throws AnalysisException
-     */
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
-        return newExpr != null ? newExpr : this;
-    }
-
     public String getStringValue() {
         return "";
     }

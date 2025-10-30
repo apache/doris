@@ -88,7 +88,12 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         }
 
         if (_block_queue.empty()) {
-            DCHECK_EQ(_num_remaining_senders, 0);
+            if (_num_remaining_senders != 0) {
+                return Status::InternalError(
+                        "Data queue is empty but there are still remaining senders. "
+                        "_num_remaining_senders: {}",
+                        _num_remaining_senders);
+            }
             *eos = true;
             return Status::OK();
         }
@@ -171,10 +176,9 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
         auto iter = _packet_seq_map.find(be_number);
         if (iter != _packet_seq_map.end()) {
             if (iter->second >= packet_seq) {
-                LOG(WARNING) << fmt::format(
+                return Status::InternalError(
                         "packet already exist [cur_packet_id= {} receive_packet_id={}]",
                         iter->second, packet_seq);
-                return Status::OK();
             }
             iter->second = packet_seq;
         } else {

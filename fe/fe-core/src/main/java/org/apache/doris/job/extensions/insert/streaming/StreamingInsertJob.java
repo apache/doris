@@ -80,16 +80,18 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Log4j2
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
-    private final long dbId;
+    private long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @Getter
     @Setter
@@ -117,6 +119,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private long lastScheduleTaskTimestamp = -1L;
     private InsertIntoTableCommand baseCommand;
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private ConcurrentLinkedQueue<StreamingInsertTask> streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
+    @Setter
+    @Getter
+    private String jobRuntimeMsg = "";
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -129,7 +135,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Map<String, String> properties) {
         super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
-        this.dbId = ConnectContext.get().getCurrentDbId();
         this.properties = properties;
         init();
     }
@@ -222,7 +227,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return offset;
     }
 
-    public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException {
+    public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException, JobException {
         List<String> logParts = new ArrayList<>();
         // update sql
         if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
@@ -246,11 +251,26 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             super.updateJobStatus(status);
             if (JobStatus.PAUSED.equals(getJobStatus())) {
-                clearRunningStreamTask();
+                clearRunningStreamTask(status);
             }
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
+            log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (runningStreamTask == null) {
+                return;
+            }
+            runningStreamTask.cancel(needWaitCancelComplete);
+            canceledTaskCount.incrementAndGet();
         } finally {
             lock.writeLock().unlock();
         }
@@ -296,7 +316,35 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
+        log.info("create new streaming insert task for job {}, task {} ",
+                getJobId(), runningStreamTask.getTaskId());
+        recordTasks(runningStreamTask);
         return runningStreamTask;
+    }
+
+    public void recordTasks(StreamingInsertTask task) {
+        if (Config.max_streaming_task_show_count < 1) {
+            return;
+        }
+        streamInsertTaskQueue.add(task);
+
+        while (streamInsertTaskQueue.size() > Config.max_streaming_task_show_count) {
+            streamInsertTaskQueue.poll();
+        }
+    }
+
+    /**
+     * for show command to display all streaming insert tasks of this job.
+     */
+    public List<StreamingInsertTask> queryAllStreamTasks() {
+        if (CollectionUtils.isEmpty(streamInsertTaskQueue)) {
+            return new ArrayList<>();
+        }
+        List<StreamingInsertTask> tasks = new ArrayList<>(streamInsertTaskQueue);
+        Comparator<StreamingInsertTask> taskComparator =
+                Comparator.comparingLong(StreamingInsertTask::getCreateTimeMs).reversed();
+        tasks.sort(taskComparator);
+        return tasks;
     }
 
     protected void fetchMeta() {
@@ -314,17 +362,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
     }
 
-    public void clearRunningStreamTask() {
+    public void clearRunningStreamTask(JobStatus newJobStatus) {
         if (runningStreamTask != null) {
+            log.info("clear running streaming insert task for job {}, task {}, status {} ",
+                    getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getStatus());
+            runningStreamTask.cancel(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
             runningStreamTask.closeOrReleaseResources();
-            runningStreamTask = null;
         }
     }
 
     public boolean hasMoreDataToConsume() {
         return offsetProvider.hasMoreDataToConsume();
     }
-
 
     @Override
     public void onTaskFail(StreamingJobSchedulerTask task) throws JobException {
@@ -358,6 +407,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             StreamingInsertTask nextTask = createStreamingInsertTask();
             this.runningStreamTask = nextTask;
+            log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
+                    getJobId(), nextTask.getTaskId(), task.getTaskId());
         } finally {
             writeUnlock();
         }
@@ -371,6 +422,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + attachment.getLoadBytes());
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
+        offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+    }
+
+    private void updateCloudJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
+        if (this.jobStatistic == null) {
+            this.jobStatistic = new StreamingJobStatistic();
+        }
+        this.jobStatistic.setScannedRows(attachment.getScannedRows());
+        this.jobStatistic.setLoadBytes(attachment.getLoadBytes());
+        this.jobStatistic.setFileNumber(attachment.getNumFiles());
+        this.jobStatistic.setFileSize(attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
     }
 
@@ -394,28 +456,59 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setJobStatus(replayJob.getJobStatus());
         try {
             modifyPropertiesInternal(replayJob.getProperties());
+            // When the pause state is restarted, it also needs to be updated
+            if (Config.isCloudMode()) {
+                replayOnCloudMode();
+            }
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
         }
         setExecuteSql(replayJob.getExecuteSql());
+        setSucceedTaskCount(replayJob.getSucceedTaskCount());
+        setFailedTaskCount(replayJob.getFailedTaskCount());
+        setCanceledTaskCount(replayJob.getCanceledTaskCount());
     }
 
     /**
      * When updating offset, you need to reset the currentOffset
      */
-    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException {
+    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
-
             if (Config.isCloudMode()) {
-                // todo: reset cloud currentOffset
+                resetCloudProgress(offset);
             }
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
+    }
+
+    private void resetCloudProgress(Offset offset) throws JobException {
+        Cloud.ResetStreamingJobOffsetRequest.Builder builder = Cloud.ResetStreamingJobOffsetRequest.newBuilder();
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setDbId(getDbId());
+        builder.setJobId(getJobId());
+        builder.setOffset(offset.toSerializedJson());
+
+        Cloud.ResetStreamingJobOffsetResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().resetStreamingJobOffset(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                log.warn("failed to reset streaming job cloud offset, response: {}", response);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.ROUTINE_LOAD_PROGRESS_NOT_FOUND) {
+                    log.warn("not found streaming job offset, response: {}", response);
+                    return;
+                } else {
+                    throw new JobException(response.getStatus().getMsg());
+                }
+            }
+        } catch (RpcException e) {
+            log.info("failed to reset cloud progress, ", e);
+            throw new JobException(e.getMessage());
+        }
     }
 
     @Override
@@ -464,6 +557,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
                 ? FeConstants.null_string : failureReason.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
+                ? FeConstants.null_string : jobRuntimeMsg));
         return trow;
     }
 
@@ -555,6 +650,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         boolean shouldReleaseLock = false;
         writeLock();
         try {
+            if (runningStreamTask.getIsCanceled().get()) {
+                log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
+                        getJobId(), runningStreamTask.getTaskId());
+                return;
+            }
+
             ArrayList<Long> taskIds = new ArrayList<>();
             taskIds.add(runningStreamTask.getTaskId());
             // todo: Check whether the taskid of runningtask is consistent with the taskid associated with txn
@@ -601,14 +702,26 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         succeedTaskCount.incrementAndGet();
     }
 
+    public long getDbId() {
+        if (dbId <= 0) {
+            try {
+                this.dbId = Env.getCurrentInternalCatalog().getDbOrAnalysisException(getCurrentDbName()).getId();
+            } catch (AnalysisException e) {
+                log.warn("failed to get db id for streaming insert job {}, db name: {}, msg: {}",
+                        getJobId(), getCurrentDbName(), e.getMessage());
+            }
+        }
+        return dbId;
+    }
+
     public void replayOnCloudMode() throws JobException {
         Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
                 Cloud.GetStreamingTaskCommitAttachRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id);
-        builder.setDbId(dbId);
+        builder.setDbId(getDbId());
         builder.setJobId(getJobId());
 
-        Cloud.GetStreamingTaskCommitAttachResponse response;
+        Cloud.GetStreamingTaskCommitAttachResponse response = null;
         try {
             response = MetaServiceProxy.getInstance().getStreamingTaskCommitAttach(builder.build());
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
@@ -621,13 +734,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 }
             }
         } catch (RpcException e) {
-            log.info("failed to get streaming task commit attach {}", e);
+            log.info("failed to get streaming task commit attach {}", response, e);
             throw new JobException(e.getMessage());
         }
 
         StreamingTaskTxnCommitAttachment commitAttach =
                 new StreamingTaskTxnCommitAttachment(response.getCommitAttach());
-        updateJobStatisticAndOffset(commitAttach);
+        updateCloudJobStatisticAndOffset(commitAttach);
     }
 
     @Override
@@ -667,6 +780,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         if (null == getCanceledTaskCount()) {
             setCanceledTaskCount(new AtomicLong(0));
+        }
+
+        if (null == streamInsertTaskQueue) {
+            streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
         }
 
         if (null == lock) {

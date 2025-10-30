@@ -29,6 +29,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -1080,6 +1081,41 @@ TEST(VTimestampFunctionsTest, weeks_sub_v2_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, day_second_add_v2_test) {
+    std::string func_name = "day_second_add";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
+                                Consted {PrimitiveType::TYPE_STRING}};
+
+    {
+        DataSet data_set = {
+                {{std::string("2020-10-23 00:00:11.123"), std::string("1 0:0:1")},
+                 std::string("2020-10-24 00:00:12.123")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:11.123"), std::string("1 10:11:12")},
+                 std::string("2020-05-24 10:11:23.123")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:11.123"), std::string("10 0:0:1")},
+                 std::string("2020-06-02 00:00:12.123")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+}
+
 TEST(VTimestampFunctionsTest, to_days_v2_test) {
     std::string func_name = "to_days";
 
@@ -1639,6 +1675,75 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
         EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
     }
+}
+
+// Test UTC functions
+// FunctionUtils sets fixed time: 2019-08-06 01:38:57.805000 Asia/Shanghai (UTC+8)
+// Corresponding UTC time: 2019-08-05 17:38:57.805
+TEST(VTimestampFunctionsTest, utc_timestamp_test) {
+    std::string func_name = "utc_timestamp";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {};
+        DataSet data_set = {
+                {{}, std::string("2019-08-05 17:38:57")},
+        };
+        static_cast<void>(check_function<DataTypeDateTimeV2>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{int32_t(3)}, std::string("2019-08-05 17:38:57.805")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 3));
+    }
+}
+
+TEST(VTimestampFunctionsTest, utc_date_test) {
+    std::string func_name = "utc_date";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {};
+        DataSet data_set = {
+                {{}, std::string("2019-08-05")},
+        };
+        static_cast<void>(check_function<DataTypeDateV2>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VTimestampFunctionsTest, utc_time_test) {
+    std::string func_name = "utc_time";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {};
+        DataSet data_set = {
+                {{}, std::string("17:38:57")},
+        };
+        static_cast<void>(check_function<DataTypeTimeV2>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{int32_t(3)}, std::string("17:38:57.805")},
+        };
+        static_cast<void>(
+                check_function<DataTypeTimeV2, true>(func_name, input_types, data_set, 3));
+    }
+}
+
+TEST(VTimestampFunctionsTest, utc_impl_function_name_test) {
+    EXPECT_STREQ("utc_timestamp", UtcImpl<PrimitiveType::TYPE_DATETIMEV2>::get_function_name());
+    EXPECT_STREQ("utc_date", UtcImpl<PrimitiveType::TYPE_DATEV2>::get_function_name());
+    EXPECT_STREQ("utc_time", UtcImpl<PrimitiveType::TYPE_TIMEV2>::get_function_name());
+    EXPECT_STREQ("utc_timestamp", UtcImpl<PrimitiveType::TYPE_DATETIMEV2>::name);
+    EXPECT_STREQ("utc_date", UtcImpl<PrimitiveType::TYPE_DATEV2>::name);
+    EXPECT_STREQ("utc_time", UtcImpl<PrimitiveType::TYPE_TIMEV2>::name);
 }
 
 } // namespace doris::vectorized
