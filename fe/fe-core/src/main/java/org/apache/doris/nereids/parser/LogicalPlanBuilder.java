@@ -98,6 +98,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogPropertiesContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
+import org.apache.doris.nereids.DorisParser.AlterComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabasePropertiesContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseSetQuotaContext;
@@ -620,6 +621,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesComma
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
@@ -6321,6 +6323,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         return new AlterWorkloadGroupCommand(cgName, stripQuotes(ctx.name.getText()), properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterComputeGroup(AlterComputeGroupContext ctx) {
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new AlterComputeGroupCommand(ctx.name.getText(), properties);
     }
 
     @Override

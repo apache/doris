@@ -27,6 +27,7 @@
 
 #include <memory>
 #include <mutex>
+#include <unordered_set>
 #include <variant>
 
 #include "cloud/cloud_tablet_mgr.h"
@@ -171,6 +172,7 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
 
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
+    std::unordered_set<int64_t> synced_tablets;
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
         VLOG_DEBUG << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
@@ -183,12 +185,20 @@ void FileCacheBlockDownloader::download_file_cache_block(
         } else {
             tablet = std::move(res).value();
         }
-
+        if (!synced_tablets.contains(meta.tablet_id())) {
+            auto st = tablet->sync_rowsets();
+            if (!st) {
+                // just log failed, try it best
+                LOG(WARNING) << "failed to sync rowsets: " << meta.tablet_id()
+                             << " err msg: " << st.to_string();
+            }
+            synced_tablets.insert(meta.tablet_id());
+        }
         auto id_to_rowset_meta_map = snapshot_rs_metas(tablet.get());
         auto find_it = id_to_rowset_meta_map.find(meta.rowset_id());
         if (find_it == id_to_rowset_meta_map.end()) {
             LOG(WARNING) << "download_file_cache_block: tablet_id=" << meta.tablet_id()
-                         << "rowset_id not found, rowset_id=" << meta.rowset_id();
+                         << " rowset_id not found, rowset_id=" << meta.rowset_id();
             return;
         }
 
