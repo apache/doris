@@ -27,6 +27,7 @@
 
 #include <memory>
 #include <mutex>
+#include <unordered_set>
 #include <variant>
 
 #include "cloud/cloud_tablet_mgr.h"
@@ -171,6 +172,7 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
 
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
+    std::unordered_set<int64_t> synced_tablets;
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
         VLOG_DEBUG << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
@@ -183,12 +185,20 @@ void FileCacheBlockDownloader::download_file_cache_block(
         } else {
             tablet = std::move(res).value();
         }
-
+        if (!synced_tablets.contains(meta.tablet_id())) {
+            auto st = tablet->sync_rowsets();
+            if (!st) {
+                // just log failed, try it best
+                LOG(WARNING) << "failed to sync rowsets: " << meta.tablet_id()
+                             << " err msg: " << st.to_string();
+            }
+            synced_tablets.insert(meta.tablet_id());
+        }
         auto id_to_rowset_meta_map = snapshot_rs_metas(tablet.get());
         auto find_it = id_to_rowset_meta_map.find(meta.rowset_id());
         if (find_it == id_to_rowset_meta_map.end()) {
             LOG(WARNING) << "download_file_cache_block: tablet_id=" << meta.tablet_id()
-                         << "rowset_id not found, rowset_id=" << meta.rowset_id();
+                         << " rowset_id not found, rowset_id=" << meta.rowset_id();
             return;
         }
 
@@ -219,9 +229,21 @@ void FileCacheBlockDownloader::download_file_cache_block(
                       << "status=" << st.to_string();
         };
 
+        std::string path;
+        doris::FileType file_type =
+                meta.has_file_type() ? meta.file_type() : doris::FileType::SEGMENT_FILE;
+        bool is_index = (file_type == doris::FileType::INVERTED_INDEX_FILE);
+        if (is_index) {
+            path = storage_resource.value()->remote_idx_v2_path(*find_it->second,
+                                                                meta.segment_id());
+        } else {
+            // default .dat
+            path = storage_resource.value()->remote_segment_path(*find_it->second,
+                                                                 meta.segment_id());
+        }
+
         DownloadFileMeta download_meta {
-                .path = storage_resource.value()->remote_segment_path(*find_it->second,
-                                                                      meta.segment_id()),
+                .path = path,
                 .file_size = meta.has_file_size() ? meta.file_size()
                                                   : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
@@ -279,7 +301,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
-        auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
+        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
             if (meta.download_done) {

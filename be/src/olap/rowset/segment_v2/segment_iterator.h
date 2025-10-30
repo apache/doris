@@ -230,7 +230,8 @@ private:
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
-                                                 vectorized::MutableColumns* mutable_columns);
+                                                 vectorized::MutableColumns* mutable_columns,
+                                                 bool init_condition_cache = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -381,6 +382,8 @@ private:
     Status _materialization_of_virtual_column(vectorized::Block* block);
     void _prepare_score_column_materialization();
 
+    void _init_row_bitmap_by_condition_cache();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -431,7 +434,7 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
-    std::vector<ColumnId> _non_predicate_column_ids;
+    std::vector<ColumnId> _common_expr_column_ids;
     // TODO: Should use std::vector<size_t>
     std::vector<ColumnId> _columns_to_filter;
     std::vector<bool> _converted_column_ids;
@@ -503,6 +506,13 @@ private:
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 
     IndexQueryContextPtr _index_query_context;
+
+    // key is column uid, value is the sparse column cache
+    std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
+
+    bool _find_condition_cache = false;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    static constexpr int CONDITION_CACHE_OFFSET = 2048;
 };
 
 } // namespace segment_v2

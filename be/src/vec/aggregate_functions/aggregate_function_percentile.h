@@ -412,9 +412,7 @@ struct PercentileState {
             if (vec_quantile[i] == -1.0) {
                 vec_quantile[i] = rhs.vec_quantile[i];
             }
-            vec_counts[i].merge(
-                    const_cast<Counts<typename PrimitiveTypeTraits<T>::ColumnItemType>*>(
-                            &(rhs.vec_counts[i])));
+            vec_counts[i].merge(&(rhs.vec_counts[i]));
         }
     }
 

@@ -226,6 +226,22 @@ suite("test_date_function") {
     // TIME CURTIME()
     def curtime_result = sql """ SELECT CURTIME() """
     assertTrue(curtime_result[0].size() == 1)
+    def curtime_with_arg = sql """ SELECT CAST(CURTIME(3) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertTrue(curtime_with_arg[0][0].contains('.'))
+
+    curtime_with_arg = sql """ SELECT CAST(CURTIME(0) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertFalse(curtime_with_arg[0][0].contains('.'))
+
+    test {
+        sql """ SELECT CURTIME(114514);"""
+        exception "Can not find the compatibility function signature: current_time(INT)"
+    }
+    test {
+        sql """ SELECT CURTIME(7); """
+        exception "The precision must be between 0 and 6"
+    }
 
     sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
     // DATE_ADD
@@ -235,6 +251,13 @@ suite("test_date_function") {
     qt_sql """ select date_add(test_datetime, INTERVAL 2 HOUR) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
     qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL '1 00:00:01' DAY_SECOND) result from ${tableName}; """
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 xx:00:01' DAY_SECOND) result from ${tableName}; """
+        // check exception message contains
+        exception "Invalid hours format"
+    }
 
     explain {
         sql """select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);"""
@@ -477,6 +500,25 @@ suite("test_date_function") {
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
+    utc_timestamp_str = sql """ select utc_timestamp(6), utc_timestamp(6) + 1 """
+    assertTrue(utc_timestamp_str[0].size() == 2)
+    test {
+        sql """ select utc_timestamp(7) """
+        exception "scale must be between 0 and 6"
+    }
+
+    def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    test {
+        sql """ select utc_time(7) """
+        exception "scale must be between 0 and 6"
+    }
+
+    def utc_date_str = sql """ select utc_date(),utc_date() + 1 """
+    assertTrue(utc_date_str[0].size() == 2)
+
     // WEEK
     qt_sql """ select week('2020-1-1') """
     qt_sql """ select week('2020-7-1',1) """

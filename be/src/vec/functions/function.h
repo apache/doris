@@ -32,6 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h" // IWYU pragma: keep
+#include "runtime/define_primitive_type.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -39,7 +40,10 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 
@@ -289,7 +293,7 @@ public:
                                ->get_nested_type()
                                ->get_primitive_type() == INVALID_TYPE) ||
               is_date_or_datetime_or_decimal(return_type, func_return_type) ||
-              is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))) {
+              is_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))) {
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "function return type check failed, function_name={}, "
@@ -356,8 +360,8 @@ protected:
 private:
     bool is_date_or_datetime_or_decimal(const DataTypePtr& return_type,
                                         const DataTypePtr& func_return_type) const;
-    bool is_array_nested_type_date_or_datetime_or_decimal(
-            const DataTypePtr& return_type, const DataTypePtr& func_return_type) const;
+    bool is_nested_type_date_or_datetime_or_decimal(const DataTypePtr& return_type,
+                                                    const DataTypePtr& func_return_type) const;
 };
 
 /// Previous function interface.

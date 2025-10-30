@@ -122,6 +122,10 @@ public:
     IntCounter* segment_read_total = nullptr;
     // total number of rows in queried segments (before index pruning)
     IntCounter* segment_row_total = nullptr;
+    // number of condition cache lookups when digest != 0
+    IntCounter* condition_cache_search_count = nullptr;
+    // number of condition cache hits
+    IntCounter* condition_cache_hit_count = nullptr;
 
     IntCounter* stream_load_txn_begin_request_total = nullptr;
     IntCounter* stream_load_txn_commit_request_total = nullptr;
@@ -244,6 +248,8 @@ public:
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
 
+    IntCounter* udf_close_bthread_count = nullptr;
+
     IntCounter* query_ctx_cnt = nullptr;
     IntCounter* scanner_ctx_cnt = nullptr;
     IntCounter* scanner_cnt = nullptr;
@@ -253,6 +259,10 @@ public:
     IntCounter* ann_index_load_cnt = nullptr;
     IntCounter* ann_index_search_costs_ms = nullptr;
     IntCounter* ann_index_search_cnt = nullptr;
+    IntCounter* ann_index_in_memory_cnt = nullptr;
+    IntCounter* ann_index_in_memory_rows_cnt = nullptr;
+    IntCounter* ann_index_construction = nullptr;
+    IntCounter* ann_index_build_index_threads = nullptr;
 
     IntGauge* runtime_filter_consumer_num = nullptr;
     IntGauge* runtime_filter_consumer_ready_num = nullptr;

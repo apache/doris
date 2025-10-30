@@ -216,7 +216,9 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                   << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse> ||
-                         std::is_same_v<Response, GetInstanceResponse>) {
+                         std::is_same_v<Response, GetInstanceResponse> ||
+                         std::is_same_v<Response, BeginSnapshotResponse> ||
+                         std::is_same_v<Response, CloneInstanceResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
         debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
@@ -357,7 +359,7 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
  * Notifies other metaservice to refresh instance
  */
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                             KVStats* stats);
+                             KVStats* stats, bool include_self = false);
 
 void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
                     const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx);

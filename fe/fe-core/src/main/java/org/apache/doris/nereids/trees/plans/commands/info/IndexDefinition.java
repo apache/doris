@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -189,7 +190,9 @@ public class IndexDefinition {
                         + " or key columns of AGG_KEYS table. invalid index: " + name);
                 } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
                                && indexType == IndexType.INVERTED && properties != null
-                               && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                               && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
+                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY))) {
                     throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
                         + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
                 }
@@ -360,6 +363,7 @@ public class IndexDefinition {
         return indexType == IndexType.INVERTED
                 && properties != null
                         && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                             || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

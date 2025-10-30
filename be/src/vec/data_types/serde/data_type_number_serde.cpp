@@ -771,6 +771,117 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
 }
 
 template <PrimitiveType T>
+const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
+                                                                    IColumn& column) {
+    auto& col = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    if constexpr (T == TYPE_BOOLEAN) {
+        col.insert_value(unaligned_load<UInt8>(data));
+        data += sizeof(UInt8);
+    } else if constexpr (T == TYPE_TINYINT) {
+        col.insert_value(unaligned_load<Int8>(data));
+        data += sizeof(Int8);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        col.insert_value(unaligned_load<Int16>(data));
+        data += sizeof(Int16);
+    } else if constexpr (T == TYPE_INT) {
+        col.insert_value(unaligned_load<Int32>(data));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_BIGINT) {
+        col.insert_value(unaligned_load<Int64>(data));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_FLOAT) {
+        col.insert_value(unaligned_load<Float32>(data));
+        data += sizeof(Float32);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        col.insert_value(unaligned_load<Float64>(data));
+        data += sizeof(Float64);
+    } else if constexpr (T == TYPE_IPV4) {
+        col.insert_value(unaligned_load<UInt32>(data));
+        data += sizeof(UInt32);
+    } else if constexpr (T == TYPE_IPV6) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DATEV2) {
+        col.insert_value(unaligned_load<UInt32>(data));
+        data += sizeof(UInt32);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        data += sizeof(uint8_t);
+        col.insert_value(unaligned_load<UInt64>(data));
+        data += sizeof(UInt64);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type '{}'", type_to_string(T));
+    }
+    return data;
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
+                                                                   Field& field, FieldInfo& info) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        field = Field::create_field<TYPE_BOOLEAN>(unaligned_load<UInt8>(data));
+        data += sizeof(UInt8);
+    } else if constexpr (T == TYPE_TINYINT) {
+        Int8 v = unaligned_load<Int8>(data);
+        field = Field::create_field<TYPE_TINYINT>(v);
+        data += sizeof(Int8);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        Int16 v = unaligned_load<Int16>(data);
+        field = Field::create_field<TYPE_SMALLINT>(v);
+        data += sizeof(Int16);
+    } else if constexpr (T == TYPE_INT) {
+        Int32 v = unaligned_load<Int32>(data);
+        field = Field::create_field<TYPE_INT>(v);
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_BIGINT) {
+        Int64 v = unaligned_load<Int64>(data);
+        field = Field::create_field<TYPE_BIGINT>(v);
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        PackedInt128 pack;
+        memcpy(&pack, data, sizeof(PackedInt128));
+        field = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
+        data += sizeof(PackedInt128);
+    } else if constexpr (T == TYPE_FLOAT) {
+        Float32 v = unaligned_load<Float32>(data);
+        field = Field::create_field<TYPE_FLOAT>(v);
+        data += sizeof(Float32);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        Float64 v = unaligned_load<Float64>(data);
+        field = Field::create_field<TYPE_DOUBLE>(v);
+        data += sizeof(Float64);
+    } else if constexpr (T == TYPE_IPV4) {
+        IPv4 v = unaligned_load<IPv4>(data);
+        field = Field::create_field<TYPE_IPV4>(v);
+        data += sizeof(IPv4);
+    } else if constexpr (T == TYPE_IPV6) {
+        PackedUInt128 pack;
+        memcpy(&pack, data, sizeof(PackedUInt128));
+        auto v = pack.value;
+        field = Field::create_field<TYPE_IPV6>(v);
+        data += sizeof(PackedUInt128);
+    } else if constexpr (T == TYPE_DATEV2) {
+        UInt32 v = unaligned_load<UInt32>(data);
+        field = Field::create_field<TYPE_DATEV2>(v);
+        data += sizeof(UInt32);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        UInt64 v = unaligned_load<UInt64>(data);
+        info.precision = -1;
+        info.scale = static_cast<int>(scale);
+        field = Field::create_field<TYPE_DATETIMEV2>(v);
+        data += sizeof(UInt64);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type '{}'", type_to_string(T));
+    }
+    return data;
+}
+template <PrimitiveType T>
 void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value,
                      BufferWritable& bw, int scale) {
     if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||

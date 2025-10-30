@@ -725,7 +725,9 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
-                                    const StorageReadOptions* opt) {
+                                    const StorageReadOptions* opt,
+                                    const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                            variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
@@ -746,10 +748,21 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
+        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr;
+        if (variant_sparse_column_cache) {
+            auto it = variant_sparse_column_cache->find(unique_id);
+            if (it != variant_sparse_column_cache->end()) {
+                sparse_column_cache_ptr = it->second.get();
+            } else {
+                DCHECK(false) << "sparse column cache is not found, unique_id=" << unique_id;
+            }
+        }
         // use _column_reader_cache to get variant subcolumn(path column) reader
-        RETURN_IF_ERROR(
-                assert_cast<VariantColumnReader*>(reader.get())
-                        ->new_iterator(iter, &tablet_column, opt, _column_reader_cache.get()));
+        RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
+                                ->new_iterator(iter, &tablet_column, opt,
+                                               _column_reader_cache.get(),
+                                               sparse_column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
     }
@@ -776,6 +789,15 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
                                                           col_uid);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
+}
+
+Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, nullptr));
+    for (const auto& column : footer_pb_shared->columns()) {
+        visitor(column);
+    }
+    return Status::OK();
 }
 
 Status Segment::get_column_reader(const TabletColumn& col,

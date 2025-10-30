@@ -18,17 +18,17 @@
 /**
  * @file ann_index.h
  * @brief Abstract interface for vector similarity search indexes in Doris.
- * 
+ *
  * This file defines the abstract VectorIndex interface that provides a unified
  * API for different vector index implementations (FAISS, etc.). The interface
  * supports both approximate k-nearest neighbor search and range search operations.
- * 
+ *
  * Key operations supported:
  * - Adding vectors to the index during build phase
  * - K-nearest neighbor search for Top-N queries
  * - Range search for finding vectors within a distance threshold
  * - Persistence to/from storage for index durability
- * 
+ *
  * This abstraction allows Doris to support multiple vector index libraries
  * through a consistent interface.
  */
@@ -63,20 +63,21 @@ AnnIndexType string_to_ann_index_type(const std::string& type);
 
 /**
  * @brief Abstract base class for vector similarity search indexes.
- * 
+ *
  * This class defines the interface that all vector index implementations
  * must follow. It provides the core operations needed for vector similarity
  * search in Doris, including index building, searching, and persistence.
- * 
+ *
  * Implementations of this interface (like FaissVectorIndex) handle the
  * specifics of different vector index libraries while providing a consistent
  * API for the Doris query execution engine.
  */
 class VectorIndex {
 public:
-    virtual ~VectorIndex() = default;
+    VectorIndex();
+    virtual ~VectorIndex();
 
-    virtual void train(vectorized::Int64 n, const float* x) = 0;
+    virtual doris::Status train(vectorized::Int64 n, const float* x) = 0;
 
     /** Add n vectors of dimension d vectors to the index.
      *

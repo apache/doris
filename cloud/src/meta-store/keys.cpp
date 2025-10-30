@@ -68,6 +68,8 @@ static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress
 static const char* JOB_KEY_INFIX_STREAMING_JOB          = "streaming_job";
 static const char* JOB_KEY_INFIX_RESTORE_TABLET         = "restore_tablet";
 static const char* JOB_KEY_INFIX_RESTORE_ROWSET         = "restore_rowset";
+static const char* JOB_KEY_INFIX_SNAPSHOT_DATA_MIGRATOR = "snapshot_data_migrator";
+static const char* JOB_KEY_INFIX_SNAPSHOT_CHAIN_COMPACTOR = "snapshot_chain_compactor";
 
 static const char* COPY_JOB_KEY_INFIX                   = "job";
 static const char* COPY_FILE_KEY_INFIX                  = "loading_file";
@@ -146,7 +148,8 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
-        JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo, StreamingJobKeyInfo,
+        JobTabletKeyInfo, JobRecycleKeyInfo, JobSnapshotDataMigratorKeyInfo, JobSnapshotChainCompactorKeyInfo,
+        RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
         MowTabletJobInfo>);
 
@@ -183,6 +186,8 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(STATS_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, JobTabletKeyInfo>
                       || std::is_same_v<T, JobRecycleKeyInfo>
+                      || std::is_same_v<T, JobSnapshotDataMigratorKeyInfo>
+                      || std::is_same_v<T, JobSnapshotChainCompactorKeyInfo>
                       || std::is_same_v<T, RLJobProgressKeyInfo>
                       || std::is_same_v<T, StreamingJobKeyInfo>) {
         encode_bytes(JOB_KEY_PREFIX, key);
@@ -459,6 +464,17 @@ void job_check_key(const JobRecycleKeyInfo& in, std::string* out) {
     encode_bytes("check", out); // "check"
 }
 
+void job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                                  // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_SNAPSHOT_DATA_MIGRATOR, out); // "snapshot_data_migrator"
+}
+
+void job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in,
+                                      std::string* out) {
+    encode_prefix(in, out);                                    // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_SNAPSHOT_CHAIN_COMPACTOR, out); // "snapshot_chain_compactor"
+}
+
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out) {
     encode_prefix(in, out);                       // 0x01 "job" ${instance_id}
     encode_bytes(JOB_KEY_INFIX_RL_PROGRESS, out); // "routine_load_progress"
@@ -558,6 +574,16 @@ std::string system_meta_service_encryption_key_info_key() {
     return ret;
 }
 
+// 0x02 0:"system"  1:"meta-service"  2:"instance_update"
+std::string system_meta_service_instance_update_key() {
+    std::string ret;
+    ret.push_back(CLOUD_SYS_KEY_SPACE02);
+    encode_bytes("system", &ret);
+    encode_bytes("meta-service", &ret);
+    encode_bytes("instance_update", &ret);
+    return ret;
+}
+
 //==============================================================================
 // Other keys
 //==============================================================================
@@ -612,6 +638,14 @@ std::string log_key_prefix(std::string_view instance_id) {
     return out;
 }
 
+std::string snapshot_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, &out); // "snapshot"
+    encode_bytes(instance_id, &out);         // instance_id
+    return out;
+}
+
 //==============================================================================
 // Version keys
 //==============================================================================
@@ -650,36 +684,6 @@ void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::
     encode_int64(std::get<1>(in), out);                    // db_id
     encode_int64(std::get<2>(in), out);                    // table_id
     encode_int64(std::get<3>(in), out);                    // partition_id
-}
-
-int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
-                                        int64_t* partition_id) {
-    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
-        return -1;
-    }
-
-    in->remove_prefix(1);
-
-    // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}
-    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-    if (decode_key(in, &out) != 0 || out.size() != 6) {
-        return -1;
-    } else if (auto* ptr = std::get_if<std::string>(&std::get<0>(out[2]));
-               ptr == nullptr || *ptr != PARTITION_INVERTED_INDEX_KEY_INFIX) {
-        return -1;
-    }
-
-    auto* db_id_ptr = std::get_if<int64_t>(&std::get<0>(out[3]));
-    auto* table_id_ptr = std::get_if<int64_t>(&std::get<0>(out[4]));
-    auto* partition_id_ptr = std::get_if<int64_t>(&std::get<0>(out[5]));
-    if (db_id_ptr == nullptr || table_id_ptr == nullptr || partition_id_ptr == nullptr) {
-        return -1;
-    }
-
-    *db_id = *db_id_ptr;
-    *table_id = *table_id_ptr;
-    *partition_id = *partition_id_ptr;
-    return 0;
 }
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out) {
@@ -908,6 +912,315 @@ std::vector<std::string> get_single_version_meta_key_prefixs() {
         key_prefix_list.push_back(std::move(key_prefix));
     }
     return key_prefix_list;
+}
+
+namespace versioned {
+bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                         int64_t* partition_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 6) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[2])) != PARTITION_INVERTED_INDEX_KEY_INFIX) {
+            return false;
+        }
+        *db_id = std::get<int64_t>(std::get<0>(out[3]));
+        *table_id = std::get<int64_t>(std::get<0>(out[4]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[5]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
+                             Versionstamp* timestamp, std::string* ref_instance_id) {
+    // Key format: 0x03 + encode_bytes("snapshot") + encode_bytes(instance_id) +
+    //             encode_bytes("reference") + encode_versionstamp(timestamp) + encode_bytes(ref_instance_id)
+
+    if (in->empty() || (*in)[0] != CLOUD_VERSIONED_KEY_SPACE03) {
+        return false;
+    }
+    in->remove_prefix(1);
+
+    // Decode "snapshot"
+    std::string snapshot_prefix;
+    if (decode_bytes(in, &snapshot_prefix) != 0 || snapshot_prefix != SNAPSHOT_KEY_PREFIX) {
+        return false;
+    }
+
+    // Decode instance_id
+    if (instance_id && decode_bytes(in, instance_id) != 0) {
+        return false;
+    } else if (!instance_id) {
+        std::string dummy;
+        if (decode_bytes(in, &dummy) != 0) {
+            return false;
+        }
+    }
+
+    // Decode "reference"
+    std::string reference_infix;
+    if (decode_bytes(in, &reference_infix) != 0 ||
+        reference_infix != SNAPSHOT_REFERENCE_KEY_INFIX) {
+        return false;
+    }
+
+    // Decode versionstamp (10 bytes)
+    if (timestamp && decode_versionstamp(in, timestamp) != 0) {
+        return false;
+    } else if (!timestamp) {
+        Versionstamp dummy;
+        if (decode_versionstamp(in, &dummy) != 0) {
+            return false;
+        }
+    }
+
+    // Decode ref_instance_id
+    if (ref_instance_id && decode_bytes(in, ref_instance_id) != 0) {
+        return false;
+    }
+
+    return true;
+}
+} // namespace versioned
+
+// Decode stats tablet key to extract table_id, index_id, partition_id and tablet_id
+// 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+bool decode_stats_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
+                             int64_t* partition_id, int64_t* tablet_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 7) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != STATS_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != STATS_KEY_INFIX_TABLET) {
+            return false;
+        }
+        *table_id = std::get<int64_t>(std::get<0>(out[3]));
+        *index_id = std::get<int64_t>(std::get<0>(out[4]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[5]));
+        *tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode table version key to extract db_id and tbl_id
+// 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}
+bool decode_table_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 5) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != VERSION_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != TABLE_VERSION_KEY_INFIX) {
+            return false;
+        }
+        *db_id = std::get<int64_t>(std::get<0>(out[3]));
+        *tbl_id = std::get<int64_t>(std::get<0>(out[4]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode tablet schema key to extract index_id and schema_version
+// 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}
+bool decode_tablet_schema_key(std::string_view* in, int64_t* index_id, int64_t* schema_version) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 5) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != META_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != META_KEY_INFIX_SCHEMA) {
+            return false;
+        }
+        *index_id = std::get<int64_t>(std::get<0>(out[3]));
+        *schema_version = std::get<int64_t>(std::get<0>(out[4]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode partition version key to extract db_id, tbl_id and partition_id
+// 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
+bool decode_partition_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
+                                  int64_t* partition_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 6) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != VERSION_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != PARTITION_VERSION_KEY_INFIX) {
+            return false;
+        }
+        *db_id = std::get<int64_t>(std::get<0>(out[3]));
+        *tbl_id = std::get<int64_t>(std::get<0>(out[4]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[5]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode meta tablet key to extract table_id, index_id, partition_id and tablet_id
+// 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+bool decode_meta_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
+                            int64_t* partition_id, int64_t* tablet_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 7) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != META_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != META_KEY_INFIX_TABLET) {
+            return false;
+        }
+        *table_id = std::get<int64_t>(std::get<0>(out[3]));
+        *index_id = std::get<int64_t>(std::get<0>(out[4]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[5]));
+        *tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode meta rowset key to extract tablet_id and version
+// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}
+bool decode_meta_rowset_key(std::string_view* in, int64_t* tablet_id, int64_t* version) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 5) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != META_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != META_KEY_INFIX_ROWSET) {
+            return false;
+        }
+        *tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+        *version = std::get<int64_t>(std::get<0>(out[4]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode meta tablet index key to extract tablet_id
+// 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}
+bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 4) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != META_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != META_KEY_INFIX_TABLET_IDX) {
+            return false;
+        }
+        *tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode instance key
+bool decode_instance_key(std::string_view* in, std::string* instance_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 2) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != INSTANCE_KEY_PREFIX) {
+            return false;
+        }
+        *instance_id = std::get<std::string>(std::get<0>(out[1]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
 }
 
 } // namespace doris::cloud

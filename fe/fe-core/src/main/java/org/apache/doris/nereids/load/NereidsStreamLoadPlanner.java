@@ -241,9 +241,9 @@ public class NereidsStreamLoadPlanner {
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
         TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = taskInfo.getPartialUpdateNewRowPolicy();
-        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
-                context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
-                partialUpdateNewRowPolicy);
+        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo,
+                dataDescription.getPartitionNamesInfo(), context,
+                uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS, partialUpdateNewRowPolicy);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
                 context.exprMap);
@@ -311,6 +311,7 @@ public class NereidsStreamLoadPlanner {
                 ? taskInfo.isMemtableOnSinkNode()
                 : false;
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+        queryOptions.setNewVersionUnixTimestamp(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

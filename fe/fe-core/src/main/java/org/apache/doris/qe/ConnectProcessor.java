@@ -25,21 +25,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
@@ -52,6 +49,7 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -118,45 +116,10 @@ public abstract class ConnectProcessor {
 
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
-        String catalogName = null;
-        String dbName = null;
-        String[] dbNames = fullDbName.split("\\.");
-        if (dbNames.length == 1) {
-            dbName = fullDbName;
-        } else if (dbNames.length == 2) {
-            catalogName = dbNames[0];
-            dbName = dbNames[1];
-        } else if (dbNames.length > 2) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
-            return;
+        Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, fullDbName);
+        if (res.isPresent()) {
+            ctx.getState().setError(res.get().first, res.get().second);
         }
-
-        //  mysql client
-        if (Config.isCloudMode()) {
-            try {
-                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
-            } catch (DdlException e) {
-                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                return;
-            }
-            if (dbName == null || dbName.isEmpty()) {
-                return;
-            }
-        }
-
-        try {
-            if (catalogName != null) {
-                ctx.getEnv().changeCatalog(ctx, catalogName);
-            }
-            ctx.getEnv().changeDb(ctx, dbName);
-        } catch (DdlException e) {
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        } catch (Throwable t) {
-            ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t));
-            return;
-        }
-        ctx.getState().setOk();
     }
 
     // set killed flag
@@ -444,6 +407,12 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());
                 return ImmutableList.of(logicalPlanAdapter);
+            } else {
+                if (!ctx.getSessionVariable().testQueryCacheHit.equals("none")) {
+                    throw new UserException("The variable test_query_cache_hit is set to "
+                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                            + ", but the query cache is not hit.");
+                }
             }
         } catch (Throwable t) {
             LOG.warn("Parse from sql cache failed: " + t.getMessage(), t);
@@ -460,7 +429,7 @@ public abstract class ConnectProcessor {
             SessionVariable sessionVariable) throws ConnectionException {
         try {
             return new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-        } catch (NotSupportedException e) {
+        } catch (NotSupportedException | SyntaxParseException e) {
             List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
             if (stmts == null) {
                 handleQueryException(e, convertedStmt, null, null);
@@ -515,30 +484,33 @@ public abstract class ConnectProcessor {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
-        if (throwable instanceof ConnectionException) {
+        if (throwable instanceof SyntaxParseException) {
+            // Syntax parse exception.
+            Throwable e = new AnalysisException(throwable.getMessage(), throwable);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+            ctx.getState().setErrType(QueryState.ErrType.SYNTAX_PARSE_ERR);
+        } else if (throwable instanceof ConnectionException) {
             // Throw this exception to close the connection outside.
-            LOG.warn("Process one query failed because ConnectionException: ", throwable);
             throw (ConnectionException) throwable;
         } else if (throwable instanceof IOException) {
             // Client failed.
-            LOG.warn("Process one query failed because IOException: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
         } else if (throwable instanceof UserException) {
-            LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else if (throwable instanceof NotSupportedException) {
-            LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else {
             // Catch all throwable.
             // If reach here, maybe palo bug.
-            LOG.warn("Process one query failed because unknown reason: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     throwable.getClass().getSimpleName() + ", msg: " + throwable.getMessage());
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Process one query failed because: {}", throwable.getMessage());
         }
         auditAfterExec(origStmt, parsedStmt, statistics, true);
     }

@@ -175,7 +175,7 @@ suite("test_checker") {
         checkJobInfoApi.call() {
             respCode, body ->
                 logger.info("http cli result: ${body} ${respCode}")
-                checkJobInfoResult = body
+                def checkJobInfoResult = body
                 logger.info("checkJobInfoResult:${checkJobInfoResult}")
                 assertEquals(respCode, 200)
                 def info = parseJson(checkJobInfoResult.trim())
@@ -189,6 +189,8 @@ suite("test_checker") {
     }
 
     do {
+        triggerRecycle(token, instanceId)
+        Thread.sleep(10000) // 10s
         triggerChecker()
         Thread.sleep(10000) // 10s
         getCheckJobInfo()

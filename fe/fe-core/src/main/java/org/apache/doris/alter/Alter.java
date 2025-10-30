@@ -76,13 +76,13 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -828,6 +828,7 @@ public class Alter {
                 db.registerTable(view);
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode, comment);
+                Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);
                 LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
             } finally {
@@ -865,7 +866,7 @@ public class Alter {
 
             db.unregisterTable(viewName);
             db.registerTable(view);
-
+            Env.getCurrentEnv().getMtmvService().alterView(new BaseTableInfo(view));
             LOG.info("replay modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
             view.writeUnlock();
@@ -1238,6 +1239,7 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
+        boolean alterSuccess = true;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
@@ -1252,7 +1254,8 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
+                    alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
+                            alterMTMV.getPartitionSnapshots(),
                             isReplay);
                     // If it is not a replay thread, it means that the current service is already a new version
                     // and does not require compatibility
@@ -1267,7 +1270,7 @@ public class Alter {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
             // 4. log it and replay it in the follower
-            if (!isReplay) {
+            if (!isReplay && alterSuccess) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {
