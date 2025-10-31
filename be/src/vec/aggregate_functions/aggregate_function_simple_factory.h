@@ -41,6 +41,8 @@ using DataTypes = std::vector<DataTypePtr>;
 using AggregateFunctionCreator = std::function<AggregateFunctionPtr(
         const std::string&, const DataTypes&, const bool, const AggregateFunctionAttr&)>;
 
+const std::string DISTINCT_FUNCTION_PREFIX = "multi_distinct_";
+
 inline std::string types_name(const DataTypes& types) {
     std::string name;
     for (auto&& type : types) {
