@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -151,20 +150,6 @@ public class CastExpr extends Expr {
 
     private static String getFnName(Type targetType) {
         return "castTo" + targetType.getPrimitiveType().toString();
-    }
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        for (Type fromType : Type.getTrivialTypes()) {
-            if (fromType.isNull()) {
-                continue;
-            }
-            for (Type toType : Type.getTrivialTypes()) {
-                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
-                        toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
-                        Lists.newArrayList(fromType), false,
-                        null, null, null, true));
-            }
-        }
     }
 
     @Override
