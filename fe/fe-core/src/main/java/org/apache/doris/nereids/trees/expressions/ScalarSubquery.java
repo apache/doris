@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -38,7 +37,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * A subquery that will return only one row and one column.
@@ -51,8 +49,7 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     // indicate if the subquery has limit 1 clause but it's been eliminated in previous process step
     private final boolean limitOneIsEliminated;
 
-    private final Supplier<Slot> queryPlanSlot = Suppliers.memoize(
-            () -> getScalarQueryOutputAdjustNullable(queryPlan, correlateSlots));
+    private Slot scalarSubQueryOutputNullableSlot = null;
 
     public ScalarSubquery(LogicalPlan subquery) {
         this(subquery, ImmutableList.of(), false);
@@ -94,7 +91,7 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     @Override
     public Expression getSubqueryOutput() {
-        return typeCoercionExpr.orElseGet(this::getOutputSlotAdjustNullable);
+        return typeCoercionExpr.orElseGet(this::getScalarSubQueryOutputNullableSlot);
     }
 
     @Override
@@ -140,8 +137,12 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
         return new ScalarSubquery(subquery, correlateSlots, typeCoercionExpr, limitOneIsEliminated);
     }
 
-    public Slot getOutputSlotAdjustNullable() {
-        return queryPlanSlot.get();
+    public Slot getScalarSubQueryOutputNullableSlot() {
+        if (scalarSubQueryOutputNullableSlot == null) {
+            scalarSubQueryOutputNullableSlot = queryPlan.getOutput().get(0).withNullable(true);
+        }
+
+        return scalarSubQueryOutputNullableSlot;
     }
 
     /**

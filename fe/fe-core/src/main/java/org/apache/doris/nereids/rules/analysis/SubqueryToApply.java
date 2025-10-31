@@ -404,8 +404,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         boolean needRuntimeAnyValue = false;
         NamedExpression subqueryOutput = subquery.getQueryPlan().getOutput().get(0);
         if (subquery instanceof ScalarSubquery) {
-            // scalar sub query may adjust output slot's nullable.
-            subqueryOutput = ((ScalarSubquery) subquery).getOutputSlotAdjustNullable();
+            subqueryOutput = ((ScalarSubquery) subquery).getScalarSubQueryOutputNullableSlot();
         }
         Slot countSlot = null;
         Slot anyValueSlot = null;

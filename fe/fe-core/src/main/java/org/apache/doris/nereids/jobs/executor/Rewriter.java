@@ -132,10 +132,11 @@ import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownOneRowJoinThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownOneRowJoinThroughSetOperation;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
@@ -265,7 +266,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateAggCaseWhen(),
                                             new ReduceAggregateChildOutputRows(),
                                             new EliminateJoinCondition(),
-                                            new EliminateAssertNumRows(),
                                             new EliminateSemiJoin()
                                     )
                             ),
@@ -493,7 +493,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateAggCaseWhen(),
                                 new ReduceAggregateChildOutputRows(),
                                 new EliminateJoinCondition(),
-                                new EliminateAssertNumRows(),
                                 new EliminateSemiJoin(),
                                 new SimplifyEncodeDecode()
                         )
@@ -728,7 +727,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("set initial join order",
                         bottomUp(ImmutableList.of(new InitJoinOrder())),
-                        bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable())),
+                        bottomUp(ImmutableList.of(
+                                new PushDownOneRowJoinThroughJoin(),
+                                new MergeProjectable())),
                         topDown(new SkewJoin())),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail
@@ -887,7 +888,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
-
+                rewriteJobs.addAll(jobs(topic("push down one-row-join through set operator",
+                        custom(RuleType.PUSH_DOWN_JOIN_ON_ASSERT_NUM_ROWS,
+                                PushDownOneRowJoinThroughSetOperation::new))));
+                rewriteJobs.addAll(jobs(topic("eliminate AssertNumRows node",
+                        bottomUp(new EliminateAssertNumRows()))));
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
                         custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR, () -> DistinctAggStrategySelector.INSTANCE))));
 
