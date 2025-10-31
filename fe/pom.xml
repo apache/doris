@@ -356,13 +356,13 @@ under the License.
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
-        <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
+        <ranger-plugins-common.version>2.7.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
         <jetty.version>9.4.57.v20241219</jetty.version>
-        <immutables.version>2.9.3</immutables.version>
+        <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>75.1</icu4j.version>
         <ini4j.version>0.5.4</ini4j.version>
