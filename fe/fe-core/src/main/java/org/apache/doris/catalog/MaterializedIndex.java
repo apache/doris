@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
@@ -107,6 +109,11 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     public Tablet getTablet(long tabletId) {
         return idToTablets.get(tabletId);
+    }
+
+    public Tablet getTabletOrMetaException(long tabletId) throws MetaNotFoundException {
+        return Optional.ofNullable(getTablet(tabletId))
+                .orElseThrow(() -> new MetaNotFoundException("Tablet " + tabletId + " not found"));
     }
 
     public void clearTabletsForRestore() {
