@@ -34,6 +34,14 @@ public:
 
     float score() override { return _score; }
 
+    bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
+        return _scorer && _scorer->has_null_bitmap(resolver);
+    }
+
+    const roaring::Roaring* get_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
+        return _scorer ? _scorer->get_null_bitmap(resolver) : nullptr;
+    }
+
 private:
     ScorerPtrT _scorer;
 
