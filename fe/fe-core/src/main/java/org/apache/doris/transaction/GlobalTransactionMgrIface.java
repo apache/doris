@@ -225,4 +225,6 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public void getOrSetAutoPartitionInfo(Long dbId, Long txnId,
             Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap);
+
+    public void clearAutoPartitionInfo(Long dbId, Long txnId);
 }

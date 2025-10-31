@@ -1080,4 +1080,3 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         return 0;
     }
 }
-
