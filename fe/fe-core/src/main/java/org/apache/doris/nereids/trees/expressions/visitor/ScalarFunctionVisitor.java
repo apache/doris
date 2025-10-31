@@ -228,6 +228,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Da
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
@@ -317,6 +318,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -372,6 +374,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -2637,7 +2641,23 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(makeSet, context);
     }
 
+    default R visitMakeTime(MakeTime makeTime, C context) {
+        return visitScalarFunction(makeTime, context);
+    }
+
     default R visitExportSet(ExportSet exportSet, C context) {
         return visitScalarFunction(exportSet, context);
+    }
+
+    default R visitGetFormat(GetFormat getFormat, C context) {
+        return visitScalarFunction(getFormat, context);
+    }
+
+    default R visitPeriodAdd(PeriodAdd periodAdd, C context) {
+        return visitScalarFunction(periodAdd, context);
+    }
+
+    default R visitPeriodDiff(PeriodDiff periodDiff, C context) {
+        return visitScalarFunction(periodDiff, context);
     }
 }

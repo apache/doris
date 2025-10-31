@@ -41,3 +41,84 @@
 -- !sql_diff14 --
 86400000000
 
+-- !get_format_date_1 --
+%m.%d.%Y
+%Y-%m-%d
+%Y-%m-%d
+%d.%m.%Y
+%Y%m%d
+\N
+
+-- !get_format_date_2 --
+%m.%d.%Y
+%Y-%m-%d
+%Y-%m-%d
+%d.%m.%Y
+%Y%m%d
+\N
+
+-- !get_format_date_3 --
+%m.%d.%Y
+%Y-%m-%d
+%Y-%m-%d
+%d.%m.%Y
+%Y%m%d
+\N
+
+-- !get_format_date_4 --
+\N
+
+-- !get_format_datetime_1 --
+%Y-%m-%d %H.%i.%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H.%i.%s
+%Y%m%d%H%i%s
+\N
+
+-- !get_format_datetime_2 --
+%Y-%m-%d %H.%i.%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H.%i.%s
+%Y%m%d%H%i%s
+\N
+
+-- !get_format_datetime_3 --
+%Y-%m-%d %H.%i.%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H.%i.%s
+%Y%m%d%H%i%s
+\N
+
+-- !get_format_datetime_4 --
+\N
+
+-- !get_format_time_1 --
+%h:%i:%s %p
+%H:%i:%s
+%H:%i:%s
+%H.%i.%s
+%H%i%s
+\N
+
+-- !get_format_time_2 --
+%h:%i:%s %p
+%H:%i:%s
+%H:%i:%s
+%H.%i.%s
+%H%i%s
+\N
+
+-- !get_format_time_3 --
+%h:%i:%s %p
+%H:%i:%s
+%H:%i:%s
+%H.%i.%s
+%H%i%s
+\N
+
+-- !get_format_time_4 --
+\N
+

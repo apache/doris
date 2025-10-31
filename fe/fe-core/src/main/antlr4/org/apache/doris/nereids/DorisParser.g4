@@ -1605,6 +1605,8 @@ primaryExpression
         (ORDER BY sortItem (COMMA sortItem)*)?
         (SEPARATOR sep=expression)? RIGHT_PAREN
         (OVER windowSpec)?                                                                     #groupConcat
+    | GET_FORMAT LEFT_PAREN
+        expression COMMA expression RIGHT_PAREN                                         #getFormatFunction
     | TRIM LEFT_PAREN
         ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
     | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
@@ -1998,6 +2000,7 @@ nonReserved
     | FRONTENDS
     | FUNCTION
     | GENERATED
+    | GET_FORMAT
     | GENERIC
     | GLOBAL
     | GRAPH
@@ -2022,6 +2025,7 @@ nonReserved
     | IMMEDIATE
     | INCREMENTAL
     | INDEXES
+    | INSERT
     | INVERTED
     | IP_TRIE
     | IPV4

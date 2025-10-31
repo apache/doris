@@ -220,6 +220,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
@@ -311,6 +312,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -369,6 +371,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -551,6 +555,16 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Abs.class, "abs"),
             scalar(Acos.class, "acos"),
             scalar(Acosh.class, "acosh"),
+            scalar(AITranslate.class, "ai_translate"),
+            scalar(AISentiment.class, "ai_sentiment"),
+            scalar(AIFilter.class, "ai_filter"),
+            scalar(AIFixGrammar.class, "ai_fixgrammar"),
+            scalar(AIExtract.class, "ai_extract"),
+            scalar(AIGenerate.class, "ai_generate"),
+            scalar(AIClassify.class, "ai_classify"),
+            scalar(AIMask.class, "ai_mask"),
+            scalar(AISummarize.class, "ai_summarize"),
+            scalar(AISimilarity.class, "ai_similarity"),
             scalar(AesDecrypt.class, "aes_decrypt"),
             scalar(AesEncrypt.class, "aes_encrypt"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
@@ -651,6 +665,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
+            scalar(Compress.class, "compress"),
             scalar(Concat.class, "concat"),
             scalar(ConcatWs.class, "concat_ws"),
             scalar(ConnectionId.class, "connection_id"),
@@ -705,6 +720,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(E.class, "e"),
             scalar(ElementAt.class, "element_at"),
             scalar(Elt.class, "elt"),
+            scalar(Embed.class, "embed"),
             scalar(EncodeAsSmallInt.class, "encode_as_smallint"),
             scalar(EncodeAsInt.class, "encode_as_int"),
             scalar(EncodeAsBigInt.class, "encode_as_bigint"),
@@ -713,6 +729,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(EsQuery.class, "esquery"),
             scalar(Even.class, "even"),
             scalar(Exp.class, "exp"),
+            scalar(ExportSet.class, "export_set"),
             scalar(ExtractUrlParameter.class, "extract_url_parameter"),
             scalar(Field.class, "field"),
             scalar(FindInSet.class, "find_in_set"),
@@ -730,6 +747,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
             scalar(Gcd.class, "gcd"),
+            scalar(GetFormat.class, "get_format"),
             scalar(GetVariantType.class, "variant_type"),
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
@@ -810,10 +828,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(L2DistanceApproximate.class, "l2_distance_approximate"),
             scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),
+            scalar(LastQueryId.class, "last_query_id"),
             scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left", "strleft"),
-            scalar(Length.class, "length"),
+            scalar(Length.class, "length", "octet_length"),
             scalar(Crc32.class, "crc32"),
             scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
@@ -827,6 +846,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ltrim.class, "ltrim"),
             scalar(LtrimIn.class, "ltrim_in"),
             scalar(MakeDate.class, "makedate"),
+            scalar(MakeSet.class, "make_set"),
+            scalar(MakeTime.class, "maketime"),
             scalar(MapContainsEntry.class, "map_contains_entry"),
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
@@ -861,6 +882,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MonthsBetween.class, "months_between"),
             scalar(MonthsDiff.class, "months_diff"),
             scalar(MonthsSub.class, "months_sub"),
+            scalar(MultiMatch.class, "multi_match"),
             scalar(MultiMatchAny.class, "multi_match_any"),
             scalar(MultiSearchAllPositions.class, "multi_search_all_positions"),
             scalar(MurmurHash332.class, "murmur_hash3_32"),
@@ -879,10 +901,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
-            scalar(Overlay.class, "overlay"),
+            scalar(Overlay.class, "overlay", "insert"),
             scalar(ParseUrl.class, "parse_url"),
             scalar(Password.class, "password"),
             scalar(ParseDataSize.class, "parse_data_size"),
+            scalar(PeriodAdd.class, "period_add"),
+            scalar(PeriodDiff.class, "period_diff"),
             scalar(Pi.class, "pi"),
             scalar(Pmod.class, "pmod"),
             scalar(Positive.class, "positive"),
@@ -897,6 +921,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(QuartersDiff.class, "quarters_diff"),
             scalar(QuarterFloor.class, "quarter_floor"),
             scalar(QuartersSub.class, "quarters_sub"),
+            scalar(Quote.class, "quote"),
             scalar(Search.class, "search"),
             scalar(Radians.class, "radians"),
             scalar(Random.class, "rand", "random"),
@@ -934,6 +959,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
             scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
             scalar(RandomBytes.class, "random_bytes"),
+            scalar(SessionUser.class, "session_user"),
             scalar(Sha1.class, "sha1", "sha"),
             scalar(Sha2.class, "sha2"),
             scalar(Sign.class, "sign"),
@@ -1024,7 +1050,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UnhexNull.class, "unhex_null"),
             scalar(UnixTimestamp.class, "unix_timestamp"),
             scalar(Upper.class, "ucase", "upper"),
-            scalar(Quote.class, "quote"),
+            scalar(Uncompress.class, "uncompress"),
+            scalar(Uniform.class, "uniform"),
             scalar(UrlDecode.class, "url_decode"),
             scalar(UrlEncode.class, "url_encode"),
             scalar(User.class, "user"),
@@ -1053,26 +1080,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(YearWeek.class, "yearweek"),
             scalar(YearsAdd.class, "years_add"),
             scalar(YearsDiff.class, "years_diff"),
-            scalar(YearsSub.class, "years_sub"),
-            scalar(MultiMatch.class, "multi_match"),
-            scalar(SessionUser.class, "session_user"),
-            scalar(LastQueryId.class, "last_query_id"),
-            scalar(Compress.class, "compress"),
-            scalar(Uncompress.class, "uncompress"),
-            scalar(AITranslate.class, "ai_translate"),
-            scalar(AISentiment.class, "ai_sentiment"),
-            scalar(AIFilter.class, "ai_filter"),
-            scalar(AIFixGrammar.class, "ai_fixgrammar"),
-            scalar(AIExtract.class, "ai_extract"),
-            scalar(AIGenerate.class, "ai_generate"),
-            scalar(AIClassify.class, "ai_classify"),
-            scalar(AIMask.class, "ai_mask"),
-            scalar(AISummarize.class, "ai_summarize"),
-            scalar(AISimilarity.class, "ai_similarity"),
-            scalar(Embed.class, "embed"),
-            scalar(Uniform.class, "uniform"),
-            scalar(MakeSet.class, "make_set"),
-            scalar(ExportSet.class, "export_set"));
+            scalar(YearsSub.class, "years_sub"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
