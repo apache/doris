@@ -60,6 +60,7 @@ public:
         _count = 0;
         _buffer.clear();
         _finished = false;
+        _raw_data_size = 0;
         return Status::OK();
     }
 
@@ -72,6 +73,8 @@ public:
     }
 
     size_t count() const override { return _count; }
+
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -101,6 +104,7 @@ private:
     size_t _count = 0;
     bool _finished = false;
     faststring _buffer;
+    uint64_t _raw_data_size = 0;
     // This is a empirical value, Kudu and LevelDB use this default value
     static const uint8_t RESTART_POINT_INTERVAL = 16;
 };
