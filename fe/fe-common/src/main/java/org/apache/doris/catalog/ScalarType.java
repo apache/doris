@@ -844,6 +844,16 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public boolean isWildcardTimeV2() {
+        return type == PrimitiveType.TIMEV2 && scale == -1;
+    }
+
+    @Override
+    public boolean isWildcardDatetimeV2() {
+        return type == PrimitiveType.DATETIMEV2 && scale == -1;
+    }
+
+    @Override
     public boolean isWildcardDecimal() {
         return (type.isDecimalV2Type() || type.isDecimalV3Type())
                 && precision == -1 && scale == -1;
@@ -897,12 +907,6 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType scalarType = (ScalarType) t;
-        if (type == PrimitiveType.VARCHAR && scalarType.isWildcardVarchar()) {
-            return true;
-        }
-        if (type == PrimitiveType.CHAR && scalarType.isWildcardChar()) {
-            return true;
-        }
         if (type.isStringType() && scalarType.isStringType()) {
             return true;
         }
@@ -917,10 +921,12 @@ public class ScalarType extends Type {
         if (isDecimalV2() && scalarType.isDecimalV2()) {
             return true;
         }
-        if (isDecimalV3() && scalarType.isDecimalV3()) {
-            return precision == scalarType.precision && scale == scalarType.scale;
+        if (isDatetimeV2() && scalarType.isWildcardDatetimeV2()) {
+            Preconditions.checkState(!isWildcardDatetimeV2());
+            return true;
         }
-        if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+        if (isTimeV2() && scalarType.isWildcardTimeV2()) {
+            Preconditions.checkState(!isWildcardTimeV2());
             return true;
         }
         if (isVariantType() && scalarType.isVariantType()) {
