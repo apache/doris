@@ -858,12 +858,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return true;
     }
 
-    protected void compactForLiteral(Type type) throws AnalysisException {
-        for (Expr expr : children) {
-            expr.compactForLiteral(type);
-        }
-    }
-
     /**
      * Checks validity of cast, and
      * calls uncheckedCastTo() to
@@ -1006,40 +1000,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
             Expr newChild = child.uncheckedCastTo(targetType);
             setChild(childIndex, newChild);
         }
-    }
-
-    /**
-     * Cast the operands of a binary operation as necessary,
-     * give their compatible type.
-     * String literals are converted first, to enable casting of the
-     * the other non-string operand.
-     *
-     * @param compatibleType
-     * @return The possibly changed compatibleType
-     * (if a string literal forced casting the other operand)
-     */
-    public Type castBinaryOp(Type compatibleType) throws AnalysisException {
-        Preconditions.checkState(this instanceof BinaryPredicate || this instanceof ArithmeticExpr);
-        Type t1 = getChild(0).getType();
-        Type t2 = getChild(1).getType();
-        // add operand casts
-        Preconditions.checkState(compatibleType.isValid());
-        if (t1.isDecimalV3() || t1.isDecimalV2()) {
-            if (!t1.equals(compatibleType)) {
-                castChild(compatibleType, 0);
-            }
-        } else if (t1.getPrimitiveType() != compatibleType.getPrimitiveType()) {
-            castChild(compatibleType, 0);
-        }
-
-        if (t2.isDecimalV3() || t2.isDecimalV2()) {
-            if (!t2.equals(compatibleType)) {
-                castChild(compatibleType, 1);
-            }
-        } else if (t2.getPrimitiveType() != compatibleType.getPrimitiveType()) {
-            castChild(compatibleType, 1);
-        }
-        return compatibleType;
     }
 
     @Override

@@ -394,9 +394,4 @@ public class CastExpr extends Expr {
     public void setNotFold(boolean notFold) {
         this.notFold = notFold;
     }
-
-    @Override
-    protected void compactForLiteral(Type type) {
-        // do nothing
-    }
 }

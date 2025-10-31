@@ -24,7 +24,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -235,12 +234,6 @@ public class FloatLiteral extends NumericLiteralExpr {
             return res;
         }
         return this;
-    }
-
-    @Override
-    public void swapSign() throws NotImplementedException {
-        // swapping sign does not change the type
-        value = -value;
     }
 
     @Override
