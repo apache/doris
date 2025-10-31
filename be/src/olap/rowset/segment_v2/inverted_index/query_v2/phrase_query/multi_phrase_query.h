@@ -18,24 +18,26 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/index_query_context.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_weight.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class PhraseQuery : public Query {
+class MultiPhraseQuery : public Query {
 public:
-    PhraseQuery(IndexQueryContextPtr context, std::wstring field, std::vector<TermInfo> term_infos)
+    MultiPhraseQuery(IndexQueryContextPtr context, std::wstring field,
+                     std::vector<TermInfo> term_infos)
             : _context(std::move(context)),
               _field(std::move(field)),
               _term_infos(std::move(term_infos)) {}
-    ~PhraseQuery() override = default;
+    ~MultiPhraseQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
         if (_term_infos.size() < 2) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Phrase query requires at least 2 terms, got {}", _term_infos.size());
+                            "Multi-phrase query requires at least 2 terms, got {}",
+                            _term_infos.size());
         }
 
         SimilarityPtr bm25_similarity;
@@ -53,8 +55,9 @@ public:
             }
             bm25_similarity->for_terms(_context, _field, all_terms);
         }
-        return std::make_shared<PhraseWeight>(_context, _field, _term_infos, bm25_similarity,
-                                              enable_scoring, _nullable);
+
+        return std::make_shared<MultiPhraseWeight>(_context, _field, _term_infos, bm25_similarity,
+                                                   enable_scoring, _nullable);
     }
 
 private:
