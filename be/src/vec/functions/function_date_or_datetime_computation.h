@@ -36,6 +36,7 @@
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
+#include "util/string_parser.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -79,6 +80,7 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
     if (!(ts_value.template date_add_interval<unit>(interval))) [[unlikely]] {
         throw_out_of_bound_date_int<ValueType, NativeType>(get_time_unit_name(unit), t, delta);
     }
+
     // here DateValueType = ResultDateValueType
     return binary_cast<ValueType, NativeType>(ts_value);
 }
@@ -123,6 +125,99 @@ ADD_TIME_FUNCTION_IMPL(AddDaysImpl, days_add, DAY);
 ADD_TIME_FUNCTION_IMPL(AddWeeksImpl, weeks_add, WEEK);
 ADD_TIME_FUNCTION_IMPL(AddMonthsImpl, months_add, MONTH);
 ADD_TIME_FUNCTION_IMPL(AddYearsImpl, years_add, YEAR);
+
+template <PrimitiveType PType>
+struct AddDaySecondImpl {
+    static constexpr PrimitiveType ArgPType = PType;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_STRING;
+    using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
+    using ReturnNativeType = InputNativeType;
+    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
+    using IntervalNativeType = IntervalDataType::FieldType; // string
+    using ConvertedType = typename PrimitiveTypeTraits<TYPE_BIGINT>::DataType::FieldType;
+
+    static constexpr auto name = "day_second_add";
+    static constexpr auto is_nullable = false;
+
+    static inline ReturnNativeType execute(const InputNativeType& t, IntervalNativeType delta) {
+        long seconds = parse_time_string_to_seconds(delta);
+        return date_time_add<TimeUnit::SECOND, PType, ConvertedType>(t, seconds);
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std ::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};
+    }
+
+    static long parse_time_string_to_seconds(IntervalNativeType time_str_ref) {
+        bool is_negative = false;
+        auto time_str = StringRef {time_str_ref.data(), time_str_ref.length()}.trim();
+        // string format: "d h:m:s"
+        size_t space_pos = time_str.find_first_of(' ');
+        if (space_pos == std::string::npos) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Invalid time format, missing space in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        // day
+        StringRef days_sub = time_str.substring(0, space_pos).trim();
+        StringParser::ParseResult success;
+        int days = StringParser::string_to_int_internal<int32_t, true>(days_sub.data, days_sub.size,
+                                                                       &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid days format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        if (days < 0) {
+            is_negative = true;
+        }
+
+        // hour:minute:second
+        StringRef time_hour_str = time_str.substring(space_pos + 1);
+        size_t colon1 = time_hour_str.find_first_of(':');
+        if (colon1 == std::string::npos) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid time format, missing ':' in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        size_t colon2_rel = time_hour_str.substring(colon1 + 1).find_first_of(':');
+        size_t colon2 =
+                (colon2_rel != std::string::npos) ? colon1 + 1 + colon2_rel : std::string::npos;
+        if (colon2 == std::string::npos) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid time format, missing ':' in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        StringRef hours_sub = time_hour_str.substring(0, colon1).trim();
+        int hours = StringParser::string_to_int_internal<int32_t, true>(hours_sub.data,
+                                                                        hours_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid hours format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        StringRef minutes_sub = time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1).trim();
+        int minutes = StringParser::string_to_int_internal<int32_t, true>(
+                minutes_sub.data, minutes_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid minutes format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+        StringRef seconds_sub = time_hour_str.substring(colon2 + 1).trim();
+        int seconds = StringParser::string_to_int_internal<int32_t, true>(
+                seconds_sub.data, seconds_sub.size, &success);
+        if (success != StringParser::PARSE_SUCCESS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid seconds format in '{}'",
+                            std::string_view {time_str.data, time_str.size});
+        }
+
+        long part0 = days * 24 * 3600;
+        // NOTE: Compatible with MySQL
+        long part1 = std::abs(hours) * 3600 + std::abs(minutes) * 60 + std::abs(seconds);
+        if (is_negative) {
+            part1 *= -1;
+        }
+        return part0 + part1;
+    }
+};
 
 template <PrimitiveType PType>
 struct AddQuartersImpl {
@@ -580,14 +675,32 @@ public:
             // vector-const
             if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
-                const auto col1_inside_const =
-                        assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
-                Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    col1_inside_const.get_data()[0], nullmap0, nullmap1);
+                if constexpr (Transform::IntervalPType == TYPE_STRING) {
+                    Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                        nest_col1_const->get_data_at(0).to_string(), nullmap0,
+                                        nullmap1);
+                } else {
+                    const auto col1_inside_const = assert_cast<const IntervalColumnType&>(
+                            nest_col1_const->get_data_column());
+                    Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                        col1_inside_const.get_data()[0], nullmap0, nullmap1);
+                }
             } else { // vector-vector
-                const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
-                Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
-                                  res_col->get_data(), nullmap0, nullmap1);
+                if constexpr (Transform::IntervalPType != TYPE_STRING) {
+                    const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
+                    Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
+                                      res_col->get_data(), nullmap0, nullmap1);
+                } else {
+                    const auto* nest_col1_string = check_and_get_column<ColumnString>(*nest_col1);
+                    if (nest_col1_string->size() == 1) {
+                        rconst = true;
+                        Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                            nest_col1_string->get_data_at(0).to_string(), nullmap0,
+                                            nullmap1);
+                    } else {
+                        return Status::NotSupported("Do not support vector-vector for string type");
+                    }
+                }
             }
 
             // update result nullmap with inputs
@@ -608,28 +721,33 @@ public:
         } else if (const auto* sources_const =
                            check_and_get_column_const<ColumnVector<Transform::ArgPType>>(
                                    src_nested_col.get())) {
-            // const-vector
-            const auto col0_inside_const = assert_cast<const ColumnVector<Transform::ArgPType>&>(
-                    sources_const->get_data_column());
-            const ColumnPtr nested_col1 = remove_nullable(col1);
-            const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
-            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
-                                concrete_col1.get_data(), nullmap0, nullmap1);
+            if constexpr (Transform::IntervalPType != TYPE_STRING) {
+                // const-vector
+                const auto col0_inside_const =
+                        assert_cast<const ColumnVector<Transform::ArgPType>&>(
+                                sources_const->get_data_column());
+                const ColumnPtr nested_col1 = remove_nullable(col1);
+                const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
+                Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
+                                    concrete_col1.get_data(), nullmap0, nullmap1);
 
-            // update result nullmap with inputs
-            if (result_nullable) {
-                auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
-                if (nullmap0) {
-                    VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
+                // update result nullmap with inputs
+                if (result_nullable) {
+                    auto null_map = ColumnBool::create(input_rows_count, 0);
+                    NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                    if (nullmap0) {
+                        VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
+                    }
+                    if (nullmap1) { // no const-const here. default impl deal it.
+                        VectorizedUtils::update_null_map(result_null_map, *nullmap1);
+                    }
+                    block.get_by_position(result).column =
+                            ColumnNullable::create(std::move(res_col), std::move(null_map));
+                } else {
+                    block.replace_by_position(result, std::move(res_col));
                 }
-                if (nullmap1) { // no const-const here. default impl deal it.
-                    VectorizedUtils::update_null_map(result_null_map, *nullmap1);
-                }
-                block.get_by_position(result).column =
-                        ColumnNullable::create(std::move(res_col), std::move(null_map));
             } else {
-                block.replace_by_position(result, std::move(res_col));
+                return Status::NotSupported("Do not support const-vector for string type");
             }
         } else { // no const-const here. default impl deal it.
             return Status::InternalError(
@@ -855,7 +973,8 @@ struct CurrentTimeImpl {
                                             dtv.microsecond());
             } else {
                 return Status::InvalidArgument(
-                        "The precision in function CURTIME should be between 0 and 6, but got {}",
+                        "The precision in function CURTIME should be between 0 and 6, but got "
+                        "{}",
                         precision);
             }
         } else {
