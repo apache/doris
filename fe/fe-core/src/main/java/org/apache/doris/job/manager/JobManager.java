@@ -299,7 +299,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                     checkSameStatus(a, jobStatus);
                     alterJobStatus(a.getJobId(), jobStatus);
                     if (a instanceof StreamingInsertJob) {
-                        ((StreamingInsertJob) a).afterManualStatusChange(reason);
+                        ((StreamingInsertJob) a).resetFailureInfo(reason);
                     }
                 } catch (JobException e) {
                     throw new JobException("Alter job status error, jobName is %s, errorMsg is %s",

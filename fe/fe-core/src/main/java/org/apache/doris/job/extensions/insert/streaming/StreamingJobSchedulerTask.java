@@ -88,6 +88,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 if (autoResumeCount < Long.MAX_VALUE) {
                     streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
                 }
+                streamingInsertJob.resetFailureInfo(null);
                 streamingInsertJob.updateJobStatus(JobStatus.PENDING);
                 return;
             }

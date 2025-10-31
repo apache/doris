@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -262,7 +263,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    public void afterManualStatusChange(FailureReason reason) {
+    public void resetFailureInfo(FailureReason reason) {
         this.setFailureReason(reason);
         // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
         this.setJobRuntimeMsg("");
@@ -361,6 +362,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.fetchRemoteMeta(originTvfProps);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
+            failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to fetch meta, " + ex.getMessage());
         }
     }
 
@@ -715,6 +718,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (AnalysisException e) {
                 log.warn("failed to get db id for streaming insert job {}, db name: {}, msg: {}",
                         getJobId(), getCurrentDbName(), e.getMessage());
+                failureReason = new FailureReason(InternalErrorCode.DB_ERR, "Failed to get db id, " + e.getMessage());
             }
         }
         return dbId;
