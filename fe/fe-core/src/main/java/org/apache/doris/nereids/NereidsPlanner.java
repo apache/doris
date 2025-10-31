@@ -831,7 +831,7 @@ public class NereidsPlanner extends Planner {
         return PhysicalProperties.GATHER;
     }
 
-    private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
+    protected ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
         if (explainOptions == null) {
             return ExplainLevel.NONE;
         }
