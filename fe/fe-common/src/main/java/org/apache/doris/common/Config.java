@@ -562,6 +562,15 @@ public class Config extends ConfigBase {
             "Whether to enable parallel publish version"})
     public static boolean enable_parallel_publish_version = true;
 
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的数目",
+        "Num of thread to handle tablet report task"})
+    public static int tablet_report_thread_pool_num = 10;
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的队列大小",
+        "Queue size to store tablet report task in publish thread pool"})
+    public static int tablet_report_queue_size = 1024;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
