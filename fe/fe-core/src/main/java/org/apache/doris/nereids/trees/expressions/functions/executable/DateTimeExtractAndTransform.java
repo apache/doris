@@ -576,27 +576,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(DecimalLiteral second, StringLikeLiteral format) {
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-
-        if (second.getValue().signum() < 0) {
-            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
-        }
-
-        BigDecimal decimalVal = second.getValue();
-        BigDecimal microSeconds = decimalVal.movePointRight(decimalVal.scale()).setScale(0, RoundingMode.DOWN);
-        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .plus(microSeconds.longValue(), ChronoUnit.MICROS)
-                .atZone(ZoneId.of("UTC+0"))
-                .toOffsetDateTime()
-                .atZoneSameInstant(DateUtils.getTimeZone());
-        DateTimeV2Literal datetime = new DateTimeV2Literal(DateTimeV2Type.of(6), dateTime.getYear(),
-                dateTime.getMonthValue(),
-                dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                dateTime.getNano() / 1000);
-        if (datetime.checkRange()) {
-            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
-        }
-        return dateFormat(datetime, format);
+        return fromUnixTime(second.getValue(), format);
     }
 
     /**
@@ -604,13 +584,15 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(DecimalV3Literal second, StringLikeLiteral format) {
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+        return fromUnixTime(second.getValue(), format);
+    }
 
-        if (second.getValue().signum() < 0) {
-            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
+    private static Expression fromUnixTime(BigDecimal second, StringLikeLiteral format) {
+        if (second.signum() < 0) {
+            throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
-        BigDecimal decimalVal = second.getValue();
-        BigDecimal microSeconds = decimalVal.movePointRight(decimalVal.scale()).setScale(0, RoundingMode.DOWN);
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+        BigDecimal microSeconds = second.movePointRight(second.scale()).setScale(0, RoundingMode.DOWN);
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
                 .plus(microSeconds.longValue(), ChronoUnit.MICROS)
                 .atZone(ZoneId.of("UTC+0"))
@@ -621,7 +603,7 @@ public class DateTimeExtractAndTransform {
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                 dateTime.getNano() / 1000);
         if (datetime.checkRange()) {
-            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
+            throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
         return dateFormat(datetime, format);
     }
