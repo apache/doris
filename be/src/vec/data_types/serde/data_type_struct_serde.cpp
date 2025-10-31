@@ -583,9 +583,11 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
     }
     str = str.substring(1, str.size - 2); // remove '{' '}'
 
-    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+    std::vector<ComplexTypeDeserializeUtil::SplitResult> split_result;
+    RETURN_IF_ERROR(ComplexTypeDeserializeUtil::split_by_delimiter(
             str, options.escape_char,
-            [&](char c) { return c == options.map_key_delim || c == options.collection_delim; });
+            [&](char c) { return c == options.map_key_delim || c == options.collection_delim; },
+            split_result));
 
     const auto elem_size = elem_serdes_ptrs.size();
 

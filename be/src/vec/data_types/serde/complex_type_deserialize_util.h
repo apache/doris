@@ -35,35 +35,34 @@ struct ComplexTypeDeserializeUtil {
 
     // Enhanced version with error handling
     template <typename Func>
-    static Status split_by_delimiter(StringRef& str, char escape_char,
-                                     Func func,
+    static Status split_by_delimiter(StringRef& str, char escape_char, Func func,
                                      std::vector<SplitResult>& elements) {
         char quote_char = 0;
         int last_pos = 0;
         int nested_level = 0;
-        bool has_quote = false;  
+        bool has_quote = false;
         char delimiter = 0;
-        elements.clear();     // 
+        elements.clear(); //
         for (int pos = 0; pos < str.size; ++pos) {
             char c = str.data[pos];
             // Idea from simdjson to handle escape characters
             // Handle escape characters first
-            if (c == '\\') {  
+            if (c == '\\') {
                 // count the number of consecutive backslashes
-                int backslash_count = 0;  
-                while (pos < str.size && str.data[pos] == '\\') {  
-                    backslash_count++;  
-                    pos++;  
-                }  
-                  
+                int backslash_count = 0;
+                while (pos < str.size && str.data[pos] == '\\') {
+                    backslash_count++;
+                    pos++;
+                }
+
                 // if the number of backslashes is odd, the next character is escaped
-                if (backslash_count % 2 == 1 && pos < str.size) {  
-                    pos++;  // skip the escaped character
-                }  
-                pos--;  // backtrack, because the for loop will ++pos
-                continue;  
-            }  
-            
+                if (backslash_count % 2 == 1 && pos < str.size) {
+                    pos++; // skip the escaped character
+                }
+                pos--; // backtrack, because the for loop will ++pos
+                continue;
+            }
+
             // Handle quotes
             if (c == '"' || c == '\'') {
                 if (!has_quote) {
@@ -93,7 +92,7 @@ struct ComplexTypeDeserializeUtil {
         if (has_quote) {
             return Status::InvalidArgument("Unclosed quote detected in string");
         }
-        
+
         if (nested_level != 0) {
             return Status::InvalidArgument("Unmatched brackets detected in string");
         }
@@ -106,7 +105,6 @@ struct ComplexTypeDeserializeUtil {
         }
         return Status::OK();
     }
-
 
     static bool is_null_string(const StringRef& str) {
         if (str.size == 4) {

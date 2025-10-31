@@ -27,7 +27,26 @@ suite("test_all_escape_sequences") {
         ) ENGINE=OLAP
           DUPLICATE KEY(`id`)  distributed by hash(`id`) buckets 1 properties("replication_num" = "1");
     """
+    // when we write the sql literal in MySQL, MySQL will handle the backslash escape by default.
+    // that means '["normal","with\"quotes\"","end\"quote"]' in MySQL will be parsed to ["normal","with"quotes"","end"quote"] in Doris.
+    // so the backslash will be "eaten" in Doris, and the actual bytes will be ["normal","with"quotes"","end"quote"].
+    // so the " will not have \ protection, and will change the quote state, and the third element will end with an unclosed quote, triggering Unclosed quote.
+    test {
+        sql """
+            INSERT INTO escape_sequences_test VALUES 
+            (1, 'double_quote_test', '["normal","with\\"quotes\\"","end\\"quote"]', 
+            '{"key1":"value1","key2":"with\\"quotes\\"","key3":"end\\"quote"}', 
+            '{"name":"test","des":"with\\"quotes\\"and\\"more\\"quotes"}'),
+            (2, 'double_quote_map', NULL, 
+            '{"key1":"value1","key2":"with\\"quotes\\"","key3":"end\\"quote"}', 
+            NULL),
+            (3, 'double_quote_struct', NULL, NULL, 
+            '{"name":"test","des":"with\\"quotes\\"and\\"more\\"quotes"}')
+        """
+        exception "Unclosed quote detected in string"
+    }
 
+    sql """ set sql_mode = 'NO_BACKSLASH_ESCAPES' """
     // test case 1: double quote escape \" - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
@@ -230,11 +249,11 @@ suite("test_all_escape_sequences") {
     // test case 10: boundary cases and error handling - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
-        (28, 'empty_test', '["","\"","\\"","\n","\t","\r","\b","\f","\\/"]', 
-         '{"empty":"","quote":"\"","backslash":"\\"","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\\/"}', 
+        (28, 'empty_test', '["","\"","\\","\n","\t","\r","\b","\f","\\/"]', 
+         '{"empty":"","quote":"\"","backslash":"\\","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\\/"}', 
          '{"name":"empty","des":""}'),
         (29, 'empty_map', NULL, 
-         '{"empty":"","quote":"\"","backslash":"\\"","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\\/"}', 
+         '{"empty":"","quote":"\"","backslash":"\\","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\\/"}', 
          NULL),
         (30, 'empty_struct', NULL, NULL, 
          '{"name":"empty","des":""}')
@@ -249,13 +268,13 @@ suite("test_all_escape_sequences") {
     qt_select_edge_cases_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id >= 28 ORDER BY id
     """
-
+    sql """ set sql_mode = 'NO_BACKSLASH_ESCAPES' """
     // insert usecases
     sql """
         INSERT INTO escape_sequences_test VALUES 
-        (31, 'usecase_test', '["标准单人间","特惠房</div><div class=\\\\"hotel_","标准双人房","特价房"]', 
-         '{"特惠房</div><div class=\\\\"hotel_":"特惠房</div><div class=\\\\"hotel_"}', 
-         '{"name":"特惠房</div><div class=\\\\"hotel_","des":"标准单人间"}')
+        (31, 'usecase_test', '["标准单人间","特惠房</div><div class=\\"hotel_","标准双人房","特价房"]', 
+         '{"特惠房</div><div class=\\"hotel_":"特惠房</div><div class=\\"hotel_"}', 
+         '{"name":"特惠房</div><div class=\\"hotel_","des":"标准单人间"}')
     """
     qt_select_usecase """
         SELECT id, test_name, arr, map_col, struct_col FROM escape_sequences_test WHERE id = 31 ORDER BY id

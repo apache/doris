@@ -15,9 +15,9 @@
 3	double_quote_struct	\N
 
 -- !select_backslash --
-4	backslash_test	["normal", "withbackslash", "endbackslash"]	{"key1":"value1", "key2":"withbackslash", "key3":"endbackslash"}	{"name":"test", "des":"withbackslashandmorebackslashes"}
-5	backslash_map	\N	{"key1":"value1", "key2":"withbackslash", "key3":"endbackslash"}	\N
-6	backslash_struct	\N	\N	{"name":"test", "des":"withbackslashandmorebackslashes"}
+4	backslash_test	["normal", "with\\backslash", "end\\backslash"]	{"key1":"value1", "key2":"with\\backslash", "key3":"end\\backslash"}	{"name":"test", "des":"with\\backslash\\and\\more\\backslashes"}
+5	backslash_map	\N	{"key1":"value1", "key2":"with\\backslash", "key3":"end\\backslash"}	\N
+6	backslash_struct	\N	\N	{"name":"test", "des":"with\\backslash\\and\\more\\backslashes"}
 
 -- !select_backslash_array_size --
 4	backslash_test	3
@@ -30,9 +30,9 @@
 6	backslash_struct	\N
 
 -- !select_newline --
-7	newline_test	["normal", "with\nnewline", "end\nnewline"]	{"key1":"value1", "key2":"with\nnewline", "key3":"end\nnewline"}	{"name":"test", "des":"with\nnewline\nand\nmore\nnewlines"}
-8	newline_map	\N	{"key1":"value1", "key2":"with\nnewline", "key3":"end\nnewline"}	\N
-9	newline_struct	\N	\N	{"name":"test", "des":"with\nnewline\nand\nmore\nnewlines"}
+7	newline_test	["normal", "withnnewline", "endnnewline"]	{"key1":"value1", "key2":"withnnewline", "key3":"endnnewline"}	{"name":"test", "des":"withnnewlinenandnmorennewlines"}
+8	newline_map	\N	{"key1":"value1", "key2":"withnnewline", "key3":"endnnewline"}	\N
+9	newline_struct	\N	\N	{"name":"test", "des":"withnnewlinenandnmorennewlines"}
 
 -- !select_newline_array_size --
 7	newline_test	3
@@ -45,9 +45,9 @@
 9	newline_struct	\N
 
 -- !select_tab --
-10	tab_test	["normal", "with\	tab", "end\	tab"]	{"key1":"value1", "key2":"with\	tab", "key3":"end\	tab"}	{"name":"test", "des":"with\	tab\	and\	more\	tabs"}
-11	tab_map	\N	{"key1":"value1", "key2":"with\	tab", "key3":"end\	tab"}	\N
-12	tab_struct	\N	\N	{"name":"test", "des":"with\	tab\	and\	more\	tabs"}
+10	tab_test	["normal", "withttab", "endttab"]	{"key1":"value1", "key2":"withttab", "key3":"endttab"}	{"name":"test", "des":"withttabtandtmorettabs"}
+11	tab_map	\N	{"key1":"value1", "key2":"withttab", "key3":"endttab"}	\N
+12	tab_struct	\N	\N	{"name":"test", "des":"withttabtandtmorettabs"}
 
 -- !select_tab_array_size --
 10	tab_test	3
@@ -60,9 +60,9 @@
 12	tab_struct	\N
 
 -- !select_carriage_return --
-13	carriage_return_test	["normal", "with\rcarriage", "end\rcarriage"]	{"key1":"value1", "key2":"with\rcarriage", "key3":"end\rcarriage"}	{"name":"test", "des":"with\rcarriage\rand\rmore\rcarriages"}
-14	carriage_return_map	\N	{"key1":"value1", "key2":"with\rcarriage", "key3":"end\rcarriage"}	\N
-15	carriage_return_struct	\N	\N	{"name":"test", "des":"with\rcarriage\rand\rmore\rcarriages"}
+13	carriage_return_test	["normal", "withrcarriage", "endrcarriage"]	{"key1":"value1", "key2":"withrcarriage", "key3":"endrcarriage"}	{"name":"test", "des":"withrcarriagerandrmorercarriages"}
+14	carriage_return_map	\N	{"key1":"value1", "key2":"withrcarriage", "key3":"endrcarriage"}	\N
+15	carriage_return_struct	\N	\N	{"name":"test", "des":"withrcarriagerandrmorercarriages"}
 
 -- !select_carriage_return_array_size --
 13	carriage_return_test	3
@@ -75,9 +75,9 @@
 15	carriage_return_struct	\N
 
 -- !select_backspace --
-16	backspace_test	["normal", "withbackspace", "endbackspace"]	{"key1":"value1", "key2":"withbackspace", "key3":"endbackspace"}	{"name":"test", "des":"withbackspaceandmorebackspaces"}
-17	backspace_map	\N	{"key1":"value1", "key2":"withbackspace", "key3":"endbackspace"}	\N
-18	backspace_struct	\N	\N	{"name":"test", "des":"withbackspaceandmorebackspaces"}
+16	backspace_test	["normal", "withbbackspace", "endbbackspace"]	{"key1":"value1", "key2":"withbbackspace", "key3":"endbbackspace"}	{"name":"test", "des":"withbbackspacebandbmorebbackspaces"}
+17	backspace_map	\N	{"key1":"value1", "key2":"withbbackspace", "key3":"endbbackspace"}	\N
+18	backspace_struct	\N	\N	{"name":"test", "des":"withbbackspacebandbmorebbackspaces"}
 
 -- !select_backspace_array_size --
 16	backspace_test	3
@@ -120,9 +120,9 @@
 24	forward_slash_struct	\N
 
 -- !select_mixed_all --
-25	mixed_all_test	["all"escape"charshere\nwith\	newlines\randtabsfand/slashes"]	{"all":""escape"charshere\nwith\	newlines\randtabsfand/slashes"}	{"name":"mixed", "des":"all"escape"charshere\nwith\	newlines\randtabsfand/slashes"}
-26	mixed_all_map	\N	{"all":""escape"charshere\nwith\	newlines\randtabsfand/slashes"}	\N
-27	mixed_all_struct	\N	\N	{"name":"mixed", "des":"all"escape"charshere\nwith\	newlines\randtabsfand/slashes"}
+25	mixed_all_test	["all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"]	{"all":""escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}	{"name":"mixed", "des":"all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}
+26	mixed_all_map	\N	{"all":""escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}	\N
+27	mixed_all_struct	\N	\N	{"name":"mixed", "des":"all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}
 
 -- !select_mixed_all_array_size --
 25	mixed_all_test	1
@@ -135,8 +135,8 @@
 27	mixed_all_struct	\N
 
 -- !select_edge_cases --
-28	empty_test	["", "","", "\n", "\	", "\r", "", "", "/"]	{"empty":"", "quote":"","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"", "slash":"/"}	{"name":"empty", "des":""}
-29	empty_map	\N	{"empty":"", "quote":"","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"", "slash":"/"}	\N
+28	empty_test	["", ""","", "\n", "\	", "\r", "", "", "/"]	{"empty":"", "quote":""","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"", "slash":"/"}	{"name":"empty", "des":""}
+29	empty_map	\N	{"empty":"", "quote":""","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"", "slash":"/"}	\N
 30	empty_struct	\N	\N	{"name":"empty", "des":""}
 
 -- !select_edge_cases_array_size --
@@ -189,8 +189,8 @@
 25	mixed_all_test	["all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"]	{"all":""escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}	{"name":"mixed", "des":"all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}
 26	mixed_all_map	\N	{"all":""escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}	\N
 27	mixed_all_struct	\N	\N	{"name":"mixed", "des":"all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}
-28	empty_test	["", """, "\\","n","t","r","b","f","/"]	{"empty":"", "quote":""", "backslash":"\\","newline":"n","tab":"t","carriage":"r","backspace":"b","form":"f","slash":"/"}	{"name":"empty", "des":""}
-29	empty_map	\N	{"empty":"", "quote":""", "backslash":"\\","newline":"n","tab":"t","carriage":"r","backspace":"b","form":"f","slash":"/"}	\N
+28	empty_test	["", """, "\\", "n", "t", "r", "b", "f", "/"]	{"empty":"", "quote":""", "backslash":"\\", "newline":"n", "tab":"t", "carriage":"r", "backspace":"b", "form":"f", "slash":"/"}	{"name":"empty", "des":""}
+29	empty_map	\N	{"empty":"", "quote":""", "backslash":"\\", "newline":"n", "tab":"t", "carriage":"r", "backspace":"b", "form":"f", "slash":"/"}	\N
 30	empty_struct	\N	\N	{"name":"empty", "des":""}
 31	usecase_test	["标准单人间", "特惠房</div><div class="hotel_", "标准双人房", "特价房"]	{"特惠房</div><div class="hotel_":"特惠房</div><div class="hotel_"}	{"name":"特惠房</div><div class="hotel_", "des":"标准单人间"}
 
@@ -222,7 +222,7 @@
 25	mixed_all_test	1
 26	mixed_all_map	\N
 27	mixed_all_struct	\N
-28	empty_test	3
+28	empty_test	9
 29	empty_map	\N
 30	empty_struct	\N
 31	usecase_test	4
@@ -255,8 +255,8 @@
 25	mixed_all_test	1
 26	mixed_all_map	1
 27	mixed_all_struct	\N
-28	empty_test	3
-29	empty_map	3
+28	empty_test	9
+29	empty_map	9
 30	empty_struct	\N
 31	usecase_test	1
 

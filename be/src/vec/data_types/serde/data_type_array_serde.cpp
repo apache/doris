@@ -489,8 +489,10 @@ Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
     }
     str = str.substring(1, str.size - 2); // remove '[' and ']'
 
-    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
-            str, options.escape_char, [&](char c) { return c == options.collection_delim; });
+    std::vector<ComplexTypeDeserializeUtil::SplitResult> split_result;
+    RETURN_IF_ERROR(ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, options.escape_char, [&](char c) { return c == options.collection_delim; },
+            split_result));
 
     for (auto& e : split_result) {
         RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
