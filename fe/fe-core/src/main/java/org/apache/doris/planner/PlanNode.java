@@ -937,7 +937,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         boolean printNestedColumnsHeader = true;
         for (SlotDescriptor slot : tupleDesc.getSlots()) {
             String prunedType = null;
-            if (!slot.getType().equals(slot.getColumn().getType())) {
+            if (slot.getColumn() != null && !slot.getType().equals(slot.getColumn().getType())) {
                 prunedType = slot.getType().toString();
             }
             String displayAllAccessPathsString = null;
