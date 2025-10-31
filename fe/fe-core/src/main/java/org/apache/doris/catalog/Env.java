@@ -29,6 +29,7 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropMultiPartitionClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ModifyDistributionClause;
@@ -3513,6 +3514,11 @@ public class Env {
 
     public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
         getInternalCatalog().dropPartition(db, olapTable, clause);
+    }
+
+    public void dropMultiPartition(Database db, OlapTable olapTable,
+                                   DropMultiPartitionClause clause) throws DdlException {
+        getInternalCatalog().dropMultiPartition(db, olapTable, clause);
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
