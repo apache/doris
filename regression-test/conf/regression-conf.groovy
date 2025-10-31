@@ -121,6 +121,10 @@ s3Source="aliyun"
 ak="***********"
 sk="***********"
 
+// aliyun sts config for temporary token test
+regressionAliyunStsRegion = ""
+regressionAliyunStsRoleArn = ""
+
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/run-thirdparties-docker.sh`
