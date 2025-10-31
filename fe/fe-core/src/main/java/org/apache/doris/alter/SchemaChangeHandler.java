@@ -2111,7 +2111,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     lightSchemaChange = false;
 
                     // ngram_bf index can do light_schema_change in both local and cloud mode
-                    // inverted index can only do light_schema_change in local mode
+                    // inverted index and ann index can only do light_schema_change in local mode
                     if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
                         alterIndexes.add(index);
                         isDropIndex = false;
@@ -2870,7 +2870,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public void addIndexChangeJob(IndexChangeJob indexChangeJob) {
         indexChangeJobs.put(indexChangeJob.getJobId(), indexChangeJob);
         runnableIndexChangeJob.put(indexChangeJob.getJobId(), indexChangeJob);
-        LOG.info("add inverted index job {}", indexChangeJob.getJobId());
+        LOG.info("add inverted/ann index change job {}", indexChangeJob.getJobId());
     }
 
     private void clearFinishedOrCancelledSchemaChangeJobV2() {
@@ -2889,7 +2889,7 @@ public class SchemaChangeHandler extends AlterHandler {
             IndexChangeJob indexChangeJob = iterator.next().getValue();
             if (indexChangeJob.isExpire()) {
                 iterator.remove();
-                LOG.info("remove expired inverted index job {}. finish at {}",
+                LOG.info("remove expired inverted/ann index change job {}. finish at {}",
                         indexChangeJob.getJobId(), TimeUtils.longToTimeString(indexChangeJob.getFinishedTimeMs()));
             }
         }
