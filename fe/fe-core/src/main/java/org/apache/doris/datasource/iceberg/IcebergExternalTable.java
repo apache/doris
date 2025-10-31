@@ -66,7 +66,6 @@ import java.util.stream.Collectors;
 
 public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
-    private Table table;
     private boolean isValidRelatedTableCached = false;
     private boolean isValidRelatedTable = false;
     private boolean isView;
@@ -87,11 +86,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             objectCreated = true;
             isView = catalog.viewExists(getRemoteDbName(), getRemoteName());
         }
-    }
-
-    @VisibleForTesting
-    public void setTable(Table table) {
-        this.table = table;
     }
 
     @Override
@@ -209,7 +203,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         }
         isValidRelatedTable = false;
         Set<String> allFields = Sets.newHashSet();
-        table = getIcebergTable();
+        Table table = getIcebergTable();
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
                 isValidRelatedTableCached = true;
@@ -364,4 +358,10 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         }
     }
 
+    @Override
+    public boolean isPartitionedTable() {
+        makeSureInitialized();
+        Table table = getIcebergTable();
+        return table.spec().isPartitioned();
+    }
 }
