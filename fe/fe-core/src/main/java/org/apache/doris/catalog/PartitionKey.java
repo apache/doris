@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -270,22 +269,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         if (key1 instanceof MaxLiteral || key2 instanceof MaxLiteral) {
             ret = key1.compareLiteral(key2);
         } else {
-            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
-            final Type destType = Type.getAssignmentCompatibleType(key1.getType(), key2.getType(), false,
-                    enableDecimal256);
-            try {
-                LiteralExpr newKey = key1;
-                if (key1.getType() != destType) {
-                    newKey = (LiteralExpr) key1.castTo(destType);
-                }
-                LiteralExpr newOtherKey = key2;
-                if (key2.getType() != destType) {
-                    newOtherKey = (LiteralExpr) key2.castTo(destType);
-                }
-                ret = newKey.compareLiteral(newOtherKey);
-            } catch (AnalysisException e) {
-                throw new RuntimeException("Cast error in partition");
-            }
+            ret = key1.compareLiteral(key2);
         }
         return ret;
     }
