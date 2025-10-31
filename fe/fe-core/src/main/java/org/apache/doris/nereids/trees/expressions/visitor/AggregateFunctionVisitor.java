@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
@@ -324,6 +325,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitRetention(Retention retention, C context) {
         return visitNullableAggregateFunction(retention, context);
+    }
+
+    default R visitSem(Sem sem, C context) {
+        return visitNullableAggregateFunction(sem, context);
     }
 
     default R visitSequenceCount(SequenceCount sequenceCount, C context) {
