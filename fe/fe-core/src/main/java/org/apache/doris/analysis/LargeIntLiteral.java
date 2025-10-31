@@ -236,12 +236,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void swapSign() {
-        // swapping sign does not change the type
-        value = value.negate();
-    }
-
-    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }
