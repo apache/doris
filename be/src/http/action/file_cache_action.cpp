@@ -72,6 +72,11 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         json[RELEASED_ELEMENTS.data()] = released;
         *json_metrics = json.ToString();
     } else if (operation == CLEAR) {
+        DBUG_EXECUTE_IF("FileCacheAction._handle_header.ignore_clear", {
+            LOG_WARNING("debug point FileCacheAction._handle_header.ignore_clear");
+            st = Status::OK();
+            return st;
+        });
         const std::string& sync = req->param(SYNC.data());
         const std::string& segment_path = req->param(VALUE.data());
         if (segment_path.empty()) {

@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
 namespace doris {
@@ -64,6 +65,11 @@ public:
 
     std::vector<std::string> get_cache_file_by_path(const UInt128Wrapper& hash);
     int64_t get_cache_file_size_by_path(const UInt128Wrapper& hash);
+
+    // Return cached blocks data for a given key hash
+    std::vector<doris::CacheBlockPB> get_cache_data_by_path(const UInt128Wrapper& hash);
+    // Convenience overload: compute hash from path and return cached blocks data
+    std::vector<doris::CacheBlockPB> get_cache_data_by_path(const std::string& path);
 
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);

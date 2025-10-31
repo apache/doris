@@ -243,6 +243,7 @@ public:
     IntCounter* num_io_bytes_read_total = nullptr;
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
+    IntCounter* num_io_bytes_read_from_peer = nullptr;
 
     IntCounter* query_ctx_cnt = nullptr;
     IntCounter* scanner_ctx_cnt = nullptr;
