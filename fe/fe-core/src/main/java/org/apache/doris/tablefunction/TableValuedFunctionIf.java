@@ -86,6 +86,8 @@ public abstract class TableValuedFunctionIf {
                 return new PartitionValuesTableValuedFunction(params);
             case FileTableValuedFunction.NAME:
                 return new FileTableValuedFunction(params);
+            case HttpTableValuedFunction.NAME:
+                return new HttpTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

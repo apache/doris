@@ -48,12 +48,7 @@ namespace doris::io {
     } while (0);
 #endif
 
-enum class FileSystemType : uint8_t {
-    LOCAL,
-    S3,
-    HDFS,
-    BROKER,
-};
+enum class FileSystemType : uint8_t { LOCAL, S3, HDFS, BROKER, HTTP };
 
 inline std::ostream& operator<<(std::ostream& ostr, FileSystemType type) {
     switch (type) {
@@ -68,6 +63,9 @@ inline std::ostream& operator<<(std::ostream& ostr, FileSystemType type) {
         return ostr;
     case FileSystemType::BROKER:
         ostr << "BROKER";
+        return ostr;
+    case FileSystemType::HTTP:
+        ostr << "HTTP";
         return ostr;
     default:
         ostr << "UNKNOWN";

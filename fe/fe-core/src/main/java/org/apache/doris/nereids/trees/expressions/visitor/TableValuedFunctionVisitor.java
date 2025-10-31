@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 
 /** TableValuedFunctionVisitor */
 public interface TableValuedFunctionVisitor<R, C> {
@@ -74,6 +75,10 @@ public interface TableValuedFunctionVisitor<R, C> {
     default R visitTasks(Tasks tasks, C context) {
         return visitTableValuedFunction(tasks, context);
     }
+
+    default R visitHttp(Http http, C context) {
+        return visitTableValuedFunction(http, context);
+    } 
 
     default R visitFrontendsDisks(FrontendsDisks frontendsDisks, C context) {
         return visitTableValuedFunction(frontendsDisks, context);
