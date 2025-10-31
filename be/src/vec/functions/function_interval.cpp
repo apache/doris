@@ -63,7 +63,7 @@ public:
         auto compare_col_ptr = compare_cwn.column;
         bool compare_is_const = false;
         std::tie(compare_col_ptr, compare_is_const) = unpack_if_const(compare_col_ptr);
-        
+
         switch (compare_cwn.type->get_primitive_type()) {
         case PrimitiveType::TYPE_TINYINT:
             compute_interval<ColumnInt8>(block, arguments, *compare_col_ptr, compare_is_const,
@@ -96,8 +96,9 @@ public:
 
 private:
     template <typename ColType>
-    static void compute_interval(Block& block, const ColumnNumbers& arguments, const IColumn& compare_col,
-                                 bool compare_is_const, PaddedPODArray<Int32>& res) {
+    static void compute_interval(Block& block, const ColumnNumbers& arguments,
+                                 const IColumn& compare_col, bool compare_is_const,
+                                 PaddedPODArray<Int32>& res) {
         const auto& compare_data = assert_cast<const ColType&>(compare_col).get_data();
         const size_t rows = res.size();
         const size_t num_thresholds = arguments.size() - 1;
