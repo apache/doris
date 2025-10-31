@@ -135,9 +135,9 @@
 {"ts_month":658, "ts_day":null}
 
 -- !evolution3 --
+{"ts_month":null, "ts_day":"2024-12-02"}
 {"ts_month":null, "ts_day":"2024-11-02"}
 {"ts_month":null, "ts_day":"2024-11-03"}
-{"ts_month":null, "ts_day":"2024-12-02"}
 {"ts_month":658, "ts_day":null}
 
 -- !evolution4 --
@@ -147,10 +147,10 @@
 {"ts_month":658, "ts_day":null}
 
 -- !evolution5 --
-{"ts_month":null, "ts_day":null, "ts_hour":481875}
-{"ts_month":null, "ts_day":null, "ts_hour":482139}
 {"ts_month":null, "ts_day":"2024-10-12", "ts_hour":null}
+{"ts_month":null, "ts_day":null, "ts_hour":482139}
 {"ts_month":null, "ts_day":"2024-12-21", "ts_hour":null}
+{"ts_month":null, "ts_day":null, "ts_hour":481875}
 {"ts_month":657, "ts_day":null, "ts_hour":null}
 {"ts_month":658, "ts_day":null, "ts_hour":null}
 
@@ -166,14 +166,14 @@
 {"create_date_month":647}
 
 -- !test4 --
-{"create_date1_month":647, "create_date2_year":null}
 {"create_date1_month":647, "create_date2_year":53}
+{"create_date1_month":647, "create_date2_year":null}
 
 -- !test5 --
 {"create_date_month":null}
 {"create_date_month":647}
 
 -- !test6 --
-{"create_date1_month":647, "create_date2_year":null}
 {"create_date1_month":647, "create_date2_year":53}
+{"create_date1_month":647, "create_date2_year":null}
 
