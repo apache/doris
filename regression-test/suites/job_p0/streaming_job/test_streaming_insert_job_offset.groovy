@@ -173,7 +173,7 @@ suite("test_streaming_insert_job_offset") {
     log.info("jobInfo: " + jobInfo)
     assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+    assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":1,\"fileSize\":138}"
     assert jobInfo.get(0).get(3) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
 
     // alter job init offset, Lexicographic order includes example_[0-1]
@@ -211,7 +211,7 @@ suite("test_streaming_insert_job_offset") {
     log.info("jobInfo: " + jobInfo)
     assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(2) == "{\"scannedRows\":30,\"loadBytes\":643,\"fileNumber\":0,\"fileSize\":0}"
+    assert jobInfo.get(0).get(2) == "{\"scannedRows\":30,\"loadBytes\":643,\"fileNumber\":3,\"fileSize\":394}"
     assert jobInfo.get(0).get(3) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
     // has double example_1.csv and example_0.csv data
