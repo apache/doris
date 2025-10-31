@@ -267,17 +267,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
-# gtest patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " GTEST " ]]; then
-    cd "${TP_SOURCE_DIR}/${GTEST_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/googletest-release-1.11.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${GTEST_SOURCE}"
-fi
-
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
@@ -287,19 +276,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     fi
     cd -
     echo "Finished patching ${MYSQL_SOURCE}"
-fi
-
-# libevent patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " LIBEVENT " ]]; then
-    cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/libevent.patch"
-        patch -p1 <"${TP_PATCH_DIR}/libevent-1532.patch"
-        patch -p1 <"${TP_PATCH_DIR}/libevent-keepalive-accepted-socket.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${LIBEVENT_SOURCE}"
 fi
 
 # gsasl2 patch to fix link error such as mutilple func defination
@@ -608,6 +584,16 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     fi
     cd -
     echo "Finished patching ${AZURE_SOURCE}"
+fi
+
+if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
+    cd $TP_SOURCE_DIR/$CCTZ_SOURCE
+    if [[ ! -f "$PATCHED_MARK" ]] ; then
+        patch -p1 <"${TP_PATCH_DIR}/cctz-civil-cache.patch"
+        touch "$PATCHED_MARK"
+    fi
+    cd -
+    echo "Finished patching ${CCTZ_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

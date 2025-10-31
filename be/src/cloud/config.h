@@ -175,5 +175,9 @@ DECLARE_mBool(enable_standby_passive_compaction);
 
 DECLARE_mDouble(standby_compaction_version_ratio);
 
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mInt64(cache_read_from_peer_expired_seconds);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

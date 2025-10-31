@@ -22,7 +22,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -309,12 +308,6 @@ public class IntLiteral extends NumericLiteralExpr {
             return res;
         }
         return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public void swapSign() throws NotImplementedException {
-        // swapping sign does not change the type
-        value = -value;
     }
 
     @Override

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Lists;
 import lombok.Getter;
@@ -241,25 +242,25 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     private void deleteStremingJob(AbstractJob<?, C> job) throws JobException {
-        boolean isStreamingJob = job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING);
-        if (!(Config.isCloudMode() && isStreamingJob)) {
+        if (!(Config.isCloudMode() && job instanceof StreamingInsertJob)) {
             return;
         }
+        StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+        Cloud.DeleteStreamingJobResponse resp = null;
         try {
-            long dbId = Env.getCurrentInternalCatalog().getDbOrDdlException(job.getCurrentDbName()).getId();
             Cloud.DeleteStreamingJobRequest req = Cloud.DeleteStreamingJobRequest.newBuilder()
                     .setCloudUniqueId(Config.cloud_unique_id)
-                    .setDbId(dbId)
+                    .setDbId(streamingJob.getDbId())
                     .setJobId(job.getJobId())
                     .build();
-            Cloud.DeleteStreamingJobResponse resp = MetaServiceProxy.getInstance().deleteStreamingJob(req);
+            resp = MetaServiceProxy.getInstance().deleteStreamingJob(req);
             if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                throw new JobException("deleteJobKey failed for jobId={}, dbId={}, status={}",
-                        job.getJobId(), dbId, resp.getStatus());
+                log.warn("failed to delete streaming job, response: {}", resp);
+                throw new JobException("deleteJobKey failed for jobId=%s, dbId=%s, status=%s",
+                        job.getJobId(), job.getJobId(), resp.getStatus());
             }
-        } catch (Exception e) {
-            throw new JobException("deleteJobKey exception for jobId={}, dbName={}",
-                    job.getJobId(), job.getCurrentDbName(), e);
+        } catch (RpcException e) {
+            log.warn("failed to delete streaming job {}", resp, e);
         }
     }
 

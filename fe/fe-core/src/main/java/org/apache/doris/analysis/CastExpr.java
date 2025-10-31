@@ -168,17 +168,6 @@ public class CastExpr extends Expr {
         analysisDone();
     }
 
-    /**
-     * Copy c'tor used in clone().
-     */
-    public CastExpr(TypeDef targetTypeDef, Expr e) {
-        Preconditions.checkNotNull(targetTypeDef);
-        Preconditions.checkNotNull(e);
-        this.targetTypeDef = targetTypeDef;
-        isImplicit = false;
-        children.add(e);
-    }
-
     protected CastExpr(CastExpr other) {
         super(other);
         targetTypeDef = other.targetTypeDef;
@@ -188,10 +177,6 @@ public class CastExpr extends Expr {
 
     private static String getFnName(Type targetType) {
         return "castTo" + targetType.getPrimitiveType().toString();
-    }
-
-    public TypeDef getTargetTypeDef() {
-        return targetTypeDef;
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -390,65 +375,6 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr value = children.get(0);
-        if (!(value instanceof LiteralExpr)) {
-            return this;
-        }
-        Expr targetExpr;
-        try {
-            targetExpr = castTo((LiteralExpr) value);
-            if (targetTypeDef != null) {
-                targetExpr.setType(targetTypeDef.getType());
-            } else {
-                targetExpr.setType(type);
-            }
-        } catch (AnalysisException ae) {
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().getState().reset();
-            }
-            targetExpr = this;
-        } catch (NumberFormatException nfe) {
-            targetExpr = new NullLiteral();
-        }
-        return targetExpr;
-    }
-
-    private Expr castTo(LiteralExpr value) throws AnalysisException {
-        if (value instanceof NullLiteral) {
-            if (targetTypeDef != null) {
-                return NullLiteral.create(targetTypeDef.getType());
-            } else {
-                return NullLiteral.create(type);
-            }
-        } else if (type.isIntegerType()) {
-            return new IntLiteral(value.getLongValue(), type);
-        } else if (type.isLargeIntType()) {
-            return new LargeIntLiteral(value.getStringValue());
-        } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            if (targetTypeDef != null) {
-                DecimalLiteral literal = new DecimalLiteral(value.getStringValue(),
-                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
-                literal.checkPrecisionAndScale(targetTypeDef.getType().getPrecision(),
-                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
-                return literal;
-            } else {
-                return new DecimalLiteral(value.getStringValue());
-            }
-        } else if (type.isFloatingPointType()) {
-            return new FloatLiteral(value.getDoubleValue(), type);
-        } else if (type.isStringType()) {
-            return new StringLiteral(value.getStringValue());
-        } else if (type.isDateType()) {
-            return new StringLiteral(value.getStringValue()).convertToDate(type);
-        } else if (type.isBoolean()) {
-            return new BoolLiteral(value.getStringValue());
-        }
-        return this;
-    }
-
-    @Override
     public boolean isNullable() {
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
@@ -467,10 +393,5 @@ public class CastExpr extends Expr {
 
     public void setNotFold(boolean notFold) {
         this.notFold = notFold;
-    }
-
-    @Override
-    protected void compactForLiteral(Type type) {
-        // do nothing
     }
 }

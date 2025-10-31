@@ -20,16 +20,20 @@
 
 #include "io/cache/block_file_cache_downloader.h"
 
+#include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
+#include <bthread/unstable.h>
 #include <bvar/bvar.h>
 #include <fmt/core.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
 #include <mutex>
+#include <unordered_set>
 #include <variant>
 
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -169,8 +173,17 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
     return id_to_rowset_meta_map;
 }
 
+static void clean_up_expired_mappings(void* arg) {
+    // Reclaim ownership with unique_ptr for automatic memory management
+    std::unique_ptr<int64_t> tablet_id(static_cast<int64_t*>(arg));
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.remove_balanced_tablet(*tablet_id);
+    VLOG_DEBUG << "Removed expired balanced warm up cache tablet: tablet_id=" << *tablet_id;
+}
+
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
+    std::unordered_set<int64_t> synced_tablets;
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
         VLOG_DEBUG << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
@@ -183,12 +196,20 @@ void FileCacheBlockDownloader::download_file_cache_block(
         } else {
             tablet = std::move(res).value();
         }
-
+        if (!synced_tablets.contains(meta.tablet_id())) {
+            auto st = tablet->sync_rowsets();
+            if (!st) {
+                // just log failed, try it best
+                LOG(WARNING) << "failed to sync rowsets: " << meta.tablet_id()
+                             << " err msg: " << st.to_string();
+            }
+            synced_tablets.insert(meta.tablet_id());
+        }
         auto id_to_rowset_meta_map = snapshot_rs_metas(tablet.get());
         auto find_it = id_to_rowset_meta_map.find(meta.rowset_id());
         if (find_it == id_to_rowset_meta_map.end()) {
             LOG(WARNING) << "download_file_cache_block: tablet_id=" << meta.tablet_id()
-                         << "rowset_id not found, rowset_id=" << meta.rowset_id();
+                         << " rowset_id not found, rowset_id=" << meta.rowset_id();
             return;
         }
 
@@ -215,13 +236,44 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                << "]";
                 }
             }
+            // Use std::make_unique to avoid raw pointer allocation
+            auto tablet_id_ptr = std::make_unique<int64_t>(tablet_id);
+            unsigned long expired_ms = g_tablet_report_inactive_duration_ms;
+            if (doris::config::cache_read_from_peer_expired_seconds > 0 &&
+                doris::config::cache_read_from_peer_expired_seconds <=
+                        g_tablet_report_inactive_duration_ms / 1000) {
+                expired_ms = doris::config::cache_read_from_peer_expired_seconds * 1000;
+            }
+            bthread_timer_t timer_id;
+            // ATTN: The timer callback will reclaim ownership of the tablet_id_ptr, so we need to release it after the timer is added.
+            if (const int rc =
+                        bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
+                                          clean_up_expired_mappings, tablet_id_ptr.get());
+                rc == 0) {
+                tablet_id_ptr.release();
+            } else {
+                LOG(WARNING) << "Fail to add timer for clean up expired mappings for tablet_id="
+                             << tablet_id << " rc=" << rc;
+            }
             LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
-                      << "status=" << st.to_string();
+                      << " status=" << st.to_string() << " expired_ms=" << expired_ms;
         };
 
+        std::string path;
+        doris::FileType file_type =
+                meta.has_file_type() ? meta.file_type() : doris::FileType::SEGMENT_FILE;
+        bool is_index = (file_type == doris::FileType::INVERTED_INDEX_FILE);
+        if (is_index) {
+            path = storage_resource.value()->remote_idx_v2_path(*find_it->second,
+                                                                meta.segment_id());
+        } else {
+            // default .dat
+            path = storage_resource.value()->remote_segment_path(*find_it->second,
+                                                                 meta.segment_id());
+        }
+
         DownloadFileMeta download_meta {
-                .path = storage_resource.value()->remote_segment_path(*find_it->second,
-                                                                      meta.segment_id()),
+                .path = path,
                 .file_size = meta.has_file_size() ? meta.file_size()
                                                   : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
@@ -279,7 +331,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
-        auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
+        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
             if (meta.download_done) {
@@ -301,9 +353,16 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
 
 void FileCacheBlockDownloader::download_blocks(DownloadTask& task) {
     switch (task.task_message.index()) {
-    case 0:
-        download_file_cache_block(std::get<0>(task.task_message));
+    case 0: {
+        bool should_balance_task = true;
+        DBUG_EXECUTE_IF("FileCacheBlockDownloader.download_blocks.balance_task",
+                        { should_balance_task = false; });
+        if (should_balance_task) {
+            download_file_cache_block(std::get<0>(task.task_message));
+        }
+
         break;
+    }
     case 1:
         download_segment_file(std::get<1>(task.task_message));
         break;

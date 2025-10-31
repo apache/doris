@@ -19,6 +19,9 @@
 
 #include <bthread/countdown_event.h>
 
+#include <algorithm>
+#include <thread>
+
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -27,11 +30,23 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
+#include "util/async_io.h"
 #include "util/debug_points.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
 #include "common/compile_check_begin.h"
+
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_num("file_cache_get_by_peer_num");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_blocks_num("file_cache_get_by_peer_blocks_num");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_success_num("file_cache_get_by_peer_success_num");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_failed_num("file_cache_get_by_peer_failed_num");
+bvar::LatencyRecorder g_file_cache_get_by_peer_server_latency(
+        "file_cache_get_by_peer_server_latency");
+bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
+        "file_cache_get_by_peer_read_cache_file_latency");
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
@@ -96,32 +111,171 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
                          << " err msg: " << st.to_string();
         }
         auto rowsets = tablet->get_snapshot_rowset();
-        std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
-            std::string rowset_id = rowset->rowset_id().to_string();
-            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); segment_id++) {
-                std::string file_name = fmt::format("{}_{}.dat", rowset_id, segment_id);
-                auto cache_key = io::BlockFileCache::hash(file_name);
-                auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
 
-                auto segments_meta = cache->get_hot_blocks_meta(cache_key);
-                for (const auto& tuple : segments_meta) {
-                    FileCacheBlockMeta* meta = response->add_file_cache_block_metas();
-                    meta->set_tablet_id(tablet_id);
-                    meta->set_rowset_id(rowset_id);
-                    meta->set_segment_id(segment_id);
-                    meta->set_file_name(file_name);
-                    meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
-                    meta->set_offset(std::get<0>(tuple));
-                    meta->set_size(std::get<1>(tuple));
-                    meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
-                    meta->set_expiration_time(std::get<3>(tuple));
-                }
+        auto add_meta = [&](PGetFileCacheMetaResponse* resp, int64_t tablet_id,
+                            const std::string& rowset_id, int32_t segment_id,
+                            const std::string& file_name,
+                            const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple,
+                            const RowsetSharedPtr& rowset, bool is_index) {
+            FileCacheBlockMeta* meta = resp->add_file_cache_block_metas();
+            meta->set_tablet_id(tablet_id);
+            meta->set_rowset_id(rowset_id);
+            meta->set_segment_id(segment_id);
+            meta->set_file_name(file_name);
+
+            if (!is_index) {
+                // .dat
+                meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
+                meta->set_file_type(doris::FileType::SEGMENT_FILE);
+            } else {
+                // .idx
+                const auto& idx_file_info =
+                        rowset->rowset_meta()->inverted_index_file_info(segment_id);
+                meta->set_file_size(idx_file_info.has_index_size() ? idx_file_info.index_size()
+                                                                   : -1);
+                meta->set_file_type(doris::FileType::INVERTED_INDEX_FILE);
             }
-        });
+
+            meta->set_offset(std::get<0>(tuple));
+            meta->set_size(std::get<1>(tuple));
+            meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
+            meta->set_expiration_time(std::get<3>(tuple));
+        };
+
+        auto process_file_for_segment = [&](PGetFileCacheMetaResponse* resp,
+                                            const RowsetSharedPtr& rowset, int64_t tablet_id,
+                                            const std::string& rowset_id, int32_t segment_id,
+                                            bool is_inedex) {
+            const char* extension = is_inedex ? ".idx" : ".dat";
+            std::string file_name = fmt::format("{}_{}{}", rowset_id, segment_id, extension);
+            auto cache_key = io::BlockFileCache::hash(file_name);
+            auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
+            if (!cache) return;
+            auto segments_meta = cache->get_hot_blocks_meta(cache_key);
+            for (const auto& tuple : segments_meta) {
+                add_meta(resp, tablet_id, rowset_id, segment_id, file_name, tuple, rowset,
+                         is_inedex);
+            }
+        };
+
+        for (const RowsetSharedPtr& rowset : rowsets) {
+            std::string rowset_id = rowset->rowset_id().to_string();
+            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
+                process_file_for_segment(response, rowset, tablet_id, rowset_id, segment_id, false);
+                process_file_for_segment(response, rowset, tablet_id, rowset_id, segment_id, true);
+            }
+        }
     }
     VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
                << ", response=" << response->DebugString();
 }
+
+void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* controller
+                                               [[maybe_unused]],
+                                               const PFetchPeerDataRequest* request,
+                                               PFetchPeerDataResponse* response,
+                                               google::protobuf::Closure* done) {
+    // TODO(dx): use async thread pool to handle the request, not AsyncIO
+    brpc::ClosureGuard closure_guard(done);
+    g_file_cache_get_by_peer_num << 1;
+    if (!config::enable_file_cache) {
+        LOG_WARNING("try to access file cache data, but file cache not enabled");
+        return;
+    }
+    int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    const auto type = request->type();
+    const auto& path = request->path();
+    response->mutable_status()->set_status_code(TStatusCode::OK);
+    if (type == PFetchPeerDataRequest_Type_PEER_FILE_RANGE) {
+        // Read specific range [file_offset, file_offset+file_size) across cached blocks
+        auto datas = io::FileCacheFactory::instance()->get_cache_data_by_path(path);
+        for (auto& cb : datas) {
+            *(response->add_datas()) = std::move(cb);
+        }
+    } else if (type == PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK) {
+        // Multiple specific blocks
+        auto hash = io::BlockFileCache::hash(path);
+        auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+        if (cache == nullptr) {
+            g_file_cache_get_by_peer_failed_num << 1;
+            response->mutable_status()->add_error_msgs("can't get file cache instance");
+            response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+            return;
+        }
+        io::CacheContext ctx {};
+        // ensure a valid stats pointer is provided to cache layer
+        io::ReadStatistics local_stats;
+        ctx.stats = &local_stats;
+        for (const auto& cb_req : request->cache_req()) {
+            size_t offset = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_offset()));
+            size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
+            auto holder = cache->get_or_set(hash, offset, size, ctx);
+            for (auto& fb : holder.file_blocks) {
+                auto state = fb->state();
+                if (state != io::FileBlock::State::DOWNLOADED) {
+                    g_file_cache_get_by_peer_failed_num << 1;
+                    LOG(WARNING) << "read cache block failed, state=" << state;
+                    response->mutable_status()->add_error_msgs("read cache file error");
+                    response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+                    return;
+                }
+                g_file_cache_get_by_peer_blocks_num << 1;
+                doris::CacheBlockPB* out = response->add_datas();
+                out->set_block_offset(static_cast<int64_t>(fb->offset()));
+                out->set_block_size(static_cast<int64_t>(fb->range().size()));
+                std::string data;
+                data.resize(fb->range().size());
+                // Offload the file block read to a dedicated OS thread to avoid bthread IO
+                Status read_st = Status::OK();
+                // due to file_reader.cpp:33] Check failed: bthread_self() == 0
+                int64_t begin_read_file_ts =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count();
+                auto task = [&] {
+                    // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
+                    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+                    Slice slice(data.data(), data.size());
+                    read_st = fb->read(slice, /*read_offset=*/0);
+                };
+                AsyncIO::run_task(task, io::FileSystemType::LOCAL);
+                int64_t end_read_file_ts =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count();
+                g_file_cache_get_by_peer_read_cache_file_latency
+                        << (end_read_file_ts - begin_read_file_ts);
+                if (read_st.ok()) {
+                    out->set_data(std::move(data));
+                } else {
+                    g_file_cache_get_by_peer_failed_num << 1;
+                    LOG(WARNING) << "read cache block failed: " << read_st;
+                    response->mutable_status()->add_error_msgs("read cache file error");
+                    response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+                    return;
+                }
+            }
+        }
+    }
+    DBUG_EXECUTE_IF("CloudInternalServiceImpl::fetch_peer_data_slower", {
+        int st_us = dp->param<int>("sleep", 1000);
+        LOG_WARNING("CloudInternalServiceImpl::fetch_peer_data_slower").tag("sleep", st_us);
+        // sleep us
+        bthread_usleep(st_us);
+    });
+
+    int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count();
+    g_file_cache_get_by_peer_server_latency << (end_ts - begin_ts);
+    g_file_cache_get_by_peer_success_num << 1;
+
+    VLOG_DEBUG << "fetch cache request=" << request->DebugString()
+               << ", response=" << response->DebugString();
+}
+
 #include "common/compile_check_end.h"
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(

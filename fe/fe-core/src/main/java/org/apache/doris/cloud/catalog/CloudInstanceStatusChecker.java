@@ -59,9 +59,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         try {
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get from ms response {}", response);
-            }
             if (!isResponseValid(response)) {
                 return;
             }
@@ -102,8 +99,61 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         List<Cloud.ClusterPB> virtualClusters = new ArrayList<>();
         List<Cloud.ClusterPB> computeClusters = new ArrayList<>();
         categorizeClusters(clusters, virtualClusters, computeClusters);
+        handleComputeClusters(computeClusters);
         handleVirtualClusters(virtualClusters, computeClusters);
         removeObsoleteVirtualGroups(virtualClusters);
+    }
+
+    private void handleComputeClusters(List<Cloud.ClusterPB> computeClusters) {
+        for (Cloud.ClusterPB computeClusterInMs : computeClusters) {
+            ComputeGroup computeGroupInFe = cloudSystemInfoService
+                    .getComputeGroupById(computeClusterInMs.getClusterId());
+            if (computeGroupInFe == null) {
+                // cluster checker will sync it
+                LOG.info("found compute cluster {} in ms, but not in fe mem, "
+                        + "it may be wait cluster checker to sync, ignore it",
+                        computeClusterInMs);
+            } else {
+                // exist compute group, check properties changed and update if needed
+                updatePropertiesIfChanged(computeGroupInFe, computeClusterInMs);
+            }
+        }
+    }
+
+    /**
+     * Compare properties between compute cluster in MS and compute group in FE,
+     * update only the changed key-value pairs to avoid unnecessary updates.
+     */
+    private void updatePropertiesIfChanged(ComputeGroup computeGroupInFe, Cloud.ClusterPB computeClusterInMs) {
+        Map<String, String> propertiesInMs = computeClusterInMs.getPropertiesMap();
+        Map<String, String> propertiesInFe = computeGroupInFe.getProperties();
+
+        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
+            return;
+        }
+        Map<String, String> changedProperties = new HashMap<>();
+
+        // Check for changed or new properties
+        for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
+            String key = entry.getKey();
+            String valueInMs = entry.getValue();
+            String valueInFe = propertiesInFe.get(key);
+
+            if (valueInFe != null && valueInFe.equalsIgnoreCase(valueInMs)) {
+                continue;
+            }
+            changedProperties.put(key, valueInMs);
+
+            LOG.debug("Property changed for compute group {}: {} = {} (was: {})",
+                    computeGroupInFe.getName(), key, valueInMs, valueInFe);
+        }
+
+        // Only update if there are actual changes
+        if (!changedProperties.isEmpty()) {
+            LOG.info("Updating properties for compute group {}: {}",
+                    computeGroupInFe.getName(), changedProperties);
+            computeGroupInFe.setProperties(changedProperties);
+        }
     }
 
     private void categorizeClusters(List<Cloud.ClusterPB> clusters,
@@ -472,6 +522,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             // in fe mem, but not in meta server
             if (!msVirtualClusters.contains(computeGroup.getId())) {
                 LOG.info("virtual compute group {} will be removed.", computeGroup.getName());
+                MetricRepo.unregisterCloudMetrics(computeGroup.getId(), computeGroup.getName(),
+                        Collections.emptyList());
                 cloudSystemInfoService.removeComputeGroup(computeGroup.getId(), computeGroup.getName());
                 // cancel invalid job
                 if (!computeGroup.getPolicy().getCacheWarmupJobIds().isEmpty()) {

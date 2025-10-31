@@ -1976,10 +1976,20 @@ public class Config extends ConfigBase {
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
 
+    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为10",
+            "The number of threads used to execute Streaming Tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
+    public static int job_streaming_task_exec_thread_num = 10;
+
     @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
             "The maximum number of Streaming jobs, "
                     + "the value should be greater than 0, if it is <=0, default is 1024."})
     public static int max_streaming_job_num = 1024;
+
+    @ConfField(masterOnly = true, description = {"一个 Streaming Job 在内存中最多保留的 task的数量，超过将丢弃旧的记录",
+            "The maximum number of tasks a Streaming Job can keep in memory. If the number exceeds the limit, "
+                    + "old records will be discarded."})
+    public static int max_streaming_task_show_count = 100;
 
     /* job test config */
     /**
@@ -3329,8 +3339,26 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_cloud_warm_up_for_rebalance = true;
+    @ConfField(description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+            + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
+            + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
+            + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"
+            + "peer_read_async_warmup: 直接修改tablet分片映射，首次读从Peer BE拉取，均衡最快可能会影响同计算组中其他BE性能。"
+            + "注意：此为全局FE配置，也可通过SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
+            + "设置compute group维度的balance类型，compute group维度配置优先级更高",
+        "Specify the scaling and warming methods for all Compute groups in a cloud mode. "
+            + "without_warmup: Directly modify shard mapping, first read from S3,"
+            + "fastest re-balance but largest fluctuation; "
+            + "async_warmup: Asynchronous warmup, best-effort cache pulling, "
+            + "faster re-balance but possible cache miss; "
+            + "sync_warmup: Synchronous warmup, ensure cache migration completion, "
+            + "slower re-balance but no cache miss; "
+            + "peer_read_async_warmup: Directly modify shard mapping, first read from Peer BE, "
+            + "fastest re-balance but may affect other BEs in the same compute group performance. "
+            + "Note: This is a global FE configuration, you can also use SQL (ALTER COMPUTE GROUP cg PROPERTIES) "
+            + "to set balance type at compute group level, compute group level configuration has higher priority"},
+            options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
+    public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";

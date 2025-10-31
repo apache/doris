@@ -12111,7 +12111,7 @@ TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
         const auto& instance = res.instance();
         ASSERT_EQ(instance.snapshot_switch_status(), SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
         ASSERT_EQ(instance.snapshot_interval_seconds(), config::snapshot_min_interval_seconds);
-        ASSERT_EQ(instance.max_reserved_snapshot(), 1);
+        ASSERT_EQ(instance.max_reserved_snapshot(), 0);
     }
 }
 

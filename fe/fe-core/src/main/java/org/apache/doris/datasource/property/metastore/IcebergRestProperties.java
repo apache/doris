@@ -21,10 +21,10 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -49,6 +49,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
 
+    @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
             description = "The uri of the iceberg rest catalog service.")
     private String icebergRestUri = "";
@@ -320,14 +321,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Map<String, String> fileIOProperties, Configuration conf) {
 
         for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties instanceof HdfsCompatibleProperties) {
-                storageProperties.getBackendConfigProperties().forEach(conf::set);
-            } else if (storageProperties instanceof AbstractS3CompatibleProperties) {
+            if (storageProperties instanceof AbstractS3CompatibleProperties) {
                 // For all S3-compatible storage types, put properties in fileIOProperties map
                 toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
             } else {
                 // For other storage types, just use fileIOProperties map
-                fileIOProperties.putAll(storageProperties.getBackendConfigProperties());
+                storageProperties.getBackendConfigProperties().forEach(conf::set);
             }
         }
 
