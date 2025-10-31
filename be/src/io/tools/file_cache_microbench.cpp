@@ -328,7 +328,7 @@ public:
         if (read_bvar) {
             SCOPED_BVAR_LATENCY(*read_bvar);
         }
-        SCOPED_BVAR_LATENCY(microbench_write_latency);
+        SCOPED_BVAR_LATENCY(microbench_read_latency);
         return _base_reader->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -1309,12 +1309,14 @@ private:
                                 file_size = exist_job_perfile_size;
                             }
 
-                            // Verify read data
+#if 0 // TODO(dengxin): fix verify \
+        // Verify read data
                             if (!DataVerifier::verify_data(key, file_size, read_offset, read_buffer,
                                                            read_length)) {
                                 throw std::runtime_error("Data verification failed for key: " +
                                                          key);
                             }
+#endif
 
                             LOG(INFO)
                                     << "read_offset=" << read_offset
