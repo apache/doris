@@ -1329,12 +1329,17 @@ Status VFileScanner::_get_next_reader() {
         }
 
         RETURN_IF_ERROR(_generate_missing_columns());
+        Status status;
         if (_fill_partition_from_path) {
-            RETURN_IF_ERROR(
-                    _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+            status = _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs);
         } else {
             // If the partition columns are not from path, we only fill the missing columns.
-            RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
+            status = _cur_reader->set_fill_columns({}, _missing_col_descs);
+        }
+        if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
+            continue;
+        } else if (!status.ok()) {
+            return Status::InternalError("failed to set_fill_columns, err: {}", status.to_string());
         }
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
