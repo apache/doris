@@ -17,6 +17,7 @@
 
 #include "io/fs/local_file_system.h"
 
+#include <bthread/bthread.h>
 #include <fcntl.h>
 #include <fmt/format.h>
 #include <glob.h>
@@ -28,11 +29,10 @@
 
 #include <filesystem>
 #include <iomanip>
-#include <istream>
 #include <system_error>
 #include <utility>
 
-#include "common/exception.h"
+#include "common/macros.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -40,10 +40,7 @@
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "olap/data_dir.h"
-#include "runtime/thread_context.h"
-#include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
-#include "util/defer_op.h"
 
 namespace doris::io {
 
@@ -163,7 +160,9 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
 }
 
 Status LocalFileSystem::delete_directory_or_file(const Path& path) {
-    FILESYSTEM_M(delete_directory_or_file_impl(path));
+    DCHECK(bthread_self() == 0)
+            << "LocalFileSystem::delete_directory_or_file should not be called in bthread";
+    return delete_directory_or_file_impl(path);
 }
 
 Status LocalFileSystem::delete_directory_or_file_impl(const Path& path) {
@@ -267,7 +266,8 @@ Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name)
 }
 
 Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
-    FILESYSTEM_M(link_file_impl(src, dest));
+    DCHECK(bthread_self() == 0) << "LocalFileSystem::link_file should not be called in bthread";
+    return link_file_impl(src, dest);
 }
 
 Status LocalFileSystem::link_file_impl(const Path& src, const Path& dest) {
@@ -299,7 +299,8 @@ Status LocalFileSystem::is_directory(const Path& path, bool* res) {
 }
 
 Status LocalFileSystem::md5sum(const Path& file, std::string* md5sum) {
-    FILESYSTEM_M(md5sum_impl(file, md5sum));
+    DCHECK(bthread_self() == 0) << "LocalFileSystem::md5sum should not be called in bthread";
+    return md5sum_impl(file, md5sum);
 }
 
 Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
@@ -334,7 +335,9 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
 
 Status LocalFileSystem::iterate_directory(const std::string& dir,
                                           const std::function<bool(const FileInfo& file)>& cb) {
-    FILESYSTEM_M(iterate_directory_impl(dir, cb));
+    DCHECK(bthread_self() == 0)
+            << "LocalFileSystem::iterate_directory should not be called in bthread";
+    return iterate_directory_impl(dir, cb);
 }
 
 Status LocalFileSystem::iterate_directory_impl(
@@ -351,7 +354,9 @@ Status LocalFileSystem::iterate_directory_impl(
 }
 
 Status LocalFileSystem::get_space_info(const Path& dir, size_t* capacity, size_t* available) {
-    FILESYSTEM_M(get_space_info_impl(dir, capacity, available));
+    DCHECK(bthread_self() == 0)
+            << "LocalFileSystem::get_space_info should not be called in bthread";
+    return get_space_info_impl(dir, capacity, available);
 }
 
 Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, size_t* available) {
@@ -367,7 +372,8 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
 }
 
 Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
-    FILESYSTEM_M(copy_path_impl(src, dest));
+    DCHECK(bthread_self() == 0) << "LocalFileSystem::copy_path should not be called in bthread";
+    return copy_path_impl(src, dest);
 }
 
 Status LocalFileSystem::copy_path_impl(const Path& src, const Path& dest) {
@@ -467,7 +473,8 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
 }
 
 Status LocalFileSystem::permission(const Path& file, std::filesystem::perms prms) {
-    FILESYSTEM_M(permission_impl(file, prms));
+    DCHECK(bthread_self() == 0) << "LocalFileSystem::permission should not be called in bthread";
+    return permission_impl(file, prms);
 }
 
 Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms prms) {
