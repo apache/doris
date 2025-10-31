@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -249,7 +248,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                 continue;
             } else if (column.hasOnUpdateDefaultValue()) {
                 builder.add(new Cast(new NereidsParser().parseExpression(
-                        column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()), dataType));
+                        column.getOnUpdateDefaultValueSql()), dataType));
             } else {
                 List<String> nameParts = Lists.newArrayList(targetNameInPlan);
                 nameParts.add(column.getName());
@@ -357,7 +356,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                     colNameToExpression.remove(column.getName());
                 }
             } else {
-                if (!column.hasDefaultValue()) {
+                if (column.getDefaultValueSql() == null) {
                     if (!column.isAllowNull() && !column.isAutoInc()) {
                         throw new AnalysisException("Column has no default value,"
                                 + " column=" + column.getName());
@@ -369,16 +368,12 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                         // it comes from the original planner, if default value expression is
                         // null, we use the literal string of the default value, or it may be
                         // default value function, like CURRENT_TIMESTAMP.
-                        if (column.getDefaultValueExpr() == null) {
-                            defaultExpr = Literal.of(column.getDefaultValue()).checkedCastWithStrictChecking(type);
-                        } else {
-                            Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                    column.getDefaultValueExpr().toSqlWithoutTbl());
-                            if (unboundDefaultValue instanceof UnboundAlias) {
-                                unboundDefaultValue = ((UnboundAlias) unboundDefaultValue).child();
-                            }
-                            defaultExpr = new Cast(unboundDefaultValue, type);
+                        Expression unboundDefaultValue = new NereidsParser().parseExpression(
+                                column.getDefaultValueSql());
+                        if (unboundDefaultValue instanceof UnboundAlias) {
+                            unboundDefaultValue = ((UnboundAlias) unboundDefaultValue).child();
                         }
+                        defaultExpr = new Cast(unboundDefaultValue, type);
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }

@@ -58,7 +58,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
@@ -478,19 +477,10 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             if (column != null) {
                 Expression expression;
                 if (column.getDefaultValue() != null) {
-                    if (column.getDefaultValueExprDef() != null) {
-                        try {
-                            expression = new NereidsParser().parseExpression(
-                                    column.getDefaultValueExpr().toSqlWithoutTbl());
-                            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
-                                    null, new Scope(ImmutableList.of()), null, true, true);
-                            expression = analyzer.analyze(expression);
-                        } catch (org.apache.doris.common.AnalysisException e) {
-                            throw new AnalysisException(e.getMessage(), e.getCause());
-                        }
-                    } else {
-                        expression = new StringLiteral(column.getDefaultValue());
-                    }
+                    expression = new NereidsParser().parseExpression(column.getDefaultValueSql());
+                    ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                            null, new Scope(ImmutableList.of()), null, true, true);
+                    expression = analyzer.analyze(expression);
                 } else {
                     if (column.isAllowNull()) {
                         expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
