@@ -3679,6 +3679,10 @@ public class SessionVariable implements Serializable, Writable {
         return sqlDialect;
     }
 
+    public int getWaitFullBlockScheduleTimes() {
+        return waitFullBlockScheduleTimes;
+    }
+
     public boolean isRetryOriginSqlOnConvertFail() {
         return retryOriginSqlOnConvertFail;
     }
