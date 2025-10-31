@@ -55,6 +55,8 @@ using FunctionDatetimeV2AddQuarters =
 using FunctionDatetimeV2AddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddDaySecond =
         FunctionDateOrDateTimeComputation<AddDaySecondImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeV2AddDayHour =
+        FunctionDateOrDateTimeComputation<AddDayHourImpl<TYPE_DATETIMEV2>>;
 
 using FunctionDatetimeV2SubMicroseconds =
         FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_DATETIMEV2>>;
@@ -119,6 +121,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeV2AddYears>();
     factory.register_function<FunctionDatetimeV2AddQuarters>();
     factory.register_function<FunctionDatetimeV2AddDaySecond>();
+    factory.register_function<FunctionDatetimeV2AddDayHour>();
 
     factory.register_function<FunctionSubDaysV2>();
     factory.register_function<FunctionSubMonthsV2>();
