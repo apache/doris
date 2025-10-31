@@ -796,27 +796,30 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     size_t total_io_size = 0;
     std::function<void(const FieldSchema*, const tparquet::RowGroup&)> scalar_range =
             [&](const FieldSchema* field, const tparquet::RowGroup& row_group) {
-                if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
-                    scalar_range(&field->children[0], row_group);
-                } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
-                    scalar_range(&field->children[0], row_group);
-                    scalar_range(&field->children[1], row_group);
-                } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
-                    for (int i = 0; i < field->children.size(); ++i) {
-                        scalar_range(&field->children[i], row_group);
+                if (_column_ids.empty() ||
+                    _column_ids.find(field->get_column_id()) != _column_ids.end()) {
+                    if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
+                        scalar_range(&field->children[0], row_group);
+                    } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
+                        scalar_range(&field->children[0], row_group);
+                        scalar_range(&field->children[1], row_group);
+                    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
+                        for (int i = 0; i < field->children.size(); ++i) {
+                            scalar_range(&field->children[i], row_group);
+                        }
+                    } else {
+                        const tparquet::ColumnChunk& chunk =
+                                row_group.columns[field->physical_column_index];
+                        auto& chunk_meta = chunk.meta_data;
+                        int64_t chunk_start = has_dict_page(chunk_meta)
+                                                      ? chunk_meta.dictionary_page_offset
+                                                      : chunk_meta.data_page_offset;
+                        int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
+                        DCHECK_GE(chunk_start, last_chunk_end);
+                        result.emplace_back(chunk_start, chunk_end);
+                        total_io_size += chunk_meta.total_compressed_size;
+                        last_chunk_end = chunk_end;
                     }
-                } else {
-                    const tparquet::ColumnChunk& chunk =
-                            row_group.columns[field->physical_column_index];
-                    auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = has_dict_page(chunk_meta)
-                                                  ? chunk_meta.dictionary_page_offset
-                                                  : chunk_meta.data_page_offset;
-                    int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
-                    DCHECK_GE(chunk_start, last_chunk_end);
-                    result.emplace_back(chunk_start, chunk_end);
-                    total_io_size += chunk_meta.total_compressed_size;
-                    last_chunk_end = chunk_end;
                 }
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
