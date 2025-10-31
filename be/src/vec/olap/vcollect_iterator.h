@@ -116,9 +116,10 @@ private:
     // then merged with other rowset readers.
     class LevelIterator {
     public:
-        LevelIterator(TabletReader* reader)
+        LevelIterator(TabletReader* reader, bool merge)
                 : _schema(reader->tablet_schema()),
-                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
+                  _compare_columns(reader->_reader_context.read_orderby_key_columns),
+                  _merge(merge) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
 
@@ -154,6 +155,13 @@ private:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
         std::vector<uint32_t>* _compare_columns = nullptr;
+
+        // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
+        // sort them. The output of VCollectIterator is also ordered.
+        // When `_merge == false`, rowset reader returns *partial* ordered rows. VCollectIterator simply returns all rows
+        // from the first rowset, the second rowset, .., the last rowset. The output of CollectorIterator is also
+        // *partially* ordered.
+        bool _merge = true;
     };
 
     // Compare row cursors between multiple merge elements,
@@ -182,7 +190,7 @@ private:
     // Iterate from rowset reader. This Iterator usually like a leaf node
     class Level0Iterator : public LevelIterator {
     public:
-        Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
+        Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader, bool merge);
         ~Level0Iterator() override = default;
 
         Status init(bool get_data_by_ref = false) override;
@@ -253,9 +261,13 @@ private:
                 return _rs_reader->next_batch(&_block_view);
             } else {
                 _row_is_same.clear();
-                BlockWithSameBit block_with_same_bit {.block = _block.get(),
-                                                      .same_bit = _row_is_same};
-                return _rs_reader->next_batch(&block_with_same_bit);
+                if (_merge) {
+                    BlockWithSameBit block_with_same_bit {.block = _block.get(),
+                                                          .same_bit = _row_is_same};
+                    return _rs_reader->next_batch(&block_with_same_bit);
+                } else {
+                    return _rs_reader->next_batch(_block.get());
+                }
             }
         }
 
@@ -317,12 +329,6 @@ private:
         std::unique_ptr<LevelIterator> _cur_child;
         TabletReader* _reader = nullptr;
 
-        // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
-        // sort them. The output of VCollectIterator is also ordered.
-        // When `_merge == false`, rowset reader returns *partial* ordered rows. VCollectIterator simply returns all rows
-        // from the first rowset, the second rowset, .., the last rowset. The output of CollectorIterator is also
-        // *partially* ordered.
-        bool _merge = true;
         // reverse the compare order
         bool _is_reverse = false;
 
