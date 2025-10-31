@@ -72,7 +72,7 @@ struct GlobalMergeContext {
     std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
-    bool done = false;
+    std::atomic<bool> done = false;
 };
 
 // owned by RuntimeState

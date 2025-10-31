@@ -898,6 +898,7 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
         std::string key;
         instance_key({instance_id_}, &key);
+        txn->atomic_add(system_meta_service_instance_update_key(), 1);
         txn->remove(key);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {

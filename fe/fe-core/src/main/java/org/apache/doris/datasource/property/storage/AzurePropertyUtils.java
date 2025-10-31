@@ -59,14 +59,11 @@ public class AzurePropertyUtils {
         if (StringUtils.isBlank(path)) {
             throw new StoragePropertiesException("Path cannot be null or empty");
         }
-
-        String lower = path.toLowerCase();
-
         // Only accept Azure Blob Storage-related URI schemes
-        if (!(lower.startsWith("wasb://") || lower.startsWith("wasbs://")
-                || lower.startsWith("abfs://") || lower.startsWith("abfss://")
-                || lower.startsWith("https://") || lower.startsWith("http://")
-                || lower.startsWith("s3://"))) {
+        if (!(path.startsWith("wasb://") || path.startsWith("wasbs://")
+                || path.startsWith("abfs://") || path.startsWith("abfss://")
+                || path.startsWith("https://") || path.startsWith("http://")
+                || path.startsWith("s3://"))) {
             throw new StoragePropertiesException("Unsupported Azure URI scheme: " + path);
         }
 
@@ -92,14 +89,12 @@ public class AzurePropertyUtils {
         if (StringUtils.isBlank(uri)) {
             throw new StoragePropertiesException("URI is blank");
         }
-
-        String lowerUri = uri.toLowerCase();
-        if (lowerUri.startsWith("s3://")) {
-            return lowerUri;
+        if (uri.startsWith("s3://")) {
+            return uri;
         }
         // Handle Azure HDFS-style URIs (wasb://, wasbs://, abfs://, abfss://)
-        if (lowerUri.startsWith("wasb://") || lowerUri.startsWith("wasbs://")
-                || lowerUri.startsWith("abfs://") || lowerUri.startsWith("abfss://")) {
+        if (uri.startsWith("wasb://") || uri.startsWith("wasbs://")
+                || uri.startsWith("abfs://") || uri.startsWith("abfss://")) {
 
             // Example: wasbs://container@account.blob.core.windows.net/path/file.txt
             String schemeRemoved = uri.replaceFirst("^[a-z]+s?://", "");
@@ -125,7 +120,7 @@ public class AzurePropertyUtils {
         }
 
         // ② Handle HTTPS/HTTP Azure Blob Storage URLs
-        if (lowerUri.startsWith("https://") || lowerUri.startsWith("http://")) {
+        if (uri.startsWith("https://") || uri.startsWith("http://")) {
             try {
                 URI parsed = new URI(uri);
                 String host = parsed.getHost();

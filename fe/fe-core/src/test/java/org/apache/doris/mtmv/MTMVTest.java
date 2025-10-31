@@ -62,8 +62,8 @@ public class MTMVTest {
                 + "AbstractTask{jobId=null, taskId=1, status=null, createTimeMs=null, startTimeMs=null, "
                 + "finishTimeMs=null, taskType=null, errMsg='null'}]}, mvProperties={}, "
                 + "relation=MTMVRelation{baseTables=[], baseTablesOneLevel=[], baseViews=[]}, "
-                + "mvPartitionInfo=MTMVPartitionInfo{partitionType=null, relatedTable=null, "
-                + "relatedCol='null', partitionCol='null', expr='null'}, "
+                + "mvPartitionInfo=MTMVPartitionInfo{partitionType=null, pctInfos=[], "
+                + "partitionCol='null', expr='null'}, "
                 + "refreshSnapshot=MTMVRefreshSnapshot{partitionSnapshots={}}, id=1, name='null', "
                 + "qualifiedDbName='db1', comment='comment1'}";
         MTMV mtmv = new MTMV();

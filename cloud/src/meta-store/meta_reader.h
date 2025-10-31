@@ -294,6 +294,10 @@ public:
     TxnErrorCode get_snapshot(Transaction* txn, Versionstamp snapshot_versionstamp,
                               SnapshotPB* snapshot_pb, bool snapshot = false);
 
+    // Whether any snapshot exists.
+    TxnErrorCode has_snapshot(bool* has, bool snapshot = false);
+    TxnErrorCode has_snapshot(Transaction* txn, bool* has, bool snapshot = false);
+
     // Whether the snapshot has references.
     TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
                                          bool snapshot = false);
