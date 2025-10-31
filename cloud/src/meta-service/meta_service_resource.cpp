@@ -2059,12 +2059,11 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
         std::string url =
                 "${MS_ENDPOINT}/MetaService/http/"
                 "set_multi_version_status?multi_version_status=MULTI_VERSION_READ_WRITE";
-        return std::make_pair(
-                MetaServiceCode::INVALID_ARGUMENT,
-                fmt::format("Cannot enable snapshot when multi_version_status is not "
-                            "MULTI_VERSION_READ_WRITE, instance_id: {}. Consider enabling "
-                            "MULTI_VERSION_READ_WRITE status by curl {}",
-                            instance_id));
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              fmt::format("Cannot enable snapshot when multi_version_status is not "
+                                          "MULTI_VERSION_READ_WRITE. Consider enabling "
+                                          "MULTI_VERSION_READ_WRITE status by curl {}",
+                                          instance_id));
     } else if (value == "true") {
         instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
 
