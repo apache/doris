@@ -82,6 +82,7 @@ bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_index_num(
 bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
         "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
+bvar::Adder<uint64_t> g_balance_tablet_be_mapping_size("balance_tablet_be_mapping_size");
 
 bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
@@ -103,6 +104,11 @@ CloudWarmUpManager::~CloudWarmUpManager() {
     _cond.notify_all();
     if (_download_thread.joinable()) {
         _download_thread.join();
+    }
+
+    for (auto& shard : _balanced_tablets_shards) {
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        shard.tablets.clear();
     }
 }
 
@@ -781,6 +787,84 @@ void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
         PRecycleCacheResponse response;
         brpc_stub->recycle_cache(&cntl, &request, &response, nullptr);
     }
+}
+
+// Balance warm up cache management methods implementation
+void CloudWarmUpManager::record_balanced_tablet(int64_t tablet_id, const std::string& host,
+                                                int32_t brpc_port) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    JobMeta meta;
+    meta.be_ip = host;
+    meta.brpc_port = brpc_port;
+    shard.tablets.emplace(tablet_id, std::move(meta));
+    g_balance_tablet_be_mapping_size << 1;
+    VLOG_DEBUG << "Recorded balanced warm up cache tablet: tablet_id=" << tablet_id
+               << ", host=" << host << ":" << brpc_port;
+}
+
+std::optional<std::pair<std::string, int32_t>> CloudWarmUpManager::get_balanced_tablet_info(
+        int64_t tablet_id) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    if (it == shard.tablets.end()) {
+        return std::nullopt;
+    }
+    return std::make_pair(it->second.be_ip, it->second.brpc_port);
+}
+
+void CloudWarmUpManager::remove_balanced_tablet(int64_t tablet_id) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    if (it != shard.tablets.end()) {
+        shard.tablets.erase(it);
+        g_balance_tablet_be_mapping_size << -1;
+        VLOG_DEBUG << "Removed balanced warm up cache tablet by timer, tablet_id=" << tablet_id;
+    }
+}
+
+void CloudWarmUpManager::remove_balanced_tablets(const std::vector<int64_t>& tablet_ids) {
+    // Group tablet_ids by shard to minimize lock contention
+    std::array<std::vector<int64_t>, SHARD_COUNT> shard_groups;
+    for (int64_t tablet_id : tablet_ids) {
+        shard_groups[get_shard_index(tablet_id)].push_back(tablet_id);
+    }
+
+    // Process each shard
+    for (size_t i = 0; i < SHARD_COUNT; ++i) {
+        if (shard_groups[i].empty()) continue;
+
+        auto& shard = _balanced_tablets_shards[i];
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        for (int64_t tablet_id : shard_groups[i]) {
+            auto it = shard.tablets.find(tablet_id);
+            if (it != shard.tablets.end()) {
+                shard.tablets.erase(it);
+                g_balance_tablet_be_mapping_size << -1;
+                VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
+            }
+        }
+    }
+}
+
+std::unordered_map<int64_t, std::pair<std::string, int32_t>>
+CloudWarmUpManager::get_all_balanced_tablets() const {
+    std::unordered_map<int64_t, std::pair<std::string, int32_t>> result;
+
+    // Lock all shards to get consistent snapshot
+    std::array<std::unique_lock<std::mutex>, SHARD_COUNT> locks;
+    for (size_t i = 0; i < SHARD_COUNT; ++i) {
+        locks[i] = std::unique_lock<std::mutex>(_balanced_tablets_shards[i].mtx);
+    }
+
+    for (const auto& shard : _balanced_tablets_shards) {
+        for (const auto& [tablet_id, entry] : shard.tablets) {
+            result.emplace(tablet_id, std::make_pair(entry.be_ip, entry.brpc_port));
+        }
+    }
+    return result;
 }
 
 #include "common/compile_check_end.h"
