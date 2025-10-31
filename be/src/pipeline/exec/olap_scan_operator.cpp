@@ -448,8 +448,11 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     auto& p = _parent->cast<OlapScanOperatorX>();
 
     for (auto uid : p._olap_scan_node.output_column_unique_ids) {
-        _maybe_read_column_ids.emplace(uid);
+        _output_column_ids.emplace(uid);
     }
+    VLOG_DEBUG << fmt::format("output_column_unique_ids: {}, output_column_ids size: {}",
+                              fmt::join(p._olap_scan_node.output_column_unique_ids, ","),
+                              _output_column_ids.size());
 
     // ranges constructed from scan keys
     RETURN_IF_ERROR(_scan_keys.get_key_range(&_cond_ranges));
