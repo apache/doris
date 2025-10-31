@@ -103,7 +103,7 @@ Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
         return Status::OK();
     }
 
-    _children.push_back(std::make_unique<Level0Iterator>(rs_splits.rs_reader, _reader));
+    _children.push_back(std::make_unique<Level0Iterator>(rs_splits.rs_reader, _reader, _merge));
     return Status::OK();
 }
 
@@ -450,8 +450,8 @@ bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,
 }
 
 VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
-                                                 TabletReader* reader)
-        : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
+                                                 TabletReader* reader, bool merge)
+        : LevelIterator(reader, merge), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
 }
 
@@ -534,6 +534,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
 }
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
+    DCHECK(_merge);
     if (_get_data_by_ref) {
         _current++;
     } else {
@@ -597,10 +598,9 @@ Status VCollectIterator::Level0Iterator::current_block_row_locations(
 VCollectIterator::Level1Iterator::Level1Iterator(
         std::list<std::unique_ptr<VCollectIterator::LevelIterator>> children, TabletReader* reader,
         bool merge, bool is_reverse, bool skip_same)
-        : LevelIterator(reader),
+        : LevelIterator(reader, merge),
           _children(std::move(children)),
           _reader(reader),
-          _merge(merge),
           _is_reverse(is_reverse),
           _skip_same(skip_same) {
     _ref.reset();
