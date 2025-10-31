@@ -195,7 +195,8 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
+    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels, boolean needFormat)
+            throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -214,10 +215,16 @@ public class OutFileClause {
         }
         isAnalyzed = true;
 
-        if (isParquetFormat()) {
-            analyzeForParquetFormat(resultExprs, colLabels);
-        } else if (isOrcFormat()) {
-            analyzeForOrcFormat(resultExprs, colLabels);
+        // This analyze() method will be called twice:
+        // one is normal query plan analyze,
+        // the other is when writing success file after outfile is done on FE side.
+        // In the second time, we do not need to analyze format related things again.
+        if (needFormat) {
+            if (isParquetFormat()) {
+                analyzeForParquetFormat(resultExprs, colLabels);
+            } else if (isOrcFormat()) {
+                analyzeForOrcFormat(resultExprs, colLabels);
+            }
         }
     }
 
@@ -754,5 +761,4 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
 

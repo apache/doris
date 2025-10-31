@@ -316,7 +316,7 @@ public class SetOperationStmt extends QueryStmt implements NotFallbackInParser {
         baseTblResultExprs = resultExprs;
 
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, resultExprs, getColLabels());
+            outFileClause.analyze(analyzer, resultExprs, getColLabels(), true);
         }
     }
 
