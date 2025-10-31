@@ -508,6 +508,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
@@ -2387,6 +2389,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSessionUser(SessionUser user, C context) {
         return visitScalarFunction(user, context);
+    }
+
+    default R visitUtcDate(UtcDate utcDate, C context) {
+        return visitScalarFunction(utcDate, context);
+    }
+
+    default R visitUtcTime(UtcTime utcTime, C context) {
+        return visitScalarFunction(utcTime, context);
     }
 
     default R visitUtcTimestamp(UtcTimestamp utcTimestamp, C context) {
