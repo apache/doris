@@ -24,7 +24,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
@@ -128,12 +127,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public String toDigestImpl() {
         return "?";
-    }
-
-    // Swaps the sign of numeric literals.
-    // Throws for non-numeric literals.
-    public void swapSign() throws NotImplementedException {
-        Preconditions.checkState(false, "should not implement this in derived class. " + this.type.toSql());
     }
 
     @Override

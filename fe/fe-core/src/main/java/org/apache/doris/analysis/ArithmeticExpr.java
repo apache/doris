@@ -24,12 +24,9 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -297,156 +294,8 @@ public class ArithmeticExpr extends Expr {
         return ((ArithmeticExpr) obj).opcode == opcode;
     }
 
-    /**
-     * Convert integer type to decimal type.
-     */
-    public static Type convertIntToDecimalV3Type(Type type) throws AnalysisException {
-        if (type.isLargeIntType()) {
-            return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION, 0);
-        } else if (type.isBigIntType()) {
-            return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL64_PRECISION, 0);
-        } else if (type.isInteger32Type()) {
-            return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL32_PRECISION, 0);
-        } else {
-            Preconditions.checkState(false,
-                    "Implicit converting to decimal for arithmetic operations only support integer");
-            return Type.INVALID;
-        }
-    }
-
-    public static Type convertDecimalV2ToDecimalV3Type(ScalarType type) {
-        return ScalarType.createDecimalV3Type(type.decimalPrecision(), type.decimalScale());
-    }
-
-    private void analyzeDecimalV3Op(Type t1, Type t2) throws AnalysisException {
-        Type t1TargetType = t1;
-        Type t2TargetType = t2;
-        switch (op) {
-            case MULTIPLY:
-            case ADD:
-            case SUBTRACT:
-            case MOD:
-            case DIVIDE:
-                if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                    type = castBinaryOp(ScalarType.DOUBLE);
-                    break;
-                }
-                if (t1.isFixedPointType()) {
-                    t1TargetType = convertIntToDecimalV3Type(t1);
-                    castChild(t1TargetType, 0);
-                }
-                if (t2.isFixedPointType()) {
-                    t2TargetType = convertIntToDecimalV3Type(t2);
-                    castChild(t2TargetType, 1);
-                }
-                if (t1.isDecimalV2()) {
-                    t1TargetType = convertDecimalV2ToDecimalV3Type((ScalarType) t1);
-                    castChild(t1TargetType, 0);
-                }
-                if (t2.isDecimalV2()) {
-                    t2TargetType = convertDecimalV2ToDecimalV3Type((ScalarType) t2);
-                    castChild(t2TargetType, 1);
-                }
-                final int t1Precision = ((ScalarType) t1TargetType).getScalarPrecision();
-                final int t2Precision = ((ScalarType) t2TargetType).getScalarPrecision();
-                final int t1Scale = ((ScalarType) t1TargetType).getScalarScale();
-                final int t2Scale = ((ScalarType) t2TargetType).getScalarScale();
-                int precision = Math.max(t1Precision, t2Precision);
-                int scale = Math.max(t1Scale, t2Scale);
-
-                // operands: DECIMALV3(precision1, scale1) and DECIMALV3(precision2, scale2)
-                // we use widthOfIntPart to present width of integer part.
-                int widthOfIntPart1 = t1Precision - t1Scale;
-                int widthOfIntPart2 = t2Precision - t2Scale;
-                if (op == Operator.MULTIPLY) {
-                    // target type: DECIMALV3(precision1 + precision2, scale1 + scale2)
-                    scale = t1Scale + t2Scale;
-                    precision = t1Precision + t2Precision;
-                } else if (op == Operator.DIVIDE) {
-                    precision = t1TargetType.getPrecision() + t2Scale + Config.div_precision_increment;
-                    scale = t1Scale + Config.div_precision_increment;
-                } else if (op == Operator.ADD || op == Operator.SUBTRACT) {
-                    // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
-                    // max(scale1, scale2))
-                    scale = Math.max(t1Scale, t2Scale);
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale + 1;
-                } else {
-                    scale = Math.max(t1Scale, t2Scale);
-                    precision = widthOfIntPart2 + scale;
-                }
-                if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                    // TODO(gabriel): if precision is bigger than 38?
-                    precision = ScalarType.MAX_DECIMAL128_PRECISION;
-                }
-                if (precision < scale) {
-                    type = castBinaryOp(Type.DOUBLE);
-                    break;
-                }
-                type = ScalarType.createDecimalV3Type(precision, scale);
-                if (op == Operator.ADD || op == Operator.SUBTRACT) {
-                    if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(0).type).getScalarScale()) {
-                        castChild(type, 0);
-                    }
-                    if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
-                        castChild(type, 1);
-                    }
-                } else if (op == Operator.DIVIDE && (t1TargetType.isDecimalV3())) {
-                    int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
-                    int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
-                    if (leftPrecision < leftScale || leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                        type = castBinaryOp(Type.DOUBLE);
-                        break;
-                    }
-                    Expr child = getChild(0);
-                    if (child instanceof DecimalLiteral) {
-                        DecimalLiteral literalChild = (DecimalLiteral) child;
-                        Expr newChild = literalChild
-                                .castToDecimalV3ByDivde(ScalarType.createDecimalV3Type(leftPrecision, leftScale));
-                        setChild(0, newChild);
-                    } else {
-                        castChild(ScalarType.createDecimalV3Type(leftPrecision, leftScale), 0);
-                    }
-                } else if (op == Operator.MOD) {
-                    // TODO use max int part + max scale of two operands as result type
-                    // because BE require the result and operands types are the exact the same decimalv3 type
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
-                    if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                        type = castBinaryOp(Type.DOUBLE);
-                    } else {
-                        type = ScalarType.createDecimalV3Type(precision, scale);
-                        castChild(type, 0);
-                        castChild(type, 1);
-                    }
-                }
-                break;
-            case INT_DIVIDE:
-            case BITAND:
-            case BITOR:
-            case BITXOR:
-                type = castBinaryOp(Type.BIGINT);
-                break;
-            case BITNOT:
-            case FACTORIAL:
-                break;
-            default:
-                Preconditions.checkState(false,
-                        "Unknown arithmetic operation " + op + " in: " + this.toSql());
-                break;
-        }
-    }
-
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
-    }
-
-    @Override
-    protected void compactForLiteral(Type type) throws AnalysisException {
-        super.compactForLiteral(type);
-        Type t1 = getChild(0).getType();
-        Type t2 = getChild(1).getType();
-        if (t1.isDecimalV3() || t2.isDecimalV3()) {
-            analyzeDecimalV3Op(t1, t2);
-        }
     }
 }
