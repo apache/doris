@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -40,7 +41,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -51,6 +51,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisManager;
@@ -532,9 +534,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             Column newColumn = indexColumnMap.get(
                                     SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
                             if (!Objects.equals(newColumn.getType(), column.getType())) {
+                                DataType srcType = DataType.fromCatalogType(column.getType());
+                                DataType destType = DataType.fromCatalogType(newColumn.getType());
+                                CheckCast.check(srcType, destType, false, false);
                                 SlotRef slot = new SlotRef(destSlotDesc);
                                 slot.setCol(column.getName());
-                                defineExprs.put(column.getName(), slot.castTo(newColumn.getType()));
+                                Expr defineExpr = slot;
+                                if (!(srcType.isDecimalV2Type() && destType.isDecimalV2Type()
+                                        || srcType.isStringLikeType() && destType.isStringLikeType())) {
+                                    defineExpr = new CastExpr(newColumn.getType(), defineExpr, null);
+                                }
+                                defineExprs.put(column.getName(), defineExpr);
                             }
                         }
                     }
@@ -558,7 +568,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 }
 
             } // end for partitions
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
+            LOG.warn(e.getMessage(), e);
             throw new AlterCancelException(e.getMessage());
         } finally {
             tbl.readUnlock();
