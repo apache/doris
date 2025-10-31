@@ -1191,10 +1191,10 @@ da fanadur
 -2.032258064516129
 
 -- !months_between_4 --
-1
+1.0
 
 -- !months_between_5 --
-2
+2.0
 
 -- !months_between_6 --
 0.96774194
