@@ -49,6 +49,8 @@ using FunctionDatetimeAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<
 using FunctionDatetimeAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATETIMEV2>>;
+
 using FunctionDatetimeAddQuarters =
         FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddDaySecond =
@@ -105,19 +107,6 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionAddYears>();
     factory.register_function<FunctionAddQuarters>();
 
-<<<<<<< HEAD
-    factory.register_function<FunctionDatetimeV2AddMicroseconds>();
-    factory.register_function<FunctionDatetimeV2AddMilliseconds>();
-    factory.register_function<FunctionDatetimeV2AddSeconds>();
-    factory.register_function<FunctionDatetimeV2AddMinutes>();
-    factory.register_function<FunctionDatetimeV2AddHours>();
-    factory.register_function<FunctionDatetimeV2AddDays>();
-    factory.register_function<FunctionDatetimeV2AddWeeks>();
-    factory.register_function<FunctionDatetimeV2AddMonths>();
-    factory.register_function<FunctionDatetimeV2AddYears>();
-    factory.register_function<FunctionDatetimeV2AddQuarters>();
-    factory.register_function<FunctionDatetimeV2AddDaySecond>();
-=======
     factory.register_function<FunctionDatetimeAddMicroseconds>();
     factory.register_function<FunctionDatetimeAddMilliseconds>();
     factory.register_function<FunctionDatetimeAddSeconds>();
@@ -128,7 +117,6 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeAddMonths>();
     factory.register_function<FunctionDatetimeAddYears>();
     factory.register_function<FunctionDatetimeAddQuarters>();
->>>>>>> 95fce2175b (fix_be)
 
     factory.register_function<FunctionSubDays>();
     factory.register_function<FunctionSubMonths>();
