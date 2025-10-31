@@ -786,7 +786,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .collect(Collectors.toList());
         return Function.convertToStateCombinator(
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments)));
+                        new FunctionParams(false, arguments)), combinator.getNestedFunction().nullable());
     }
 
     @Override
