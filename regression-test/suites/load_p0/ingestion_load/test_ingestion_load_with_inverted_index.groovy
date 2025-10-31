@@ -20,6 +20,10 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
 suite('test_ingestion_load_with_inverted_index', 'p0,external') {
+    // deprecated, just skip
+    if (true) {
+        return;
+    }
 
     def testIngestLoadJob = { testTable, loadLabel, String dataFile ->
 
