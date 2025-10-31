@@ -633,7 +633,9 @@ int InstanceRecycler::recycle_operation_logs() {
             return -1;
         }
 
-        if (!operation_log.has_min_timestamp()) {
+        // Recycle operation log directly if multi_version_status is WRITE_ONLY.
+        if (!operation_log.has_min_timestamp() &&
+            instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY) {
             LOG_WARNING("operation log has not set the min_timestamp")
                     .tag("key", hex(key))
                     .tag("version", log_versionstamp.version())
