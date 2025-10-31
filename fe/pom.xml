@@ -1489,6 +1489,13 @@ under the License.
                 <artifactId>arrow-bom</artifactId>
                 <version>${arrow.version}</version>
                 <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--arrow bom not include this-->
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-netty-buffer-patch</artifactId>
+                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>
