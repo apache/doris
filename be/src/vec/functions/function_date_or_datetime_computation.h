@@ -1088,7 +1088,6 @@ struct TimestampToDateTime : IFunction {
     }
 };
 
-<<<<<<< HEAD
 template <PrimitiveType UTCType>
 struct UtcImpl {
     static constexpr PrimitiveType ReturnType = UTCType;
@@ -1105,11 +1104,6 @@ struct UtcImpl {
 
     static constexpr auto name = get_function_name();
 
-=======
-struct UtcTimestampImpl {
-    static constexpr PrimitiveType ReturnType = TYPE_DATETIMEV2;
-    static constexpr auto name = "utc_timestamp";
->>>>>>> 951fb4de47 (stash)
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         int scale = 0;
