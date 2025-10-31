@@ -477,6 +477,9 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                // Guard with session variables so subsequent rewrites/merges keep the same decimal policy
+                boundExpression = new org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr(
+                        boundExpression, column.getSessionVariables());
                 Alias output = new Alias(boundExpression, info.getExprSql());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());

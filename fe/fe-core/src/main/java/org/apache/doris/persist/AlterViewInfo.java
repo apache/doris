@@ -44,7 +44,7 @@ public class AlterViewInfo implements Writable {
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "sv")
-    private Map<String, String> session_variables;
+    private Map<String, String> sessionVariables;
 
     public AlterViewInfo() {
         // for persist
@@ -52,12 +52,12 @@ public class AlterViewInfo implements Writable {
     }
 
     public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema,
-            Map<String, String> session_variables, String comment) {
+            Map<String, String> sessionVariables, String comment) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
         this.newFullSchema = newFullSchema;
-        this.session_variables = session_variables;
+        this.sessionVariables = sessionVariables;
         this.comment = comment;
     }
 
@@ -78,7 +78,7 @@ public class AlterViewInfo implements Writable {
     }
 
     public Map<String, String> getSessionVariables() {
-        return session_variables;
+        return sessionVariables;
     }
 
     public String getComment() {
@@ -87,7 +87,7 @@ public class AlterViewInfo implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(dbId, tableId, inlineViewDef, session_variables, newFullSchema);
+        return Objects.hash(dbId, tableId, inlineViewDef, sessionVariables, newFullSchema);
     }
 
     @Override
@@ -101,7 +101,7 @@ public class AlterViewInfo implements Writable {
         AlterViewInfo otherInfo = (AlterViewInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId()
                 && inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef())
-                && session_variables == otherInfo.getSessionVariables()
+                && sessionVariables == otherInfo.getSessionVariables()
                 && newFullSchema.equals(otherInfo.getNewFullSchema()) && Objects.equals(comment, otherInfo.comment);
     }
 

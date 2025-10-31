@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import com.google.cloud.hadoop.repackaged.gcs.com.google.common.collect.Maps;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 import java.util.Objects;

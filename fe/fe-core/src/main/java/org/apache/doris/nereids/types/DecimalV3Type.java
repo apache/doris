@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.qe.ConnectContext;
@@ -104,7 +105,7 @@ public class DecimalV3Type extends FractionalType {
     public static DecimalV3Type createDecimalV3Type(BigDecimal bigDecimal) {
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
-        return createDecimalV3Type(precision, scale);
+        return createDecimalV3TypeLooseCheck(precision, scale);
     }
 
     /** createDecimalV3Type. */
@@ -142,6 +143,39 @@ public class DecimalV3Type extends FractionalType {
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
         return createDecimalV3TypeNotCheck256(precision, scale);
     }
+
+    /**
+     * create DecimalV3Type, not throwing NotSupportedException.
+     */
+    public static DecimalV3Type createDecimalV3TypeLooseCheck(int precision, int scale) {
+        boolean enableDecimal256 = false;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+        }
+        if (enableDecimal256) {
+            if (!(precision > 0 && precision <= MAX_DECIMAL256_PRECISION)) {
+                throw new AnalysisException(
+                        "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision
+                );
+            }
+        } else {
+            if (!(precision > 0 && precision <= MAX_DECIMAL128_PRECISION)) {
+                throw new AnalysisException(
+                        "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision
+                );
+            }
+        }
+        if (scale < 0) {
+            throw new AnalysisException("scale should not smaller than 0, but real scale is " + scale);
+        }
+        if (precision < scale) {
+            throw new AnalysisException("precision should not smaller than scale,"
+                    + " but precision is " + precision + ", scale is " + scale);
+        }
+        return new DecimalV3Type(precision, scale);
+    }
+
 
     /**
      * create DecimalV3Type, without checking precision and scale, e.g. for DataType.fromCatalogType

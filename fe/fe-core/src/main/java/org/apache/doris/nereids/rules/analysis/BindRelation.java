@@ -89,6 +89,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
@@ -571,10 +572,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private Plan parseAndAnalyzeDorisView(View view, List<String> tableQualifier, CascadesContext parentContext) {
         Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
                 .getAndCacheViewInfo(tableQualifier, view);
+        Plan analyzedPlan;
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
-            return parseAndAnalyzeView(view, viewInfo.first, parentContext);
+            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
         }
+        // Wrap the analyzed view plan outputs with SessionVarGuardExpr to preserve session variables
+        if (analyzedPlan instanceof LogicalPlan) {
+            List<NamedExpression> guardedProjects = analyzedPlan.getOutput().stream()
+                    .map(NamedExpression.class::cast)
+                    .map(ne -> new Alias(
+                            new org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr(ne, viewInfo.second),
+                            ne.getName()))
+                    .collect(ImmutableList.toImmutableList());
+            return new LogicalProject<>(guardedProjects, (LogicalPlan) analyzedPlan);
+        }
+        return analyzedPlan;
     }
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {

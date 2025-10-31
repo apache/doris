@@ -76,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
@@ -697,6 +698,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 : aggregateExpression.children();
         return translateAggregateFunction(aggregateExpression.getFunction(),
                 currentPhaseArguments, aggFnArguments, aggregateExpression.getAggregateParam(), context);
+    }
+
+    @Override
+    public Expr visitSessionVarGuardExpr(SessionVarGuardExpr sessionVarGuardExpr, PlanTranslatorContext context) {
+        return sessionVarGuardExpr.child().accept(this, context);
     }
 
     @Override

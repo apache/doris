@@ -40,14 +40,10 @@ public class Add extends BinaryArithmetic implements PropagateNullable {
         super(children, Operator.ADD);
     }
 
-    private Add(Params param) {
-        super(param);
-    }
-
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Add(getParams(children));
+        return new Add(children);
     }
 
     @Override
