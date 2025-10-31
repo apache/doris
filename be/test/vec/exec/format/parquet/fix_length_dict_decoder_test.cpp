@@ -43,7 +43,7 @@ protected:
         ASSERT_TRUE(_decoder.set_dict(dict_data, dict_data_size, dict_size).ok());
     }
 
-    FixLengthDictDecoder _decoder;
+    FixLengthDictDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY> _decoder;
     size_t _type_length;
 };
 
@@ -199,7 +199,7 @@ TEST_F(FixLengthDictDecoderTest, test_decode_with_filter_and_null) {
 
 // Test empty dictionary case
 TEST_F(FixLengthDictDecoderTest, test_empty_dict) {
-    FixLengthDictDecoder empty_decoder;
+    FixLengthDictDecoder<tparquet::Type::INT32> empty_decoder;
     empty_decoder.set_type_length(sizeof(int32_t));
 
     auto dict_data = std::make_unique<uint8_t[]>(0);
