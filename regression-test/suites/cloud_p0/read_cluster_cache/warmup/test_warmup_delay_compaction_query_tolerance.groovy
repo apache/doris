@@ -237,6 +237,7 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         sql """insert into test values (5, 5)"""
         sql """insert into test values (6, 6)"""
         sleep(3000)
+        sql "select * from test"
 
         def tablets = sql_return_maparray """ show tablets from test; """
         logger.info("tablets: " + tablets)
@@ -266,8 +267,8 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         waitForBrpcMetricValue(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_num", 1, /*timeout*/10000)
         logFileCacheDownloadMetrics(clusterName2)
         logWarmUpRowsetMetrics(clusterName2)
-        assertEquals(num_submitted + 1, getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num"))
-        assertEquals(num_finished, getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num"))
+        assert num_submitted + 1 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num")
+        assert num_finished == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
 
 
         // a new insert will trigger the sync rowset operation in the following query
@@ -307,6 +308,10 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         logWarmUpRowsetMetrics(clusterName2)
 
         future.get()
+
+        sleep(1000)
+        logFileCacheDownloadMetrics(clusterName2)
+        logWarmUpRowsetMetrics(clusterName2)
         assert num_finished + 2 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
         assert 0 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_timeout_num")
 
