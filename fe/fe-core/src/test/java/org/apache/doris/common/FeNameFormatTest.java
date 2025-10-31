@@ -247,10 +247,10 @@ public class FeNameFormatTest {
                 "a-b-c",     // multiple hyphens
                 "a_b",       // underscore
                 "a-1",       // hyphen + number
-                "B2"         // uppercase + number
+                "B2",        // uppercase + number
+                "1abc"       // starts with number
         );
         List<String> alwaysInvalid = Arrays.asList(
-                "1abc",      // starts with number
                 "@test",     // contains invalid symbol @
                 "",          // empty string
                 "a b",       // contains space
