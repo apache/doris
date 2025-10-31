@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import lombok.Getter;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -77,6 +78,14 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private String dfsNameServices;
 
+    /**
+     * Whether this HDFS storage is explicitly configured by user.
+     * If false, this instance is auto-created by framework as a fallback storage,
+     * and should skip connectivity test.
+     */
+    @Getter
+    private final boolean explicitlyConfigured;
+
     private static final String DFS_NAME_SERVICES_KEY = "dfs.nameservices";
 
     private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
@@ -96,7 +105,12 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             "hdfs.config.resources");
 
     public HdfsProperties(Map<String, String> origProps) {
+        this(origProps, true);
+    }
+
+    public HdfsProperties(Map<String, String> origProps, boolean explicitlyConfigured) {
         super(Type.HDFS, origProps);
+        this.explicitlyConfigured = explicitlyConfigured;
     }
 
     public static boolean guessIsMe(Map<String, String> props) {
@@ -199,4 +213,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         return "HDFS";
     }
 
+    public String getDefaultFS() {
+        return fsDefaultFS;
+    }
 }

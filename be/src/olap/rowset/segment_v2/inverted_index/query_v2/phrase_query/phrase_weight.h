@@ -18,6 +18,9 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/const_score_query/const_score_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/null_bitmap_fetcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
@@ -37,12 +40,29 @@ public:
     ~PhraseWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
-        auto scorer = phrase_scorer(ctx, binding_key);
-        if (scorer) {
-            return scorer;
-        } else {
-            return std::make_shared<EmptyScorer>();
+        auto phrase = phrase_scorer(ctx, binding_key);
+        auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
+        auto null_bitmap = FieldNullBitmapFetcher::fetch(ctx, logical_field);
+
+        auto doc_bitset = std::make_shared<roaring::Roaring>();
+        if (phrase) {
+            uint32_t doc = phrase->doc();
+            if (doc == TERMINATED) {
+                doc = phrase->advance();
+            }
+            while (doc != TERMINATED) {
+                doc_bitset->add(doc);
+                doc = phrase->advance();
+            }
         }
+
+        auto bit_set =
+                std::make_shared<BitSetScorer>(std::move(doc_bitset), std::move(null_bitmap));
+        if (!phrase) {
+            return bit_set;
+        }
+        // Wrap with const score for consistency with other non-scoring paths
+        return std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(std::move(bit_set));
     }
 
 private:

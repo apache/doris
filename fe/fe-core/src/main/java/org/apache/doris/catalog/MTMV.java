@@ -21,12 +21,12 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
@@ -40,17 +40,21 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -242,6 +246,7 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
+            compatiblePctSnapshot(partitionSnapshots);
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
@@ -400,61 +405,23 @@ public class MTMV extends OlapTable {
     /**
      * Calculate the partition and associated partition mapping relationship of the MTMV
      * It is the result of real-time comparison calculation, so there may be some costs,
-     * so it should be called with caution.
-     * The reason for not directly calling `calculatePartitionMappings` and
-     * generating a reverse index is to directly generate two maps here,
-     * without the need to traverse them again
-     *
-     * @return mvPartitionName ==> relationPartitionNames and relationPartitionName ==> mvPartitionName
-     * @throws AnalysisException
-     */
-    public Pair<Map<String, Set<String>>, Map<String, String>> calculateDoublyPartitionMappings()
-            throws AnalysisException {
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Pair.of(Maps.newHashMap(), Maps.newHashMap());
-        }
-        long start = System.currentTimeMillis();
-        Map<String, Set<String>> mvToBase = Maps.newHashMap();
-        Map<String, String> baseToMv = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
-        for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
-            Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
-                    Sets.newHashSet());
-            String mvPartitionName = entry.getKey();
-            mvToBase.put(mvPartitionName, basePartitionNames);
-            for (String basePartitionName : basePartitionNames) {
-                baseToMv.put(basePartitionName, mvPartitionName);
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("calculateDoublyPartitionMappings use [{}] mills, mvName is [{}]",
-                    System.currentTimeMillis() - start, name);
-        }
-        return Pair.of(mvToBase, baseToMv);
-    }
-
-    /**
-     * Calculate the partition and associated partition mapping relationship of the MTMV
-     * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
      *
-     * @return mvPartitionName ==> relationPartitionNames
+     * @return mvPartitionName ==> pctTable ==> pctPartitionName
      * @throws AnalysisException
      */
-    public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
-        Map<String, Set<String>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns());
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
-                    relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
+                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
@@ -578,6 +545,30 @@ public class MTMV extends OlapTable {
         }
         if (refreshSnapshot != null) {
             refreshSnapshot.compatible(this);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
+        compatiblePctSnapshot(partitionSnapshots);
+    }
+
+    private void compatiblePctSnapshot(Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
+        BaseTableInfo relatedTableInfo = mvPartitionInfo.getRelatedTableInfo();
+        if (relatedTableInfo == null) {
+            return;
+        }
+        if (MapUtils.isEmpty(partitionSnapshots)) {
+            return;
+        }
+        for (MTMVRefreshPartitionSnapshot partitionSnapshot : partitionSnapshots.values()) {
+            Map<String, MTMVSnapshotIf> partitions = partitionSnapshot.getPartitions();
+            Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts = partitionSnapshot.getPcts();
+            if (!MapUtils.isEmpty(partitions) && MapUtils.isEmpty(pcts)) {
+                pcts.put(relatedTableInfo, partitions);
+            }
         }
     }
 }

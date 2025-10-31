@@ -93,6 +93,10 @@ public:
         return _field_readers;
     }
 
+    const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
+        return _cache;
+    }
+
     IndexIterator* get_iterator(const std::string& field_name) const {
         auto it = _iterators.find(field_name);
         return (it != _iterators.end()) ? it->second : nullptr;

@@ -27,27 +27,40 @@ import java.util.Set;
 
 public class RelatedPartitionDescResult {
     // PartitionKeyDesc to relatedTable partition ids(Different partitions may have the same PartitionKeyDesc)
-    private Map<PartitionKeyDesc, Set<String>> descs;
-    private Map<String, PartitionItem> items;
+    private Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs;
+    private Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items;
+    private Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res;
 
     public RelatedPartitionDescResult() {
         this.descs = Maps.newHashMap();
         this.items = Maps.newHashMap();
+        this.res = Maps.newHashMap();
     }
 
-    public Map<PartitionKeyDesc, Set<String>> getDescs() {
+    public Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> getDescs() {
         return descs;
     }
 
-    public void setDescs(Map<PartitionKeyDesc, Set<String>> descs) {
+    public void setDescs(
+            Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs) {
         this.descs = descs;
     }
 
-    public Map<String, PartitionItem> getItems() {
+    public Map<MTMVRelatedTableIf, Map<String, PartitionItem>> getItems() {
         return items;
     }
 
-    public void setItems(Map<String, PartitionItem> items) {
+    public void setItems(
+            Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items) {
         this.items = items;
+    }
+
+    public Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> getRes() {
+        return res;
+    }
+
+    public void setRes(
+            Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res) {
+        this.res = res;
     }
 }
