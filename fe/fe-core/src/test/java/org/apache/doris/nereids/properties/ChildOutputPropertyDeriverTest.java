@@ -30,9 +30,15 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+<<<<<<< HEAD
+=======
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+>>>>>>> f0abb0c8653 ([fix](nereids) adjust distribute expr lists after project common sub expression for aggregation (#57258))
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
@@ -910,5 +916,28 @@ class ChildOutputPropertyDeriverTest {
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(child, result);
+    }
+
+    @Test
+    void testComputeProjectOutputProperties() {
+        SlotReference c1 = new SlotReference(
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        PhysicalProperties hashC1 = PhysicalProperties.createHash(
+                ImmutableList.of(new ExprId(1)), ShuffleType.EXECUTION_BUCKETED);
+        List<NamedExpression> projects1 = new ArrayList<>();
+        projects1.add(c1);
+        PhysicalProperties phyProp = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects1, hashC1);
+        Assertions.assertEquals(hashC1, phyProp);
+
+        List<NamedExpression> projects2 = new ArrayList<>();
+        projects2.add(new Alias(new Abs(c1)));
+        PhysicalProperties phyProp2 = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects2, hashC1);
+        Assertions.assertEquals(DistributionSpecAny.INSTANCE, phyProp2.getDistributionSpec());
+
+        List<NamedExpression> projects3 = new ArrayList<>();
+        projects3.add(new Alias(new Abs(c1)));
+        projects3.add(c1);
+        PhysicalProperties phyProp3 = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects3, hashC1);
+        Assertions.assertEquals(hashC1, phyProp3);
     }
 }
