@@ -911,4 +911,19 @@ TEST(MathFunctionTest, isinf_test) {
     }
 }
 
+TEST(MathFunctionTest, factorial_test) {
+    std::string func_name = "factorial"; // factorial(x), x ∈ [0, 20]
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+
+    DataSet data_set = {{{BIGINT(0)}, BIGINT(1)},
+            {{BIGINT(1)}, BIGINT(1)},
+            {{BIGINT(5)}, BIGINT(120)},
+            {{BIGINT(20)}, BIGINT(2432902008176640000)},
+            {{BIGINT(21)}, Null()},
+            {{BIGINT(-1)}, Null()},
+            {{Null()}, Null()}};
+
+    static_cast<void>(check_function_all_arg_comb<DataTypeInt64, true>(func_name, input_types, data_set));
+}
 } // namespace doris::vectorized

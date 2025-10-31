@@ -89,6 +89,27 @@
 \N	true	8
 \N	true	9
 
+-- !factorial_1 --
+\N	true
+
+-- !factorial_2 --
+\N	true
+
+-- !factorial_3 --
+1	120	2432902008176640000
+
+-- !factorial_4 --
+\N	true	0
+\N	true	1
+\N	true	2
+\N	true	3
+\N	true	4
+\N	true	5
+\N	true	6
+\N	true	7
+\N	true	8
+\N	true	9
+
 -- !acos_tbl_1 --
 1	\N	true
 2	\N	true
