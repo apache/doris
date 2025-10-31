@@ -262,6 +262,8 @@ public enum RuleType {
     REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD(RuleTypeClass.REWRITE),
     // add post filter node for load
     ADD_POST_FILTER_FOR_LOAD(RuleTypeClass.REWRITE),
+    // add post project node for load
+    ADD_POST_PROJECT_FOR_LOAD(RuleTypeClass.REWRITE),
 
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
