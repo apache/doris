@@ -534,12 +534,11 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
 }
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
-    DCHECK(_merge);
     if (_get_data_by_ref) {
         _current++;
     } else {
         _ref.row_pos++;
-        if (_ref.row_pos < _block->rows()) {
+        if (_merge && _ref.row_pos < _block->rows()) {
             _ref.is_same = _row_is_same[_ref.row_pos];
         }
     }
