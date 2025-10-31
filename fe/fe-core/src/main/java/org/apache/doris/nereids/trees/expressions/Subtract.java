@@ -41,14 +41,10 @@ public class Subtract extends BinaryArithmetic implements PropagateNullable {
         super(children, Operator.SUBTRACT);
     }
 
-    private Subtract(Params params) {
-        super(params);
-    }
-
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Subtract(getParams(children));
+        return new Subtract(children);
     }
 
     @Override

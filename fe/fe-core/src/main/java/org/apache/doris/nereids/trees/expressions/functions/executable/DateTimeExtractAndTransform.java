@@ -518,7 +518,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         int scale = date.getDataType().getScale();
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(12 + scale, scale),
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(12 + scale, scale),
                 new BigDecimal(getTimestamp(date.toJavaDateType())));
     }
 
@@ -536,7 +536,7 @@ public class DateTimeExtractAndTransform {
             // means the date string doesn't contain time fields.
             dateObj = LocalDate.parse(date.getValue(), formatter).atStartOfDay();
         }
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(18, 6),
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(18, 6),
                 new BigDecimal(getTimestamp(dateObj)));
     }
 

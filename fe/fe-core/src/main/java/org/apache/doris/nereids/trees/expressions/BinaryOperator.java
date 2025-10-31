@@ -56,7 +56,7 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
 
     @Override
     public String toString() {
-        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
+        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")" + "____type:" + getDataType();
     }
 
     @Override

@@ -47,7 +47,7 @@ public class DecimalV3Literal extends FractionalLiteral {
      * Constructor for DecimalV3Literal
      */
     public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
-        super(DecimalV3Type.createDecimalV3Type(
+        super(DecimalV3Type.createDecimalV3TypeLooseCheck(
                 dataType.getPrecision() == -1 ? value.precision() : dataType.getPrecision(),
                 dataType.getScale() == -1 ? value.scale() : dataType.getScale())
         );
