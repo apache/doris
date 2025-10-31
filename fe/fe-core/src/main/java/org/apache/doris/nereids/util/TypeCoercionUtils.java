@@ -100,11 +100,9 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -219,20 +217,7 @@ public class TypeCoercionUtils {
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        Optional<DataType> castType = implicitCastPrimitiveInternal(input, expected);
-        // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
-        boolean legacyCastCompatible = false;
-        try {
-            if (!(expected instanceof AnyDataType) && !(expected instanceof FollowToAnyDataType)) {
-                legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
-            }
-        } catch (Throwable t) {
-            // ignore.
-        }
-        if (!castType.isPresent() && legacyCastCompatible) {
-            castType = Optional.of(expected);
-        }
-        return castType;
+        return implicitCastPrimitiveInternal(input, expected);
     }
 
     /**
