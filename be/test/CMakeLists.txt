@@ -102,7 +102,7 @@ add_executable(doris_be_test ${UT_FILES})
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
-
+target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h)
 if (OS_MACOSX AND ARCH_ARM)
     find_program(DSYMUTIL NAMES dsymutil)
     message(STATUS "dsymutil found: ${DSYMUTIL}")
