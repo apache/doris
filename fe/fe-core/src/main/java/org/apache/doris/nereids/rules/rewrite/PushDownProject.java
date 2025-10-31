@@ -99,12 +99,26 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         pushedOutput.add(new ArrayList<>(join.right().getOutput()));
 
         if (rewriteHashJoinConjunctsResult.isPresent()) {
-            pushedOutput.get(0).addAll(rewriteHashJoinConjunctsResult.get().second.get(0));
-            pushedOutput.get(1).addAll(rewriteHashJoinConjunctsResult.get().second.get(1));
+            Map<Integer, List<NamedExpression>> childIndexToConjuncts = rewriteHashJoinConjunctsResult.get().second;
+            List<NamedExpression> leftConjuncts = childIndexToConjuncts.get(0);
+            if (leftConjuncts != null) {
+                pushedOutput.get(0).addAll(leftConjuncts);
+            }
+            List<NamedExpression> rightConjuncts = childIndexToConjuncts.get(1);
+            if (rightConjuncts != null) {
+                pushedOutput.get(1).addAll(rightConjuncts);
+            }
         }
         if (rewriteOtherJoinConjunctsResult.isPresent()) {
-            pushedOutput.get(0).addAll(rewriteOtherJoinConjunctsResult.get().second.get(0));
-            pushedOutput.get(1).addAll(rewriteOtherJoinConjunctsResult.get().second.get(1));
+            Map<Integer, List<NamedExpression>> childIndexToConjuncts = rewriteOtherJoinConjunctsResult.get().second;
+            List<NamedExpression> leftOtherConjuncts = childIndexToConjuncts.get(0);
+            if (leftOtherConjuncts != null) {
+                pushedOutput.get(0).addAll(leftOtherConjuncts);
+            }
+            List<NamedExpression> rightOtherConjuncts = childIndexToConjuncts.get(1);
+            if (rightOtherConjuncts != null) {
+                pushedOutput.get(1).addAll(rightOtherConjuncts);
+            }
         }
 
         Plan newLeft = join.left();
