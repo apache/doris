@@ -1,0 +1,106 @@
+
+Apache Maven Distribution
+Copyright 2001-2025 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+
+This software bundles the following NOTICE files from third party library providers:
+
+META-INF/NOTICE in archive lib/guice-4.2.1-no_aop.jar
+Google Guice - Core Library
+Copyright 2006-2018 Google, Inc.
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+META-INF/NOTICE in archive lib/plexus-utils-3.2.1.jar
+This product includes software developed by the Indiana University
+ Extreme! Lab (http://www.extreme.indiana.edu/).
+This product includes software developed by
+The Apache Software Foundation (http://www.apache.org/).
+This product includes software developed by
+ThoughtWorks (http://www.thoughtworks.com).
+This product includes software developed by
+javolution (http://javolution.org/).
+This product includes software developed by
+Rome (https://rome.dev.java.net/).
+
+about.html in archive lib/org.eclipse.sisu.inject-0.3.5.jar
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"/>
+<title>About org.eclipse.sisu.inject</title>
+</head>
+<body lang="EN-US">
+<h2>About org.eclipse.sisu.inject</h2>
+ 
+<p>November 5, 2013</p>	
+<h3>License</h3>
+
+<p>The Eclipse Foundation makes available all content in this plug-in (&quot;Content&quot;).  Unless otherwise 
+indicated below, the Content is provided to you under the terms and conditions of the
+Eclipse Public License Version 1.0 (&quot;EPL&quot;).  A copy of the EPL is available 
+at <a href="http://www.eclipse.org/legal/epl-v10.html">http://www.eclipse.org/legal/epl-v10.html</a>.
+For purposes of the EPL, &quot;Program&quot; will mean the Content.</p>
+
+<p>If you did not receive this Content directly from the Eclipse Foundation, the Content is 
+being redistributed by another party (&quot;Redistributor&quot;) and different terms and conditions may
+apply to your use of any object code in the Content.  Check the Redistributor's license that was 
+provided with the Content.  If no such license exists, contact the Redistributor.  Unless otherwise
+indicated below, the terms and conditions of the EPL still apply to any source code in the Content
+and such source code may be obtained at <a href="http://www.eclipse.org/">http://www.eclipse.org</a>.</p>
+
+<h3>Third Party Content</h3>
+<p>The Content includes items that have been sourced from third parties as set 
+out below. If you did not receive this Content directly from the Eclipse Foundation, 
+the following is provided for informational purposes only, and you should look 
+to the Redistributor's license for terms and conditions of use.</p>
+
+<h4>ASM 4.1</h4>
+<p>The plug-in includes software developed by the ObjectWeb consortium as part
+of the ASM project at <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>.</p>
+
+<p>A subset of ASM is re-packaged within the source and binary of the plug-in (org.eclipse.sisu.space.asm.*)
+to avoid version collisions with other usage and is also available from the plug-in's github repository.</p>
+
+<p>Your use of the ASM code is subject to the terms and conditions of the ASM License
+below which is also available at <a href="http://asm.ow2.org/license.html">http://asm.ow2.org/license.html</a>.</p>
+
+<blockquote><pre>
+Copyright (c) 2000-2011 INRIA, France Telecom
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holders nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS &quot;AS IS&quot;
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+THE POSSIBILITY OF SUCH DAMAGE.
+</pre></blockquote>
+
+</body>
+</html>
