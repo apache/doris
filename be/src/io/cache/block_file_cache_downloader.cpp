@@ -318,6 +318,14 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
 
     std::unique_ptr<char[]> buffer(new char[one_single_task_size]);
 
+    DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file_sleep", {
+        auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "FileCacheBlockDownloader::download_segment_file_sleep", "sleep_time", 3);
+        LOG(INFO) << "FileCacheBlockDownloader::download_segment_file_sleep: sleep_time="
+                  << sleep_time;
+        sleep(sleep_time);
+    });
+
     size_t task_offset = 0;
     for (size_t i = 0; i < task_num; i++) {
         size_t offset = meta.offset + task_offset;
