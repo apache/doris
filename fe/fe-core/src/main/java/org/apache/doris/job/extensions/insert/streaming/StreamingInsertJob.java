@@ -262,6 +262,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    public void afterManualStatusChange(FailureReason reason) {
+        this.setFailureReason(reason);
+        // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
+        this.setJobRuntimeMsg("");
+    }
+
     @Override
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         lock.writeLock().lock();
