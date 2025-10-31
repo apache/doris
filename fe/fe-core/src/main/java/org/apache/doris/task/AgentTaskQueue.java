@@ -33,6 +33,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Task queue
@@ -94,6 +95,16 @@ public class AgentTaskQueue {
             LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
         }
         --taskNum;
+    }
+
+    public static synchronized void removeTask(long backendId, Consumer<AgentTask> onTaskRemoved) {
+        Map<TTaskType, Map<Long, AgentTask>> tasks = AgentTaskQueue.tasks.row(backendId);
+        tasks.forEach((type, taskSet) -> {
+            taskSet.forEach((signature, task) -> {
+                removeTask(backendId, type, signature);
+                onTaskRemoved.accept(task);
+            });
+        });
     }
 
     /*

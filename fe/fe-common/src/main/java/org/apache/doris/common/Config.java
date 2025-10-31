@@ -3674,4 +3674,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
+
+    public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
 }
