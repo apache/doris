@@ -66,8 +66,6 @@ public class MaxComputeExternalTable extends ExternalTable {
         super(id, name, remoteName, catalog, db, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
     }
 
-    private Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn = new HashMap();
-
     @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
@@ -166,7 +164,10 @@ public class MaxComputeExternalTable extends ExternalTable {
     }
 
     public Map<String, com.aliyun.odps.Column> getColumnNameToOdpsColumn() {
-        return columnNameToOdpsColumn;
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getColumnNameToOdpsColumn())
+                .orElse(Collections.emptyMap());
     }
 
     @Override
@@ -179,7 +180,7 @@ public class MaxComputeExternalTable extends ExternalTable {
         TableIdentifier tableIdentifier = mcCatalog.getOdpsTableIdentifier(dbName, name);
 
         List<com.aliyun.odps.Column> columns = odpsTable.getSchema().getColumns();
-
+        Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn = new HashMap<>();
         for (com.aliyun.odps.Column column : columns) {
             columnNameToOdpsColumn.put(column.getName(), column);
         }
@@ -218,7 +219,7 @@ public class MaxComputeExternalTable extends ExternalTable {
         }
 
         return Optional.of(new MaxComputeSchemaCacheValue(schema, odpsTable, tableIdentifier,
-                partitionColumnNames, partitionSpecs, partitionDorisColumns, partitionTypes));
+                partitionColumnNames, partitionSpecs, partitionDorisColumns, partitionTypes, columnNameToOdpsColumn));
     }
 
     private Type mcTypeToDorisType(TypeInfo typeInfo) {
