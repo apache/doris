@@ -249,6 +249,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Interval;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
@@ -1427,6 +1428,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitInstr(Instr instr, C context) {
         return visitScalarFunction(instr, context);
+    }
+
+    default R visitInterval(Interval interval, C context) {
+        return visitScalarFunction(interval, context);
     }
 
     default R visitIpv4NumToString(Ipv4NumToString ipv4NumToString, C context) {
