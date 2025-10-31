@@ -47,3 +47,9 @@ message LRUDumpMetaPb{
     repeated EntryGroupOffsetSizePb group_offset_size = 3;
 }
 
+message BlockMetaPb {
+    optional int32 type = 1;
+    optional uint64 size = 2;
+    optional uint64 ttl = 3;
+}
+
