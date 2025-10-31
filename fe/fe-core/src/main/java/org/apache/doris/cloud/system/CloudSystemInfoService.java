@@ -181,10 +181,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                 if (computeGroupName.equals(vcg.getPolicy().getActiveComputeGroup())) {
                     return vcg.getName();
                 }
-                if (vcg.getPolicy().getStandbyComputeGroup().contains(computeGroupName)) {
+                if (vcg.getPolicy().getStandbyComputeGroup().equals(computeGroupName)) {
                     return vcg.getName();
                 }
-                if (vcg.getSubComputeGroups().contains(computeGroupName)) {
+                if (vcg.getSubComputeGroups().stream().anyMatch(subCgName -> subCgName.equals(computeGroupName))) {
                     return vcg.getName();
                 }
             }
