@@ -21,7 +21,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseColInfo;
@@ -252,33 +251,32 @@ public class PartitionCompensator {
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
         tableLoop:
-        for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
+        for (List<String> queryUsedTable : tableUsedPartitionNameMap.keySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
-                    tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
-            if (!tableUsedPartitions.isEmpty()) {
-                if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
-                    queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                    continue;
-                }
-                for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
-                    if (!customRelationIdSet.isEmpty()) {
-                        if (ALL_PARTITIONS.equals(partitionPair)) {
-                            continue;
-                        }
-                        if (customRelationIdSet.get(partitionPair.key().asInt())) {
-                            usedPartitionSet.addAll(partitionPair.value());
-                        }
-                    } else {
-                        if (ALL_PARTITIONS.equals(partitionPair)) {
-                            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                            continue tableLoop;
-                        }
-                        usedPartitionSet.addAll(partitionPair.value());
+                    tableUsedPartitionNameMap.get(queryUsedTable);
+            if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
+                queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                continue;
+            }
+            for (Pair<RelationId, Set<String>> tableUsedPartitionPair : tableUsedPartitions) {
+                if (!customRelationIdSet.isEmpty()) {
+                    if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
+                        queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                        continue tableLoop;
                     }
+                    if (customRelationIdSet.get(tableUsedPartitionPair.key().asInt())) {
+                        usedPartitionSet.addAll(tableUsedPartitionPair.value());
+                    }
+                } else {
+                    if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
+                        queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                        continue tableLoop;
+                    }
+                    usedPartitionSet.addAll(tableUsedPartitionPair.value());
                 }
             }
-            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);
+            queryUsedRelatedTablePartitionsMap.put(queryUsedTable, usedPartitionSet);
         }
         return queryUsedRelatedTablePartitionsMap;
     }

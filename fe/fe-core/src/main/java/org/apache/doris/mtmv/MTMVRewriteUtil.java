@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class MTMVRewriteUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVRewriteUtil.class);
@@ -107,6 +108,9 @@ public class MTMVRewriteUtil {
         return res;
     }
 
+    /**
+     *
+     * */
     private static Set<String> getMtmvPartitionsByRelatedPartitions(MTMV mtmv, MTMVRefreshContext refreshContext,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
@@ -117,8 +121,15 @@ public class MTMVRewriteUtil {
         if (queryUsedPartitions == null) {
             return mtmv.getPartitionNames();
         }
-        Set<String> res = Sets.newHashSet();
+        // if nested mv, should return directly
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+        Set<List<String>> pctTableQualifiers = pctTables.stream().map(MTMVRelatedTableIf::getFullQualifiers).collect(
+                Collectors.toSet());
+        if (Sets.intersection(pctTableQualifiers, queryUsedPartitions.keySet()).isEmpty()) {
+            return mtmv.getPartitionNames();
+        }
+        Set<String> res = Sets.newHashSet();
+
         Map<Pair<MTMVRelatedTableIf, String>, String> relatedToMv = getPctToMv(
                 refreshContext.getPartitionMappings());
         for (Entry<List<String>, Set<String>> entry : queryUsedPartitions.entrySet()) {
