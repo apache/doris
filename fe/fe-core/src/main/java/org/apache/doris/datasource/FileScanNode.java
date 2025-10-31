@@ -31,7 +31,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -215,15 +214,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
-                if (column.getDefaultValueExprDef() != null) {
-                    expression = new NereidsParser().parseExpression(
-                            column.getDefaultValueExpr().toSqlWithoutTbl());
-                    ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
-                            null, new Scope(ImmutableList.of()), null, true, true);
-                    expression = analyzer.analyze(expression);
-                } else {
-                    expression = new StringLiteral(column.getDefaultValue());
-                }
+                expression = new NereidsParser().parseExpression(
+                        column.getDefaultValueSql());
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                        null, new Scope(ImmutableList.of()), null, true, true);
+                expression = analyzer.analyze(expression);
             } else {
                 if (column.isAllowNull()) {
                     // For load, use Varchar as Null, for query, use column type.

@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
-import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -165,37 +164,6 @@ public class StructLiteral extends LiteralExpr {
     @Override
     public int compareLiteral(LiteralExpr expr) {
         return 0;
-    }
-
-    @Override
-    public LiteralExpr convertTo(Type targetType) throws AnalysisException {
-        Preconditions.checkState(targetType instanceof StructType);
-        List<StructField> fields = ((StructType) targetType).getFields();
-        LiteralExpr[] literals = new LiteralExpr[children.size()];
-        for (int i = 0; i < children.size(); i++) {
-            literals[i] = (LiteralExpr) Expr.convertLiteral(children.get(i), fields.get(i).getType());
-        }
-        return new StructLiteral(literals);
-    }
-
-    @Override
-    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!targetType.isStructType()) {
-            return super.uncheckedCastTo(targetType);
-        }
-        ArrayList<StructField> fields = ((StructType) targetType).getFields();
-        StructLiteral literal = new StructLiteral(this);
-        for (int i = 0; i < children.size(); ++ i) {
-            Expr child = Expr.convertLiteral(children.get(i), fields.get(i).getType());
-            // all children should be literal or else it will make be core
-            if (!child.isLiteral()) {
-                throw new AnalysisException("Unexpected struct literal cast failed. from type: "
-                        + this.type + ", to type: " + targetType);
-            }
-            literal.children.set(i, child);
-        }
-        literal.setType(targetType);
-        return literal;
     }
 
     @Override
