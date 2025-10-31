@@ -130,7 +130,7 @@ suite("test_s3_load_with_tmp_token", "load_p0") {
         WITH S3 (
             "AWS_ACCESS_KEY" = "$stsAk",
             "AWS_SECRET_KEY" = "$stsSk",
-            "session_token" = "$stsToken",
+            "AWS_TOKEN" = "$stsToken",
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
