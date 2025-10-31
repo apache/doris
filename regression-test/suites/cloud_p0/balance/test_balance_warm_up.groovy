@@ -46,36 +46,71 @@ suite('test_balance_warm_up', 'docker') {
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
         sql """CREATE TABLE $table (
-            `k1` int(11) NULL,
-            `v1` VARCHAR(2048)
+                `id` BIGINT,
+                `deleted` TINYINT,
+                `type` String,
+                `author` String,
+                `timestamp` DateTimeV2,
+                `comment` String,
+                `dead` TINYINT,
+                `parent` BIGINT,
+                `poll` BIGINT,
+                `children` Array<BIGINT>,
+                `url` String,
+                `score` INT,
+                `title` String,
+                `parts` Array<INT>,
+                `descendants` INT,
+                INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for comment'
             )
-            DUPLICATE KEY(`k1`)
-            COMMENT 'OLAP'
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 2
-            PROPERTIES (
-            "replication_num"="1"
-            );
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2 
+            PROPERTIES ("replication_num" = "1");
         """
         sql """
-            insert into $table values (10, '1'), (20, '2')
+            insert into $table values  (344083, 1, 'comment', 'spez', '2008-10-26 13:49:29', 'Stay tuned...',  0, 343906, 0, [31, 454446], '', 0, '', [], 0), (33, 0, 'comment', 'spez', '2006-10-10 23:50:40', 'winnar winnar chicken dinnar!',  0, 31, 0, [34, 454450], '', 0, '', [], 0);
         """
         sql """
-            insert into $table values (30, '3'), (40, '4')
+            insert into $table values  (44, 1, 'comment', 'spez', '2006-10-11 23:00:48', 'Welcome back, Randall',  0, 43, 0, [454465], '', 0, '', [], 0), (46, 0, 'story', 'goldfish', '2006-10-11 23:39:28', '',  0, 0, 0, [454470], 'http://www.rentometer.com/', 0, ' VCs Prefer to Fund Nearby Firms - New York Times', [], 0);
         """
 
         // before add be
         def beforeGetFromFe = getTabletAndBeHostFromFe(table)
         def beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
         // version 2
-        def beforeCacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2)
-        logger.info("cache dir version 2 {}", beforeCacheDirVersion2)
+        def beforeDataCacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2, "dat")
+        def beforeIdxCacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2, "idx")
+        logger.info("cache dir version 2 data={}, idx={}", beforeDataCacheDirVersion2, beforeIdxCacheDirVersion2)
         // version 3
-        def beforeCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
-        logger.info("cache dir version 3 {}", beforeCacheDirVersion3)
+        def beforeDataCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3, "dat")
+        def beforeIdxCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3, "idx")
+        logger.info("cache dir version 3 data={}, idx={}", beforeDataCacheDirVersion3, beforeIdxCacheDirVersion3)
 
-        def beforeMergedCacheDir = beforeCacheDirVersion2 + beforeCacheDirVersion3.collectEntries { host, hashFiles ->
-            [(host): beforeCacheDirVersion2[host] ? (beforeCacheDirVersion2[host] + hashFiles) : hashFiles]
+        // 通用合并函数：按 host 合并多个 map, 并去重
+        def mergeCacheDirs = { Map[] maps ->
+            def result = [:].withDefault { [] } // 每个不存在的 key 都会生成新的 List
+            maps.each { m ->
+                if (!m) return
+                m.each { host, files ->
+                    if (!files) return
+                    def target = result[host]
+                    if (files instanceof Collection) {
+                        target.addAll(files)
+                    } else {
+                        target << files
+                    }
+                }
+            }
+            // 确保每个 host 的文件列表去重后返回
+            result.collectEntries { host, files -> [ (host): files.unique() ] }
         }
+
+        def beforeMergedCacheDir = mergeCacheDirs(
+            beforeDataCacheDirVersion2,
+            beforeIdxCacheDirVersion2,
+            beforeDataCacheDirVersion3,
+            beforeIdxCacheDirVersion3
+        )
         logger.info("before fe tablets {}, be tablets {}, cache dir {}", beforeGetFromFe, beforeGetFromBe, beforeMergedCacheDir)
 
         def beforeWarmUpResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
@@ -98,15 +133,20 @@ suite('test_balance_warm_up', 'docker') {
         def afterGetFromFe = getTabletAndBeHostFromFe(table)
         def afterGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
         // version 2
-        def afterCacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2)
-        logger.info("after cache dir version 2 {}", afterCacheDirVersion2)
+        def afterDataCacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2, "dat")
+        def afterIdxCacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2, "idx")
+        logger.info("after cache dir version 2 data={}, idx={}", afterDataCacheDirVersion2, afterIdxCacheDirVersion2)
         // version 3
-        def afterCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
-        logger.info("after cache dir version 3 {}", afterCacheDirVersion3)
+        def afterDataCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3, "dat")
+        def afterIdxCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3, "idx")
+        logger.info("after cache dir version 3 data={}, idx={}", afterDataCacheDirVersion3, afterIdxCacheDirVersion3)
 
-        def afterMergedCacheDir = afterCacheDirVersion2 + afterCacheDirVersion3.collectEntries { host, hashFiles ->
-            [(host): afterCacheDirVersion2[host] ? (afterCacheDirVersion2[host] + hashFiles) : hashFiles]
-        }
+        def afterMergedCacheDir = mergeCacheDirs(
+            afterDataCacheDirVersion2,
+            afterIdxCacheDirVersion2,
+            afterDataCacheDirVersion3,
+            afterIdxCacheDirVersion3 
+        )
         logger.info("after fe tablets {}, be tablets {}, cache dir {}", afterGetFromFe, afterGetFromBe, afterMergedCacheDir)
         def newAddBeCacheDir = afterMergedCacheDir.get(newAddBe.Host)
         logger.info("new add be cache dir {}", newAddBeCacheDir)
