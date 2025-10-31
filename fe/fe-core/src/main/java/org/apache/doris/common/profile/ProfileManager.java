@@ -75,6 +75,10 @@ public class ProfileManager extends MasterDaemon {
     static String PROFILE_STORAGE_PATH = Config.spilled_profile_storage_path;
     private static final int BATCH_SIZE = 10; // Number of profiles to process in each batch
 
+    // Archive cleanup interval: 24 hours
+    private static final long ARCHIVE_CLEANUP_INTERVAL_MS = 6 * 3600 * 1000L;
+    private volatile long lastArchiveCleanupTime = 0;
+
     public enum ProfileType {
         QUERY,
         LOAD,
@@ -540,6 +544,22 @@ public class ProfileManager extends MasterDaemon {
         deleteBrokenProfiles();
         deleteOutdatedProfilesFromStorage();
         preventExecutionProfileLeakage();
+
+        // Archive-related periodic tasks
+        if (Config.enable_profile_archive) {
+            // Task 1: Periodically check pending directory
+            checkAndArchivePendingProfilesPeriodically();
+
+            // Task 2: Clean old archives
+            long currentTime = System.currentTimeMillis();
+            long duration = currentTime - lastArchiveCleanupTime;
+            if (duration >= ARCHIVE_CLEANUP_INTERVAL_MS
+                    || (Config.profile_archive_retention_seconds > 0
+                            && duration >= Config.profile_archive_retention_seconds * 1000 / 2)) {
+                cleanOldArchivedProfiles();
+                lastArchiveCleanupTime = currentTime;
+            }
+        }
     }
 
     // List PROFILE_STORAGE_PATH and return all dir names
@@ -554,9 +574,11 @@ public class ProfileManager extends MasterDaemon {
             }
 
             File[] files = profileDir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    res.add(file.getAbsolutePath());
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isFile()) {
+                        res.add(file.getAbsolutePath());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -778,24 +800,20 @@ public class ProfileManager extends MasterDaemon {
                 readLock.unlock();
             }
 
-            List<Thread> iothreads = Lists.newArrayList();
-
-            for (ProfileElement profileElement : queryIdToBeRemoved) {
-                Thread thread = new Thread(() -> {
-                    profileElement.deleteFromStorage();
-                });
-                thread.start();
-                iothreads.add(thread);
+            if (queryIdToBeRemoved.isEmpty()) {
+                return;
             }
 
-            try {
-                for (Thread thread : iothreads) {
-                    thread.join();
-                }
-            } catch (InterruptedException e) {
-                LOG.error("Failed to remove outdated query profile", e);
+            // Archive or delete profiles based on configuration
+            if (Config.enable_profile_archive) {
+                // Move profiles to pending directory for archiving
+                moveProfilesToArchivePending(queryIdToBeRemoved);
+            } else {
+                // Directly delete profiles if archiving is disabled
+                deleteProfilesFromStorage(queryIdToBeRemoved);
             }
 
+            // Remove profile references from memory
             writeLock.lock();
             try {
                 for (ProfileElement profileElement : queryIdToBeRemoved) {
@@ -1113,6 +1131,111 @@ public class ProfileManager extends MasterDaemon {
             }
         } finally {
             writeLock.unlock();
+        }
+    }
+
+
+    /**
+     * Moves profiles to the archive pending directory.
+     * Files in pending will be archived when batch size is reached or timeout occurs.
+     *
+     * @param profileElements list of profile elements to move to pending
+     */
+    private void moveProfilesToArchivePending(List<ProfileElement> profileElements) {
+        try {
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            int movedCount = 0;
+            for (ProfileElement element : profileElements) {
+                String profilePath = element.profile.getProfileStoragePath();
+                if (profilePath != null) {
+                    File profileFile = new File(profilePath);
+                    if (profileFile.exists()) {
+                        if (archiveManager.moveToArchivePending(profileFile)) {
+                            movedCount++;
+                        } else {
+                            // If move fails, fall back to direct deletion
+                            LOG.warn("Failed to move profile to pending, deleting: {}", profilePath);
+                            element.deleteFromStorage();
+                        }
+                    }
+                }
+            }
+
+            LOG.info("Moved {} profiles to archive pending", movedCount);
+
+            // Immediately check if archiving should be triggered (e.g., batch size reached)
+            int archived = archiveManager.checkAndArchivePendingProfiles();
+            if (archived > 0) {
+                LOG.info("Immediately archived {} profiles from pending", archived);
+            }
+
+        } catch (Exception e) {
+            LOG.error("Failed to move profiles to pending, falling back to direct deletion", e);
+            // Fall back to direct deletion if archiving fails
+            deleteProfilesFromStorage(profileElements);
+        }
+    }
+
+    /**
+     * Directly deletes profiles from storage (used when archiving is disabled).
+     *
+     * @param profileElements list of profile elements to delete
+     */
+    private void deleteProfilesFromStorage(List<ProfileElement> profileElements) {
+        List<Thread> iothreads = Lists.newArrayList();
+
+        for (ProfileElement profileElement : profileElements) {
+            Thread thread = new Thread(() -> {
+                profileElement.deleteFromStorage();
+            });
+            thread.start();
+            iothreads.add(thread);
+        }
+
+        try {
+            for (Thread thread : iothreads) {
+                thread.join();
+            }
+        } catch (InterruptedException e) {
+            LOG.error("Failed to delete profiles from storage", e);
+        }
+    }
+
+    /**
+     * Periodically checks the pending directory and archives profiles if conditions are met.
+     * This is a fast operation that runs every time runAfterCatalogReady() is called.
+     */
+    private void checkAndArchivePendingProfilesPeriodically() {
+        try {
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            int archived = archiveManager.checkAndArchivePendingProfiles();
+            if (archived > 0) {
+                LOG.info("Periodically archived {} profiles from pending", archived);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to check and archive pending profiles", e);
+        }
+    }
+
+    /**
+     * Cleans up old archived profiles that exceed the retention period.
+     * This is a slow operation that runs once per day.
+     */
+    private void cleanOldArchivedProfiles() {
+        try {
+            ProfileArchiveManager archiveManager = new ProfileArchiveManager(
+                    PROFILE_STORAGE_PATH, Config.profile_archive_batch_size);
+
+            int deleted = archiveManager.cleanOldArchives();
+            if (deleted > 0) {
+                LOG.info("Cleaned {} old archived profiles", deleted);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to clean old archived profiles", e);
         }
     }
 }
