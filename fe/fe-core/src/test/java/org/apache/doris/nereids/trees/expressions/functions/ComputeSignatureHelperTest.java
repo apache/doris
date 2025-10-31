@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -36,7 +38,10 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -723,6 +728,41 @@ public class ComputeSignatureHelperTest {
         public List<Expression> children() {
             return Collections.emptyList();
         }
+    }
+
+    @Test
+    void testDateV1AndDateTimeV1TypeConversion() {
+        // Test DateType -> DateV2Type conversion with implementAnyDataTypeWithOutIndex
+        FunctionSignature dateSignature = FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE);
+        List<Expression> dateArguments = Lists.newArrayList(new DateLiteral("2023-01-01"));
+
+        dateSignature = ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(dateSignature, dateArguments);
+
+        // Verify that DateType is converted to DateV2Type
+        Assertions.assertTrue(dateSignature.argumentsTypes.get(0) instanceof DateV2Type);
+
+        // Test DateTimeType -> DateTimeV2Type conversion with implementAnyDataTypeWithOutIndex
+        FunctionSignature dateTimeSignature = FunctionSignature.ret(DateTimeType.INSTANCE)
+                .args(DateTimeType.INSTANCE);
+        List<Expression> dateTimeArguments = Lists.newArrayList(new DateTimeLiteral("2023-01-01 12:00:00"));
+
+        dateTimeSignature = ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(dateTimeSignature,
+                dateTimeArguments);
+
+        // Verify that DateTimeType is converted to DateTimeV2Type
+        Assertions.assertTrue(dateTimeSignature.argumentsTypes.get(0) instanceof DateTimeV2Type);
+
+        // Also test with implementAnyDataTypeWithIndex
+        FunctionSignature dateSignatureWithIndex = FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE);
+        dateSignatureWithIndex = ComputeSignatureHelper.implementAnyDataTypeWithIndex(dateSignatureWithIndex,
+                dateArguments);
+        Assertions.assertTrue(dateSignatureWithIndex.argumentsTypes.get(0) instanceof DateV2Type);
+
+        FunctionSignature dateTimeSignatureWithIndex = FunctionSignature.ret(DateTimeType.INSTANCE)
+                .args(DateTimeType.INSTANCE);
+        dateTimeSignatureWithIndex = ComputeSignatureHelper
+                .implementAnyDataTypeWithIndex(dateTimeSignatureWithIndex, dateTimeArguments);
+        Assertions.assertTrue(dateTimeSignatureWithIndex.argumentsTypes.get(0) instanceof DateTimeV2Type);
     }
 
     private static class FakeComputeSignature implements ComputeSignature {
