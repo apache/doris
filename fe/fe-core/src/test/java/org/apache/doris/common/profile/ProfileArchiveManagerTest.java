@@ -701,21 +701,19 @@ public class ProfileArchiveManagerTest {
         org.apache.doris.common.Config.profile_archive_retention_seconds = 7 * 24 * 3600; // 7 days retention
 
         try {
-            // Create some profiles and archive them
+            // Create old profiles with timestamp 10 days ago (exceeds 7 day retention)
+            // This ensures the archive filename contains the old timestamp
+            long oldTime = System.currentTimeMillis() - (10 * 24 * 3600 * 1000L);
             List<File> batch1 = new ArrayList<>();
             for (int i = 0; i < 3; i++) {
-                batch1.add(createMockProfileFile(System.currentTimeMillis() + i * 1000));
+                batch1.add(createMockProfileFile(oldTime + i * 1000));
                 Thread.sleep(100);
             }
 
             File archive1 = archiveManager.archiveProfiles(batch1);
             Assertions.assertNotNull(archive1);
 
-            // Set the archive file's modification time to 10 days ago (exceeds 7 day retention)
-            long oldTime = System.currentTimeMillis() - (10 * 24 * 3600 * 1000L);
-            archive1.setLastModified(oldTime);
-
-            // Create another archive (recent)
+            // Create another archive with recent profiles
             List<File> batch2 = new ArrayList<>();
             for (int i = 0; i < 2; i++) {
                 batch2.add(createMockProfileFile(System.currentTimeMillis() + i * 1000));
@@ -749,21 +747,19 @@ public class ProfileArchiveManagerTest {
         org.apache.doris.common.Config.profile_archive_retention_seconds = -1; // Unlimited retention
 
         try {
-            // Create and archive some profiles
+            // Create very old profiles (100 days ago)
+            // This ensures the archive filename contains the old timestamp
+            long oldTime = System.currentTimeMillis() - (100 * 24 * 3600 * 1000L);
             List<File> batch = new ArrayList<>();
             for (int i = 0; i < 3; i++) {
-                batch.add(createMockProfileFile(System.currentTimeMillis() + i * 1000));
+                batch.add(createMockProfileFile(oldTime + i * 1000));
                 Thread.sleep(100);
             }
 
             File archive = archiveManager.archiveProfiles(batch);
             Assertions.assertNotNull(archive);
 
-            // Set very old modification time
-            long oldTime = System.currentTimeMillis() - (100 * 24 * 3600 * 1000L);
-            archive.setLastModified(oldTime);
-
-            // Clean old archives (should not delete anything)
+            // Clean old archives (should not delete anything due to unlimited retention)
             int deleted = archiveManager.cleanOldArchives();
 
             // Verify nothing was deleted

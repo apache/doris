@@ -524,8 +524,10 @@ class ProfileManagerTest {
     @Test
     void testDeleteOutdatedProfilesFromStorage() throws IOException {
         int originMaxSpilledProfileNum = Config.max_spilled_profile_num;
+        boolean originalArchiveEnabled = Config.enable_profile_archive;
 
         try {
+            Config.enable_profile_archive = false; // Disable archiving for this test
             Config.max_spilled_profile_num = 10;
 
             // Create test profiles
@@ -557,6 +559,7 @@ class ProfileManagerTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } finally {
+            Config.enable_profile_archive = originalArchiveEnabled;
             Config.max_spilled_profile_num = originMaxSpilledProfileNum;
         }
     }
