@@ -149,6 +149,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                                  .count();
         s3_file_reader_latency << (end_ts - begin_ts);
     }};
+    SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
@@ -215,11 +216,14 @@ void S3FileReader::_collect_profile_before_close() {
                 _profile, "TooManyRequestSleepTime", TUnit::TIME_MS, s3_profile_name);
         RuntimeProfile::Counter* total_bytes_read =
                 ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, s3_profile_name);
+        RuntimeProfile::Counter* total_get_request_time_ns =
+                ADD_CHILD_TIMER(_profile, "TotalGetRequestTime", s3_profile_name);
 
         COUNTER_UPDATE(total_get_request_counter, _s3_stats.total_get_request_counter);
         COUNTER_UPDATE(too_many_request_err_counter, _s3_stats.too_many_request_err_counter);
         COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
         COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
+        COUNTER_UPDATE(total_get_request_time_ns, _s3_stats.total_get_request_time_ns);
     }
 }
 
