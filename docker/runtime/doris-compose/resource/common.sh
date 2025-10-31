@@ -147,3 +147,81 @@ wait_pid() {
 
     health_log "wait end"
 }
+
+create_doris_instance() {
+    while true; do
+
+        lock_cluster
+
+        output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
+            -d '{"instance_id":"'"${INSTANCE_ID}"'",
+                    "name": "'"${INSTANCE_ID}"'",
+                    "user_id": "'"${DORIS_CLOUD_USER}"'",
+                    "obj_info": {
+                    "ak": "'"${DORIS_CLOUD_AK}"'",
+                    "sk": "'"${DORIS_CLOUD_SK}"'",
+                    "bucket": "'"${DORIS_CLOUD_BUCKET}"'",
+                    "endpoint": "'"${DORIS_CLOUD_ENDPOINT}"'",
+                    "external_endpoint": "'"${DORIS_CLOUD_EXTERNAL_ENDPOINT}"'",
+                    "prefix": "'"${DORIS_CLOUD_PREFIX}"'",
+                    "region": "'"${DORIS_CLOUD_REGION}"'",
+                    "provider": "'"${DORIS_CLOUD_PROVIDER}"'"
+                }}')
+
+        unlock_cluster
+
+        health_log "create instance output: $output"
+        code=$(jq -r '.code' <<<$output)
+
+        if [ "$code" != "OK" ]; then
+            health_log "create instance failed"
+            sleep 1
+            continue
+        fi
+
+        health_log "create doris instance succ, output: $output"
+        touch $HAS_CREATE_INSTANCE_FILE
+        break
+    done
+}
+
+is_doris_instance_exists() {
+    output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_instance?token=greedisgood9999&instance_id=${INSTANCE_ID}")
+
+    health_log "get instance output: $output"
+    code=$(jq -r '.code' <<<$output)
+
+    if [ "$code" != "OK" ]; then
+        health_log "get instance failed"
+        return 1
+    fi
+
+    return 0
+}
+
+# Like wait_create_instance, but query meta service directly.
+wait_doris_instance_ready() {
+    ok=0
+    for ((i = 0; i < 30; i++)); do
+        is_doris_instance_exists
+        if [ $? -eq 0 ]; then
+            ok=1
+            break
+        fi
+
+        health_log "doris instance not exist yet."
+
+        sleep 1
+    done
+
+    if [ $ok -eq 0 ]; then
+        health_log "wait doris instance too long, exit"
+        exit 1
+    fi
+
+    if [ ! -f $HAS_CREATE_INSTANCE_FILE ]; then
+        touch $HAS_CREATE_INSTANCE_FILE
+    fi
+
+    health_log "check doris instance ok"
+}

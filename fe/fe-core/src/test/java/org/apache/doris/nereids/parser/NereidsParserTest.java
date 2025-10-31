@@ -26,6 +26,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -91,7 +93,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseMultipleError() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test SELECT a FROM test;";
-        Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseMultiple(sql));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> nereidsParser.parseMultiple(sql));
     }
 
     @Test
@@ -111,7 +113,7 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testErrorListener() {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos 29)\n");
     }
 
@@ -160,7 +162,7 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(((LogicalAggregate<?>) logicalPlan).getOutputExpressions().size(), 3);
 
         String windowSql3 = "select rank() over from t1";
-        parsePlan(windowSql3).assertThrowsExactly(ParseException.class)
+        parsePlan(windowSql3).assertThrowsExactly(SyntaxParseException.class)
                     .assertMessageContains("mismatched input 'from' expecting '('");
     }
 
@@ -395,7 +397,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
+                .assertThrowsExactly(SyntaxParseException.class);
 
         // invalid hint content
         parsePlan("select * from t1 join [bucket] t2 on t1.keyy=t2.keyy")
@@ -409,7 +411,7 @@ public class NereidsParserTest extends ParserTestBase {
         // invalid multiple hints
 
         parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
+                .assertThrowsExactly(SyntaxParseException.class);
     }
 
     @Test
@@ -1057,10 +1059,10 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(1, unboundFunction.arity());
         Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
 
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' from '1')"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' '1')"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(from '1')"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(both '1')"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("trim(invalid '2' from '1')"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("trim(invalid '2' '1')"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("trim(from '1')"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("trim(both '1')"));
     }
 
     @Test
@@ -1108,11 +1110,11 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals("Quadratically", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
         Assertions.assertEquals(5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
 
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' for 2)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' from for)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' from)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring(from 1)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring(for 1)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substring('Sakila' for 2)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substring('Sakila' from for)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substring('Sakila' from)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substring(from 1)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substring(for 1)"));
     }
 
     @Test
@@ -1160,11 +1162,11 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals("Quadratically", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
         Assertions.assertEquals(5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
 
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' for 2)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' from for)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' from)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr(from 1)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr(for 1)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substr('Sakila' for 2)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substr('Sakila' from for)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substr('Sakila' from)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substr(from 1)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("substr(for 1)"));
     }
 
     @Test
@@ -1183,9 +1185,9 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals("bar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
         Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
 
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position('bar' in)"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position(in 'foobarbar')"));
-        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position(in)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("position('bar' in)"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("position(in 'foobarbar')"));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> parser.parseExpression("position(in)"));
     }
 
     @Test
@@ -1223,7 +1225,7 @@ public class NereidsParserTest extends ParserTestBase {
         try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
             helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(true);
             if (onResult == null) {
-                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                Assertions.assertThrowsExactly(SyntaxParseException.class, () -> nereidsParser.parseExpression(sql),
                         "should failed when NO_BACKSLASH_ESCAPES = 1: " + sql);
             } else {
                 Assertions.assertEquals(onResult,
@@ -1235,7 +1237,7 @@ public class NereidsParserTest extends ParserTestBase {
         try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
             helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
             if (offResult == null) {
-                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                Assertions.assertThrowsExactly(SyntaxParseException.class, () -> nereidsParser.parseExpression(sql),
                         "should failed when NO_BACKSLASH_ESCAPES = 0: " + sql);
             } else {
                 Assertions.assertEquals(offResult,
@@ -1275,35 +1277,35 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testLambdaSelect() {
         parsePlan("SELECT  x -> x + 1")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
 
     @Test
     public void testLambdaGroupBy() {
         parsePlan("SELECT 1 from ( select 2 ) t group by x -> x + 1")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
 
     @Test
     public void testLambdaSort() {
         parsePlan("SELECT 1 from ( select 2 ) t order by x -> x + 1")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
 
     @Test
     public void testLambdaHaving() {
         parsePlan("SELECT 1 from ( select 2 ) t having x -> x + 1")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
 
     @Test
     public void testLambdaJoin() {
         parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
 
@@ -1363,7 +1365,7 @@ public class NereidsParserTest extends ParserTestBase {
         nereidsParser.parseSingle(sql);
 
         parsePlan("admin rotate tde root key properties()")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input ')' expecting");
     }
 
@@ -1387,10 +1389,108 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(StmtType.INSERT, logicalPlanWithWhere.stmtType());
 
         // Negative cases: LIMIT, JOIN, UNION, AGGREGATE not allowed
-        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table LIMIT 100"));
-        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 JOIN t2 ON t1.id = t2.id"));
-        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 UNION SELECT * FROM t2"));
-        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT id, COUNT(*) FROM test_table GROUP BY id"));
-        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table ORDER BY id"));
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table LIMIT 100"));
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 JOIN t2 ON t1.id = t2.id"));
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 UNION SELECT * FROM t2"));
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("WARM UP SELECT id, COUNT(*) FROM test_table GROUP BY id"));
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table ORDER BY id"));
+    }
+
+    @Test
+    public void testMergeInto() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        LogicalPlan logicalPlan;
+
+        // base case
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + target alias
+        sql = "MERGE INTO target target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + target alias with as
+        sql = "MERGE INTO target AS target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + insert column list
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + without not matched
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE ";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + without delete matched
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN NOT MATCHED THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + without update matched
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + insert with case predicate
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED AND source.c1 < 10 THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case without and matched or not matched
+        String invalidSql1 = "MERGE INTO target USING source ON target.c1 = source.c1 ";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql1));
+
+        // base case without using
+        String invalidSql2 = "MERGE INTO target ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql2));
+
+        // base case without on clause
+        String invalidSql3 = "MERGE INTO target USING source "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql3));
+
+        // base case without target table
+        String invalidSql4 = "MERGE INTO USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql4));
     }
 }

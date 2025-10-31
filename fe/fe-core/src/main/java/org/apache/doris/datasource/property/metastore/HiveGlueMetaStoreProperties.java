@@ -21,6 +21,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
+import lombok.Getter;
 import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
@@ -46,6 +47,7 @@ public class HiveGlueMetaStoreProperties extends AbstractHiveProperties {
             "aws.catalog.credentials.provider.factory.class";
 
     // ========== Fields ==========
+    @Getter
     private AWSGlueMetaStoreBaseProperties baseProperties;
 
     @ConnectorProperty(names = {AWS_GLUE_MAX_RETRY_KEY},

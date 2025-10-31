@@ -35,22 +35,22 @@
 suite("doc_date_functions_test") {
     //FIXME: make FE and BE have same range of timezone
     // sql "set debug_skip_fold_constant=true;"
-    // Test Group 1: Basic Date Functions (序号 1-12)
+    // Test Group 1: Basic Date Functions(1 - 12)
     
     // 1. CONVERT_TZ function tests
-    // 中国上海时间转换到美国洛杉矶
+    // Convert China Shanghai time to America Los Angeles
     qt_convert_tz_1 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), 'Asia/Shanghai', 'America/Los_Angeles')"""
     
-    // 将东八区（+08:00）的时间转换为美国洛杉矶
+    // Convert East 8 zone (+08:00) time to America Los Angeles
     qt_convert_tz_2 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), '+08:00', 'America/Los_Angeles')"""
     
-    // 输入为date类型，时间部分自动转换为 00:00:00
+    // Input is date type, time part is automatically converted to 00:00:00
     qt_convert_tz_3 """select CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATE), 'Asia/Shanghai', 'America/Los_Angeles')"""
     
-    // 转换时间为NULL,输出NULL
+    // Convert time is NULL, output NULL
     qt_convert_tz_4 """select CONVERT_TZ(NULL, 'Asia/Shanghai', 'America/New_York')"""
     
-    // 任一时区为NULL，返回NULL
+    // Any timezone is NULL, return NULL
     qt_convert_tz_5 """select CONVERT_TZ('2019-08-01 13:21:03', NULL, 'America/Los_Angeles')"""
     qt_convert_tz_6 """select CONVERT_TZ('2019-08-01 13:21:03', '+08:00', NULL)"""
     
@@ -59,7 +59,7 @@ suite("doc_date_functions_test") {
         exception "Operation convert_tz invalid timezone"
     }
     
-    // 带有 scale 的时间
+    // Time with scale
     qt_convert_tz_8 """select CONVERT_TZ('2019-08-01 13:21:03.636', '+08:00', 'America/Los_Angeles')"""
 
     // test {
@@ -68,88 +68,88 @@ suite("doc_date_functions_test") {
     // }
 
     // 5. DATE_ADD function tests
-    // 添加天数
+    // Add days
     qt_date_add_1 """select date_add(cast('2010-11-30 23:59:59' as datetime), INTERVAL 2 DAY)"""
     
-    // 添加季度
+    // Add quarter
     qt_date_add_2 """select DATE_ADD(cast('2023-01-01' as date), INTERVAL 1 QUARTER)"""
     
-    // 添加周数
+    // Add weeks
     qt_date_add_3 """select DATE_ADD('2023-01-01', INTERVAL 1 WEEK)"""
     
-    // 添加月数,因为2023年2月只有28天，所以1月31加一个月返回2月28
+    // Add month, because February 2023 only has 28 days, so January 31 plus one month returns February 28
     qt_date_add_4 """select DATE_ADD('2023-01-31', INTERVAL 1 MONTH)"""
     
-    // 负数测试
+    // Negative number test
     qt_date_add_5 """select DATE_ADD('2019-01-01', INTERVAL -3 DAY)"""
     
-    // 跨年的小时增加
+    // Cross-year hour increment
     qt_date_add_6 """select DATE_ADD('2023-12-31 23:00:00', INTERVAL 2 HOUR)"""
     
-    // 参数为NULL,返回NULL
+    // Parameter is NULL, return NULL
     qt_date_add_7 """select DATE_ADD(NULL, INTERVAL 1 MONTH)"""
 
     // 6. DATE_CEIL function tests  
-    // 秒数按五秒向上取整
+    // Round up seconds to five-second intervals
     qt_date_ceil_1 """select date_ceil(cast('2023-07-13 22:28:18' as datetime),interval 5 second)"""
     
-    // 带有 scale 的日期时间参数
+    // Datetime parameter with scale
     qt_date_ceil_2 """select date_ceil(cast('2023-07-13 22:28:18.123' as datetime(3)),interval 5 second)"""
     
-    // 按五分钟向上取整
+    // Round up to five-minute intervals
     qt_date_ceil_3 """select date_ceil('2023-07-13 22:28:18',interval 5 minute)"""
     
-    // 按五周向上取整
+    // Round up to five-week intervals
     qt_date_ceil_4 """select date_ceil('2023-07-13 22:28:18',interval 5 WEEK)"""
     
-    // 按五小时向上取整
+    // Round up to five-hour intervals
     qt_date_ceil_5 """select date_ceil('2023-07-13 22:28:18',interval 5 hour)"""
     
-    // 按五天向上取整
+    // Round up to five-day intervals
     qt_date_ceil_6 """select date_ceil('2023-07-13 22:28:18',interval 5 day)"""
     
-    // 按五个月向上取整
+    // Round up to five-month intervals
     qt_date_ceil_7 """select date_ceil('2023-07-13 22:28:18',interval 5 month)"""
     
-    // 按五年向上取整
+    // Round up to five-year intervals
     qt_date_ceil_8 """select date_ceil('2023-07-13 22:28:18',interval 5 year)"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_date_ceil_9 """select date_ceil('9900-07-13',interval NULL year)"""
     qt_date_ceil_10 """select date_ceil(NULL,interval 5 year)"""
 
     // 7. DATEDIFF function tests
-    // 两个日期相差1天（忽略时间部分）
+    // Two dates differ by 1 day (ignore time part)
     qt_datediff_1 """select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME))"""
     
-    // 前一个日期早于后一个日期，返回负数
+    // First date is earlier than second date, return negative number
     qt_datediff_2 """select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME))"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_datediff_3 """select datediff('2023-01-01', NULL)"""
     
-    // 若输入 datetime 类型，会忽略时间部分
+    // If input is datetime type, time part will be ignored
     qt_datediff_4 """select datediff('2023-01-02 13:00:00', '2023-01-01 12:00:00')"""
     qt_datediff_5 """select datediff('2023-01-02 12:00:00', '2023-01-01 13:00:00')"""
 
     // 8. DATE_FLOOR function tests
-    // 按 5 秒向下取整
+    // Round down to 5-second intervals
     qt_date_floor_1 """select date_floor(cast('0001-01-01 00:00:18' as datetime), INTERVAL 5 SECOND)"""
     
-    // 带有 scale 的日期时间，返回值也会带有 scale
+    // Datetime with scale, return value also has scale
     qt_date_floor_2 """select date_floor(cast('0001-01-01 00:00:18.123' as datetime), INTERVAL 5 SECOND)"""
     
-    // 输入时间恰好是 5 天周期的起点
+    // Input time is exactly at the start of a 5-day cycle
     qt_date_floor_3 """select date_floor('2023-07-10 00:00:00', INTERVAL 5 DAY)"""
     
-    // date 类型的向下取整
+    // Round down date type
     qt_date_floor_4 """select date_floor('2023-07-13', INTERVAL 5 YEAR)"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_date_floor_5 """select date_floor(NULL, INTERVAL 5 HOUR)"""
 
     // 9. DATE_FORMAT function tests
-    // 基本格式化测试
+    // Basic formatting tests
     qt_date_format_1 """SELECT DATE_FORMAT('2009-10-04 22:23:00', '%W %M %Y')"""
     qt_date_format_2 """SELECT DATE_FORMAT('2007-10-04 22:23:00', '%H:%i:%s')"""
     qt_date_format_3 """SELECT DATE_FORMAT('1999-01-01', '%Y-%m-%d')"""
@@ -187,52 +187,52 @@ suite("doc_date_functions_test") {
         exception "Operation date_format of 142335765945253888, %p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p is invalid"
     }
     
-    // 特殊格式符测试
+    // Special format specifier tests
     qt_date_format_5 """SELECT DATE_FORMAT('2009-10-04', '%a %b %c')"""
     qt_date_format_6 """SELECT DATE_FORMAT('2009-10-04', '%D %e %f')"""
     
-    // 任一参数为 NULL
+    // Any parameter is NULL
     qt_date_format_7 """SELECT DATE_FORMAT(NULL, '%Y-%m-%d')"""
     qt_date_format_8 """SELECT DATE_FORMAT('2009-10-04', NULL)"""
 
     // 10. DATE function tests
-    // 从datetime中提取日期部分
+    // Extract date part from datetime
     qt_date_1 """SELECT DATE('2003-12-31 01:02:03')"""
     qt_date_2 """SELECT DATE('2003-12-31')"""
     
-    // 参数为 NULL
+    // Parameter is NULL
     qt_date_3 """SELECT DATE(NULL)"""
 
     // 11. DATE_SUB function tests
-    // 减去天数
+    // Subtract days
     qt_date_sub_1 """SELECT DATE_SUB('2018-05-01', INTERVAL 1 DAY)"""
     
-    // 减去月数
+    // Subtract months
     qt_date_sub_2 """SELECT DATE_SUB('2018-05-01', INTERVAL 1 MONTH)"""
     
-    // 减去年数
+    // Subtract years
     qt_date_sub_3 """SELECT DATE_SUB('2018-05-01', INTERVAL 1 YEAR)"""
     
-    // 减去小时
+    // Subtract hours
     qt_date_sub_4 """SELECT DATE_SUB('2018-05-01 12:00:00', INTERVAL 2 HOUR)"""
     
-    // 参数为 NULL
+    // Parameter is NULL
     qt_date_sub_5 """SELECT DATE_SUB(NULL, INTERVAL 1 DAY)"""
 
     // 12. DATE_TRUNC function tests
-    // 截断到年
+    // Truncate to year
     qt_date_trunc_1 """SELECT DATE_TRUNC('2019-05-09', 'year')"""
     
-    // 截断到月
+    // Truncate to month
     qt_date_trunc_2 """SELECT DATE_TRUNC('2019-05-09', 'month')"""
     
-    // 截断到日
+    // Truncate to day
     qt_date_trunc_3 """SELECT DATE_TRUNC('2019-05-09 12:30:45', 'day')"""
     
-    // 截断到小时
+    // Truncate to hour
     qt_date_trunc_4 """SELECT DATE_TRUNC('2019-05-09 12:30:45', 'hour')"""
     
-    // 参数为 NULL
+    // Parameter is NULL
     qt_date_trunc_5 """SELECT DATE_TRUNC(NULL, 'year')"""
 
     // Group 2: Day functions and related date extraction functions
@@ -265,6 +265,191 @@ suite("doc_date_functions_test") {
     qt_dayname_1 """select dayname('2007-02-03 00:00:00')"""
     qt_dayname_2 """select dayname('2023-10-01')"""
     qt_dayname_3 """select dayname(NULL)"""
+
+    sql """SET lc_time_names='ZH_cn'"""
+    qt_dayname_zh_cn """SELECT DAYNAME('2023-10-01')"""
+    
+    sql """SET lc_time_names='zh_TW'"""
+    qt_dayname_zh_tw """SELECT DAYNAME('2024-03-15 14:30:25')"""
+    
+    sql """SET lc_time_names='zh_HK'"""
+    qt_dayname_zh_hk """SELECT DAYNAME('2022-12-25')"""
+    
+    sql """SET lc_time_names='fr_FR'"""
+    qt_dayname_fr_fr """SELECT DAYNAME('2023-07-14 09:15:30')"""
+    
+    sql """SET lc_time_names='fr_BE'"""
+    qt_dayname_fr_be """SELECT DAYNAME('2024-01-01')"""
+    
+    sql """SET lc_time_names='fr_CA'"""
+    qt_dayname_fr_ca """SELECT DAYNAME('2023-11-11 23:59:59')"""
+    
+    sql """SET lc_time_names='de_DE'"""
+    qt_dayname_de_de """SELECT DAYNAME('2024-02-29')"""
+    
+    sql """SET lc_time_names='DE_at'"""
+    qt_dayname_de_at """SELECT DAYNAME('2023-05-20 06:45:12')"""
+    
+    sql """SET lc_time_names='de_CH'"""
+    qt_dayname_de_ch """SELECT DAYNAME('2024-08-31')"""
+    
+    sql """SET lc_time_names='ja_JP'"""
+    qt_dayname_ja_jp """SELECT DAYNAME('2023-04-29 12:00:00')"""
+    
+    sql """SET lc_time_names='ko_KR'"""
+    qt_dayname_ko_kr """SELECT DAYNAME('2024-09-15')"""
+    
+    sql """SET lc_time_names='ES_es'"""
+    qt_dayname_es_es """SELECT DAYNAME('2023-12-31 18:30:45')"""
+    
+    sql """SET lc_time_names='es_MX'"""
+    qt_dayname_es_mx """SELECT DAYNAME('2024-05-05')"""
+    
+    sql """SET lc_time_names='es_AR'"""
+    qt_dayname_es_ar """SELECT DAYNAME('2023-06-21 03:15:22')"""
+    
+    sql """SET lc_time_names='RU_ru'"""
+    qt_dayname_ru_ru """SELECT DAYNAME('2024-07-04')"""
+    
+    sql """SET lc_time_names='ru_UA'"""
+    qt_dayname_ru_ua """SELECT DAYNAME('2023-02-14 16:45:33')"""
+    
+    sql """SET lc_time_names='it_IT'"""
+    qt_dayname_it_it """SELECT DAYNAME('2024-10-12')"""
+    
+    sql """SET lc_time_names='IT_ch'"""
+    qt_dayname_it_ch """SELECT DAYNAME('2023-03-08 21:20:15')"""
+    
+    sql """SET lc_time_names='ar_SA'"""
+    qt_dayname_ar_sa """SELECT DAYNAME('2024-04-15')"""
+    
+    sql """SET lc_time_names='ar_AE'"""
+    qt_dayname_ar_ae """SELECT DAYNAME('2023-08-25 11:30:40')"""
+    
+    sql """SET lc_time_names='AR_eg'"""
+    qt_dayname_ar_eg """SELECT DAYNAME('2024-01-20')"""
+    
+    sql """SET lc_time_names='en_US'"""
+    qt_dayname_en_us """SELECT DAYNAME('2023-09-11 07:45:55')"""
+    
+    sql """SET lc_time_names='en_GB'"""
+    qt_dayname_en_gb """SELECT DAYNAME('2024-06-30')"""
+    
+    sql """SET lc_time_names='En_Au'"""
+    qt_dayname_en_au """SELECT DAYNAME('2023-01-26 19:25:10')"""
+    
+    sql """SET lc_time_names='en_CA'"""
+    qt_dayname_en_ca """SELECT DAYNAME('2024-11-11')"""
+    
+    sql """SET lc_time_names='pt_BR'"""
+    qt_dayname_pt_br """SELECT DAYNAME('2023-09-07 14:15:28')"""
+    
+    sql """SET lc_time_names='pt_PT'"""
+    qt_dayname_pt_pt """SELECT DAYNAME('2024-12-08')"""
+    
+    sql """SET lc_time_names='nl_NL'"""
+    qt_dayname_nl_nl """SELECT DAYNAME('2023-04-27 10:30:45')"""
+    
+    sql """SET lc_time_names='NL_be'"""
+    qt_dayname_nl_be """SELECT DAYNAME('2024-03-21')"""
+    
+    sql """SET lc_time_names='sv_SE'"""
+    qt_dayname_sv_se """SELECT DAYNAME('2023-06-06 22:15:35')"""
+    
+    sql """SET lc_time_names='no_NO'"""
+    qt_dayname_no_no """SELECT DAYNAME('2024-05-17')"""
+    
+    sql """SET lc_time_names='da_DK'"""
+    qt_dayname_da_dk """SELECT DAYNAME('2023-12-03 08:20:17')"""
+    
+    sql """SET lc_time_names='fi_FI'"""
+    qt_dayname_fi_fi """SELECT DAYNAME('2024-01-15')"""
+    
+    sql """SET lc_time_names='pl_PL'"""
+    qt_dayname_pl_pl """SELECT DAYNAME('2023-11-30 13:45:22')"""
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    qt_dayname_cs_cz """SELECT DAYNAME('2024-06-20')"""
+    
+    sql """SET lc_time_names='hu_HU'"""
+    qt_dayname_hu_hu """SELECT DAYNAME('2023-08-15 20:10:33')"""
+    
+    sql """SET lc_time_names='th_TH'"""
+    qt_dayname_th_th """SELECT DAYNAME('2024-09-22')"""
+    
+    sql """SET lc_time_names='vi_VN'"""
+    qt_dayname_vi_vn """SELECT DAYNAME('2023-05-01 15:35:44')"""
+    
+    sql """SET lc_time_names='tr_TR'"""
+    qt_dayname_tr_tr """SELECT DAYNAME('2024-02-14')"""
+    
+    sql """SET lc_time_names='el_GR'"""
+    qt_dayname_el_gr """SELECT DAYNAME('2023-10-28 04:25:56')"""
+    
+    sql """SET lc_time_names='he_IL'"""
+    qt_dayname_he_il """SELECT DAYNAME('2024-04-07')"""
+    
+    sql """SET lc_time_names='hi_IN'"""
+    qt_dayname_hi_in """SELECT DAYNAME('2023-07-20 17:55:11')"""
+    
+    sql """SET lc_time_names='id_ID'"""
+    qt_dayname_id_id """SELECT DAYNAME('2024-11-05')"""
+    
+    sql """SET lc_time_names='ms_MY'"""
+    qt_dayname_ms_my """SELECT DAYNAME('2023-03-18 12:40:28')"""
+
+    sql """SET lc_time_names='ar_AE'"""
+    testFoldConst("SELECT DAYNAME('2023-08-15 20:10:33');")
+    
+    sql """SET lc_time_names='zh_CN'"""
+    testFoldConst("SELECT DAYNAME('2024-09-22');")
+    
+    sql """SET lc_time_names='ja_JP'"""
+    testFoldConst("SELECT DAYNAME('2023-05-01 15:35:44');")
+    
+    sql """SET lc_time_names='ko_KR'"""
+    testFoldConst("SELECT DAYNAME('2024-02-14');")
+    
+    sql """SET lc_time_names='ru_RU'"""
+    testFoldConst("SELECT DAYNAME('2023-10-28 04:25:56');")
+    
+    sql """SET lc_time_names='de_DE'"""
+    testFoldConst("SELECT DAYNAME('2024-04-07');")
+    
+    sql """SET lc_time_names='fr_FR'"""
+    testFoldConst("SELECT DAYNAME('2023-07-20 17:55:11');")
+    
+    sql """SET lc_time_names='es_ES'"""
+    testFoldConst("SELECT DAYNAME('2024-11-05');")
+    
+    sql """SET lc_time_names='pt_BR'"""
+    testFoldConst("SELECT DAYNAME('2023-03-18 12:40:28');")
+    
+    sql """SET lc_time_names='it_IT'"""
+    testFoldConst("SELECT DAYNAME('2024-01-01');")
+    
+    sql """SET lc_time_names='nl_NL'"""
+    testFoldConst("SELECT DAYNAME('2023-12-31');")
+    
+    sql """SET lc_time_names='sv_SE'"""
+    testFoldConst("SELECT DAYNAME('2024-06-30 23:59:59');")
+    
+    sql """SET lc_time_names='pl_PL'"""
+    testFoldConst("SELECT DAYNAME('2023-02-28');")
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    testFoldConst("SELECT DAYNAME('2024-02-29');")
+    
+    sql """SET lc_time_names='bg_BG'"""
+    testFoldConst("SELECT DAYNAME('1970-01-01');")
+    
+    sql """SET lc_time_names='uk_UA'"""
+    testFoldConst("SELECT DAYNAME('2038-01-19');")
+    
+    sql """SET lc_time_names='en_US'"""
+    testFoldConst("SELECT DAYNAME(NULL);")
+
+    sql """SET lc_time_names=default"""
     
     // 17. DAYOFWEEK function tests
     qt_dayofweek_1 """select dayofweek('2019-06-25')"""
@@ -542,6 +727,275 @@ suite("doc_date_functions_test") {
     qt_monthname_1 """SELECT MONTHNAME('2008-02-03')"""
     qt_monthname_2 """SELECT MONTHNAME('2023-07-13 22:28:18')"""
     qt_monthname_3 """SELECT MONTHNAME(NULL)"""
+    
+    sql """SET lc_time_names='zh_CN'"""
+    qt_monthname_zh_cn """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='zh_TW'"""
+    qt_monthname_zh_tw """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='zh_HK'"""
+    qt_monthname_zh_hk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='FR_fr'"""
+    qt_monthname_fr_fr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fr_BE'"""
+    qt_monthname_fr_be """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fr_CA'"""
+    qt_monthname_fr_ca """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fr_CH'"""
+    qt_monthname_fr_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='de_DE'"""
+    qt_monthname_de_de """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='de_AT'"""
+    qt_monthname_de_at """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='DE_ch'"""
+    qt_monthname_de_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='JA_jp'"""
+    qt_monthname_ja_jp """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='Ko_KR'"""
+    qt_monthname_ko_kr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='es_ES'"""
+    qt_monthname_es_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='es_MX'"""
+    qt_monthname_es_mx """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='Es_Ar'"""
+    qt_monthname_es_ar """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='es_CO'"""
+    qt_monthname_es_co """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='IT_it'"""
+    qt_monthname_it_it """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='it_CH'"""
+    qt_monthname_it_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ru_RU'"""
+    qt_monthname_ru_ru """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='RU_ua'"""
+    qt_monthname_ru_ua """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_SA'"""
+    qt_monthname_ar_sa """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_AE'"""
+    qt_monthname_ar_ae """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='AR_eg'"""
+    qt_monthname_ar_eg """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_JO'"""
+    qt_monthname_ar_jo """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='en_US'"""
+    qt_monthname_en_us """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='en_GB'"""
+    qt_monthname_en_gb """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='En_Au'"""
+    qt_monthname_en_au """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='en_CA'"""
+    qt_monthname_en_ca """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='pt_BR'"""
+    qt_monthname_pt_br """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='pt_PT'"""
+    qt_monthname_pt_pt """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='nl_NL'"""
+    qt_monthname_nl_nl """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='NL_be'"""
+    qt_monthname_nl_be """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sv_SE'"""
+    qt_monthname_sv_se """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sv_FI'"""
+    qt_monthname_sv_fi """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='no_NO'"""
+    qt_monthname_no_no """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='nb_NO'"""
+    qt_monthname_nb_no """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='da_DK'"""
+    qt_monthname_da_dk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fi_FI'"""
+    qt_monthname_fi_fi """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='pl_PL'"""
+    qt_monthname_pl_pl """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    qt_monthname_cs_cz """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sk_SK'"""
+    qt_monthname_sk_sk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='hu_HU'"""
+    qt_monthname_hu_hu """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ro_RO'"""
+    qt_monthname_ro_ro """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='bg_BG'"""
+    qt_monthname_bg_bg """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='hr_HR'"""
+    qt_monthname_hr_hr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sl_SI'"""
+    qt_monthname_sl_si """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sr_RS'"""
+    qt_monthname_sr_rs """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='mk_MK'"""
+    qt_monthname_mk_mk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sq_AL'"""
+    qt_monthname_sq_al """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='th_TH'"""
+    qt_monthname_th_th """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='vi_VN'"""
+    qt_monthname_vi_vn """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='tr_TR'"""
+    qt_monthname_tr_tr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='el_GR'"""
+    qt_monthname_el_gr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='he_IL'"""
+    qt_monthname_he_il """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='hi_IN'"""
+    qt_monthname_hi_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='gu_IN'"""
+    qt_monthname_gu_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ta_IN'"""
+    qt_monthname_ta_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='te_IN'"""
+    qt_monthname_te_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='id_ID'"""
+    qt_monthname_id_id """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ms_MY'"""
+    qt_monthname_ms_my """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='lt_LT'"""
+    qt_monthname_lt_lt """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='lv_LV'"""
+    qt_monthname_lv_lv """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='et_EE'"""
+    qt_monthname_et_ee """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='is_IS'"""
+    qt_monthname_is_is """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fo_FO'"""
+    qt_monthname_fo_fo """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='be_BY'"""
+    qt_monthname_be_by """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='uk_UA'"""
+    qt_monthname_uk_ua """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='mn_MN'"""
+    qt_monthname_mn_mn """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ur_PK'"""
+    qt_monthname_ur_pk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ca_ES'"""
+    qt_monthname_ca_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='eu_ES'"""
+    qt_monthname_eu_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='gl_ES'"""
+    qt_monthname_gl_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='rm_CH'"""
+    qt_monthname_rm_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_AE'"""
+    testFoldConst("SELECT MONTHNAME('2023-01-15');")
+    
+    sql """SET lc_time_names='zh_CN'"""
+    testFoldConst("SELECT MONTHNAME('2023-02-20');")
+    
+    sql """SET lc_time_names='ja_JP'"""
+    testFoldConst("SELECT MONTHNAME('2023-03-25');")
+    
+    sql """SET lc_time_names='ko_KR'"""
+    testFoldConst("SELECT MONTHNAME('2023-04-10');")
+    
+    sql """SET lc_time_names='ru_RU'"""
+    testFoldConst("SELECT MONTHNAME('2023-05-18');")
+    
+    sql """SET lc_time_names='de_DE'"""
+    testFoldConst("SELECT MONTHNAME('2023-06-22');")
+    
+    sql """SET lc_time_names='fr_FR'"""
+    testFoldConst("SELECT MONTHNAME('2023-07-13');")
+    
+    sql """SET lc_time_names='es_ES'"""
+    testFoldConst("SELECT MONTHNAME('2023-08-05');")
+    
+    sql """SET lc_time_names='pt_BR'"""
+    testFoldConst("SELECT MONTHNAME('2023-09-30');")
+    
+    sql """SET lc_time_names='it_IT'"""
+    testFoldConst("SELECT MONTHNAME('2023-10-12');")
+    
+    sql """SET lc_time_names='nl_NL'"""
+    testFoldConst("SELECT MONTHNAME('2023-11-28');")
+    
+    sql """SET lc_time_names='sv_SE'"""
+    testFoldConst("SELECT MONTHNAME('2023-12-01');")
+    
+    sql """SET lc_time_names='pl_PL'"""
+    testFoldConst("SELECT MONTHNAME('2024-01-31');")
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    testFoldConst("SELECT MONTHNAME('2024-02-29');")
+    
+    sql """SET lc_time_names='bg_BG'"""
+    testFoldConst("SELECT MONTHNAME('2024-03-15');")
+    
+    sql """SET lc_time_names='uk_UA'"""
+    testFoldConst("SELECT MONTHNAME('2024-04-01');")
+
+    sql """SET lc_time_names=default"""
     
     // 54. MONTHS_ADD function tests
     qt_months_add_1 """SELECT MONTHS_ADD('2020-01-31', 1)"""
@@ -913,6 +1367,30 @@ suite("doc_date_functions_test") {
     qt_yearweek_3 """SELECT YEARWEEK('2024-12-30', 1) AS cross_year_mode1"""
     qt_yearweek_4 """SELECT YEARWEEK('2023-01-02', 5) AS yearweek_mode5"""
     qt_yearweek_5 """SELECT YEARWEEK('2023-12-25', 1) AS date_type_mode1"""
+
+    // 100. MAKETIME function test;
+    sql """DROP TABLE IF EXISTS maketime_test"""
+    sql """CREATE TABLE maketime_test (
+            `id` INT,
+            `hour` INT,
+            `minute` INT,
+            `sec` FLOAT
+        ) DUPLICATE KEY(id)
+        PROPERTIES ( 'replication_num' = '1' );"""
+    sql """ INSERT INTO maketime_test VALUES
+                (1, 12, 15, 30),
+                (2, 111, 0, 23.1234567),
+                (3, 1234, 11, 4),
+                (4, -1234, 6, 52),
+                (5, 20, 60, 12),
+                (6, 14, 51, 66),
+                (7, NULL, 15, 16),
+                (8, 7, NULL, 8),
+                (9, 1, 2, NULL),
+                (10, 123, -4, 52),
+                (11, 7, 23, -6);"""
+    qt_maketime_test_1 """SELECT MAKETIME(hour,minute,sec) FROM maketime_test ORDER BY id;"""
+    qt_maketime_test_2 """SELECT MAKETIME(hour, minute, 25) FROM maketime_test ORDER BY id;"""
 
     // Test constant folding for YEARWEEK function
     testFoldConst("SELECT YEARWEEK('2021-01-01') AS yearweek_mode0")
@@ -1530,6 +2008,19 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT YEARS_SUB('2022-05-10 15:40:20', -1) AS add_1_year_datetime")
     testFoldConst("SELECT YEARS_SUB('2022-12-25', 3) AS sub_3_year_date")
     testFoldConst("SELECT YEARS_SUB('2020-02-29', 1) AS leap_day_adjust_1")
+
+    // 99. MAKETIME function constant folding tests
+    testFoldConst("SELECT MAKETIME(12, 15, 30)")
+    testFoldConst("SELECT MAKETIME(111, 0, 23.1234567)")
+    testFoldConst("SELECT MAKETIME(1234, 11, 4)")
+    testFoldConst("SELECT MAKETIME(-1234, 6, 52)")
+    testFoldConst("SELECT MAKETIME(20, 60, 12)")
+    testFoldConst("SELECT MAKETIME(14, 51, 66)")
+    testFoldConst("SELECT MAKETIME(NULL, 15, 16)")
+    testFoldConst("SELECT MAKETIME(7, NULL, 8)")
+    testFoldConst("SELECT MAKETIME(1, 2, NULL)")
+    testFoldConst("SELECT MAKETIME(123, -4, 40)")
+    testFoldConst("SELECT MAKETIME(7, 8, -23)")
 
     // Additional NULL parameter tests for comprehensive coverage
     

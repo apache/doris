@@ -406,9 +406,12 @@ public class AuditLogHelper {
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
         }
 
-        boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
-                && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
-        String encryptSql = isAnalysisErr ? ctx.getState().getErrorMessage() : origStmt;
+        boolean isSyntaxErr = ctx.getState().getStateType() == MysqlStateType.ERR
+                && ctx.getState().getErrType() == QueryState.ErrType.SYNTAX_PARSE_ERR;
+        String encryptSql = isSyntaxErr ? "Syntax Error" : origStmt;
+        if (isSyntaxErr) {
+            auditEventBuilder.setErrorMessage("Syntax Error");
+        }
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();

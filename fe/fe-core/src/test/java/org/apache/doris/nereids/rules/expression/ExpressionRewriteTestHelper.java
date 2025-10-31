@@ -55,10 +55,11 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
     protected ExpressionRuleExecutor executor;
 
+    protected CascadesContext cascadesContext;
     protected ExpressionRewriteContext context;
 
     public ExpressionRewriteTestHelper() {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+        cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
     }
@@ -118,8 +119,9 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
             String name = slot.getNameParts().get(slot.getNameParts().size() - 1);
             List<String> qualifier = slot.getQualifier();
             DataType dataType = getType(name.charAt(0));
+            boolean notNullable = name.charAt(0) == 'X' || name.length() >= 2 && name.charAt(1) == 'X';
             Column column = new Column(name, dataType.toCatalogDataType());
-            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column, null, null));
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, !notNullable, qualifier, null, column, null, null));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;

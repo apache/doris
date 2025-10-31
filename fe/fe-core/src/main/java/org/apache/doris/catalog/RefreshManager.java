@@ -26,7 +26,6 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.persist.OperationType;
 
@@ -70,11 +69,11 @@ public class RefreshManager {
     }
 
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
-        String catalogName = catalog.getName();
-        if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).resetToUninitialized(invalidCache);
-            LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
+        if (catalog.isInternalCatalog()) {
+            return;
         }
+        ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
+        LOG.info("refresh catalog {} with invalidCache {}", catalog.getName(), invalidCache);
     }
 
     // Refresh database
@@ -114,7 +113,7 @@ public class RefreshManager {
     }
 
     private void refreshDbInternal(ExternalDatabase db) {
-        db.resetToUninitialized();
+        db.resetMetaToUninitialized();
         LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 

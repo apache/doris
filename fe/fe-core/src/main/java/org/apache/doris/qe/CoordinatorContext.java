@@ -306,6 +306,7 @@ public class CoordinatorContext {
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setNewVersionUnixTimestamp(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -351,6 +352,7 @@ public class CoordinatorContext {
         } else {
             queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
+        queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         return queryGlobals;
     }
 

@@ -2411,6 +2411,46 @@ TEST(MetaReaderTest, GetCompactRowsetMetas) {
     }
 }
 
+TEST(MetaReaderTest, HasSnapshot) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+
+    {
+        // Test when snapshot does not exist
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_snapshot = true; // Initialize to true to test the change
+        TxnErrorCode err = meta_reader.has_snapshot(&has_snapshot);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(has_snapshot);
+    }
+
+    {
+        // Create a snapshot entry
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string snapshot_key = versioned::snapshot_full_key({instance_id});
+        snapshot_key = encode_versioned_key(snapshot_key, Versionstamp(1, 1));
+        SnapshotPB snapshot_pb;
+        snapshot_pb.set_label("test_snapshot");
+        snapshot_pb.set_instance_id(instance_id);
+
+        ASSERT_TRUE(versioned::document_put(txn.get(), snapshot_key, std::move(snapshot_pb)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test when snapshot exists
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_snapshot = false; // Initialize to false to test the change
+        TxnErrorCode err = meta_reader.has_snapshot(&has_snapshot);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_snapshot);
+    }
+}
+
 TEST(MetaReaderTest, HasSnapshotReferences) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -2704,5 +2744,102 @@ TEST(MetaReaderTest, GetAllTabletIds) {
             ASSERT_EQ(original_metas[tablet_id].index_id(), tablet_idx.index_id());
             ASSERT_EQ(original_metas[tablet_id].tablet_id(), tablet_idx.tablet_id());
         }
+    }
+}
+
+TEST(MetaReaderTest, FindDerivedInstanceIdsTest) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    std::string instance_id = "test_instance";
+    Versionstamp snapshot_version(0x0102030405060708ULL, 0x090a);
+
+    // Create snapshot reference keys for multiple derived instances
+    std::vector<std::string> expected_derived_ids = {
+            "derived_instance_1",
+            "derived_instance_2",
+            "derived_instance_3",
+            "derived_instance_4",
+    };
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (const auto& derived_id : expected_derived_ids) {
+            versioned::SnapshotReferenceKeyInfo ref_key_info {instance_id, snapshot_version,
+                                                              derived_id};
+            std::string ref_key = versioned::snapshot_reference_key(ref_key_info);
+            txn->put(ref_key, ""); // Value is empty for reference keys
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Test find_derived_instance_ids
+    {
+        MetaReader reader(instance_id, txn_kv.get());
+        std::vector<std::string> derived_ids;
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        TxnErrorCode err =
+                reader.find_derived_instance_ids(txn.get(), snapshot_version, &derived_ids, false);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(derived_ids.size(), expected_derived_ids.size());
+
+        // Convert to set for comparison (order doesn't matter)
+        std::unordered_set<std::string> derived_set(derived_ids.begin(), derived_ids.end());
+        std::unordered_set<std::string> expected_set(expected_derived_ids.begin(),
+                                                     expected_derived_ids.end());
+        ASSERT_EQ(derived_set, expected_set);
+    }
+
+    // Test with no references
+    {
+        Versionstamp empty_snapshot_version(0x0a0b0c0d0e0f1011ULL, 0x1213);
+        MetaReader reader(instance_id, txn_kv.get());
+        std::vector<std::string> derived_ids;
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        TxnErrorCode err = reader.find_derived_instance_ids(txn.get(), empty_snapshot_version,
+                                                            &derived_ids, false);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(derived_ids.empty());
+    }
+
+    // Test with duplicate instance IDs (should be deduplicated)
+    {
+        Versionstamp dup_snapshot_version(0x1112131415161718ULL, 0x191a);
+        std::string dup_instance_id = "duplicate_instance";
+
+        {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+            // Create multiple references with the same derived instance ID
+            // This simulates multiple tables/databases referencing the same snapshot
+            for (int i = 0; i < 5; ++i) {
+                versioned::SnapshotReferenceKeyInfo ref_key_info {instance_id, dup_snapshot_version,
+                                                                  dup_instance_id};
+                std::string ref_key = versioned::snapshot_reference_key(ref_key_info);
+                txn->put(ref_key, "");
+            }
+
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        }
+
+        MetaReader reader(instance_id, txn_kv.get());
+        std::vector<std::string> derived_ids;
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        TxnErrorCode err = reader.find_derived_instance_ids(txn.get(), dup_snapshot_version,
+                                                            &derived_ids, false);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(derived_ids.size(), 1); // Should be deduplicated
+        ASSERT_EQ(derived_ids[0], dup_instance_id);
     }
 }
