@@ -92,8 +92,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     AccessPathInfo accessPathInfo = kv.getValue();
                     slotIdToPruneType.put(slotId, accessPathInfo);
                 }
-                SlotTypeReplacer typeReplacer = new SlotTypeReplacer(slotIdToPruneType);
-                return plan.accept(typeReplacer, null);
+                return new SlotTypeReplacer(slotIdToPruneType, plan).replace();
             }
             return plan;
         } catch (Throwable t) {

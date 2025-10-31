@@ -77,9 +77,11 @@ import com.google.common.collect.ImmutableMultimap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,10 +91,32 @@ import java.util.Set;
 
 /** SlotTypeReplacer */
 public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
+    private Plan plan;
     private Map<Integer, AccessPathInfo> replacedDataTypes;
+    private IdentityHashMap<Plan, Void> shouldPrunePlans = new IdentityHashMap();
 
-    public SlotTypeReplacer(Map<Integer, AccessPathInfo> bottomReplacedDataTypes) {
+    public SlotTypeReplacer(Map<Integer, AccessPathInfo> bottomReplacedDataTypes, Plan plan) {
         this.replacedDataTypes = Maps.newLinkedHashMap(bottomReplacedDataTypes);
+        this.plan = plan;
+    }
+
+    /** replace */
+    public Plan replace() {
+        Set<Integer> shouldReplaceSlots = Sets.newLinkedHashSet();
+        plan.foreachUp(p -> {
+            if (p instanceof LogicalTVFRelation) {
+                TableValuedFunction function = ((LogicalTVFRelation) p).getFunction();
+                tryRecordReplaceSlots((Plan) p, function, shouldReplaceSlots);
+            } else {
+                tryRecordReplaceSlots((Plan) p, p, shouldReplaceSlots);
+            }
+        });
+        replacedDataTypes.keySet().retainAll(shouldReplaceSlots);
+
+        if (replacedDataTypes.isEmpty()) {
+            return plan;
+        }
+        return plan.accept(this, null);
     }
 
     @Override
@@ -376,7 +400,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
     @Override
     public Plan visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
-        if (!fileScan.supportPruneNestedColumn()) {
+        if (!shouldPrunePlans.containsKey(fileScan)) {
             return fileScan;
         }
 
@@ -413,9 +437,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
     @Override
     public Plan visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
-        TableValuedFunction function = tvfRelation.getFunction();
-        if (!(function instanceof SupportPruneNestedColumn)
-                || !((SupportPruneNestedColumn) function).supportPruneNestedColumn()) {
+        if (!shouldPrunePlans.containsKey(tvfRelation)) {
             return tvfRelation;
         }
         Pair<Boolean, List<Slot>> replaced
@@ -428,6 +450,9 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
 
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
+        if (!shouldPrunePlans.containsKey(olapScan)) {
+            return olapScan;
+        }
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(olapScan.getOutput(), false, true);
         if (replaced.first) {
             return olapScan.withPrunedTypeSlots(replaced.second);
@@ -679,6 +704,24 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                 }
             } else {
                 originPath.set(index, String.valueOf(column.getUniqueId()));
+            }
+        }
+    }
+
+    private void tryRecordReplaceSlots(Plan plan, Object checkObj, Set<Integer> shouldReplaceSlots) {
+        if (checkObj instanceof SupportPruneNestedColumn
+                && ((SupportPruneNestedColumn) checkObj).supportPruneNestedColumn()) {
+            List<Slot> output = plan.getOutput();
+            boolean shouldPrune = false;
+            for (Slot slot : output) {
+                int slotId = slot.getExprId().asInt();
+                if (replacedDataTypes.containsKey(slotId)) {
+                    shouldReplaceSlots.add(slotId);
+                    shouldPrune = true;
+                }
+            }
+            if (shouldPrune) {
+                shouldPrunePlans.put(plan, null);
             }
         }
     }
