@@ -49,6 +49,7 @@ public:
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) override;
 
     const std::string& expr_name() const override { return _expr_name; }
     std::string debug_string() const override;
