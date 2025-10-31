@@ -177,7 +177,6 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.DescribeDictionaryContext;
 import org.apache.doris.nereids.DorisParser.DictionaryColumnDefContext;
 import org.apache.doris.nereids.DorisParser.DistributeTypeContext;
-import org.apache.doris.nereids.DorisParser.DoubleColonCastContext;
 import org.apache.doris.nereids.DorisParser.DropAllBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
@@ -3074,13 +3073,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitTryCast(DorisParser.TryCastContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> processTryCast(getExpression(ctx.expression()), ctx.castDataType()));
-    }
-
-    @Override
-    public Object visitDoubleColonCast(DoubleColonCastContext ctx) {
-        return ParserUtils.withOrigin(ctx,
-                () -> processCast(getExpression(ctx.primaryExpression()), ctx.castDataType())
-        );
     }
 
     @Override
