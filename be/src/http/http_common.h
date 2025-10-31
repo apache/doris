@@ -73,5 +73,6 @@ static const std::string HTTP_GROUP_COMMIT = "group_commit";
 static const std::string HTTP_CLOUD_CLUSTER = "cloud_cluster";
 static const std::string HTTP_EMPTY_FIELD_AS_NULL = "empty_field_as_null";
 static const std::string HTTP_COMPUTE_GROUP = "compute_group";
+static const std::string HTTP_SKIP_RECORD = "skip_record";
 
 } // namespace doris
