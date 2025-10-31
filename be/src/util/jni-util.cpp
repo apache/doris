@@ -336,6 +336,7 @@ Status JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std
     }
     env->DeleteLocalRef(hashmap_class);
     RETURN_IF_ERROR(LocalToGlobalRef(env, hashmap_local_object, hashmap_object));
+    env->DeleteLocalRef(hashmap_local_object);
     return Status::OK();
 }
 
