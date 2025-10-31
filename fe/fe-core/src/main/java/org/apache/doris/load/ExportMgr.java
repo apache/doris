@@ -111,17 +111,14 @@ public class ExportMgr {
         } finally {
             writeUnlock();
         }
-        // delete existing files
-        if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-            if (job.getBrokerDesc() == null) {
-                throw new AnalysisException("Local file system does not support delete existing files");
-            }
-            String fullPath = job.getExportPath();
-            BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
-                    job.getBrokerDesc());
-        }
-        // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
         try {
+            // delete existing files
+            if (Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                String fullPath = job.getExportPath();
+                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                        job.getBrokerDesc());
+            }
+            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
             for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
                 Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
             }
@@ -546,3 +543,4 @@ public class ExportMgr {
         return size;
     }
 }
+

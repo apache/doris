@@ -23,6 +23,7 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.DatabaseIf;
@@ -305,9 +306,6 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
         // set max_file_size
         exportJob.setMaxFileSize(fileProperties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, ""));
-        // set delete_existing_files
-        exportJob.setDeleteExistingFiles(fileProperties.getOrDefault(
-                OutFileClause.PROP_DELETE_EXISTING_FILES, ""));
 
         // null means not specified
         // "" means user specified zero columns
@@ -321,6 +319,23 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
         // set broker desc
         exportJob.setBrokerDesc(this.brokerDesc.get());
+
+        // set delete_existing_files
+        exportJob.setDeleteExistingFiles(fileProperties.getOrDefault(
+                OutFileClause.PROP_DELETE_EXISTING_FILES, ""));
+
+        if (!Config.enable_delete_existing_files && exportJob.getDeleteExistingFiles().equalsIgnoreCase("true")) {
+            throw new AnalysisException(("Deleting existing files is not allowed."
+                    + " To enable this feature, you need to add `enable_delete_existing_files=true`"
+                    + " in fe.conf"));
+        }
+
+        if (exportJob.getDeleteExistingFiles().equalsIgnoreCase("true")
+                && (exportJob.getBrokerDesc() == null
+                || exportJob.getBrokerDesc().storageType() == StorageType.LOCAL)) {
+            throw new org.apache.doris.common.AnalysisException(
+                    "Local file system does not support delete existing files");
+        }
 
         // set sessions
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
@@ -391,3 +406,4 @@ public class ExportCommand extends Command implements ForwardWithSync {
         return StmtType.EXPORT;
     }
 }
+
