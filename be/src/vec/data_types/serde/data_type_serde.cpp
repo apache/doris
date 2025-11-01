@@ -25,7 +25,11 @@
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_array_serde.h"
+#include "vec/data_types/serde/data_type_decimal_serde.h"
 #include "vec/data_types/serde/data_type_jsonb_serde.h"
+#include "vec/data_types/serde/data_type_number_serde.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
 #include "vec/functions/cast/cast_base.h"
 namespace doris {
 namespace vectorized {
@@ -116,8 +120,147 @@ Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& colum
     return Status::OK();
 }
 
+void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    const auto size = column.size();
+    column_to.reserve(size);
+    VectorBufferWriter write_buffer(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        to_string(column, i, write_buffer);
+        write_buffer.commit();
+    }
+}
+
+void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_string_batch not implement.", get_name());
+}
+
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
 const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
+
+const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, IColumn& column) {
+    auto& nullable_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    const FieldType type = static_cast<FieldType>(*data++);
+    const uint8_t* end = data;
+    switch (type) {
+#define HANDLE_SIMPLE_SERDE(FT, SERDE)                                                        \
+    case FieldType::FT: {                                                                     \
+        end = SERDE::deserialize_binary_to_column(data, nullable_column.get_nested_column()); \
+        nullable_column.push_false_to_nullmap(1);                                             \
+        break;                                                                                \
+    }
+
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                   \
+    case FieldType::FT: {                                                \
+        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());              \
+        nullable_column.push_false_to_nullmap(1);                        \
+        break;                                                           \
+    }
+
+#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                    \
+    case FieldType::FT: {                                                 \
+        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());               \
+        nullable_column.push_false_to_nullmap(1);                         \
+        break;                                                            \
+    }
+
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+
+    case FieldType::OLAP_FIELD_TYPE_NONE: {
+        end = data;
+        nullable_column.insert_default();
+        break;
+    }
+    default:
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Type ({}) for deserialize_binary_to_column is invalid", type);
+    }
+
+#undef HANDLE_T_DEC_SERDE
+#undef HANDLE_T_NUM_SERDE
+#undef HANDLE_SIMPLE_SERDE
+
+    return end;
+}
+
+const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                          FieldInfo& info) {
+    const FieldType type = static_cast<FieldType>(*data++);
+    info.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
+    const uint8_t* end = data;
+    switch (type) {
+#define HANDLE_SIMPLE_SERDE(FT, SERDE)                               \
+    case FieldType::FT: {                                            \
+        end = SERDE::deserialize_binary_to_field(data, field, info); \
+        break;                                                       \
+    }
+
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                                     \
+    case FieldType::FT: {                                                                  \
+        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                             \
+    }
+
+#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                                      \
+    case FieldType::FT: {                                                                   \
+        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                              \
+    }
+
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+
+    case FieldType::OLAP_FIELD_TYPE_NONE: {
+        end = data;
+        break;
+    }
+    default:
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Type ({}) for deserialize_binary_to_field is invalid", type);
+    }
+
+#undef HANDLE_T_DEC_SERDE
+#undef HANDLE_T_NUM_SERDE
+#undef HANDLE_SIMPLE_SERDE
+    return end;
+}
 
 } // namespace vectorized
 } // namespace doris

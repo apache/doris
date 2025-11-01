@@ -43,6 +43,20 @@ public class AWSGlueMetaStoreBasePropertiesTest {
     }
 
     @Test
+    void testValidPropertiesWithRegion() {
+        Map<String, String> props = baseValidProps();
+        props.put("glue.region", "us-east-1");
+        props.put("glue.endpoint", "https://glue.us-east-1.amazonaws.com.cn");
+        AWSGlueMetaStoreBaseProperties glueProps = AWSGlueMetaStoreBaseProperties.of(props);
+        Assertions.assertTrue("https://glue.us-east-1.amazonaws.com.cn".equals(glueProps.glueEndpoint));
+        Assertions.assertEquals("us-east-1", glueProps.glueRegion);
+        props.remove("glue.region");
+        glueProps = AWSGlueMetaStoreBaseProperties.of(props);
+        Assertions.assertTrue("https://glue.us-east-1.amazonaws.com.cn".equals(glueProps.glueEndpoint));
+        Assertions.assertEquals("us-east-1", glueProps.glueRegion);
+    }
+
+    @Test
     void testValidPropertiesWithExplicitRegion() {
         Map<String, String> props = baseValidProps();
         props.put("glue.region", "ap-southeast-1");
@@ -70,7 +84,7 @@ public class AWSGlueMetaStoreBasePropertiesTest {
                 IllegalArgumentException.class,
                 () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("glue.secret_key is required"));
+        Assertions.assertTrue(ex.getMessage().contains("glue.access_key and glue.secret_key must be set together"));
     }
 
     @Test
@@ -82,30 +96,31 @@ public class AWSGlueMetaStoreBasePropertiesTest {
                 IllegalArgumentException.class,
                 () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("glue.endpoint is required"));
+        Assertions.assertTrue(ex.getMessage().contains("At least one of glue.endpoint or glue.region must be set"));
     }
 
     @Test
-    void testInvalidEndpointThrows() {
+    void testInvalidEndpoint() {
         Map<String, String> props = baseValidProps();
         props.put("glue.endpoint", "http://invalid-endpoint.com");
-
-        IllegalArgumentException ex = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> AWSGlueMetaStoreBaseProperties.of(props)
-        );
-        Assertions.assertTrue(ex.getMessage().contains("Invalid AWS Glue endpoint"));
+        Assertions.assertDoesNotThrow(() -> AWSGlueMetaStoreBaseProperties.of(props));
     }
 
     @Test
     void testExtractRegionFailsWhenPatternMatchesButNoRegion() {
         Map<String, String> props = baseValidProps();
         props.put("glue.endpoint", "glue..amazonaws.com"); // malformed
-
-        IllegalArgumentException ex = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> AWSGlueMetaStoreBaseProperties.of(props)
+        Assertions.assertDoesNotThrow(() -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("Invalid AWS Glue endpoint"));
+    }
+
+    @Test
+    void testIamRole() {
+        Map<String, String> props = baseValidProps();
+        props.remove("glue.access_key");
+        props.remove("glue.secret_key");
+        props.put("glue.role_arn", "arn:aws:iam::1001:role/doris-glue-role");
+        AWSGlueMetaStoreBaseProperties glueProps = AWSGlueMetaStoreBaseProperties.of(props);
+        Assertions.assertEquals("arn:aws:iam::1001:role/doris-glue-role", glueProps.glueIAMRole);
     }
 }

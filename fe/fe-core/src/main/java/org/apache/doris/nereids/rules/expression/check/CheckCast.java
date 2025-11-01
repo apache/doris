@@ -52,10 +52,12 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -192,6 +194,11 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(QuantileStateType.class);
         strictCastWhiteList.put(QuantileStateType.class, allowedTypes);
 
+        //varbinary
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(VarBinaryType.class);
+        strictCastWhiteList.put(VarBinaryType.class, allowedTypes);
+
         // array
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
@@ -302,8 +309,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     Cast cast = ctx.expr;
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
-                    if (!check(originalType, targetType, ctx.cascadesContext.getConnectContext()
-                            .getSessionVariable().enableStrictCast)) {
+                    if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
                         throw new AnalysisException("cannot cast " + originalType.toSql()
                                 + " to " + targetType.toSql());
                     }
@@ -395,37 +401,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else if (originalType.isComplexType() && targetType.isJsonType()) {
             return !checkTypeContainsType(originalType, MapType.class);
         } else {
-            return checkPrimitiveType(originalType, targetType);
-        }
-    }
-
-    /**
-     * forbid this original and target type
-     *   1. original type is object type
-     *   2. target type is object type
-     *   3. original type is same with target type
-     *   4. target type is null type
-     */
-    private static boolean checkPrimitiveType(DataType originalType, DataType targetType) {
-        if (originalType.isJsonType() || targetType.isJsonType()) {
             return true;
         }
-        if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
-            return false;
-        }
-        if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isNullType()) {
-            return true;
-        }
-        if (originalType.isObjectType() || targetType.isObjectType()) {
-            return false;
-        }
-        if (targetType.isNullType()) {
-            return false;
-        }
-        return true;
     }
 
     /**

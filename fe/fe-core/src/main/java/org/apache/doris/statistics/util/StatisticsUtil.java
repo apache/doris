@@ -26,7 +26,6 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.AggStateType;
@@ -56,12 +55,12 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -376,23 +375,6 @@ public class StatisticsUtil {
         TableIf tableIf = databaseIf.getTableNullable(tableNameInfo.getTbl());
         if (tableIf == null) {
             throw new IllegalStateException(String.format("Table:%s doesn't exist", tableNameInfo.getTbl()));
-        }
-        return new DBObjects(catalogIf, databaseIf, tableIf);
-    }
-
-    public static DBObjects convertTableNameToObjects(TableName tableName) {
-        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
-                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
-        if (catalogIf == null) {
-            throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableName.getCtl()));
-        }
-        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
-        if (databaseIf == null) {
-            throw new IllegalStateException(String.format("DB:%s doesn't exist", tableName.getDb()));
-        }
-        TableIf tableIf = databaseIf.getTableNullable(tableName.getTbl());
-        if (tableIf == null) {
-            throw new IllegalStateException(String.format("Table:%s doesn't exist", tableName.getTbl()));
         }
         return new DBObjects(catalogIf, databaseIf, tableIf);
     }
@@ -973,7 +955,7 @@ public class StatisticsUtil {
     public static long getExternalTableAutoAnalyzeIntervalInMillis() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
-                .externalTableAutoAnalyzeIntervalInMillis;
+                    .externalTableAutoAnalyzeIntervalInMillis;
         } catch (Exception e) {
             LOG.warn("Failed to get value of externalTableAutoAnalyzeIntervalInMillis, return default", e);
         }
@@ -1003,7 +985,7 @@ public class StatisticsUtil {
     public static int getAutoAnalyzeTableWidthThreshold() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD)
-                .autoAnalyzeTableWidthThreshold;
+                    .autoAnalyzeTableWidthThreshold;
         } catch (Exception e) {
             LOG.warn("Failed to get value of auto_analyze_table_width_threshold, return default", e);
         }
@@ -1051,7 +1033,7 @@ public class StatisticsUtil {
      */
     public static boolean isMvColumn(TableIf table, String columnName) {
         return table instanceof OlapTable
-            && table.getColumn(columnName).isMaterializedViewColumn();
+                && table.getColumn(columnName).isMaterializedViewColumn();
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {

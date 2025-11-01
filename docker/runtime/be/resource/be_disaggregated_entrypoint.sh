@@ -77,6 +77,7 @@ function add_workloadgroup_config()
 # update config add `deploy_mode`.
 update_conf_from_configmap()
 {
+    echo "" >> $DORIS_HOME/conf/be.conf
     echo "deploy_mode = cloud" >> $DORIS_HOME/conf/be.conf
     if [[ "x$CONFIGMAP_MOUNT_PATH" == "x" ]] ; then
         log_stderr '[info] Empty $CONFIGMAP_MOUNT_PATH env var, skip it!'

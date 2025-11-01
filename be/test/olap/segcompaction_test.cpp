@@ -262,6 +262,7 @@ protected:
         auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, _data_dir.get(), "test_str");
         // tablet->key
         rowset_writer_context->tablet = tablet;
+        rowset_writer_context->enable_segcompaction = true;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
@@ -388,7 +389,8 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             EXPECT_EQ(num_rows_read, num_segments * rows_per_segment);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -894,7 +896,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -1159,7 +1162,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;

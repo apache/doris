@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -28,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -287,7 +287,7 @@ public class AnalysisManagerTest {
         new MockUp<AnalysisManager>() {
             @Mock
             public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
-                                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+                                             TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
                 try {
                     Thread.sleep(1000);
                     count.incrementAndGet();

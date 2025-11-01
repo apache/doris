@@ -383,9 +383,6 @@ Status PushBrokerReader::init() {
     TPlanFragmentExecParams params;
     params.fragment_instance_id = dummy_id;
     params.query_id = dummy_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
     std::shared_ptr<MemTrackerLimiter> tracker = MemTrackerLimiter::create_shared(
@@ -658,11 +655,10 @@ Status PushBrokerReader::_get_next_reader() {
     switch (_file_params.format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         std::unique_ptr<vectorized::ParquetReader> parquet_reader =
-                vectorized::ParquetReader::create_unique(
-                        _runtime_profile, _file_params, range,
-                        _runtime_state->query_options().batch_size,
-                        const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
-                        _io_ctx.get(), _runtime_state.get());
+                vectorized::ParquetReader::create_unique(_runtime_profile, _file_params, range,
+                                                         _runtime_state->query_options().batch_size,
+                                                         &_runtime_state->timezone_obj(),
+                                                         _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
                 _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,

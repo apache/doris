@@ -84,7 +84,7 @@ public class If extends ScalarFunction
         Optional<DataType> commonType;
         try {
             commonType = TypeCoercionUtils.findWiderTypeForTwoByVariable(
-                    getArgumentType(1), getArgumentType(2), false);
+                    getArgumentType(1), getArgumentType(2), false, true);
         } catch (Exception e) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
@@ -96,5 +96,20 @@ public class If extends ScalarFunction
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
         }
+    }
+
+    /** get condition */
+    public Expression getCondition() {
+        return child(0);
+    }
+
+    /** get true value */
+    public Expression getTrueValue() {
+        return child(1);
+    }
+
+    /** get false value */
+    public Expression getFalseValue() {
+        return child(2);
     }
 }

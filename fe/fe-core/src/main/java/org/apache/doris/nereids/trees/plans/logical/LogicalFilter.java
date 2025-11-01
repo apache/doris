@@ -120,6 +120,18 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest());
+        sb.append(" WHERE ");
+        sb.append(
+                conjuncts.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(" AND "))
+        );
+        return sb.toString();
+    }
+
+    @Override
     public String getFingerprint() {
         return Utils.toSqlString("Filter[" + getGroupIdWithPrefix() + "]",
                 "predicates", getPredicate().getFingerprint()

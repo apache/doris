@@ -853,6 +853,8 @@ public class VariableMgr {
         // Name in show variables and set statement;
         String name();
 
+        String[] alias() default {};
+
         int flag() default 0;
 
         // TODO(zhaochun): min and max is not used.
@@ -945,9 +947,16 @@ public class VariableMgr {
             }
 
             field.setAccessible(true);
-            builder.put(attr.name(),
-                    new VarContext(field, sessionVariable, SESSION | attr.flag(),
-                            getValue(sessionVariable, field)));
+            VarContext varContext = new VarContext(field, sessionVariable, SESSION | attr.flag(),
+                    getValue(sessionVariable, field));
+
+            // 1. Register the primary name.
+            builder.put(attr.name(), varContext);
+
+            // 2. Register all aliases, pointing to the SAME VarContext.
+            for (String aliasName : attr.alias()) {
+                builder.put(aliasName, varContext);
+            }
         }
 
         // Variables only exist in global environment.
@@ -1033,7 +1042,9 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.ENABLE_NEW_TYPE_COERCION_BEHAVIOR,
                     String.valueOf(false));
-
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_SQL_CACHE,
+                    String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,

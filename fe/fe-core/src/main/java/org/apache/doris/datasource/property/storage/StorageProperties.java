@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
@@ -31,6 +33,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 public abstract class StorageProperties extends ConnectionProperties {
@@ -47,8 +50,11 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
+    protected static final String URI_KEY = "uri";
 
     public static final String FS_PROVIDER_KEY = "provider";
+
+    protected  final String userFsPropsPrefix = "fs.";
 
     public enum Type {
         HDFS,
@@ -124,13 +130,14 @@ public abstract class StorageProperties extends ConnectionProperties {
                 result.add(p);
             }
         }
+        // Add default HDFS storage if not explicitly configured
         if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
-            result.add(new HdfsProperties(origProps));
+            result.add(new HdfsProperties(origProps, false));
         }
 
         for (StorageProperties storageProperties : result) {
             storageProperties.initNormalizeAndCheckProps();
-            storageProperties.initializeHadoopStorageConfig();
+            storageProperties.buildHadoopStorageConfig();
         }
         return result;
     }
@@ -150,7 +157,7 @@ public abstract class StorageProperties extends ConnectionProperties {
             StorageProperties p = func.apply(origProps);
             if (p != null) {
                 p.initNormalizeAndCheckProps();
-                p.initializeHadoopStorageConfig();
+                p.buildHadoopStorageConfig();
                 return p;
             }
         }
@@ -232,5 +239,56 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     public abstract String getStorageName();
 
-    public abstract void initializeHadoopStorageConfig();
+    private void buildHadoopStorageConfig() {
+        initializeHadoopStorageConfig();
+        if (null == hadoopStorageConfig) {
+            return;
+        }
+        appendUserFsConfig(origProps);
+        ensureDisableCache(hadoopStorageConfig, origProps);
+    }
+
+    private void appendUserFsConfig(Map<String, String> userProps) {
+        userProps.forEach((k, v) -> {
+            if (k.startsWith(userFsPropsPrefix) && StringUtils.isNotBlank(v)) {
+                hadoopStorageConfig.set(k, v);
+            }
+        });
+    }
+
+    protected abstract void initializeHadoopStorageConfig();
+
+    protected abstract Set<String> schemas();
+
+    /**
+     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
+     * subsequent calls using the same URI will reuse the same FileSystem object.
+     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
+     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * <p>
+     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
+     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * <p>
+     * Incorrect authentication (using stale credentials)
+     * <p>
+     * Unexpected permission errors or access denial
+     * <p>
+     * Potential data leakage between users
+     * <p>
+     * To avoid such risks, the configuration property
+     * fs.<schema>.impl.disable.cache
+     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
+     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     */
+    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
+        for (String schema : schemas()) {
+            String key = "fs." + schema + ".impl.disable.cache";
+            String userValue = origProps.get(key);
+            if (StringUtils.isNotBlank(userValue)) {
+                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
+            } else {
+                conf.setBoolean(key, true);
+            }
+        }
+    }
 }

@@ -34,11 +34,9 @@ import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
@@ -123,6 +121,9 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
@@ -300,11 +301,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         return "Doris internal catalog";
     }
 
-    public TableName getTableNameByTableId(Long tableId) {
+    public TableNameInfo getTableNameByTableId(Long tableId) {
         for (Database db : fullNameToDb.values()) {
             Table table = db.getTableNullable(tableId);
             if (table != null) {
-                return new TableName(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
+                return new TableNameInfo(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
             }
         }
         return null;
@@ -990,8 +991,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             table.writeUnlock();
         }
-
-        Env.getCurrentEnv().getMtmvService().dropTable(table);
+        if (table instanceof OlapTable) {
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
+        }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
                     .clearTableLastTxnId(db.getId(), table.getId());
@@ -1017,6 +1019,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
+        }
+        if (table instanceof View) {
+            Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
@@ -2118,13 +2123,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storageDictPageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    // Use resolved format that considers global override for new partitions
-                    TInvertedIndexFileStorageFormat effectiveFormat =
-                            (Config.enable_new_partition_inverted_index_v2_format
-                                    && tbl.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1)
-                                    ? TInvertedIndexFileStorageFormat.V2
-                                    : tbl.getInvertedIndexFileStorageFormat();
-                    task.setInvertedIndexFileStorageFormat(effectiveFormat);
+                    task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
                     if (!CollectionUtils.isEmpty(clusterKeyUids)) {
                         task.setClusterKeyUids(clusterKeyUids);
                         LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",
@@ -3500,15 +3499,15 @@ public class InternalCatalog implements CatalogIf<Database> {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql)
+    public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
+                              String rawTruncateSql)
             throws DdlException {
         // check, and save some info which need to be checked again later
         Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
-        boolean truncateEntireTable = partitionNames == null || partitionNames.isStar();
+        boolean truncateEntireTable = partitionNamesInfo == null || partitionNamesInfo.isStar();
 
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
@@ -3524,7 +3523,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             olapTable.checkNormalStateForAlter();
             if (!truncateEntireTable) {
-                for (String partName : partitionNames.getPartitionNames()) {
+                for (String partName : partitionNamesInfo.getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
@@ -3719,8 +3718,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
-        LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNames);
+        Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNamesInfo);
+        LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNamesInfo);
     }
 
     private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,

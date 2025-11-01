@@ -313,6 +313,7 @@ if (COMPILER_CLANG)
 
     add_compile_options(-fcolor-diagnostics
                         -Wpedantic
+                        -Wshadow
                         -Wshadow-field
                         -Wunused
                         -Wunused-command-line-argument
@@ -322,10 +323,9 @@ if (COMPILER_CLANG)
                         -Wunused-member-function
                         -Wunused-macros
                         -Wconversion)
-    add_compile_options( -Wno-gnu-statement-expression
+    add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-sign-conversion
-                        )
+                        -Wno-sign-conversion)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -372,10 +372,6 @@ SET(ARM_MARCH "${ARM_MARCH}")
 
 if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
-endif()
-
-if (ENABLE_CACHE_LOCK_DEBUG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
 endif()
 
 # Compile with jemalloc.

@@ -45,6 +45,7 @@
 #include <vector>
 
 #include "cloud/config.h"
+#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
@@ -100,6 +101,8 @@ bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throug
 bvar::Adder<int64_t> g_sink_write_rows;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row",
                                                                    &g_sink_write_rows, 60);
+bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms(
+        "load_back_pressure_version_time_ms");
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
                           bool incremental) {
@@ -806,6 +809,15 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
         return 0;
     }
 
+    auto load_back_pressure_version_wait_time_ms = _load_back_pressure_version_wait_time_ms.load();
+    if (UNLIKELY(load_back_pressure_version_wait_time_ms > 0)) {
+        std::this_thread::sleep_for(
+                std::chrono::milliseconds(load_back_pressure_version_wait_time_ms));
+        _load_back_pressure_version_block_ms.fetch_add(
+                load_back_pressure_version_wait_time_ms); // already in milliseconds
+        _load_back_pressure_version_wait_time_ms = 0;
+    }
+
     // set closure for sending block.
     if (!_send_block_callback->try_set_in_flight()) {
         // There is packet in flight, skip.
@@ -837,6 +849,45 @@ void VNodeChannel::_cancel_with_msg(const std::string& msg) {
         }
     }
     _cancelled = true;
+}
+
+void VNodeChannel::_refresh_back_pressure_version_wait_time(
+        const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                tablet_load_infos) {
+    int64_t max_rowset_num_gap = 0;
+    // if any one tablet is under high load pressure, we would make the whole procedure
+    // sleep to prevent the corresponding BE return -235
+    std::for_each(
+            tablet_load_infos.begin(), tablet_load_infos.end(),
+            [&max_rowset_num_gap](auto& load_info) {
+                int64_t cur_rowset_num = load_info.current_rowset_nums();
+                int64_t high_load_point = load_info.max_config_rowset_nums() *
+                                          (config::load_back_pressure_version_threshold / 100);
+                DCHECK(cur_rowset_num > high_load_point);
+                max_rowset_num_gap = std::max(max_rowset_num_gap, cur_rowset_num - high_load_point);
+            });
+    // to slow down the high load pressure
+    // we would use the rowset num gap to calculate one sleep time
+    // for example:
+    // if the max tablet version is 2000, there are 3 BE
+    // A: ====================  1800
+    // B: ===================   1700
+    // C: ==================    1600
+    //    ==================    1600
+    //                      ^
+    //                      the high load point
+    // then then max gap is 1800 - (max tablet version * config::load_back_pressure_version_threshold / 100) = 200,
+    // we would make the whole send procesure sleep
+    // 1200ms for compaction to be done toe reduce the high pressure
+    auto max_time = config::max_load_back_pressure_version_wait_time_ms;
+    if (UNLIKELY(max_rowset_num_gap > 0)) {
+        _load_back_pressure_version_wait_time_ms.store(
+                std::min(max_rowset_num_gap + 1000, max_time));
+        LOG(INFO) << "try to back pressure version, wait time(ms): "
+                  << _load_back_pressure_version_wait_time_ms
+                  << ", load id: " << print_id(_parent->_load_id)
+                  << ", max_rowset_num_gap: " << max_rowset_num_gap;
+    }
 }
 
 void VNodeChannel::try_send_pending_block(RuntimeState* state) {
@@ -1006,6 +1057,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     SCOPED_ATTACH_TASK(_state);
     Status status(Status::create(result.status()));
     if (status.ok()) {
+        _refresh_back_pressure_version_wait_time(result.tablet_load_rowset_num_infos());
         // if has error tablet, handle them first
         for (const auto& error : result.tablet_errors()) {
             _index_channel->mark_as_failed(this, "tablet error: " + error.msg(), error.tablet_id());
@@ -1534,6 +1586,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _max_wait_exec_timer = ADD_TIMER(profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(profile, "NumberNodeChannels", TUnit::UNIT);
+    _load_back_pressure_version_time_ms = ADD_TIMER(profile, "LoadBackPressureVersionTimeMs");
 
 #ifdef DEBUG
     // check: tablet ids should be unique
@@ -1868,6 +1921,10 @@ Status VTabletWriter::close(Status exec_status) {
             COUNTER_SET(_max_wait_exec_timer, writer_stats.max_wait_exec_time_ns);
             COUNTER_SET(_add_batch_number, writer_stats.total_add_batch_num);
             COUNTER_SET(_num_node_channels, writer_stats.num_node_channels);
+            COUNTER_SET(_load_back_pressure_version_time_ms,
+                        writer_stats.load_back_pressure_version_time_ms);
+            g_sink_load_back_pressure_version_time_ms
+                    << writer_stats.load_back_pressure_version_time_ms;
 
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
@@ -1978,7 +2035,6 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
-    bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
@@ -1990,8 +2046,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            _number_input_rows));
+            input_block, block, filtered_rows, _row_part_tablet_ids, _number_input_rows));
 
     ChannelDistributionPayloadVec channel_to_payload;
 

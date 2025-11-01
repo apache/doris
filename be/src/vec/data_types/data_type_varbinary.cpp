@@ -34,34 +34,16 @@
 #include "vec/columns/column_varbinary.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/string_container.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/string_view.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-std::string DataTypeVarbinary::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& value = assert_cast<const ColumnVarbinary&>(*ptr).get_data_at(row_num);
-    return value.to_string();
-}
-
-void DataTypeVarbinary::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                                  class doris::vectorized::BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& value = assert_cast<const ColumnVarbinary&>(*ptr).get_data_at(row_num);
-    ostr.write(value.data, value.size);
-}
 
 Field DataTypeVarbinary::get_default() const {
-    return Field::create_field<TYPE_VARBINARY>(StringView());
+    return Field::create_field<TYPE_VARBINARY>(StringContainer());
 }
 
 MutableColumnPtr DataTypeVarbinary::create_column() const {
@@ -150,7 +132,7 @@ FieldWithDataType DataTypeVarbinary::get_field_with_data_type(const IColumn& col
     const auto& column_data =
             assert_cast<const ColumnVarbinary&, TypeCheckOnRelease::DISABLE>(column);
     return FieldWithDataType {.field = Field::create_field<TYPE_VARBINARY>(
-                                      doris::StringView(column_data.get_data_at(row_num))),
+                                      doris::StringContainer(column_data.get_data_at(row_num))),
                               .base_scalar_type_id = get_primitive_type()};
 }
 

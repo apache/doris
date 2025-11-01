@@ -201,11 +201,18 @@ struct TQueryStatistics {
     11: optional i64 scan_bytes_from_remote_storage
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
+    14: optional i64 bytes_write_into_cache
+}
+
+struct TQueryStatisticsResult {
+    1: optional bool query_finished
+    2: optional TQueryStatistics statistics
 }
 
 struct TReportWorkloadRuntimeStatusParams {
     1: optional i64 backend_id
-    2: optional map<string, TQueryStatistics> query_statistics_map
+    2: optional map<string, TQueryStatistics> query_statistics_map // deprecated
+    3: optional map<string, TQueryStatisticsResult> query_statistics_result_map
 }
 
 struct TQueryProfile {
@@ -307,6 +314,8 @@ struct TReportExecStatusParams {
   30: optional string label
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
+
+  33: optional string first_error_msg
 }
 
 struct TFeResult {
@@ -422,12 +431,6 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
-}
-
-struct TUpdateExportTaskStatusRequest {
-    1: required FrontendServiceVersion protocolVersion
-    2: required Types.TUniqueId taskId
-    3: required PaloInternalService.TExportStatusResult taskStatus
 }
 
 struct TLoadTxnBeginRequest {
@@ -567,7 +570,7 @@ struct TStreamLoadPutRequest {
 struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
-    2: optional PaloInternalService.TExecPlanFragmentParams params
+    //2: optional PaloInternalService.TExecPlanFragmentParams params # deprecated
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     // used for group commit
     4: optional i64 base_schema_version
@@ -581,7 +584,7 @@ struct TStreamLoadPutResult {
 struct TStreamLoadMultiTablePutResult {
     1: required Status.TStatus status
     // valid when status is OK
-    2: optional list<PaloInternalService.TExecPlanFragmentParams> params
+    // 2: optional list<PaloInternalService.TExecPlanFragmentParams> params # deprecated
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
@@ -1601,6 +1604,36 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
+struct TFetchLoadJobRequest {
+}
+
+struct TLoadJob {
+    1: optional string job_id
+    2: optional string label
+    3: optional string state
+    4: optional string progress
+    5: optional string type
+    6: optional string etl_info
+    7: optional string task_info
+    8: optional string error_msg
+    9: optional string create_time
+    10: optional string etl_start_time
+    11: optional string etl_finish_time
+    12: optional string load_start_time
+    13: optional string load_finish_time
+    14: optional string url
+    15: optional string job_details
+    16: optional string transaction_id
+    17: optional string error_tablets
+    18: optional string user
+    19: optional string comment
+    20: optional string first_error_msg
+}
+
+struct TFetchLoadJobResult {
+    1: optional list<TLoadJob> loadJobs
+}
+
 struct TPlanNodeRuntimeStatsItem {
     // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
     1: optional i32 node_id
@@ -1664,8 +1697,6 @@ service FrontendService {
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
-
-    TFeResult updateExportTaskStatus(1: TUpdateExportTaskStatusRequest request)
 
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
     TLoadTxnCommitResult loadTxnPreCommit(1: TLoadTxnCommitRequest request)
@@ -1747,6 +1778,8 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TFetchLoadJobResult fetchLoadJob(1: TFetchLoadJobRequest request)
 
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 

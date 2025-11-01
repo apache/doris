@@ -46,11 +46,6 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
                 (HMSExternalDatabase) db);
     }
 
-    public void addTableForTest(HMSExternalTable tbl) {
-        idToTbl.put(tbl.getId(), tbl);
-        tableNameToId.put(tbl.getName(), tbl.getId());
-    }
-
     @Override
     public boolean registerTable(TableIf tableIf) {
         super.registerTable(tableIf);

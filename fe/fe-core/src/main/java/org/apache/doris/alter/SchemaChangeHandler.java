@@ -748,6 +748,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     modColIndex = i;
                     otherCol = new Column(modColumn);
                     otherCol.setName(col.getName());
+                    otherCol.setUniqueId(col.getUniqueId());
                     otherCol.setDefineExpr(col.getDefineExpr());
                     Preconditions.checkState(modColIndex != -1);
                     Preconditions.checkState(otherCol != null);
@@ -2135,11 +2136,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                     }
 
-                    if (indexDef.getPartitionNames().isEmpty()) {
+                    if (indexDef.getPartitionNamesInfo().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     } else {
                         indexOnPartitions.put(
-                                index.getIndexId(), new HashSet<>(indexDef.getPartitionNames()));
+                                index.getIndexId(), new HashSet<>(indexDef.getPartitionNamesInfo()));
                     }
 
                     alterIndexes.add(index);
@@ -2975,10 +2976,6 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         schemaChangeJob.stateWait("FE.LIGHT_SCHEMA_CHANGE");
-        // set Job state then add job
-        schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
-        schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
-        this.addAlterJobV2(schemaChangeJob);
 
         if (alterIndexes != null) {
             if (!isReplay) {
@@ -3049,6 +3046,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
             }
         }
+
+        // add job after edit log
+        // set Job state then add job
+        schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
+        schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
+        this.addAlterJobV2(schemaChangeJob);
     }
 
     public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info)
@@ -3331,7 +3334,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.getDbId() == dbId
                     && indexChangeJob.getTableId() == tableId
                     && indexChangeJob.getPartitionName().equals(partitionName)
-                    && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
+                    && ((Config.isNotCloudMode() && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes))
+                    || Config.isCloudMode())
                     && !indexChangeJob.isDone()) {
                 // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
                 return true;

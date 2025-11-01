@@ -22,15 +22,22 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * MTMVPartitionInfo
  */
-public class MTMVPartitionInfo {
+public class MTMVPartitionInfo implements GsonPostProcessable {
 
     public enum MTMVPartitionType {
         FOLLOW_BASE_TABLE,
@@ -40,16 +47,22 @@ public class MTMVPartitionInfo {
 
     @SerializedName("pt")
     private MTMVPartitionType partitionType;
+    // old version only support one pct table
+    @Deprecated
     @SerializedName("rt")
     private BaseTableInfo relatedTable;
+    @Deprecated
     @SerializedName("rc")
     private String relatedCol;
     @SerializedName("pc")
     private String partitionCol;
     @SerializedName("expr")
     private Expr expr;
+    @SerializedName("pi")
+    private List<BaseColInfo> pctInfos = Lists.newArrayList();
 
     public MTMVPartitionInfo() {
+        this.pctInfos = Lists.newArrayList();
     }
 
     public MTMVPartitionInfo(MTMVPartitionType partitionType) {
@@ -70,12 +83,26 @@ public class MTMVPartitionInfo {
         this.partitionType = partitionType;
     }
 
+    @Deprecated
     public BaseTableInfo getRelatedTableInfo() {
         return relatedTable;
     }
 
+    @Deprecated
     public MTMVRelatedTableIf getRelatedTable() throws AnalysisException {
         return (MTMVRelatedTableIf) MTMVUtil.getTable(relatedTable);
+    }
+
+    public Set<MTMVRelatedTableIf> getPctTables() throws AnalysisException {
+        Set<MTMVRelatedTableIf> res = Sets.newHashSetWithExpectedSize(pctInfos.size());
+        for (BaseColInfo baseColInfo : pctInfos) {
+            res.add((MTMVRelatedTableIf) MTMVUtil.getTable(baseColInfo.getTableInfo()));
+        }
+        return res;
+    }
+
+    public List<BaseColInfo> getPctInfos() {
+        return pctInfos;
     }
 
     public void setRelatedTable(BaseTableInfo relatedTable) {
@@ -107,35 +134,69 @@ public class MTMVPartitionInfo {
     }
 
     /**
-     * Get the position of relatedCol in the relatedTable partition column
+     * Get the position of pct col in the pctTable partition column
      *
      * @return
      * @throws AnalysisException
      */
-    public int getRelatedColPos() throws AnalysisException {
+    public int getPctColPos(MTMVRelatedTableIf pctTable) throws AnalysisException {
         if (partitionType == MTMVPartitionType.SELF_MANAGE) {
             throw new AnalysisException("partitionType is: " + partitionType);
         }
-        MTMVRelatedTableIf mtmvRelatedTableIf = getRelatedTable();
-        List<Column> partitionColumns = mtmvRelatedTableIf.getPartitionColumns(
-                MvccUtil.getSnapshotFromContext(mtmvRelatedTableIf));
+        BaseColInfo pctInfo = getPctInfoByPctTable(pctTable);
+        List<Column> partitionColumns = pctTable.getPartitionColumns(
+                MvccUtil.getSnapshotFromContext(pctTable));
         for (int i = 0; i < partitionColumns.size(); i++) {
-            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(pctInfo.getColName())) {
                 return i;
             }
         }
         throw new AnalysisException(
-                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
+                String.format("getPctColPos error, pctCol: %s, partitionColumns: %s", pctInfo.getColName(),
                         partitionColumns));
+    }
+
+    public String getPartitionColByPctTable(MTMVRelatedTableIf pctTable) throws AnalysisException {
+        BaseColInfo pctInfoByPctTable = getPctInfoByPctTable(pctTable);
+        return pctInfoByPctTable.getColName();
+    }
+
+    private BaseColInfo getPctInfoByPctTable(MTMVRelatedTableIf pctTable) throws AnalysisException {
+        BaseTableInfo pctInfo = new BaseTableInfo(pctTable);
+        for (BaseColInfo baseColInfo : pctInfos) {
+            if (baseColInfo.getTableInfo().equals(pctInfo)) {
+                return baseColInfo;
+            }
+        }
+        throw new AnalysisException("not have this pct table");
+    }
+
+    public void setPctInfos(List<BaseColInfo> pctInfos) {
+        this.pctInfos = pctInfos;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        MTMVPartitionInfo that = (MTMVPartitionInfo) o;
+        return partitionType == that.partitionType && Objects.equals(partitionCol, that.partitionCol)
+                && Objects.equals(expr, that.expr) && Objects.equals(pctInfos, that.pctInfos);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(partitionType, partitionCol, expr, pctInfos);
     }
 
     // toString() is not easy to find where to call the method
     public String toInfoString() {
         return "MTMVPartitionInfo{"
                 + "partitionType=" + partitionType
-                + ", relatedTable=" + relatedTable
-                + ", relatedCol='" + relatedCol + '\''
+                + ", pctInfos=" + pctInfos
                 + ", partitionCol='" + partitionCol + '\''
+                + ", expr='" + expr + '\''
                 + '}';
     }
 
@@ -147,9 +208,9 @@ public class MTMVPartitionInfo {
         } else {
             return "MTMVPartitionInfo{"
                     + "partitionType=" + partitionType
-                    + ", relatedTable=" + relatedTable.getTableName()
-                    + ", relatedCol='" + relatedCol + '\''
+                    + ", pctInfos=" + pctInfos
                     + ", partitionCol='" + partitionCol + '\''
+                    + ", expr='" + expr + '\''
                     + '}';
         }
     }
@@ -159,5 +220,12 @@ public class MTMVPartitionInfo {
             return;
         }
         relatedTable.compatible(catalogMgr);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (relatedTable != null && CollectionUtils.isEmpty(pctInfos)) {
+            pctInfos.add(new BaseColInfo(relatedCol, relatedTable));
+        }
     }
 }

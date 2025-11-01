@@ -182,24 +182,15 @@ public:
     /// need to delete flag.
     void delete_expired_stale_rowset();
 
-    // Given spec_version, find a continuous version path and store it in version_path.
-    // If quiet is true, then only "does this path exist" is returned.
-    // If skip_missing_version is true, return ok even there are missing versions.
-    Status capture_consistent_versions_unlocked(const Version& spec_version, Versions* version_path,
-                                                bool skip_missing_version, bool quiet) const;
-
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
     void acquire_version_and_rowsets(
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
-    Status capture_consistent_rowsets_unlocked(
-            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
-
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRowsetOps& opts) override;
 
     // Find the missed versions until the spec_version.
     //
@@ -735,7 +726,7 @@ inline Version Tablet::max_version() const {
 inline uint64_t Tablet::segment_count() const {
     std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
-    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
     }
     return segment_nums;

@@ -111,4 +111,18 @@ public interface MTMVHookService {
      * @param info
      */
     void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException;
+
+    /**
+     * Triggered when baseView is altered
+     *
+     * @param baseViewInfo
+     */
+    void alterView(BaseTableInfo baseViewInfo);
+
+    /**
+     * Triggered when baseView is dropped
+     *
+     * @param baseViewInfo
+     */
+    void dropView(BaseTableInfo baseViewInfo);
 }

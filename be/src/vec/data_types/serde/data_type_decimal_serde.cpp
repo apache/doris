@@ -37,6 +37,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/functions/cast/cast_to_decimal.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -489,6 +490,29 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
 }
 
 template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num,
+                                        BufferWritable& bw) const {
+    auto& data =
+            assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    CastToString::push_decimal(data[row_num], scale, bw);
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column,
+                                              ColumnString& column_to) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    const size_t size = column.size();
+    const auto maybe_reserve_size = CastToString::string_length<T>;
+    column_to.get_chars().reserve(size * maybe_reserve_size);
+    column_to.get_offsets().reserve(size);
+    BufferWriter bw(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        CastToString::push_decimal(data[i], scale, bw);
+        bw.commit();
+    }
+}
+
+template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
                                                           int64_t row_num,
                                                           JsonbWriter& writer) const {
@@ -628,6 +652,68 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column
            reinterpret_cast<const char*>(&sc), sizeof(uint8_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t),
            data_ref.data, data_ref.size);
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
+                                                                     IColumn& column) {
+    auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
+    data += sizeof(uint8_t);
+    data += sizeof(uint8_t);
+    if constexpr (T == TYPE_DECIMAL32) {
+        col.insert_value(unaligned_load<Int32>(data));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        col.insert_value(unaligned_load<Int64>(data));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        col.insert_value(Decimal256(unaligned_load<wide::Int256>(data)));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type " + column.get_name());
+    }
+    return data;
+}
+
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
+                                                                    Field& field, FieldInfo& info) {
+    const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+    data += sizeof(uint8_t);
+    const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+    data += sizeof(uint8_t);
+    info.precision = static_cast<int>(precision);
+    info.scale = static_cast<int>(scale);
+    if constexpr (T == TYPE_DECIMAL32) {
+        Int32 v = unaligned_load<Int32>(data);
+        field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        Int64 v = unaligned_load<Int64>(data);
+        field = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
+        // for __int128 load/store. This will cause segment fault.
+        PackedInt128 pack;
+        // use memcpy to avoid unaligned access
+        memcpy(&pack, data, sizeof(PackedInt128));
+        field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
+        data += sizeof(PackedInt128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        wide::Int256 v;
+        memcpy(&v, data, sizeof(wide::Int256));
+        field = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_field with type " + type_to_string(T));
+    }
+    return data;
 }
 
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;

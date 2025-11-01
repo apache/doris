@@ -102,7 +102,9 @@ lib_path="${DORIS_HOME}/lib"
 bin="${DORIS_HOME}/lib/${process_name}"
 export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH}"
 
-chmod 550 "${DORIS_HOME}/lib/${process_name}"
+if [[ ! -x "${DORIS_HOME}/lib/${process_name}" || ! -r "${DORIS_HOME}/lib/${process_name}" ]]; then
+    chmod 550 "${DORIS_HOME}/lib/${process_name}"
+fi
 
 if [[ ${enable_hdfs} -eq 1 ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
@@ -115,21 +117,13 @@ if [[ ${enable_hdfs} -eq 1 ]]; then
 
     if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         # add hadoop libs
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        done
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        done
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        done
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
             DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         done
     fi
 
-    export CLASSPATH="${DORIS_CLASSPATH}"
+    # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
+    export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 
     export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
 

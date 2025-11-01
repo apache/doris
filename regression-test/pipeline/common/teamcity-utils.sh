@@ -25,11 +25,12 @@
 # 控制哪些分支可以跑哪些流水线
 declare -A targetBranch_to_pipelines
 targetBranch_to_pipelines=(
-    ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
-    ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
-    ['branch-3.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
-    ['branch-2.1']='feut beut compile p0 p1 external arm'
-    ['branch-2.0']='feut beut compile p0 p1 external arm performance'
+    ['master']='feut beut cloudut compile p0 p1 external performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
+    ['branch-4.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
+    ['branch-3.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
+    ['branch-3.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
+    ['branch-2.1']='feut beut compile p0 p1 external'
+    ['branch-2.0']='feut beut compile p0 p1 external'
 )
 
 # github中评论的要触发的流水线名字
@@ -46,7 +47,6 @@ comment_to_pipeline=(
     ['p0']='Doris_DorisRegression_P0Regression'
     ['p1']='Doris_DorisRegression_P1Regression'
     ['external']='Doris_External_Regression'
-    ['arm']='Doris_ArmPipeline_P0Regression'
     ['performance']='Doris_DorisPerformance_Performance'
     ['cloud_p0']='Doris_DorisRegression_CloudP0'
     ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
@@ -69,7 +69,6 @@ conment_to_context=(
     ['p0']='P0 Regression (Doris Regression)'
     ['p1']='P1 Regression (Doris Regression)'
     ['external']='External Regression (Doris External Regression)'
-    ['arm']='P0 Regression (ARM pipeline)'
     ['performance']='performance (Doris Performance)'
     ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
     ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'

@@ -102,18 +102,43 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();
+
+        // Current limitation: cannot specify both table snapshot and scan parameters simultaneously.
         if (tableSnapshot.isPresent() || (scanParams.isPresent() && scanParams.get().isTag())) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest
             // schema).
             try {
                 Snapshot snapshot = PaimonUtil.getPaimonSnapshot(paimonTable, tableSnapshot, scanParams);
+                Table dataTable = paimonTable.copy(
+                        Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.id())));
                 return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
-                        new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), paimonTable));
+                        new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), dataTable));
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon snapshot for table {}", paimonTable.name(), e);
                 throw new RuntimeException(
                         "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
+                        e);
+            }
+        } else if (scanParams.isPresent() && scanParams.get().isBranch()) {
+            try {
+                String branch = PaimonUtil.resolvePaimonBranch(scanParams.get(), paimonTable);
+                Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping(), branch, null);
+                Optional<Snapshot> latestSnapshot = table.latestSnapshot();
+                long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
+                if (latestSnapshot.isPresent()) {
+                    latestSnapshotId = latestSnapshot.get().id();
+                }
+                // Branches in Paimon can have independent schemas and snapshots.
+                // TODO: Add time travel support for paimon branch tables.
+                DataTable dataTable = (DataTable) table;
+                Long schemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
+                return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(latestSnapshotId, schemaId, dataTable));
+            } catch (Exception e) {
+                LOG.warn("Failed to get Paimon branch for table {}", paimonTable.name(), e);
+                throw new RuntimeException(
+                        "Failed to get Paimon branch: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
                         e);
             }
         } else {
@@ -338,5 +363,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         } else {
             return Collections.emptyMap();
         }
+    }
+
+    @Override
+    public boolean isPartitionedTable() {
+        makeSureInitialized();
+        return !paimonTable.partitionKeys().isEmpty();
     }
 }

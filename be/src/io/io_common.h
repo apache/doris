@@ -49,6 +49,7 @@ struct FileCacheStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t remote_io_timer = 0;
+    int64_t remote_wait_timer = 0;
     int64_t write_cache_io_timer = 0;
     int64_t bytes_write_into_cache = 0;
     int64_t num_skip_cache_io_total = 0;
@@ -85,6 +86,8 @@ struct IOContext {
     // if is_dryrun, read IO will download data to cache but return no data to reader
     // useful to skip cache data read from local disk to accelarate warm up
     bool is_dryrun = false;
+    // if `is_warmup` == true, this I/O request is from a warm up task
+    bool is_warmup {false};
 };
 
 } // namespace io

@@ -241,6 +241,7 @@ public class Coordinator implements CoordInterface {
     private List<String> deltaUrls;
     private Map<String, String> loadCounters;
     private String trackingUrl;
+    private String firstErrorMsg;
     // related txnId and label of group commit
     private long txnId;
     private String label;
@@ -357,6 +358,7 @@ public class Coordinator implements CoordInterface {
         } else {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
+        this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
 
@@ -464,6 +466,10 @@ public class Coordinator implements CoordInterface {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     public long getTxnId() {
@@ -2447,6 +2453,10 @@ public class Coordinator implements CoordInterface {
         if (params.isSetTrackingUrl()) {
             LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
             trackingUrl = params.getTrackingUrl();
+        }
+        if (params.isSetFirstErrorMsg()) {
+            LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
+            firstErrorMsg = params.getFirstErrorMsg();
         }
         if (params.isSetTxnId()) {
             txnId = params.getTxnId();

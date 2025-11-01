@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
@@ -130,8 +131,7 @@ public class ReplacePartitionOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new ReplacePartitionClause(partitionNames.translateToLegacyPartitionNames(),
-                tempPartitionNames.translateToLegacyPartitionNames(),
+        return new ReplacePartitionClause(partitionNames, tempPartitionNames,
                 forceDropOldPartition, properties, isStrictRange, useTempPartitionName);
     }
 

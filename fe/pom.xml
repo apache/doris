@@ -172,7 +172,7 @@ under the License.
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         <excludes>
-                            **/apache/doris/thrift/*,
+                            **/apache/doris/thrift/**/*,
                             **/apache/parquet/**/*
                         </excludes>
                     </configuration>
@@ -223,8 +223,8 @@ under the License.
     <properties>
         <doris.hive.catalog.shade.version>3.0.1</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
-        <avro.version>1.12.0</avro.version>
-        <parquet.version>1.15.2</parquet.version>
+        <avro.version>1.12.1</avro.version>
+        <parquet.version>1.16.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
@@ -244,7 +244,7 @@ under the License.
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
-        <commons-filerupload.version>1.5</commons-filerupload.version>
+        <commons-filerupload.version>1.6.0</commons-filerupload.version>
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
@@ -278,6 +278,9 @@ under the License.
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
+        <!--ensure JDK 17 compatibility by removing dependency on internal X509V1CertImpl class-->
+        <wildfly-openssl.version>2.2.5.Final</wildfly-openssl.version>
+        <wildfly-common.version>2.0.1</wildfly-common.version>
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
@@ -672,47 +675,6 @@ under the License.
                 <version>${kerby.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.apache.hbase</groupId>
-                <artifactId>hbase-server</artifactId>
-                <version>${hbase.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.hadoop</groupId>
-                        <artifactId>hadoop-yarn-api</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hadoop</groupId>
-                        <artifactId>hadoop-yarn-common</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hbase</groupId>
-                        <artifactId>hbase-hadoop2-compat</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hadoop</groupId>
-                        <artifactId>hadoop-annotations</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hbase.thirdparty</groupId>
-                        <artifactId>hbase-shaded-miscellaneous</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.hbase</groupId>
-                        <artifactId>hbase-protocol-shaded</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.htrace</groupId>
-                        <artifactId>htrace-core4</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hbase.thirdparty</groupId>
-                <artifactId>hbase-shaded-gson</artifactId>
-                <version>${hbase-shaded-gson.version}</version>
-            </dependency>
-
-            <dependency>
                 <groupId>org.apache.kerby</groupId>
                 <artifactId>kerb-core</artifactId>
                 <version>${kerby.version}</version>
@@ -1008,6 +970,16 @@ under the License.
                 <artifactId>objenesis</artifactId>
                 <version>${objenesis.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.wildfly.openssl</groupId>
+                <artifactId>wildfly-openssl</artifactId>
+                <version>${wildfly-openssl.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.wildfly.common</groupId>
+                <artifactId>wildfly-common</artifactId>
+                <version>${wildfly-common.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
                 <groupId>com.google.protobuf</groupId>
@@ -1173,6 +1145,11 @@ under the License.
                         <artifactId>jsr311-api</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-azure</artifactId>
+                <version>${hadoop.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>

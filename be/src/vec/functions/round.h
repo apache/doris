@@ -675,6 +675,8 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
+    bool need_replace_null_data_to_default() const override { return true; }
+
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if ((arguments.empty()) || (arguments.size() > 2)) {

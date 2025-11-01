@@ -66,16 +66,24 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         // cseCandidates: A+B -> alias(A+B)
         Map<Expression, Alias> cseCandidates = new HashMap<>();
         Set<Slot> inputSlots = new HashSet<>();
+        List<Expression> allAggFunctionChildren = new ArrayList<>();
 
         for (Expression expr : aggregate.getExpressions()) {
-            getCseCandidatesFromAggregateFunction(expr, cseCandidates);
+            getCseCandidatesFromAggregateFunction(expr, cseCandidates, allAggFunctionChildren);
             inputSlots.addAll(expr.getInputSlots());
         }
         if (cseCandidates.isEmpty()) {
             // no opportunity to generate cse
             return aggregate;
         }
-
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        for (Expression expr : allAggFunctionChildren) {
+            collector.collect(expr);
+        }
+        if (collector.commonExprByDepth.isEmpty()) {
+            // no opportunity to generate cse
+            return aggregate;
+        }
         if (aggregate.child() instanceof PhysicalProject) {
             List<NamedExpression> projections = ((PhysicalProject) aggregate.child()).getProjects();
             Map<Slot, Expression> replaceMap = new HashMap<>();
@@ -168,10 +176,12 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         return aggregate;
     }
 
-    private void getCseCandidatesFromAggregateFunction(Expression expr, Map<Expression, Alias> result) {
+    private void getCseCandidatesFromAggregateFunction(Expression expr, Map<Expression, Alias> result,
+            List<Expression> allAggFuncChild) {
         if (expr instanceof AggregateFunction) {
             for (Expression child : expr.children()) {
                 if (!(child instanceof SlotReference) && !child.isConstant() && !(child instanceof OrderExpression)) {
+                    allAggFuncChild.add(child);
                     if (child instanceof Alias) {
                         result.put(child, (Alias) child);
                     } else {
@@ -182,7 +192,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         } else {
             for (Expression child : expr.children()) {
                 if (!(child instanceof SlotReference) && !child.isConstant()) {
-                    getCseCandidatesFromAggregateFunction(child, result);
+                    getCseCandidatesFromAggregateFunction(child, result, allAggFuncChild);
                 }
             }
         }

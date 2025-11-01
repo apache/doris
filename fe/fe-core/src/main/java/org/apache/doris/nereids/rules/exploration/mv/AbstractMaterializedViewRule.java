@@ -24,7 +24,9 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -134,8 +136,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
-            statementContext.addMaterializedViewRewriteDuration(
-                    statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
+            long elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
+            statementContext.addMaterializedViewRewriteDuration(elapsed);
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
+            if (profile != null) {
+                profile.addNereidsMvRewriteTime(elapsed);
+            }
             for (StructInfo queryStructInfo : queryStructInfos) {
                 statementContext.getMaterializedViewStopwatch().reset().start();
                 if (statementContext.getMaterializedViewRewriteDuration()
@@ -157,8 +163,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 } finally {
-                    statementContext.addMaterializedViewRewriteDuration(
-                            statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
+                    elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
+                    statementContext.addMaterializedViewRewriteDuration(elapsed);
+                    if (profile != null) {
+                        profile.addNereidsMvRewriteTime(elapsed);
+                    }
                 }
             }
         }
@@ -194,7 +203,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * only one materialization every time. Different query pattern should override the sub logic.
      */
     protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
-            MaterializationContext materializationContext) {
+            MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
@@ -297,43 +306,45 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (rewrittenPlan == null) {
                 continue;
             }
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions;
+            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions;
             if (PartitionCompensator.needUnionRewrite(materializationContext)
                     && sessionVariable.isEnableMaterializedViewUnionRewrite()) {
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
-                BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
                         cascadesContext.getStatementContext(), queryStructInfo.getTableBitSet());
-                Set<String> relateTableUsedPartitions = queryUsedPartitions.get(relatedTableInfo.toList());
-                if (relateTableUsedPartitions == null) {
+                Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+                boolean relateTableUsedPartitionsAnyNull = false;
+                boolean relateTableUsedPartitionsAllEmpty = true;
+                for (MTMVRelatedTableIf tableIf : pctTables) {
+                    Set<String> queryUsedPartition = queryUsedPartitions.get(tableIf.getFullQualifiers());
+                    relateTableUsedPartitionsAnyNull |= queryUsedPartition == null;
+                    if (queryUsedPartition == null) {
+                        continue;
+                    }
+                    relateTableUsedPartitionsAllEmpty &= queryUsedPartition.isEmpty();
+                }
+                if (relateTableUsedPartitionsAnyNull || relateTableUsedPartitionsAllEmpty) {
                     materializationContext.recordFailReason(queryStructInfo,
-                            String.format("queryUsedPartition is null but needUnionRewrite, table is %s, queryId is %s",
-                                    relatedTableInfo.toList(),
+                            String.format("queryUsedPartition is all null or empty but needUnionRewrite, "
+                                            + "queryUsedPartitions is %s, queryId is %s",
+                                    queryUsedPartitions,
                                     cascadesContext.getConnectContext().getQueryIdentifier()),
                             () -> String.format(
-                                    "queryUsedPartition is null but needUnionRewrite, table is %s, queryId is %s",
-                                    relatedTableInfo.toList(),
+                                    "queryUsedPartition is all null or empty but needUnionRewrite, "
+                                            + "queryUsedPartitions is %s, queryId is %s",
+                                    queryUsedPartitions,
                                     cascadesContext.getConnectContext().getQueryIdentifier()));
-                    LOG.warn(String.format(
-                            "queryUsedPartition is null but needUnionRewrite, table is %s, queryId is %s",
-                            relatedTableInfo.toList(), cascadesContext.getConnectContext().getQueryIdentifier()));
-                    return rewriteResults;
-                }
-                if (relateTableUsedPartitions.isEmpty()) {
-                    materializationContext.recordFailReason(queryStructInfo,
-                            String.format("queryUsedPartition is empty, table is %s, queryId is %s",
-                                    relatedTableInfo.toList(),
-                                    cascadesContext.getConnectContext().getQueryIdentifier()),
-                            () -> String.format("queryUsedPartition is empty, table is %s, queryId is %s",
-                                    relatedTableInfo.toList(),
-                                    cascadesContext.getConnectContext().getQueryIdentifier()));
-                    LOG.debug(String.format("queryUsedPartition is empty, table is %s, queryId is %s",
-                            relatedTableInfo.toList(), cascadesContext.getConnectContext().getQueryIdentifier()));
-                    // no need to rewrite by current mv, becaus
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(String.format(
+                                "queryUsedPartition is all null or empty but needUnionRewrite, "
+                                        + "queryUsedPartitions is %s, queryId is %s",
+                                queryUsedPartitions,
+                                cascadesContext.getConnectContext().getQueryIdentifier()));
+                    }
                     return rewriteResults;
                 }
                 try {
-                    invalidPartitions = calcInvalidPartitions(relateTableUsedPartitions, rewrittenPlan,
+                    invalidPartitions = calcInvalidPartitions(queryUsedPartitions, rewrittenPlan,
                             cascadesContext, (AsyncMaterializationContext) materializationContext);
                 } catch (AnalysisException e) {
                     materializationContext.recordFailReason(queryStructInfo,
@@ -351,7 +362,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
-                boolean canUnionRewrite = canUnionRewrite(queryPlan, mtmv, cascadesContext);
+                boolean canUnionRewrite = canUnionRewrite(queryPlan,
+                        (AsyncMaterializationContext) materializationContext, cascadesContext);
                 if (partitionNeedUnion && !canUnionRewrite) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "need compensate union all, but can not, because the query structInfo",
@@ -359,21 +371,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                     mtmv.getMvPartitionInfo(), queryPlan.treeString()));
                     return rewriteResults;
                 }
-                final Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> finalInvalidPartitions =
-                        invalidPartitions;
                 if (partitionNeedUnion) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
-                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
-                                    mtmv.getMvPartitionInfo().getRelatedCol(), cascadesContext);
+                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 "Add filter to base table fail when union rewrite",
-                                () -> String.format("invalidPartitions are %s, queryPlan is %s, partition column is %s",
-                                        invalidPartitions, queryPlan.treeString(),
-                                        mtmv.getMvPartitionInfo().getPartitionCol()));
+                                () -> String.format("invalidPartitions are %s, queryPlan is %s",
+                                        invalidPartitions, queryPlan.treeString()));
                         continue;
                     }
-                    if (finalInvalidPartitions.value().isEmpty() || !planAndNeedAddFilterPair.value()) {
+                    if (invalidPartitions.value().isEmpty() || !planAndNeedAddFilterPair.value()) {
                         // if invalid base table filter is empty or doesn't need to add filter on base table,
                         // only need remove mv invalid partition
                         rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
@@ -471,7 +479,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * If mv part partition is invalid, can not compensate union all, because result is wrong after
      * compensate union all.
      */
-    protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
+    protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
+            CascadesContext cascadesContext) {
         return true;
     }
 
@@ -494,13 +503,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * So we should calc the invalid partition used in query
      * @return the key in pair is mvNeedRemovePartitionNameSet, the value in pair is baseTableNeedUnionPartitionNameSet
      */
-    protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> calcInvalidPartitions(
-            Set<String> queryUsedPartition,
+    protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> calcInvalidPartitions(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Plan rewrittenPlan,
             CascadesContext cascadesContext,
             AsyncMaterializationContext materializationContext)
             throws AnalysisException {
-        return PartitionCompensator.calcInvalidPartitions(queryUsedPartition, rewrittenPlan,
+        return PartitionCompensator.calcInvalidPartitions(queryUsedBaseTablePartitionMap, rewrittenPlan,
                 materializationContext, cascadesContext);
     }
 

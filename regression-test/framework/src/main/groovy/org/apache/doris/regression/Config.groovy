@@ -70,6 +70,7 @@ class Config {
     public String cloudUniqueId
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
+    public String recycleBeforeTest
 
     public RunMode runMode = RunMode.UNKNOWN
 
@@ -200,6 +201,7 @@ class Config {
             String cloudUniqueId,
             String metaServiceHttpAddress,
             String recycleServiceHttpAddress,
+            String recycleBeforeTest,
             String suitePath,
             String dataPath,
             String realDataPath,
@@ -261,6 +263,7 @@ class Config {
         this.cloudUniqueId = cloudUniqueId
         this.metaServiceHttpAddress = metaServiceHttpAddress
         this.recycleServiceHttpAddress = recycleServiceHttpAddress
+        this.recycleBeforeTest = recycleBeforeTest
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
@@ -611,6 +614,7 @@ class Config {
             configToString(obj.cloudUniqueId),
             configToString(obj.metaServiceHttpAddress),
             configToString(obj.recycleServiceHttpAddress),
+            configToString(obj.recycleBeforeTest),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
@@ -656,6 +660,7 @@ class Config {
         config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
         config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
+        config.dorisComposePath = configToString(obj.dorisComposePath)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
@@ -867,6 +872,11 @@ class Config {
         if (config.recycleServiceHttpAddress == null) {
             config.recycleServiceHttpAddress = "127.0.0.1:5001"
             log.info("Set recycleServiceHttpAddress to '${config.recycleServiceHttpAddress}' because not specify.".toString())
+        }
+
+        if (config.recycleBeforeTest == null) {
+            config.recycleBeforeTest = "false"
+            log.info("Set recycleBeforeTest to '${config.recycleBeforeTest}' because not specify.".toString())
         }
 
         if (config.feSyncerUser == null) {
@@ -1298,7 +1308,7 @@ class Config {
 
         Integer connectTimeout = 5000
         Integer socketTimeout = 1000 * 60 * 30
-        String s = String.format("connectTimeout=%d&socketTimeout=%d", connectTimeout, socketTimeout)
+        String s = String.format("connectTimeout=%d&socketTimeout=%d&tcpKeepAlive=true", connectTimeout, socketTimeout)
         if (url.charAt(url.length() - 1) == '?') {
             return url + s
             // e.g: jdbc:mysql://locahost:8080/dbname?a=b

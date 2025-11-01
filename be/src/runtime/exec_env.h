@@ -68,7 +68,9 @@ class HdfsMgr;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
+class ConditionCache;
 class TmpFileDirs;
+class EncodingInfoResolver;
 
 namespace inverted_index {
 class AnalysisFactoryMgr;
@@ -329,6 +331,13 @@ public:
     void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
         _non_block_close_thread_pool = std::move(pool);
     }
+    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+        _s3_file_upload_thread_pool = std::move(pool);
+    }
+    void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
+    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
+        _file_cache_open_fd_cache = std::move(fd_cache);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -357,6 +366,10 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    segment_v2::ConditionCache* get_condition_cache() { return _condition_cache; }
+    segment_v2::EncodingInfoResolver* get_encoding_info_resolver() {
+        return _encoding_info_resolver;
+    }
     QueryCache* get_query_cache() { return _query_cache; }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
@@ -380,6 +393,7 @@ public:
     void clear_stream_mgr();
 
     DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
+    Status init_mem_env();
 
 private:
     ExecEnv();
@@ -389,7 +403,6 @@ private:
                                const std::set<std::string>& broken_paths);
     void _destroy();
 
-    Status _init_mem_env();
     Status _check_deploy_mode();
 
     Status _create_internal_workload_group();
@@ -507,6 +520,8 @@ private:
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    segment_v2::ConditionCache* _condition_cache = nullptr;
+    segment_v2::EncodingInfoResolver* _encoding_info_resolver = nullptr;
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};

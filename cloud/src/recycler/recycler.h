@@ -34,6 +34,8 @@
 #include "common/bvars.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "meta-store/versionstamp.h"
+#include "recycler/snapshot_chain_compactor.h"
+#include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
@@ -118,6 +120,8 @@ private:
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
+    std::shared_ptr<SnapshotDataMigrator> snapshot_data_migrator_;
+    std::shared_ptr<SnapshotChainCompactor> snapshot_chain_compactor_;
 };
 
 enum class RowsetRecyclingState {
@@ -364,6 +368,11 @@ public:
         accessor_map_.insert({std::string(id), std::move(accessor)});
     }
 
+    // Recycle snapshot meta and data, return 0 for success otherwise error.
+    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+                                       Versionstamp snapshot_version,
+                                       const SnapshotPB& snapshot_pb);
+
 private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors();
@@ -427,11 +436,6 @@ private:
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
-
-    // Recycle snapshot meta and data, return 0 for success otherwise error.
-    int recycle_snapshot_meta_and_data(const std::string& resource_id,
-                                       Versionstamp snapshot_version,
-                                       const SnapshotPB& snapshot_pb);
 
 private:
     std::atomic_bool stopped_ {false};

@@ -19,7 +19,6 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
@@ -29,6 +28,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
@@ -62,8 +62,8 @@ public class MTMVTest {
                 + "AbstractTask{jobId=null, taskId=1, status=null, createTimeMs=null, startTimeMs=null, "
                 + "finishTimeMs=null, taskType=null, errMsg='null'}]}, mvProperties={}, "
                 + "relation=MTMVRelation{baseTables=[], baseTablesOneLevel=[], baseViews=[]}, "
-                + "mvPartitionInfo=MTMVPartitionInfo{partitionType=null, relatedTable=null, "
-                + "relatedCol='null', partitionCol='null'}, "
+                + "mvPartitionInfo=MTMVPartitionInfo{partitionType=null, pctInfos=[], "
+                + "partitionCol='null', expr='null'}, "
                 + "refreshSnapshot=MTMVRefreshSnapshot{partitionSnapshots={}}, id=1, name='null', "
                 + "qualifiedDbName='db1', comment='comment1'}";
         MTMV mtmv = new MTMV();
@@ -75,7 +75,8 @@ public class MTMVTest {
         mtmv.setStatus(new MTMVStatus());
         mtmv.setJobInfo(buildMTMVJobInfo(mtmv));
         mtmv.setMvProperties(new HashMap<>());
-        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet()));
+        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
+                Sets.newHashSet()));
         mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
         mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
         Assert.assertEquals(expect, mtmv.toInfoString());
@@ -154,26 +155,26 @@ public class MTMVTest {
         mtmv.setMvProperties(mvProperties);
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1");
-        Set<TableName> excludedTriggerTables = mtmv.getExcludedTriggerTables();
+        Set<TableNameInfo> excludedTriggerTables = mtmv.getExcludedTriggerTables();
         Assert.assertEquals(1, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableName(null, null, "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t1")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "db1.t1");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
         Assert.assertEquals(1, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableName(null, "db1", "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db1", "t1")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "ctl1.db1.t1");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
         Assert.assertEquals(1, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableName("ctl1", "db1", "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
 
         mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "ctl1.db1.t1,db2.t2,t3");
         excludedTriggerTables = mtmv.getExcludedTriggerTables();
         Assert.assertEquals(3, excludedTriggerTables.size());
-        Assert.assertTrue(excludedTriggerTables.contains(new TableName("ctl1", "db1", "t1")));
-        Assert.assertTrue(excludedTriggerTables.contains(new TableName(null, "db2", "t2")));
-        Assert.assertTrue(excludedTriggerTables.contains(new TableName(null, null, "t3")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
     }
 
     @Test

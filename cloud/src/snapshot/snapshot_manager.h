@@ -25,7 +25,11 @@
 namespace doris::cloud {
 
 class InstanceRecycler;
+class InstanceChecker;
 class StorageVaultAccessor;
+class InstanceDataMigrator;
+class InstanceChainCompactor;
+class MetaChecker;
 
 // A abstract class for managing cluster snapshots.
 class SnapshotManager {
@@ -35,6 +39,8 @@ public:
 
     virtual void begin_snapshot(std::string_view instance_id, const BeginSnapshotRequest& request,
                                 BeginSnapshotResponse* response);
+    virtual void update_snapshot(std::string_view instance_id, const UpdateSnapshotRequest& request,
+                                 UpdateSnapshotResponse* response);
     virtual void commit_snapshot(std::string_view instance_id, const CommitSnapshotRequest& request,
                                  CommitSnapshotResponse* response);
     virtual void abort_snapshot(std::string_view instance_id, const AbortSnapshotRequest& request,
@@ -46,6 +52,19 @@ public:
     virtual void clone_instance(const CloneInstanceRequest& request,
                                 CloneInstanceResponse* response);
 
+    virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
+            std::string_view instance_id, MultiVersionStatus multi_version_status);
+
+    virtual int check_snapshots(InstanceChecker* checker);
+
+    virtual int inverted_check_snapshots(InstanceChecker* checker);
+
+    virtual int check_mvcc_meta_key(InstanceChecker* checker);
+
+    virtual int inverted_check_mvcc_meta_key(InstanceChecker* checker);
+
+    virtual int check_meta(MetaChecker* meta_checker);
+
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
     // Return 0 for success otherwise error.
     virtual int recycle_snapshots(InstanceRecycler* recycler);
@@ -56,6 +75,21 @@ public:
                                                StorageVaultAccessor* accessor,
                                                Versionstamp snapshot_version,
                                                const SnapshotPB& snapshot_pb);
+
+    // Serialize snapshot versionstamp to string (snapshot id) for external use.
+    static std::string serialize_snapshot_id(Versionstamp snapshot_versionstamp);
+
+    // Parse the serialized snapshot id to versionstamp.
+    static bool parse_snapshot_versionstamp(std::string_view snapshot_id,
+                                            Versionstamp* versionstamp);
+
+    // Migrate the single version keys to multi-version keys for the instance.
+    // Return 0 for success otherwise error.
+    virtual int migrate_to_versioned_keys(InstanceDataMigrator* migrator);
+
+    // Compress snapshot chains for the instance.
+    // Return 0 for success otherwise error.
+    virtual int compact_snapshot_chains(InstanceChainCompactor* compactor);
 
 private:
     SnapshotManager(const SnapshotManager&) = delete;

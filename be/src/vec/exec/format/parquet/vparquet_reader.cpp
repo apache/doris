@@ -33,7 +33,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/tracing_file_reader.h"
-#include "parquet_pred_cmp.h"
+#include "parquet_predicate.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -83,9 +83,9 @@ namespace doris::vectorized {
 
 #include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
-                             bool enable_lazy_mat)
+                             const TFileRangeDesc& range, size_t batch_size,
+                             const cctz::time_zone* ctz, io::IOContext* io_ctx, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -365,71 +365,11 @@ Status ParquetReader::init_reader(
     return Status::OK();
 }
 
-bool ParquetReader::_check_expr_can_push_down(const VExprSPtr& expr) {
-    if (expr == nullptr) {
-        return false;
-    }
-
-    switch (expr->node_type()) {
-    case TExprNodeType::BINARY_PRED:
-    case TExprNodeType::IN_PRED: {
-        switch (expr->op()) {
-        case TExprOpcode::GE:
-        case TExprOpcode::GT:
-        case TExprOpcode::LE:
-        case TExprOpcode::LT:
-        case TExprOpcode::EQ:
-        case TExprOpcode::FILTER_IN:
-            return _check_slot_can_push_down(expr) && _check_other_children_is_literal(expr);
-        default: {
-            return false;
-        }
-        }
-    }
-    case TExprNodeType::COMPOUND_PRED: {
-        switch (expr->op()) {
-        case TExprOpcode::COMPOUND_AND: {
-            // at least one child can be pushed down
-            return std::ranges::any_of(expr->children(), [this](const auto& child) {
-                return _check_expr_can_push_down(child);
-            });
-        }
-        case TExprOpcode::COMPOUND_OR: {
-            // all children must be pushed down
-            return std::ranges::all_of(expr->children(), [this](const auto& child) {
-                return _check_expr_can_push_down(child);
-            });
-        }
-        default: {
-            return false;
-        }
-        }
-    }
-    case TExprNodeType::FUNCTION_CALL: {
-        auto fn_name = expr->fn().name.function_name;
-        // only support `is null` and `is not null`
-        if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
-            return _check_slot_can_push_down(expr);
-        }
-        return false;
-    }
-    default: {
-        return false;
-    }
-    }
+bool ParquetReader::_exists_in_file(const VSlotRef* slot_ref) const {
+    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name());
 }
 
-bool ParquetReader::_check_slot_can_push_down(const VExprSPtr& expr) {
-    if (!expr->children()[0]->is_slot_ref()) {
-        return false;
-    }
-
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-    // check if the slot exists in parquet file.
-    if (!_table_info_node_ptr->children_column_exists(slot_ref->expr_name())) {
-        return false;
-    }
-
+bool ParquetReader::_type_matches(const VSlotRef* slot_ref) const {
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto table_col_type = remove_nullable(slot->type());
 
@@ -437,126 +377,8 @@ bool ParquetReader::_check_slot_can_push_down(const VExprSPtr& expr) {
     const auto& file_col_type =
             remove_nullable(_file_metadata->schema().get_column(file_col_name)->data_type);
 
-    // If a schema change occurs, the min and max values of the parquet file cannot be guaranteed to be valid for the current table.
-    if (table_col_type->get_primitive_type() != file_col_type->get_primitive_type() ||
-        is_complex_type(table_col_type->get_primitive_type())) {
-        return false;
-    }
-
-    return true;
-}
-
-bool ParquetReader::_check_other_children_is_literal(const VExprSPtr& expr) {
-    for (size_t child_id = 1; child_id < expr->children().size(); child_id++) {
-        auto child_expr = expr->children()[child_id];
-        if (!child_expr->is_literal()) {
-            return false;
-        }
-    }
-    return true;
-}
-
-// Although we have already checked whether the children of expr are slots and literals in `_check_expr_can_push_down`, we still need to check again here
-// because the existence of the AND predicate will cause only some children to be checked.
-bool ParquetReader::_simple_expr_push_down(
-        const VExprSPtr& expr, ParquetPredicate::OP op,
-        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
-                get_stat_func) {
-    if (!expr->children()[0]->is_slot_ref()) [[unlikely]] {
-        return false;
-    }
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-
-    std::vector<Field> literal_values(expr->children().size() - 1);
-    for (size_t child_id = 1; child_id < expr->children().size(); child_id++) {
-        auto child_expr = expr->children()[child_id];
-        if (!child_expr->is_literal()) {
-            return false;
-        }
-        const auto* literal = static_cast<const VLiteral*>(child_expr.get());
-        if (literal->get_column_ptr()->is_null_at(0)) {
-            continue;
-        }
-        literal_values[child_id - 1] = literal->get_column_ptr()->operator[](0);
-    }
-
-    auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
-        return false;
-    }
-
-    const auto& file_col_name = _table_info_node_ptr->children_file_column_name(slot->col_name());
-    const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
-
-    ParquetPredicate::ColumnStat column_stat;
-    if (!get_stat_func(col_schema, &column_stat)) {
-        return false;
-    }
-
-    return ParquetPredicate::check_can_filter(op, literal_values, column_stat, col_schema, _ctz);
-}
-
-bool ParquetReader::_expr_push_down(
-        const VExprSPtr& expr,
-        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
-                get_stat_func) {
-    if (expr == nullptr) {
-        return false;
-    }
-
-    switch (expr->node_type()) {
-    case TExprNodeType::BINARY_PRED:
-    case TExprNodeType::IN_PRED: {
-        switch (expr->op()) {
-        case TExprOpcode::GE:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::GE, get_stat_func);
-        case TExprOpcode::GT:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::GT, get_stat_func);
-        case TExprOpcode::LE:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::LE, get_stat_func);
-        case TExprOpcode::LT:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::LT, get_stat_func);
-        case TExprOpcode::EQ:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::EQ, get_stat_func);
-        case TExprOpcode::FILTER_IN:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::IN, get_stat_func);
-        default: {
-            return false;
-        }
-        }
-    }
-    case TExprNodeType::COMPOUND_PRED: {
-        switch (expr->op()) {
-        case TExprOpcode::COMPOUND_AND: {
-            return std::ranges::any_of(expr->children(), [&](const auto& child) {
-                return _expr_push_down(child, get_stat_func);
-            });
-        }
-        case TExprOpcode::COMPOUND_OR: {
-            return std::ranges::all_of(expr->children(), [&](const auto& child) {
-                return _expr_push_down(child, get_stat_func);
-            });
-        }
-        default: {
-            return false;
-        }
-        }
-    }
-    case TExprNodeType::FUNCTION_CALL: {
-        auto fn_name = expr->fn().name.function_name;
-        // only support `is null` and `is not null`
-        if (fn_name == "is_null_pred") {
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::IS_NULL, get_stat_func);
-        } else if (fn_name == "is_not_null_pred") {
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::IS_NOT_NULL, get_stat_func);
-        }
-        return false;
-    }
-    default: {
-        return false;
-    }
-    }
-    return false;
+    return (table_col_type->get_primitive_type() == file_col_type->get_primitive_type()) &&
+           !is_complex_type(table_col_type->get_primitive_type());
 }
 
 Status ParquetReader::set_fill_columns(
@@ -566,6 +388,7 @@ Status ParquetReader::set_fill_columns(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -625,8 +448,10 @@ Status ParquetReader::set_fill_columns(
             DCHECK(topn_pred->children().size() > 0);
             visit_slot(topn_pred->children()[0].get());
 
-            if (topn_pred->has_value()) {
-                expr = topn_pred->get_binary_expr();
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
+                expr = binary_expr;
             } else {
                 continue;
             }
@@ -634,15 +459,21 @@ Status ParquetReader::set_fill_columns(
             visit_slot(expr.get());
         }
 
-        if (_check_expr_can_push_down(expr)) {
-            _push_down_exprs.emplace_back(expr);
+        if (check_expr_can_push_down(expr)) {
+            _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
             if (expr->node_type() != TExprNodeType::COMPOUND_PRED) {
                 // for page index filter.
                 VSlotRef* slot_ref = static_cast<VSlotRef*>(expr->children()[0].get());
-                if (!_push_down_simple_expr.contains(slot_ref->slot_id())) {
-                    _push_down_simple_expr.emplace(slot_ref->slot_id(), VExprSPtrs {});
+                if (!_push_down_simple_predicates.contains(slot_ref->slot_id())) {
+                    _push_down_simple_predicates.emplace(
+                            slot_ref->slot_id(), std::vector<std::unique_ptr<ColumnPredicate>> {});
                 }
-                _push_down_simple_expr[slot_ref->slot_id()].emplace_back(expr);
+                RETURN_IF_ERROR(convert_predicates(
+                        {expr}, _push_down_simple_predicates[slot_ref->slot_id()],
+                        _push_down_predicates.back(), _arena));
+            } else {
+                RETURN_IF_ERROR(convert_predicates({expr}, _useless_predicates,
+                                                   _push_down_predicates.back(), _arena));
             }
         }
     }
@@ -823,12 +654,12 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
-    int64_t* delete_rows = const_cast<int64_t*>(&(*_delete_rows)[0]);
-    int64_t* delete_rows_end = delete_rows + _delete_rows->size();
-    int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
-                                          row_group_index.first_row);
+    const int64_t* delete_rows = &(*_delete_rows)[0];
+    const int64_t* delete_rows_end = delete_rows + _delete_rows->size();
+    const int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
+                                                row_group_index.first_row);
     int64_t start_index = start_pos - delete_rows;
-    int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
+    const int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
     int64_t end_index = end_pos - delete_rows;
     _delete_rows_index = end_index;
     return RowGroupReader::PositionDeleteContext(*_delete_rows, row_group.num_rows,
@@ -863,12 +694,17 @@ Status ParquetReader::_next_row_group_reader() {
         size_t avg_io_size = 0;
         const std::vector<io::PrefetchRange> io_ranges =
                 _generate_random_access_ranges(row_group_index, &avg_io_size);
+        int64_t merged_read_slice_size = -1;
+        if (_state != nullptr && _state->query_options().__isset.merge_read_slice_size) {
+            merged_read_slice_size = _state->query_options().merge_read_slice_size;
+        }
         // The underlying page reader will prefetch data in column.
         // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                                    ? std::make_shared<io::MergeRangeFileReader>(
-                                              _profile, _file_reader, io_ranges)
-                                    : _file_reader;
+        group_file_reader =
+                avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                        ? std::make_shared<io::MergeRangeFileReader>(
+                                  _profile, _file_reader, io_ranges, merged_read_slice_size)
+                        : _file_reader;
     }
     _current_group_reader.reset(
             new RowGroupReader(_io_ctx ? std::make_shared<io::TracingFileReader>(
@@ -1017,7 +853,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         return Status::EndOfFile("stop");
     }
 
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
         return Status::OK();
     }
@@ -1073,10 +909,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto slot_id = _colname_to_slot_id->at(read_table_col);
-        if (!_push_down_simple_expr.contains(slot_id)) {
-            continue;
-        }
-        const auto& push_down_expr = _push_down_simple_expr[slot_id];
 
         int parquet_col_id =
                 _file_metadata->schema().get_column(read_file_col)->physical_column_index;
@@ -1085,6 +917,19 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto& chunk = row_group.columns[parquet_col_id];
+        if (chunk.offset_index_length == 0) {
+            continue;
+        }
+        tparquet::OffsetIndex offset_index;
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
+        _col_offsets[parquet_col_id] = offset_index;
+
+        if (!_push_down_simple_predicates.contains(slot_id) ||
+            _push_down_simple_predicates[slot_id].empty()) {
+            continue;
+        }
+        const auto& predicates = _push_down_simple_predicates[slot_id];
+
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
@@ -1101,12 +946,21 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
 
         for (int page_id = 0; page_id < num_of_pages; page_id++) {
-            std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)> get_stat_func =
-                    [&](const FieldSchema* col_schema, ParquetPredicate::ColumnStat* stat) {
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                    [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                        auto* slot = _tuple_descriptor->slots()[cid];
+                        if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                            return false;
+                        }
                         if (!column_index.__isset.null_counts) {
                             return false;
                         }
 
+                        const auto& file_col_name =
+                                _table_info_node_ptr->children_file_column_name(slot->col_name());
+                        const FieldSchema* col_schema =
+                                _file_metadata->schema().get_column(file_col_name);
+                        stat->col_schema = col_schema;
                         stat->is_all_null = column_index.null_pages[page_id];
                         stat->has_null = column_index.null_counts[page_id] > 0;
                         stat->encoded_min_value = encoded_min_vals[page_id];
@@ -1114,9 +968,13 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                         return true;
                     };
 
-            for (const auto& expr : push_down_expr) {
-                if (_expr_push_down(expr, get_stat_func)) {
+            ParquetPredicate::ColumnStat stat;
+            stat.ctz = _ctz;
+            stat.get_stat_func = &get_stat_func;
+            for (const auto& predicate : predicates) {
+                if (!predicate->evaluate_and(&stat)) {
                     skipped_page_range.emplace_back(page_id);
+                    break;
                 }
             }
         }
@@ -1124,8 +982,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (skipped_page_range.empty()) {
             continue;
         }
-        tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
@@ -1133,7 +989,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();
@@ -1175,16 +1030,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 Status ParquetReader::_process_row_group_filter(
         const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
         bool* filter_group) {
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         auto group_start = row_group_index.first_row;
         auto group_end = row_group_index.last_row;
 
-        while (!_read_lines.empty()) {
-            auto v = _read_lines.front();
+        while (!_row_ids.empty()) {
+            auto v = _row_ids.front();
             if (v >= group_start && v < group_end) {
                 _read_line_mode_row_ranges[row_group_index.row_group_id].emplace_back(
                         RowRange {v - group_start, v - group_start + 1});
-                _read_lines.pop_front();
+                _row_ids.pop_front();
             } else {
                 break;
             }
@@ -1209,20 +1064,32 @@ Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_
         return Status::OK();
     }
 
-    std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)> get_stat_func =
-            [&](const FieldSchema* col_schema, ParquetPredicate::ColumnStat* stat) {
-                int parquet_col_id = col_schema->physical_column_index;
-                auto meta_data = row_group.columns[parquet_col_id].meta_data;
+    for (const auto& predicate : _push_down_predicates) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    auto* slot = _tuple_descriptor->slots()[cid];
+                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        return false;
+                    }
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
+                    stat->col_schema = col_schema;
+                    return ParquetPredicate::read_column_stats(col_schema, meta_data,
+                                                               &_ignored_stats,
+                                                               _t_metadata->created_by, stat)
+                            .ok();
+                };
+        ParquetPredicate::ColumnStat stat;
+        stat.ctz = _ctz;
+        stat.get_stat_func = &get_stat_func;
 
-                return ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
-                                                           _t_metadata->created_by, stat)
-                        .ok();
-            };
-
-    for (auto expr : _push_down_exprs) {
-        if (_expr_push_down(expr, get_stat_func)) {
+        if (!predicate->evaluate_and(&stat)) {
             *filter_group = true;
-            break;
+            return Status::OK();
         }
     }
 

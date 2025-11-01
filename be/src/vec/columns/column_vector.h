@@ -79,8 +79,8 @@ public:
     using Container = PaddedPODArray<value_type>;
 
     ColumnVector() = default;
-    ColumnVector(const size_t n) : data(n) {}
-    ColumnVector(const size_t n, const value_type x) : data(n, x) {}
+    explicit ColumnVector(const size_t n) : data(n) {}
+    explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
 
     /// Sugar constructor.
@@ -180,11 +180,15 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
+    void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                   PaddedPODArray<UInt8>& null_map) override;
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
@@ -346,11 +350,13 @@ public:
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
+    // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
+    // raise errors for null cell.
     static value_type default_value() {
         if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
-            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val();
+            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE.to_date_int_val();
         } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
-            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY;
+            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
         }

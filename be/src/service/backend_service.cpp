@@ -50,6 +50,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -707,69 +708,6 @@ Status BackendService::create_service(StorageEngine& engine, ExecEnv* exec_env, 
     return Status::OK();
 }
 
-void BaseBackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
-                                            const TExecPlanFragmentParams& params) {
-    LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
-              << " coord=" << params.coord << " backend#=" << params.backend_num;
-    return_val.__set_status(start_plan_fragment_execution(params).to_thrift());
-}
-
-Status BaseBackendService::start_plan_fragment_execution(
-        const TExecPlanFragmentParams& exec_params) {
-    if (!exec_params.fragment.__isset.output_sink) {
-        return Status::InternalError("missing sink in plan fragment");
-    }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
-                                                         QuerySource::INTERNAL_FRONTEND);
-}
-
-void BaseBackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
-    //    VLOG_ROW << "submit_export_task. request  is "
-    //            << apache::thrift::ThriftDebugString(request).c_str();
-    //
-    //    Status status = _exec_env->export_task_mgr()->start_task(request);
-    //    if (status.ok()) {
-    //        VLOG_RPC << "start export task successful id="
-    //            << request.params.params.fragment_instance_id;
-    //    } else {
-    //        VLOG_RPC << "start export task failed id="
-    //            << request.params.params.fragment_instance_id
-    //            << " and err_msg=" << status;
-    //    }
-    //    status.to_thrift(&t_status);
-}
-
-void BaseBackendService::get_export_status(TExportStatusResult& result, const TUniqueId& task_id) {
-    //    VLOG_ROW << "get_export_status. task_id  is " << task_id;
-    //    Status status = _exec_env->export_task_mgr()->get_task_state(task_id, &result);
-    //    if (!status.ok()) {
-    //        LOG(WARNING) << "get export task state failed. [id=" << task_id << "]";
-    //    } else {
-    //        VLOG_RPC << "get export task state successful. [id=" << task_id
-    //            << ",status=" << result.status.status_code
-    //            << ",state=" << result.state
-    //            << ",files=";
-    //        for (auto& item : result.files) {
-    //            VLOG_RPC << item << ", ";
-    //        }
-    //        VLOG_RPC << "]";
-    //    }
-    //    status.to_thrift(&result.status);
-    //    result.__set_state(TExportState::RUNNING);
-}
-
-void BaseBackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_id) {
-    //    VLOG_ROW << "erase_export_task. task_id  is " << task_id;
-    //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
-    //    if (!status.ok()) {
-    //        LOG(WARNING) << "delete export task failed. because "
-    //            << status << " with task_id " << task_id;
-    //    } else {
-    //        VLOG_RPC << "delete export task successful with task_id " << task_id;
-    //    }
-    //    status.to_thrift(&t_status);
-}
-
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
     _engine.tablet_manager()->get_tablet_stat(&result);
 }
@@ -1353,5 +1291,12 @@ void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
     LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
               << " rows";
 }
+
+void BaseBackendService::test_storage_connectivity(TTestStorageConnectivityResponse& response,
+                                                   const TTestStorageConnectivityRequest& request) {
+    Status status = io::StorageConnectivityTester::test(request.type, request.properties);
+    response.__set_status(status.to_thrift());
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

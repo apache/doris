@@ -59,6 +59,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
@@ -109,7 +110,6 @@ import javax.annotation.Nullable;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
 
     private static final String SSL_PROTOCOL = "TLS";
 
@@ -240,7 +240,7 @@ public class ConnectContext {
     private String workloadGroupName = "";
     private boolean isGroupCommit;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
@@ -329,11 +329,11 @@ public class ConnectContext {
     }
 
     public static ConnectContext get() {
-        return threadLocalInfo.get();
+        return MoreFieldsThread.getConnectContext();
     }
 
     public static void remove() {
-        threadLocalInfo.remove();
+        MoreFieldsThread.removeConnectContext();
     }
 
     public void setIsSend(boolean isSend) {
@@ -539,7 +539,7 @@ public class ConnectContext {
     }
 
     public void setThreadLocalInfo() {
-        threadLocalInfo.set(this);
+        MoreFieldsThread.setConnectContext(this);
     }
 
     public long getCurrentDbId() {
@@ -882,7 +882,7 @@ public class ConnectContext {
      */
     public void cleanup() {
         closeChannel();
-        threadLocalInfo.remove();
+        MoreFieldsThread.removeConnectContext();
         returnRows = 0;
         deleteTempTable();
         Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);

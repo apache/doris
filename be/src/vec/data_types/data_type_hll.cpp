@@ -56,7 +56,7 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
         buf += allocate_len_size;
 
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
+            const auto& hll = data_column.get_element(i);
             size_t actual_size = hll.serialize(reinterpret_cast<uint8_t*>(buf));
             hll_size_array[i] = actual_size;
             buf += actual_size;
@@ -77,7 +77,7 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
         buf += allocate_len_size;
 
         for (size_t i = 0; i < row_num; ++i) {
-            auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
+            auto& hll = data_column.get_element(i);
             size_t actual_size = hll.serialize(reinterpret_cast<uint8_t*>(buf));
             hll_size_array[i + 1] = actual_size;
             buf += actual_size;
@@ -152,7 +152,7 @@ int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column,
         auto allocate_len_size = sizeof(size_t) * real_need_copy_num;
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
+            auto& hll = data_column.get_element(i);
             allocate_content_size += hll.max_serialized_size();
         }
         return size + allocate_len_size + allocate_content_size;
@@ -163,7 +163,7 @@ int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column,
         auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < column.size(); ++i) {
-            auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
+            auto& hll = data_column.get_element(i);
             allocate_content_size += hll.max_serialized_size();
         }
 
@@ -180,9 +180,8 @@ Status DataTypeHLL::check_column(const IColumn& column) const {
 }
 
 void DataTypeHLL::serialize_as_stream(const HyperLogLog& cvalue, BufferWritable& buf) {
-    auto& value = const_cast<HyperLogLog&>(cvalue);
-    std::string memory_buffer(value.max_serialized_size(), '0');
-    size_t actual_size = value.serialize((uint8_t*)memory_buffer.data());
+    std::string memory_buffer(cvalue.max_serialized_size(), '0');
+    size_t actual_size = cvalue.serialize((uint8_t*)memory_buffer.data());
     memory_buffer.resize(actual_size);
     buf.write_binary(memory_buffer);
 }
@@ -191,19 +190,5 @@ void DataTypeHLL::deserialize_as_stream(HyperLogLog& value, BufferReadable& buf)
     std::string str;
     buf.read_binary(str);
     value.deserialize(Slice(str));
-}
-
-void DataTypeHLL::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                            doris::vectorized::BufferWritable& ostr) const {
-    auto col_row = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = col_row.first;
-    row_num = col_row.second;
-
-    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
-
-    std::string result(data.max_serialized_size(), '0');
-    size_t actual_size = data.serialize((uint8_t*)result.data());
-    result.resize(actual_size);
-    ostr.write(result.c_str(), result.size());
 }
 } // namespace doris::vectorized

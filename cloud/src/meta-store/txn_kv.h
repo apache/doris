@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "txn_kv_error.h"
+#include "versionstamp.h"
 
 // =============================================================================
 //
@@ -251,6 +252,19 @@ public:
     virtual TxnErrorCode commit() = 0;
 
     /**
+     * Issue a watch on `key`, it will commit the txn and wait until the watch is triggered.
+     *
+     * A watch’s behavior is relative to the transaction that created it. A watch will report a change in
+     * relation to the key’s value as readable by that transaction. The initial value used for comparison
+     * is either that of the transaction’s read version or the value as modified by the transaction itself
+     * prior to the creation of the watch. If the value changes and then changes back to its initial value,
+     * the watch might not report the change.
+     *
+     * @return TXN_OK for success otherwise error
+     */
+    virtual TxnErrorCode watch_key(std::string_view key) = 0;
+
+    /**
      * Gets the read version used by the txn.
      * Note that it does not make any sense we call this function before
      * any `Transaction::get()` is called.
@@ -405,7 +419,7 @@ public:
      * @return TXN_OK for success, TXN_INVALID_ARGUMENT if not enabled, 
      *         TXN_KEY_NOT_FOUND if not available
      **/
-    virtual TxnErrorCode get_versionstamp(std::string* versionstamp) {
+    virtual TxnErrorCode get_versionstamp(Versionstamp* versionstamp) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
     }
 };
@@ -789,6 +803,8 @@ public:
      */
     TxnErrorCode commit() override;
 
+    TxnErrorCode watch_key(std::string_view key) override;
+
     TxnErrorCode get_read_version(int64_t* version) override;
     TxnErrorCode get_committed_version(int64_t* version) override;
 
@@ -796,7 +812,7 @@ public:
 
     void enable_get_versionstamp() override;
 
-    TxnErrorCode get_versionstamp(std::string* versionstamp) override;
+    TxnErrorCode get_versionstamp(Versionstamp* versionstamp) override;
 
     TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                            const std::vector<std::string>& keys,
@@ -842,7 +858,7 @@ private:
     size_t approximate_bytes_ {0};
 
     bool versionstamp_enabled_ {false};
-    std::string versionstamp_result_;
+    Versionstamp versionstamp_result_;
 };
 
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {

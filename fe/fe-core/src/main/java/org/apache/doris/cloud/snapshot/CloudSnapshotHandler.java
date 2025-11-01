@@ -87,4 +87,16 @@ public class CloudSnapshotHandler extends MasterDaemon {
             throw new DdlException(e.getMessage());
         }
     }
+
+    public void alterInstance(Cloud.AlterInstanceRequest request) throws DdlException {
+        try {
+            Cloud.AlterInstanceResponse response = MetaServiceProxy.getInstance().alterInstance(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alterInstance response: {} ", response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
 }

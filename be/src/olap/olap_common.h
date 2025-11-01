@@ -407,6 +407,10 @@ struct OlapReaderStatistics {
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
+    // number of segment with condition cache hit
+    int64_t condition_cache_hit_seg_nums = 0;
+    // number of rows filtered by condition cache hit
+    int64_t condition_cache_filtered_rows = 0;
     // total number of segment
     int64_t total_segment_number = 0;
 
@@ -440,6 +444,14 @@ struct OlapReaderStatistics {
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
+
+    int64_t variant_scan_sparse_column_timer_ns = 0;
+    int64_t variant_scan_sparse_column_bytes = 0;
+    int64_t variant_fill_path_from_sparse_column_timer_ns = 0;
+    int64_t variant_subtree_default_iter_count = 0;
+    int64_t variant_subtree_leaf_iter_count = 0;
+    int64_t variant_subtree_hierarchical_iter_count = 0;
+    int64_t variant_subtree_sparse_iter_count = 0;
 };
 
 using ColumnId = uint32_t;

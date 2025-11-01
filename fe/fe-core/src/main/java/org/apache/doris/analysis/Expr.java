@@ -91,6 +91,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     public static final float FUNCTION_CALL_COST = 10;
 
     protected Optional<Boolean> nullableFromNereids = Optional.empty();
+    protected Optional<Boolean> originCastNullable = Optional.empty();
 
     // returns true if an Expr is a non-analytic aggregate.
     private static final com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
@@ -201,6 +202,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         fn = other.fn;
         printSqlInParens = other.printSqlInParens;
         children = Expr.cloneList(other.children);
+        nullableFromNereids = other.nullableFromNereids;
     }
 
     public boolean isAnalyzed() {
@@ -1269,28 +1271,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return true;
     }
 
-
-    protected void recursiveResetChildrenResult(boolean forPushDownPredicatesToView) throws AnalysisException {
-        for (int i = 0; i < children.size(); i++) {
-            final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue(forPushDownPredicatesToView);
-            if (newChild != child) {
-                setChild(i, newChild);
-            }
-        }
-    }
-
-    /**
-     * For calculating expr.
-     * @return value returned can't be null, if this and it's children are't constant expr, return this.
-     * @throws AnalysisException
-     */
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
-        return newExpr != null ? newExpr : this;
-    }
-
     public String getStringValue() {
         return "";
     }
@@ -1566,6 +1546,10 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     public Optional<Boolean> getNullableFromNereids() {
         return nullableFromNereids;
+    }
+
+    public void setOriginCastNullable(boolean nullable) {
+        originCastNullable = Optional.of(nullable);
     }
 
     public void clearNullableFromNereids() {

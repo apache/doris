@@ -34,7 +34,7 @@ suite("fold_constant_by_be") {
                 curdate(),
                 DATE_FORMAT(DATE_SUB(month_ceil(CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'))
         '''
-        result([[LocalDateTime.of(9999, 7, 31, 0, 0)]])
+        result([["9999-07-31"]])
     }
 
     sql """

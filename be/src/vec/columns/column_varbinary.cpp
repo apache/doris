@@ -115,7 +115,7 @@ size_t ColumnVarbinary::filter(const IColumn::Filter& filter) {
             } else {
                 auto val = src_vec.get_data()[i];
                 const auto* dst = _arena.insert(val.data(), val.size());
-                _data[pos] = doris::StringView(dst, val.size());
+                _data[pos] = doris::StringContainer(dst, val.size());
             }
             pos++;
         }
@@ -144,7 +144,7 @@ MutableColumnPtr ColumnVarbinary::permute(const IColumn::Permutation& perm, size
             continue;
         }
         const auto* dst = const_cast<Arena&>(_arena).insert(val.data(), val.size());
-        res_data[i] = doris::StringView(dst, val.size());
+        res_data[i] = doris::StringContainer(dst, val.size());
     }
 
     return res;
@@ -159,22 +159,7 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
         return;
     }
     const auto* dst = _arena.insert(val.data(), val.size());
-    _data[self_row] = doris::StringView(dst, val.size());
-}
-
-ColumnPtr ColumnVarbinary::convert_to_string_column() const {
-    auto string_column = ColumnString::create();
-    auto& res_data = assert_cast<ColumnString&>(*string_column).get_chars();
-    auto& res_offsets = assert_cast<ColumnString&>(*string_column).get_offsets();
-    res_data.reserve(res_data.size() + byte_size());
-    size_t current_offset = 0;
-    for (const auto& value : _data) {
-        res_data.insert(value.data(), value.data() + value.size());
-        current_offset += value.size();
-        res_offsets.push_back(current_offset);
-    }
-    _converted_string_column = string_column->get_ptr();
-    return _converted_string_column;
+    _data[self_row] = doris::StringContainer(dst, val.size());
 }
 
 #include "common/compile_check_end.h"

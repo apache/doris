@@ -188,6 +188,14 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // onelevel tables in this query directly,
+    // if
+    // create v1 as select * from t1
+    // create v2 as select * from v1
+    // current query is: select * from v2 join t2
+    // oneLevelTables will have two data: v2, t2,
+    // tables will have 4 data: t1, v1, v2, t2
+    private final Map<List<String>, TableIf> oneLevelTables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query,
     // this contains mvs which use table in tables and the tables in mvs
     // such as
@@ -273,6 +281,10 @@ public class StatementContext implements Closeable {
 
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
+    private boolean isInsert = false;
+
+    private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -292,13 +304,16 @@ public class StatementContext implements Closeable {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
-        if (connectContext != null && connectContext.getSessionVariable() != null
-                && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
-            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
-            this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity());
-            if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+                // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
+                this.sqlCacheContext = new SqlCacheContext(
+                        connectContext.getCurrentUserIdentity());
+                if (originStatement != null) {
+                    this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+                }
+            } else {
+                this.sqlCacheContext = null;
             }
         } else {
             this.sqlCacheContext = null;
@@ -350,6 +365,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public Map<List<String>, TableIf> getOneLevelTables() {
+        return oneLevelTables;
     }
 
     public Set<MTMV> getCandidateMTMVs() {
@@ -980,5 +999,22 @@ public class StatementContext implements Closeable {
 
     public void setProducerStats(CTEId id, Statistics stats) {
         cteIdToProducerStats.put(id, stats);
+    }
+
+    public void setIsInsert(boolean isInsert) {
+        this.isInsert = isInsert;
+    }
+
+    public boolean isInsert() {
+        return isInsert;
+    }
+
+    public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
+        return mvRefreshPredicates;
+    }
+
+    public void setMvRefreshPredicates(
+            Map<TableIf, Set<Expression>> mvRefreshPredicates) {
+        this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
     }
 }

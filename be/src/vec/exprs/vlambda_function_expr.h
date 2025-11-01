@@ -49,6 +49,8 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+
 private:
     const std::string _expr_name = "vlambda_function_expr";
 };

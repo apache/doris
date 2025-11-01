@@ -94,6 +94,38 @@ class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 
+/// Info that represents a scalar or array field in a decomposed view.
+/// It allows to recreate field with different number
+/// of dimensions or nullability.
+struct FieldInfo {
+    /// The common type id of of all scalars in field.
+    PrimitiveType scalar_type_id = PrimitiveType::INVALID_TYPE;
+    /// Do we have NULL scalar in field.
+    bool have_nulls = false;
+    /// If true then we have scalars with different types in array and
+    /// we need to convert scalars to the common type.
+    bool need_convert = false;
+    /// Number of dimension in array. 0 if field is scalar.
+    size_t num_dimensions = 0;
+
+    // decimal info
+    int scale = 0;
+    int precision = 0;
+};
+struct PackedUInt128 {
+    // PackedInt128() : value(0) {}
+    PackedUInt128() = default;
+
+    PackedUInt128(const unsigned __int128& value_) { value = value_; }
+    PackedUInt128& operator=(const unsigned __int128& value_) {
+        value = value_;
+        return *this;
+    }
+    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
+
+    uint128_t value;
+} __attribute__((packed));
+
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another
@@ -240,6 +272,10 @@ public:
     virtual ~DataTypeSerDe();
 
     Status default_from_string(StringRef& str, IColumn& column) const;
+
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
+
+    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const;
 
     // All types can override this function
     // When this function is called, column should be of the corresponding type
@@ -416,6 +452,11 @@ public:
                                           int64_t row_num) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
     }
+
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info);
 
 protected:
     bool _return_object_as_string = false;

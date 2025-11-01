@@ -448,6 +448,18 @@ public class MetaServiceClient {
                 .resetRlProgress(request);
     }
 
+    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(Cloud.ResetStreamingJobOffsetRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.ResetStreamingJobOffsetRequest.Builder builder =
+                    Cloud.ResetStreamingJobOffsetRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .resetStreamingJobOffset(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .resetStreamingJobOffset(request);
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -493,6 +505,17 @@ public class MetaServiceClient {
                 .createInstance(request);
     }
 
+    public Cloud.GetStreamingTaskCommitAttachResponse
+            getStreamingTaskCommitAttach(Cloud.GetStreamingTaskCommitAttachRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getStreamingTaskCommitAttach(request);
+    }
+
+    public Cloud.DeleteStreamingJobResponse deleteStreamingJob(Cloud.DeleteStreamingJobRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .deleteStreamingJob(request);
+    }
+
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .alterInstance(request);
@@ -501,6 +524,11 @@ public class MetaServiceClient {
     public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
             .beginSnapshot(request);
+    }
+
+    public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .updateSnapshot(request);
     }
 
     public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) {

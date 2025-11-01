@@ -272,6 +272,7 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     const static VecDateTimeValue FIRST_DAY;
+    const static VecDateTimeValue DEFAULT_VALUE;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -646,8 +647,10 @@ public:
     bool operator>(const DateV2Value<T>& other) const;
 
     const char* month_name() const;
+    const char* month_name_with_locale(const char* const* month_names) const;
 
     const char* day_name() const;
+    const char* day_name_with_locale(const char* const* day_names) const;
 
     VecDateTimeValue& operator+=(int64_t count) {
         bool is_neg = false;
@@ -773,9 +776,6 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, size_t len,
-                            const cctz::time_zone* local_time_zone);
-
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
 
@@ -812,6 +812,8 @@ private:
 };
 
 inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
+                                                              1, 1);
 
 template <typename T>
 class DateV2Value {
@@ -832,6 +834,7 @@ public:
     DateV2Value(const DateV2Value<T>& other) = default;
 
     const static DateV2Value<T> FIRST_DAY;
+    const static DateV2Value<T> DEFAULT_VALUE;
 
     static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
@@ -927,7 +930,15 @@ public:
     // DATETIME:  format 'YYYY-MM-DD hh:mm:ss.xxxxxx'
     int32_t to_buffer(char* buffer, int scale = -1) const;
 
+    // to_string with buffer will append '\0' at the end
     char* to_string(char* to, int scale = -1) const;
+    // to_string return std::string will NOT append '\0' at the end
+    std::string to_string(int scale = -1) const {
+        std::string buf(40, 0);
+        int len = to_buffer(buf.data(), scale);
+        buf.resize(len);
+        return buf;
+    }
 
     // Return true if range or date is invalid
     static bool is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
@@ -1166,8 +1177,10 @@ public:
     DateV2Value<T>& operator=(const DateV2Value<T>& other) = default;
 
     const char* month_name() const;
+    const char* month_name_with_locale(const char* const* month_names) const;
 
     const char* day_name() const;
+    const char* day_name_with_locale(const char* const* day_names) const;
 
     DateV2Value<T>& operator+=(int64_t count) {
         bool is_neg = false;
@@ -1416,13 +1429,14 @@ public:
 
     int64_t to_int64() const {
         if constexpr (is_datetime) {
-            return (date_v2_value_.year_ * 10000L + date_v2_value_.month_ * 100 +
+            return (date_v2_value_.year_ * 10000LL + date_v2_value_.month_ * 100LL +
                     date_v2_value_.day_) *
-                           1000000L +
-                   date_v2_value_.hour_ * 10000 + date_v2_value_.minute_ * 100 +
+                           1000000LL +
+                   date_v2_value_.hour_ * 10000LL + date_v2_value_.minute_ * 100LL +
                    date_v2_value_.second_;
         } else {
-            return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
+            return date_v2_value_.year_ * 10000LL + date_v2_value_.month_ * 100LL +
+                   date_v2_value_.day_;
         }
     }
 
@@ -1439,9 +1453,6 @@ private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
-
-    bool from_date_str_base(const char* date_str, size_t len, int scale,
-                            const cctz::time_zone* local_time_zone, bool convert_zero);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
@@ -1461,6 +1472,8 @@ private:
 
 template <typename T>
 inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
+template <typename T>
+inline const DateV2Value<T> DateV2Value<T>::DEFAULT_VALUE = DateV2Value<T>(1970, 1, 1, 0, 0, 0, 0);
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);

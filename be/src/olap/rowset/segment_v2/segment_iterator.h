@@ -130,7 +130,6 @@ public:
     const Schema& schema() const override { return *_schema; }
     Segment& segment() { return *_segment; }
     StorageReadOptions& storage_read_options() { return _opts; }
-    bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
     RowsetId rowset_id() const { return _segment->rowset_id(); }
     int64_t tablet_id() const { return _tablet_id; }
@@ -154,6 +153,8 @@ public:
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
+    Status _check_output_block(vectorized::Block* block);
+
     template <typename Container>
     void _update_profile(RuntimeProfile* profile, const Container& predicates,
                          const std::string& title) {
@@ -167,7 +168,7 @@ private:
         profile->add_info_string(title, info);
     }
 
-    [[nodiscard]] Status _lazy_init();
+    [[nodiscard]] Status _lazy_init(vectorized::Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
@@ -217,19 +218,20 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        vectorized::MutableColumns& column_block, size_t nrows);
-    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read);
-    void _replace_version_col(size_t num_rows);
+    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
+    void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(vectorized::Block* block,
                                std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     void _collect_runtime_filter_predicate();
-    void _output_non_pred_columns(vectorized::Block* block);
+    Status _output_non_pred_columns(vectorized::Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
-                                                 vectorized::MutableColumns* mutable_columns);
+                                                 vectorized::MutableColumns* mutable_columns,
+                                                 bool init_condition_cache = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -281,6 +283,9 @@ private:
     // same with _extract_common_expr_columns, but only extract columns that can be used for index
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               vectorized::Block* block);
+    Status _process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
+                                vectorized::Block* block);
+
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
                                           const vectorized::IColumn::Filter& filter);
 
@@ -363,13 +368,21 @@ private:
 
     void _calculate_expr_in_remaining_conjunct_root();
 
-    void _clear_iterators();
+    Status _process_eof(vectorized::Block* block);
+
+    Status _process_column_predicate();
+
+    void _fill_column_nothing();
+
+    Status _process_columns(const std::vector<ColumnId>& column_ids, vectorized::Block* block);
 
     // Initialize virtual columns in the block, set all virtual columns in the block to ColumnNothing
     void _init_virtual_columns(vectorized::Block* block);
     // Fallback logic for virtual column materialization, materializing all unmaterialized virtual columns through expressions
     Status _materialization_of_virtual_column(vectorized::Block* block);
     void _prepare_score_column_materialization();
+
+    void _init_row_bitmap_by_condition_cache();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -421,10 +434,10 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
-    std::vector<ColumnId> _non_predicate_column_ids;
+    std::vector<ColumnId> _common_expr_column_ids;
     // TODO: Should use std::vector<size_t>
     std::vector<ColumnId> _columns_to_filter;
-    std::vector<ColumnId> _converted_column_ids;
+    std::vector<bool> _converted_column_ids;
     // TODO: Should use std::vector<size_t>
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
@@ -454,11 +467,8 @@ private:
 
     // char_type or array<char> type columns cid
     std::vector<size_t> _char_type_idx;
-    std::vector<size_t> _char_type_idx_no_0;
     std::vector<bool> _is_char_type;
 
-    // number of rows read in the current batch
-    uint32_t _current_batch_rows_read = 0;
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
@@ -496,6 +506,13 @@ private:
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 
     IndexQueryContextPtr _index_query_context;
+
+    // key is column uid, value is the sparse column cache
+    std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
+
+    bool _find_condition_cache = false;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    static constexpr int CONDITION_CACHE_OFFSET = 2048;
 };
 
 } // namespace segment_v2

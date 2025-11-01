@@ -114,19 +114,20 @@ TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_
 template <PrimitiveType PType>
 struct ToDateImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
-    using T = typename PrimitiveTypeTraits<PType>::CppType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_date";
 
-    static auto execute(const ArgType& t) {
-        auto dt = binary_cast<ArgType, T>(t);
-        if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
-            return binary_cast<T, ArgType>(dt);
-        } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
+    static auto execute(const NativeType& t) {
+        auto dt = binary_cast<NativeType, DateType>(t);
+        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>>) {
+            return binary_cast<DateType, NativeType>(dt);
+        } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             dt.cast_to_date();
-            return binary_cast<T, ArgType>(dt);
+            return binary_cast<DateType, NativeType>(dt);
         } else {
-            return (UInt32)(binary_cast<T, ArgType>(dt) >> TIME_PART_LENGTH);
+            return (PrimitiveTypeTraits<TYPE_DATEV2>::CppNativeType)(
+                    binary_cast<DateType, NativeType>(dt) >> TIME_PART_LENGTH);
         }
     }
 
@@ -162,8 +163,10 @@ struct DayNameImpl {
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset) {
-        const auto* day_name = dt.day_name();
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* day_names) {
+        DCHECK(day_names != nullptr);
+        const auto* day_name = dt.day_name_with_locale(day_names);
         if (day_name != nullptr) {
             auto len = strlen(day_name);
             memcpy(&res_data[offset], day_name, len);
@@ -185,7 +188,8 @@ struct ToIso8601Impl {
     static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset) {
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* /*names_ptr*/) {
         auto length = dt.to_buffer((char*)res_data.data() + offset,
                                    std::is_same_v<ArgType, UInt32> ? -1 : 6);
         if (std::is_same_v<ArgType, UInt64>) {
@@ -209,8 +213,10 @@ struct MonthNameImpl {
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset) {
-        const auto* month_name = dt.month_name();
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* month_names) {
+        DCHECK(month_names != nullptr);
+        const auto* month_name = dt.month_name_with_locale(month_names);
         if (month_name != nullptr) {
             auto len = strlen(month_name);
             memcpy(&res_data[offset], month_name, len);
@@ -314,7 +320,7 @@ struct FromUnixTimeImpl {
             return true;
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
-        if (!dt.is_valid_date()) {
+        if (!dt.is_valid_date()) [[unlikely]] {
             return true;
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
@@ -375,11 +381,11 @@ struct FromUnixTimeDecimalImpl {
     static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
                                 ColumnString::Chars& res_data, size_t& offset,
                                 const cctz::time_zone& time_zone) {
-        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) {
+        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) [[unlikely]] {
             return true;
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
-        if (!dt.is_valid_date()) {
+        if (!dt.is_valid_date()) [[unlikely]] {
             return true;
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
@@ -400,173 +406,6 @@ struct FromUnixTimeDecimalImpl {
             offset += len;
         }
         return false;
-    }
-};
-
-template <typename Transform>
-struct TransformerToStringOneArgument {
-    static void
-    vector(FunctionContext* context,
-           const PaddedPODArray<typename PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType>&
-                   ts,
-           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets, NullMap& null_map) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-        null_map.resize(len);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<
-                    const typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&>(t);
-            res_offsets[i] =
-                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
-            null_map[i] = !date_time_value.is_valid_date();
-        }
-        res_data.resize(res_offsets[res_offsets.size() - 1]);
-    }
-
-    static void
-    vector(FunctionContext* context,
-           const PaddedPODArray<typename PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType>&
-                   ts,
-           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<
-                    const typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&>(t);
-            res_offsets[i] =
-                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
-            DCHECK(date_time_value.is_valid_date());
-        }
-        res_data.resize(res_offsets[res_offsets.size() - 1]);
-    }
-};
-
-template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
-struct Transformer {
-    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
-    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
-                       NullMap& null_map) {
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-        null_map.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            // The transform result maybe an int, int32, but the result maybe short
-            // for example, year function. It is only a short.
-            auto res = Transform::execute(vec_from[i]);
-            using RESULT_TYPE = std::decay_t<decltype(res)>;
-            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
-        }
-
-        for (size_t i = 0; i < size; ++i) {
-            null_map[i] =
-                    !((typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&)(vec_from[i]))
-                             .is_valid_date();
-        }
-    }
-
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            auto res = Transform::execute(vec_from[i]);
-            using RESULT_TYPE = std::decay_t<decltype(res)>;
-            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
-            DCHECK(((typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&)(vec_from[i]))
-                           .is_valid_date());
-        }
-    }
-};
-
-template <PrimitiveType FromPType, PrimitiveType ToPType, template <PrimitiveType> typename Impl>
-struct TransformerYear {
-    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
-    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
-                       NullMap& null_map) {
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-        null_map.resize(size);
-
-        auto* __restrict to_ptr = vec_to.data();
-        auto* __restrict from_ptr = vec_from.data();
-        auto* __restrict null_map_ptr = null_map.data();
-
-        for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = Impl<FromPType>::execute(from_ptr[i]);
-        }
-
-        for (size_t i = 0; i < size; ++i) {
-            null_map_ptr[i] = to_ptr[i] > MAX_YEAR;
-        }
-    }
-
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-
-        auto* __restrict to_ptr = vec_to.data();
-        auto* __restrict from_ptr = vec_from.data();
-
-        for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = Impl<FromPType>::execute(from_ptr[i]);
-        }
-    }
-};
-
-template <PrimitiveType FromType, PrimitiveType ToType>
-struct Transformer<FromType, ToType, ToYearImpl<FromType>>
-        : public TransformerYear<FromType, ToType, ToYearImpl> {};
-
-template <PrimitiveType FromType, PrimitiveType ToType>
-struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
-        : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
-
-template <PrimitiveType FromType, PrimitiveType ToType, typename Transform>
-struct DateTimeTransformImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
-                          size_t input_rows_count) {
-        using Op = Transformer<FromType, ToType, Transform>;
-
-        const auto is_nullable = block.get_by_position(result).type->is_nullable();
-
-        const ColumnPtr source_col = remove_nullable(block.get_by_position(arguments[0]).column);
-        if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
-            auto col_to = ColumnVector<ToType>::create();
-            if (is_nullable) {
-                auto null_map = ColumnUInt8::create(input_rows_count);
-                Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[0]).column.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
-                block.replace_by_position(
-                        result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
-            } else {
-                Op::vector(sources->get_data(), col_to->get_data());
-                block.replace_by_position(result, std::move(col_to));
-            }
-        } else {
-            return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
-        }
-        return Status::OK();
     }
 };
 

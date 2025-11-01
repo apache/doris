@@ -242,6 +242,10 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
+
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
@@ -269,8 +273,24 @@ private:
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
+    // total uncompressed bytes read when scanning sparse columns in variant
+    RuntimeProfile::Counter* _variant_scan_sparse_column_bytes = nullptr;
+
+    // total time spent scanning sparse subcolumns
+    RuntimeProfile::Counter* _variant_scan_sparse_column_timer = nullptr;
+    // time to build/resolve subcolumn paths from the sparse column
+    RuntimeProfile::Counter* _variant_fill_path_from_sparse_column_timer = nullptr;
+    // Variant subtree: times falling back to default iterator due to missing path
+    RuntimeProfile::Counter* _variant_subtree_default_iter_count = nullptr;
+    // Variant subtree: times selecting leaf iterator (target subcolumn is a leaf)
+    RuntimeProfile::Counter* _variant_subtree_leaf_iter_count = nullptr;
+    // Variant subtree: times selecting hierarchical iterator (node has children and sparse columns)
+    RuntimeProfile::Counter* _variant_subtree_hierarchical_iter_count = nullptr;
+    // Variant subtree: times selecting sparse iterator (iterate over sparse subcolumn)
+    RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
+
     std::vector<TabletWithVersion> _tablets;
-    std::vector<TabletReader::ReadSource> _read_sources;
+    std::vector<TabletReadSource> _read_sources;
 
     std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
     std::map<SlotId, size_t> _slot_id_to_index_in_block;

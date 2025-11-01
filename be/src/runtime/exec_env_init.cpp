@@ -43,7 +43,6 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -54,6 +53,8 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/condition_cache.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
@@ -107,7 +108,6 @@
 #include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
@@ -279,7 +279,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
-    RETURN_IF_ERROR(_init_mem_env());
+    RETURN_IF_ERROR(init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -473,7 +473,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     }
 }
 
-Status ExecEnv::_init_mem_env() {
+Status ExecEnv::init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
@@ -613,6 +613,16 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
+
+    // use memory limit
+    int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
+    _condition_cache = ConditionCache::create_global_cache(condition_cache_limit);
+    LOG(INFO) << "Condition cache memory limit: "
+              << PrettyPrinter::print(condition_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::condition_cache_limit;
+
+    // Initialize encoding info resolver
+    _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
 
     // init orc memory pool
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
@@ -795,6 +805,8 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
+    SAFE_DELETE(_condition_cache);
+    SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);

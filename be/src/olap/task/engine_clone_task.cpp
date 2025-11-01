@@ -306,13 +306,13 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));
-        auto tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
-        if (!tablet) {
+        auto nested_tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
+        if (!nested_tablet) {
             status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);
             return status;
         }
         // MUST reset `replica_id` to request `replica_id` to keep consistent with FE
-        tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+        nested_tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
         std::string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
@@ -899,11 +899,11 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
 
     // check missing versions exist in clone src
     std::vector<RowsetSharedPtr> rowsets_to_clone;
-    for (Version version : missed_versions) {
-        auto rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(version);
+    for (Version nested_version : missed_versions) {
+        auto rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(nested_version);
         if (rs_meta == nullptr) {
             return Status::InternalError("missed version {} is not found in cloned tablet meta",
-                                         version.to_string());
+                                         nested_version.to_string());
         }
         RowsetSharedPtr rs;
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
@@ -960,7 +960,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
 
     to_add.reserve(cloned_tablet_meta->all_rs_metas().size());
-    for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : cloned_tablet_meta->all_rs_metas()) {
         RowsetSharedPtr rs;
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         to_add.push_back(std::move(rs));
