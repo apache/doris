@@ -362,6 +362,8 @@ message ColumnPB {
     optional bool is_on_update_current_timestamp = 28 [default = false];
     // variant_max_sparse_column_statistics_size 
     optional int32 variant_max_sparse_column_statistics_size = 29 [default = 10000];
+    // support variant sub column can be flatten
+    repeated string variant_flatten_keys = 30;
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

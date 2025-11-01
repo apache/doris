@@ -529,7 +529,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 }
 
 Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              const ParseConfig& config) {
+                              const std::vector<std::vector<std::string>>& flatten_keys,
+                              ParseConfig& config) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -566,6 +567,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 
         if (scalar_root_column->is_column_string()) {
             variant_column = ColumnVariant::create(0);
+            config.setFlattenKeys(flatten_keys.at(i));
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
@@ -590,10 +592,12 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 }
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseConfig& config) {
+                             const std::vector<std::vector<std::string>>& flatten_keys,
+                             ParseConfig& config) {
     // Parse each variant column from raw string column
     RETURN_IF_CATCH_EXCEPTION({
-        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, config);
+        return vectorized::schema_util::_parse_variant_columns(block, variant_pos, flatten_keys,
+                                                               config);
     });
 }
 
@@ -728,7 +732,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
                         .path_to_none_null_values[path] += size;
             }
 
-            //2. agg path -> schema
+            //2. agg path -> schema, pass nested to check if there are duplicate nested paths
             auto& paths_types =
                     (*uid_to_variant_extended_info)[column->unique_id()].path_to_data_types;
             variant_column_reader->get_subcolumns_types(&paths_types);
@@ -917,6 +921,7 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
         TabletIndexes sub_column_indexes;
         vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, nested_column);
         paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
+        paths_set_info.nested_paths.emplace(path.get_path()); // record nested column path
         output_schema->append_column(nested_column);
         VLOG_DEBUG << "append nested column " << path.get_path();
     }
@@ -928,6 +933,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
         const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
         const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema) {
     auto& path_set = paths_set_info.sub_path_set;
+    auto& nested_paths = paths_set_info.nested_paths;
     std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
     std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
@@ -974,6 +980,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
         else {
             DataTypePtr data_type;
             get_least_supertype_jsonb(find_data_types->second, &data_type);
+            // check here nested column is already added with different structure, if so, skip it
             TabletColumn sub_column =
                     get_column_by_type(data_type, column_name,
                                        vectorized::schema_util::ExtraInfo {
@@ -983,6 +990,12 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             vectorized::schema_util::inherit_column_attributes(*parent_column, sub_column);
             TabletIndexes sub_column_indexes;
             vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, sub_column);
+            // check if here has already added a nested column with the same path, if so, skip it
+            if (paths_set_info.nested_paths.contains(subpath.to_string())) {
+                // if nested column already exists, skip adding non-nested column
+                VLOG_DEBUG << "skip sub column " << subpath << " due to existing nested column";
+                continue;
+            }
             paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_indexes));
             output_schema->append_column(sub_column);
             VLOG_DEBUG << "append sub column " << subpath << " data type " << data_type->get_name();
@@ -999,6 +1012,12 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         if (data_types.empty() || path.empty() || path.has_nested_part()) {
             continue;
         }
+        // check if here has already added a nested column with the same path, if so, skip it
+        if (paths_set_info.nested_paths.contains(path.get_path())) {
+            // if nested column already exists, skip adding non-nested column
+            VLOG_DEBUG << "skip sub column " << path.get_path() << " due to existing nested column";
+            continue;
+        }
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
@@ -1011,6 +1030,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         vectorized::schema_util::inherit_column_attributes(*parent_column, sub_column);
         TabletIndexes sub_column_indexes;
         vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, sub_column);
+
         paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
         output_schema->append_column(sub_column);
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
@@ -1045,7 +1065,6 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             continue;
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
-
         // 1. append typed columns
         RETURN_IF_ERROR(get_compaction_typed_columns(
                 target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
@@ -1061,6 +1080,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                      uid_to_variant_extended_info[column->unique_id()].path_to_none_null_values,
                      uid_to_paths_set_info[column->unique_id()]);
 
+        // todo check path has different structure, if has, nested path will keep, and other path will be removed
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
             get_compaction_subcolumns_from_subpaths(

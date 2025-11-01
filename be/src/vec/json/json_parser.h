@@ -124,6 +124,45 @@ enum class ExtractType {
 
 struct ParseConfig {
     bool enable_flatten_nested = false;
+
+    // Constructor to properly initialize the config
+    ParseConfig(bool enable_flatten = false, const std::vector<std::string>& keys = {})
+            : enable_flatten_nested(enable_flatten) {
+        setFlattenKeys(keys);
+    }
+
+    // Setter method that automatically updates has_wildcard
+    void setFlattenKeys(const std::vector<std::string>& keys) {
+        flatten_keys.clear();
+        for (const auto& key : keys) {
+            flatten_keys.insert(key);
+        }
+        updateWildcardFlag();
+    }
+
+    // Add a single key and update wildcard flag
+    void addFlattenKey(const std::string& key) {
+        flatten_keys.insert(key);
+        updateWildcardFlag();
+    }
+
+    // Add multiple keys and update wildcard flag
+    void addFlattenKeys(const std::vector<std::string>& keys) {
+        for (const auto& key : keys) {
+            flatten_keys.insert(key);
+        }
+        updateWildcardFlag();
+    }
+
+    // Update wildcard flag based on current flatten_keys
+    void updateWildcardFlag() { has_wildcard = flatten_keys.contains("*"); }
+
+    std::unordered_set<std::string> getFlattenKeys() const { return flatten_keys; }
+    bool hasWildcard() const { return has_wildcard; }
+
+private:
+    std::unordered_set<std::string> flatten_keys;
+    bool has_wildcard = false;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -148,6 +187,9 @@ private:
         bool enable_flatten_nested = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
+        std::unordered_set<std::string> flatten_keys;
+        bool has_wildcard = false; // Pre-computed flag for "*" in flatten_keys
+        bool is_top_array_to_flatten = false;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;
