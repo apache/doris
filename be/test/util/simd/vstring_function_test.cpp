@@ -278,8 +278,7 @@ TEST(VStringFunctionsTest, Reverse) {
     auto reverse_check = [](const std::string& src, const std::string& expected) {
         std::string dst(src.size(), '\0');
         StringRef src_ref(src);
-        StringRef dst_ref(dst);
-        VStringFunctions::reverse(src_ref, dst_ref);
+        VStringFunctions::reverse(src_ref, &dst);
         EXPECT_EQ(dst, expected);
     };
 
