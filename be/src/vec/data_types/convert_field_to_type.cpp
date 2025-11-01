@@ -100,7 +100,7 @@ public:
     }
     void operator()(const Array& x, JsonbWriter* writer) const;
 
-    void operator()(const Tuple& x, JsonbWriter* writer) const {
+    void operator()(const Struct& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     void operator()(const DecimalField<Decimal32>& x, JsonbWriter* writer) const {

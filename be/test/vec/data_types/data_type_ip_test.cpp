@@ -307,7 +307,7 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     column_map_ipv6->insert(Field::create_field<TYPE_MAP>(ipv6_map));
 
     // pack struct
-    Tuple tuple;
+    Struct tuple;
     tuple.push_back(Field::create_field<TYPE_IPV4>(ipv4_values[0]));
     tuple.push_back(Field::create_field<TYPE_IPV6>(ipv6_values[0]));
     tuple.push_back(Field::create_field<TYPE_ARRAY>(ipv4_array));

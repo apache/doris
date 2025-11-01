@@ -709,15 +709,15 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
-    using CppType = vectorized::Tuple;
+    using CppType = vectorized::Struct;
     using StorageFieldType = CppType;
     using CppNativeType = CppType;
     using ColumnItemType = CppType;
     using DataType = vectorized::DataTypeStruct;
     using ColumnType = vectorized::ColumnStruct;
-    using NearestFieldType = vectorized::Tuple;
-    using AvgNearestFieldType = vectorized::Tuple;
-    using AvgNearestFieldType256 = vectorized::Tuple;
+    using NearestFieldType = vectorized::Struct;
+    using AvgNearestFieldType = vectorized::Struct;
+    using AvgNearestFieldType256 = vectorized::Struct;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_STRUCT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_STRUCT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRUCT;

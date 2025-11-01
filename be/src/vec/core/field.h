@@ -76,7 +76,7 @@ struct Array : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-struct Tuple : public FieldVector {
+struct Struct : public FieldVector {
     using FieldVector::FieldVector;
 };
 
@@ -445,7 +445,7 @@ public:
             f(field.template get<Array>());
             return;
         case PrimitiveType::TYPE_STRUCT:
-            f(field.template get<Tuple>());
+            f(field.template get<Struct>());
             return;
         case PrimitiveType::TYPE_MAP:
             f(field.template get<Map>());
@@ -488,7 +488,7 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         Int128, IPv6, Float64, String, JsonbField, Array, Struct, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>,
                          DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
                          DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState,

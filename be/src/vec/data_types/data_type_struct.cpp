@@ -127,7 +127,7 @@ Status DataTypeStruct::check_column(const IColumn& column) const {
 
 Field DataTypeStruct::get_default() const {
     size_t size = elems.size();
-    Tuple t;
+    Struct t;
     for (size_t i = 0; i < size; ++i) {
         t.push_back(elems[i]->get_default());
     }

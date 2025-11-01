@@ -54,7 +54,7 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     m.push_back(Field::create_field<TYPE_ARRAY>(a1));
     m.push_back(Field::create_field<TYPE_ARRAY>(a2));
 
-    Tuple t;
+    Struct t;
     t.push_back(Field::create_field<TYPE_LARGEINT>(Int128(12345454342)));
     t.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
     t.push_back(Field::create_field<TYPE_BIGINT>(Int64(0)));

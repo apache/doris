@@ -62,17 +62,17 @@ TEST(ColumnStructTest2, StringTest) {
             ->insert_indices_from(*str64_struct_column, indices.data(),
                                   indices.data() + indices.size());
     EXPECT_EQ(str32_struct_column->size(), indices.size());
-    auto t = get<Tuple>(str32_struct_column->operator[](0));
+    auto t = get<Struct>(str32_struct_column->operator[](0));
     EXPECT_EQ(t.size(), 2);
     EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("aaa"));
     EXPECT_EQ(t[1], Field::create_field<TYPE_BIGINT>(111));
 
-    t = get<Tuple>(str32_struct_column->operator[](1));
+    t = get<Struct>(str32_struct_column->operator[](1));
     EXPECT_EQ(t.size(), 2);
     EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("ccc"));
     EXPECT_EQ(t[1], Field::create_field<TYPE_BIGINT>(333));
 
-    t = get<Tuple>(str32_struct_column->operator[](2));
+    t = get<Struct>(str32_struct_column->operator[](2));
     EXPECT_EQ(t.size(), 2);
     EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("ddd"));
     EXPECT_EQ(t[1], Field::create_field<TYPE_BIGINT>(444));

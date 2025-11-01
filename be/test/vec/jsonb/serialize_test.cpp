@@ -293,7 +293,7 @@ TEST(BlockSerializeTest, Struct) {
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
         DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
         DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
-        Tuple t1, t2;
+        Struct t1, t2;
         t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
         t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
