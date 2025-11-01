@@ -149,12 +149,7 @@ private:
         DCHECK_LT(child_id, _child_size);
         DCHECK(!is_child_passthrough(child_id));
         if (input_block->rows() > 0) {
-            vectorized::MutableBlock mblock =
-                    vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               row_descriptor());
-            vectorized::Block res;
-            RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
-            RETURN_IF_ERROR(mblock.merge(res));
+            RETURN_IF_ERROR(materialize_block(state, input_block, child_id, output_block));
         }
         return Status::OK();
     }
