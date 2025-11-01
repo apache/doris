@@ -74,8 +74,7 @@ protected:
 
 TEST_F(DataTypeJsonbSerDeTest, serdes) {
     auto test_func = [](const auto& serde, const auto& source_column) {
-        using SerdeType = decltype(serde);
-        using ColumnType = typename std::remove_reference<SerdeType>::type::ColumnStrType;
+        using ColumnType = ColumnString;
 
         auto row_count = source_column->size();
         auto option = DataTypeSerDe::FormatOptions();
