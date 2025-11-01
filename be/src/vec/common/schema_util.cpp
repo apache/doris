@@ -428,7 +428,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
         target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
         target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
-        target.type() != FieldType::OLAP_FIELD_TYPE_FLOAT) {
+        target.type() != FieldType::OLAP_FIELD_TYPE_FLOAT &&
+        target.type() != FieldType::OLAP_FIELD_TYPE_BOOL) {
         // above types are not supported in bf
         target.set_is_bf_column(source.is_bf_column());
     }
