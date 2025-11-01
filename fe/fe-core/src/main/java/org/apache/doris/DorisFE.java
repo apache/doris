@@ -36,6 +36,8 @@ import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
@@ -63,7 +65,9 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DorisFE {
     private static final Logger LOG = LogManager.getLogger(DorisFE.class);
@@ -75,12 +79,14 @@ public class DorisFE {
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");
 
-
     private static String LOCK_FILE_PATH;
 
     private static final String LOCK_FILE_NAME = "process.lock";
     private static FileChannel processLockFileChannel;
     private static FileLock processFileLock;
+
+    // set to true when all servers are ready.
+    private static final AtomicBoolean serverReady = new AtomicBoolean(false);
 
     public static void main(String[] args) {
         // Every doris version should have a final meta version, it should not change
@@ -144,7 +150,14 @@ public class DorisFE {
             }
 
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
-            Runtime.getRuntime().addShutdownHook(new Thread(LogManager::shutdown));
+
+            // Add shutdown hook for graceful exit
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                LOG.info("Received shutdown signal, starting graceful shutdown...");
+                serverReady.set(false);
+                gracefulShutdown();
+                LogManager.shutdown();
+            }));
 
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl", "60");
@@ -231,9 +244,12 @@ public class DorisFE {
 
             ThreadPoolManager.registerAllThreadPoolMetric();
             startMonitor();
-            while (true) {
+
+            serverReady.set(true);
+            while (serverReady.get()) {
                 Thread.sleep(2000);
             }
+            LOG.info("Doris FE main loop exited, shutting down gracefully...");
         } catch (Throwable e) {
             // Some exception may thrown before LOG is inited.
             // So need to print to stdout
@@ -583,5 +599,26 @@ public class DorisFE {
     public static class StartupOptions {
         public boolean enableHttpServer = true;
         public boolean enableQeService = true;
+    }
+
+    public static boolean isServerReady() {
+        return serverReady.get();
+    }
+
+    private static void gracefulShutdown() {
+        // wait for all queries to finish
+        try {
+            long now = System.currentTimeMillis();
+            List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
+                Thread.sleep(1000);
+                allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+                LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
+            }
+        } catch (Throwable t) {
+            LOG.error("", t);
+        }
+
+        LOG.info("graceful shutdown finished");
     }
 }

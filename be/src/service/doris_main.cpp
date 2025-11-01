@@ -602,12 +602,15 @@ int main(int argc, char** argv) {
 
     exec_env->storage_engine().notify_listeners();
 
+    doris::k_is_server_ready = true;
+
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
         sleep(3);
     }
+    doris::k_is_server_ready = false;
     LOG(INFO) << "Doris main exiting.";
 #if defined(LLVM_PROFILE)
     __llvm_profile_write_file();

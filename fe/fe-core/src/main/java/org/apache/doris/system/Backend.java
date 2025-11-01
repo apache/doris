@@ -293,20 +293,38 @@ public class Backend implements Writable {
         this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
     }
 
+    // ATTN: This method only the value of "isQueryDisabled",
+    // it does not determine the backend IS queryable or not, use isQueryAvailable instead.
     public boolean isQueryDisabled() {
         return backendStatus.isQueryDisabled;
     }
 
-    public void setQueryDisabled(boolean isQueryDisabled) {
-        this.backendStatus.isQueryDisabled = isQueryDisabled;
+    // return true if be status is changed
+    public boolean setQueryDisabled(boolean isQueryDisabled) {
+        if (this.backendStatus.isQueryDisabled != isQueryDisabled) {
+            this.backendStatus.isQueryDisabled = isQueryDisabled;
+            return true;
+        }
+        return false;
     }
 
+    // ATTN: This method only the value of "isLoadDisabled",
+    // it does not determine the backend IS loadable or not, use isLoadAvailable instead.
     public boolean isLoadDisabled() {
         return backendStatus.isLoadDisabled;
     }
 
-    public void setLoadDisabled(boolean isLoadDisabled) {
-        this.backendStatus.isLoadDisabled = isLoadDisabled;
+    // return true if be status is changed
+    public boolean setLoadDisabled(boolean isLoadDisabled) {
+        if (this.backendStatus.isLoadDisabled != isLoadDisabled) {
+            this.backendStatus.isLoadDisabled = isLoadDisabled;
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isShutDown() {
+        return isShutDown.get();
     }
 
     public void setActive(boolean isActive) {
@@ -524,15 +542,15 @@ public class Backend implements Writable {
     }
 
     public boolean isQueryAvailable() {
-        return isAlive() && !isQueryDisabled() && !isShutDown.get();
+        return isAlive() && !isQueryDisabled() && !isShutDown();
     }
 
     public boolean isScheduleAvailable() {
-        return isAlive() && !isDecommissioned();
+        return isAlive() && !isDecommissioned() && !isShutDown();
     }
 
     public boolean isLoadAvailable() {
-        return isAlive() && !isLoadDisabled();
+        return isAlive() && !isLoadDisabled() && !isShutDown();
     }
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
