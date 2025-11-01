@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -82,7 +83,14 @@ public class ExpressionMapping extends Mapping {
                 this.getExpressionMapping().asMap();
         for (Map.Entry<? extends Expression, ? extends Collection<? extends Expression>> entry :
                 expressionMap.entrySet()) {
-            Expression replacedExpr = ExpressionUtils.replace(entry.getKey(), slotMapping.toSlotReferenceMap());
+            // permute by slot mapping, if entry expression is not in slot mapping should discard,
+            // because in view partial rewrite, mv plan output is more than query output, so should discard
+            // the expression not in slot mapping
+            Map<SlotReference, SlotReference> slotReferenceMap = slotMapping.toSlotReferenceMap();
+            Expression replacedExpr = ExpressionUtils.replaceNullAware(entry.getKey(), slotReferenceMap);
+            if (replacedExpr == null) {
+                continue;
+            }
             permutedExpressionMapping.putAll(replacedExpr, entry.getValue());
         }
         return new ExpressionMapping(permutedExpressionMapping);
