@@ -48,6 +48,40 @@ class InvertedIndexIterator;
 class InvertedIndexFileReader;
 class ColumnReaderCache;
 
+// Abstracts access to variant sparse column readers that may be in a single
+// column or bucketized across multiple columns.
+class UnifiedSparseColumnReader {
+public:
+    void set_single(std::shared_ptr<ColumnReader> reader) { _single = std::move(reader); }
+
+    void add_bucket(size_t index, std::shared_ptr<ColumnReader> reader) {
+        if (_buckets.size() <= index) {
+            _buckets.resize(index + 1);
+        }
+        _buckets[index] = std::move(reader);
+    }
+
+    bool has_buckets() const { return !_buckets.empty(); }
+    bool empty() const { return !has_buckets() && !_single; }
+    size_t num_buckets() const { return _buckets.size(); }
+
+    // Build an iterator that reads all sparse data. In bucket mode, it returns
+    // a combined iterator across all buckets; otherwise returns an iterator of the single reader.
+    Status new_sparse_iterator(ColumnIteratorUPtr* iter) const;
+
+    // Select a concrete reader and cache key for a given sparse subpath.
+    // In bucket mode this chooses a bucket using the same hashing as write path.
+    std::pair<std::shared_ptr<ColumnReader>, std::string> select_reader_and_cache_key(
+            const std::string& relative_path) const;
+
+    const std::shared_ptr<ColumnReader>& single() const { return _single; }
+    const std::vector<std::shared_ptr<ColumnReader>>& buckets() const { return _buckets; }
+
+private:
+    std::shared_ptr<ColumnReader> _single;
+    std::vector<std::shared_ptr<ColumnReader>> _buckets; // index aligned
+};
+
 /**
  * SparseColumnCache provides a caching layer for sparse column data access.
  * 
@@ -223,15 +257,21 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats);
+    // Create a reader that merges subcolumns into the destination sparse column.
+    // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
                                        SparseColumnCacheSPtr sparse_column_cache,
-                                       ColumnReaderCache* column_reader_cache);
+                                       ColumnReaderCache* column_reader_cache,
+                                       std::optional<uint32_t> bucket_index = std::nullopt);
 
-    Result<SparseColumnCacheSPtr> _get_shared_column_cache(
-            PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path);
+    static Result<SparseColumnCacheSPtr> _get_shared_column_cache(
+            PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,
+            std::shared_ptr<ColumnReader> sparse_column_reader);
+
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
-    std::shared_ptr<ColumnReader> _sparse_column_reader;
+    // Sparse column readers (single or bucketized)
+    UnifiedSparseColumnReader _sparse_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     // key: subcolumn path, value: subcolumn indexes
