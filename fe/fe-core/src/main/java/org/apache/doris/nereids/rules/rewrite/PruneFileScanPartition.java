@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -100,10 +102,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             sortedPartitionRanges = (Optional) partitionsCacheManager.get(
                             (SupportBinarySearchFilteringPartitions) externalTable, scan);
         }
-
-        List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
+        Pair<List<String>, Optional<Expression>> res = PartitionPruner.prune(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
-                PartitionTableType.EXTERNAL, sortedPartitionRanges));
+                PartitionTableType.EXTERNAL, sortedPartitionRanges);
+        List<String> prunedPartitions = new ArrayList<>(res.first);
 
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));
