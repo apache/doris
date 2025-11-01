@@ -204,8 +204,8 @@ public:
 
     std::vector<TTabletCommitInfo> commit_infos;
 
-    std::promise<Status> promise;
-    std::future<Status> future = promise.get_future();
+    std::promise<Status> load_status_promise;
+    std::future<Status> load_status_future = load_status_promise.get_future();
 
     Status status;
 
@@ -255,6 +255,9 @@ public:
     // use for cloud cluster mode
     std::string qualified_user;
     std::string cloud_cluster;
+
+    std::mutex _send_reply_lock;
+    bool _finish_send_reply = false;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

@@ -53,6 +53,7 @@ void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {
 void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {
     evhttp_send_reply(request->get_evhttp_request(), status, default_reason(status).c_str(),
                       nullptr);
+    request->finish_send_reply();
 }
 
 void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
@@ -66,6 +67,7 @@ void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std:
         evbuffer_add(evb, content.c_str(), content.size());
     }
     evhttp_send_reply(request->get_evhttp_request(), status, default_reason(status).c_str(), evb);
+    request->finish_send_reply();
     evbuffer_free(evb);
 }
 
@@ -80,6 +82,7 @@ void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t siz
         bufferevent_add_to_rate_limit_group(buffer_event, rate_limit_group);
     }
     evhttp_send_reply(evhttp_request, HttpStatus::OK, default_reason(HttpStatus::OK).c_str(), evb);
+    request->finish_send_reply();
     evbuffer_free(evb);
 }
 
