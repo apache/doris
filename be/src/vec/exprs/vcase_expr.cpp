@@ -78,7 +78,7 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     if (is_const_and_have_executed()) { // const have execute in open function
-        return get_result_from_const(block, EXPR_NAME, result_column_id);
+        return CEHCK_EXPR_EXECTUED(get_result_from_const(block, EXPR_NAME, result_column_id));
     }
     DCHECK(_open_finished || _getting_const_col);
 
@@ -124,7 +124,7 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
 
     *result_column_id = block->columns() - 1;
 
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 const std::string& VCaseExpr::expr_name() const {

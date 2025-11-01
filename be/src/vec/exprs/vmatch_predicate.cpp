@@ -138,7 +138,7 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
     if (fast_execute(context, block, result_column_id)) {
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     }
     DBUG_EXECUTE_IF("VMatchPredicate.execute", {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -172,7 +172,7 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 const std::string& VMatchPredicate::expr_name() const {

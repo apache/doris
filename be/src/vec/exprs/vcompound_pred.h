@@ -160,7 +160,7 @@ public:
             return Status::OK();
         }
         if (get_num_children() == 1 || _has_const_child()) {
-            return VectorizedFnCall::execute(context, block, result_column_id);
+            return CEHCK_EXPR_EXECTUED(VectorizedFnCall::execute(context, block, result_column_id));
         }
 
         int lhs_id = -1;
@@ -372,7 +372,7 @@ public:
             return Status::InternalError("Compound operator must be AND or OR.");
         }
 
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     }
 
     bool is_compound_predicate() const override { return true; }

@@ -59,7 +59,7 @@ Status VInfoFunc::execute(VExprContext* context, vectorized::Block* block, int* 
     // Info function should return least one row, e.g. select current_user().
     size_t row_size = std::max(block->rows(), 1UL);
     *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 #include "common/compile_check_end.h"

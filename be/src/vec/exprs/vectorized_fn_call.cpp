@@ -269,7 +269,7 @@ Status VectorizedFnCall::execute_runtime_filter(doris::vectorized::VExprContext*
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
     ColumnNumbers arguments;
-    return _do_execute(context, block, result_column_id, arguments);
+    return CEHCK_EXPR_EXECTUED(_do_execute(context, block, result_column_id, arguments));
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
