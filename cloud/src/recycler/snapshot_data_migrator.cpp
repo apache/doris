@@ -21,8 +21,8 @@
 
 #include "common/config.h"
 #include "common/defer.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
+#include "cpp/stopwatch.h"
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
 #include "recycler/hdfs_accessor.h"

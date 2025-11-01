@@ -26,13 +26,14 @@
 #include <string>
 #include <string_view>
 
+#include "client/s3_common.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/logging.h"
 #include "common/stats.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
+#include "cpp/stopwatch.h"
 #include "cpp/sync_point.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"

@@ -1277,7 +1277,7 @@ TEST(RecyclerTest, recycle_rowsets) {
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
-    EXPECT_FALSE(list_iter->has_next());
+    EXPECT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     // check all recycle rowset kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1443,7 +1443,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     // check all recycle rowset kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1533,7 +1533,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     // check all tmp rowset kv have been deleted
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::unique_ptr<RangeGetIterator> it;
@@ -1610,7 +1610,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     // check all tmp rowset kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1679,9 +1679,9 @@ TEST(RecyclerTest, recycle_tablet) {
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
-    ASSERT_FALSE(list_iter->has_next()) << [&]() -> std::string {
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK) << [&]() -> std::string {
         std::string paths;
-        while (list_iter->has_next()) {
+        while (list_iter->has_next().status.code == TStatusCode::OK) {
             paths += list_iter->next()->path + ", ";
         }
         return paths;
@@ -1789,9 +1789,9 @@ TEST(RecyclerTest, recycle_indexes) {
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
-    ASSERT_FALSE(list_iter->has_next()) << [&]() -> std::string {
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK) << [&]() -> std::string {
         std::string out;
-        while (list_iter->has_next()) {
+        while (list_iter->has_next().status.code == TStatusCode::OK) {
             out += list_iter->next().value().path + "\n";
         }
         return out;
@@ -1930,7 +1930,7 @@ TEST(RecyclerTest, recycle_partitions) {
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     // check all related kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -2929,7 +2929,7 @@ TEST(RecyclerTest, recycle_stage) {
     ASSERT_EQ(0, recycler.recycle_stage());
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_all(&list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
     ASSERT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(key, &val));
 }
@@ -3042,7 +3042,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
                       std::unique_ptr<ListIterator> list_iter;
                       auto& acc = entry.second;
                       ASSERT_EQ(0, acc->list_all(&list_iter));
-                      ASSERT_FALSE(list_iter->has_next());
+                      ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
                   });
 
     // check if all the keys are deleted
@@ -5193,7 +5193,7 @@ TEST(RecyclerTest, delete_rowset_data) {
 
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
     {
         InstanceInfoPB tmp_instance;
@@ -5228,7 +5228,7 @@ TEST(RecyclerTest, delete_rowset_data) {
                                                  ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
     {
         InstanceRecycler recycler(txn_kv, instance, thread_group,
@@ -5248,7 +5248,7 @@ TEST(RecyclerTest, delete_rowset_data) {
         }
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
 }
 
@@ -5300,7 +5300,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
     {
         InstanceInfoPB tmp_instance;
@@ -5335,7 +5335,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
                                                  ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
     {
         InstanceRecycler recycler(txn_kv, instance, thread_group,
@@ -5355,7 +5355,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
         }
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
 }
 
@@ -5899,7 +5899,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
         EXPECT_EQ(accessor->list_all(&iter), 0);
-        EXPECT_TRUE(iter->has_next());
+        EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
         list_files.clear();
         for (auto file = iter->next(); file.has_value(); file = iter->next()) {
             list_files.insert(file->path);
@@ -5914,7 +5914,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
-        EXPECT_TRUE(iter->has_next());
+        EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
         for (auto file = iter->next(); file.has_value(); file = iter->next()) {
             list_files.insert(file->path);
         }
@@ -5979,7 +5979,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
         EXPECT_EQ(accessor->list_all(&iter), 0);
-        EXPECT_TRUE(iter->has_next());
+        EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
         list_files.clear();
         for (auto file = iter->next(); file.has_value(); file = iter->next()) {
             list_files.insert(file->path);
@@ -5994,7 +5994,7 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
-        EXPECT_FALSE(iter->has_next());
+        EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
         for (auto file = iter->next(); file.has_value(); file = iter->next()) {
             list_files.insert(file->path);
         }
@@ -6076,7 +6076,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         std::unordered_set<std::string> list_files;
         std::unique_ptr<ListIterator> iter;
         EXPECT_EQ(accessor->list_all(&iter), 0);
-        EXPECT_TRUE(iter->has_next());
+        EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
         list_files.clear();
         for (auto file = iter->next(); file.has_value(); file = iter->next()) {
             list_files.insert(file->path);
@@ -6093,7 +6093,7 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
         list_files.clear();
         iter.reset();
         EXPECT_EQ(accessor->list_all(&iter), 0);
-        EXPECT_TRUE(iter->has_next());
+        EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
         for (auto file = iter->next(); file.has_value(); file = iter->next()) {
             list_files.insert(file->path);
         }

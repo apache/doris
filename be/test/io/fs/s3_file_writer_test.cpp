@@ -46,6 +46,7 @@
 #include <type_traits>
 #include <unordered_map>
 
+#include "client/s3_obj_storage_client.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -55,7 +56,6 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "runtime/exec_env.h"
@@ -268,8 +268,8 @@ static auto test_mock_callbacks = std::array {
                           pair->first = mock_client->head_object(req);
                       }},
         MockCallback {"s3_client_factory::create", [](auto&& outcome) {
-                          auto pair = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(
-                                  outcome);
+                          auto pair =
+                                  try_any_cast_ret<std::shared_ptr<S3ObjStorageClient>>(outcome);
                           pair->second = true;
                       }}};
 
@@ -477,8 +477,8 @@ TEST_F(S3FileWriterTest, put_object_io_error) {
                 "failed to put object (bucket={}, key={}, upload_id={}, exception=inject "
                 "error): "
                 "inject error",
-                writer->_obj_storage_path_opts.bucket, writer->_obj_storage_path_opts.path.native(),
-                writer->upload_id());
+                writer->_obj_storage_path_opts.bucket,
+                writer->_obj_storage_path_opts.full_path.native(), writer->upload_id());
         buf->set_status(writer->_st);
         bool* pred = try_any_cast<bool*>(outcome.back());
         *pred = true;
@@ -919,8 +919,8 @@ TEST_F(S3FileWriterTest, close_error) {
                 "failed to put object (bucket={}, key={}, upload_id={}, exception=inject "
                 "error): "
                 "inject error",
-                writer->_obj_storage_path_opts.bucket, writer->_obj_storage_path_opts.path.native(),
-                writer->upload_id());
+                writer->_obj_storage_path_opts.bucket,
+                writer->_obj_storage_path_opts.full_path.native(), writer->upload_id());
         buf->set_status(writer->_st);
         bool* pred = try_any_cast<bool*>(values.back());
         *pred = true;
@@ -950,7 +950,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
     sp->set_call_back("S3FileWriter::_complete:2", [](auto&& outcome) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
-        auto* parts = try_any_cast<std::vector<io::ObjectCompleteMultiPart>*>(outcome.back());
+        auto* parts = try_any_cast<std::vector<ObjectCompleteMultiPart>*>(outcome.back());
         size_t size = parts->size();
         parts->back().part_num = (size + 2);
     });
@@ -998,7 +998,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
         const auto& points = try_any_cast<
-                const std::pair<std::atomic_bool*, std::vector<io::ObjectCompleteMultiPart>*>&>(
+                const std::pair<std::atomic_bool*, std::vector<ObjectCompleteMultiPart>*>&>(
                 outcome.back());
         (*points.first) = false;
         points.second->pop_back();
@@ -1044,9 +1044,9 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("S3FileWriter::_complete:3", [](auto&& outcome) {
-        auto pair = try_any_cast_ret<io::ObjectStorageResponse>(outcome);
+        auto pair = try_any_cast_ret<ObjectStorageResponse>(outcome);
         pair->second = true;
-        pair->first = io::ObjectStorageResponse {
+        pair->first = ObjectStorageResponse {
                 .status = convert_to_obj_response(Status::IOError<false>("inject error"))};
     });
     Defer defer {[&]() { sp->clear_call_back("S3FileWriter::_complete:3"); }};
@@ -1087,7 +1087,7 @@ namespace io {
 /**
  * This class is for boundary test
  */
-class SimpleMockObjStorageClient : public io::ObjStorageClient {
+class SimpleMockObjStorageClient : public ObjStorageClient {
 public:
     SimpleMockObjStorageClient() = default;
     ~SimpleMockObjStorageClient() override = default;
@@ -1114,7 +1114,7 @@ public:
         put_object_params.emplace_back(opts, std::string(stream));
         last_opts = opts;
         last_stream = std::string(stream);
-        objects.emplace(opts.path.native(), std::string(stream));
+        objects.emplace(opts.full_path.native(), std::string(stream));
         uploaded_bytes += stream.size();
         return default_response;
     }
@@ -1128,7 +1128,7 @@ public:
         last_part_num = part_num;
         std::stringstream ss;
         ss << std::setfill('0') << std::setw(3) << part_num;
-        parts[opts.path.native() + "_" + ss.str()] = std::string(stream);
+        parts[opts.full_path.native() + "_" + ss.str()] = std::string(stream);
         uploaded_bytes += stream.size();
         return default_upload_response;
     }
@@ -1145,14 +1145,14 @@ public:
         for (auto& i : parts) {
             final_obj.append(i.second);
         }
-        complete[opts.path.native()] = final_obj;
-        objects[opts.path.native()] = final_obj;
+        complete[opts.full_path.native()] = final_obj;
+        objects[opts.full_path.native()] = final_obj;
         return default_response;
     }
 
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
         return {.resp = ObjectStorageResponse::OK(),
-                .file_size = static_cast<int64_t>(objects[opts.path.native()].size())};
+                .file_size = static_cast<int64_t>(objects[opts.full_path.native()].size())};
     }
 
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
@@ -1167,13 +1167,9 @@ public:
         return default_response;
     }
 
-    ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
-                                       std::vector<FileInfo>* files) override {
-        last_opts = opts;
-        if (files) {
-            *files = default_file_list;
-        }
-        return default_response;
+    std::unique_ptr<ObjectListIterator> list_objects(
+            const ObjectStoragePathOptions& path) override {
+        return nullptr;
     }
 
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
@@ -1188,17 +1184,32 @@ public:
         return default_response;
     }
 
-    ObjectStorageResponse delete_objects_recursively(
-            const ObjectStoragePathOptions& opts) override {
+    ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts,
+                                                     const std::string& prefix) override {
         last_opts = opts;
         return default_response;
     }
 
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs, const S3ClientConf& conf) override {
+                                       int64_t expiration_secs) override {
         last_opts = opts;
         last_expiration_secs = expiration_secs;
         return default_presigned_url;
+    }
+
+    ObjectStorageResponse get_life_cycle(const std::string& endpoint, const std::string& bucket,
+                                         int64_t* expiration_days) override {
+        return default_response;
+    }
+
+    ObjectStorageResponse check_versioning(const std::string& endpoint_,
+                                           const std::string& bucket) override {
+        return default_response;
+    }
+
+    ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions& path,
+                                                 const std::string& upload_id) override {
+        return default_response;
     }
 
     // Variables to store the last call
@@ -1402,7 +1413,7 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
             EXPECT_EQ(mock_client->complete_multipart_count, 1) << msg;
             EXPECT_EQ(mock_client->upload_part_count, expected_num_parts) << msg;
         }
-        EXPECT_EQ(mock_client->last_opts.path.native(), expected_path) << msg;
+        EXPECT_EQ(mock_client->last_opts.full_path.native(), expected_path) << msg;
         EXPECT_EQ(mock_client->objects[expected_path].size(), content.size()) << msg;
         // EXPECT_EQ(mock_client->last_stream, content); // Will print too many if compare all content if failed
         if (content.size() > 0 && mock_client->objects[expected_path].size() > 0) {
