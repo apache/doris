@@ -287,11 +287,13 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.protobuf.InvalidProtocolBufferException;
+import jline.internal.Log;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -3623,6 +3625,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
         LOG.info("Receive create partition request: {}", request);
         long dbId = request.getDbId();
+        long txnId = request.getTxnId();
         long tableId = request.getTableId();
         TCreatePartitionResult result = new TCreatePartitionResult();
         TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
@@ -3719,6 +3722,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // build partition & tablets
+        /*
+         * RPC [P1, P2]              RPC [P2, P3]
+         *       |                         |
+         *    P1:t1, t2                    |
+         *       ↓                         |
+         *    P2:t3, t4                    |
+         *                                 ↓
+         *                             P2:exist
+         *                                 ↓
+         *                             P3:t5,t6
+         * --------------------------------------
+         *       tablet rebalance during ...
+         *     t1 - be1                 t3 - be1 <-
+         *     t2 - be2                 t4 - be1
+         *     t3 - be2 <-              t5 - be2
+         *     t4 - be1                 t6 - be2
+         * --------------------------------------
+         * We ensure that only one view of the replica distribution in P2:t3,t4 above takes effect for this txn
+         * to avoid tablets being written to multiple BEs within the same transaction (assuming single replica)
+        */
+
+        // first we collect all the tablets replica distribution
+        Map<Long, Multimap<Long, Long>> tempResultTablets = new HashMap<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
@@ -3727,6 +3753,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
+            Multimap<Long, Long> tabletIdToBeID = HashMultimap.create();
             try {
                 OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
             } catch (UserException ex) {
@@ -3742,14 +3769,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             partitions.add(tPartition);
-            // tablet
+
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
-                    // we should ensure the replica backend is alive
-                    // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
-                    // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
@@ -3761,28 +3785,44 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
-                        LOG.warn("send create partition error status: {}", result);
                         return result;
                     }
+
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
-                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                        Random random = new SecureRandom();
-                        Long masterNode = nodes[random.nextInt(nodes.length)];
-                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
-                        slaveBePathsMap.removeAll(masterNode);
-                        tablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(Sets.newHashSet(masterNode))));
-                        slaveTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(slaveBePathsMap.keySet())));
-                    } else {
-                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+
+                    for (Long beId : bePathsMap.keySet()) {
+                        tabletIdToBeID.put(tablet.getId(), beId);
                     }
                 }
             }
+            if (!tabletIdToBeID.isEmpty()) {
+                tempResultTablets.put(partition.getId(), tabletIdToBeID);
+            } else {
+                Log.warn("tabletIdToBeID is empty, maybe create partition something wrong");
+            }
         }
+
+        Multimap<Long, Long> finalResultTablets = HashMultimap.create();
+        Env.getCurrentGlobalTransactionMgr().getOrSetAutoPartitionInfo(dbId, txnId,
+                tempResultTablets, finalResultTablets);
+
+        for (Long tabletId : finalResultTablets.keySet()) {
+            Collection<Long> beIds = finalResultTablets.get(tabletId);
+            if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                Long[] nodes = beIds.toArray(new Long[0]);
+                Random random = new SecureRandom();
+                Long masterNode = nodes[random.nextInt(nodes.length)];
+                List<Long> slaveNodes = new ArrayList<>(beIds);
+                slaveNodes.remove(masterNode);
+                tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(Sets.newHashSet(masterNode))));
+                slaveTablets.add(new TTabletLocation(tabletId, Lists.newArrayList(slaveNodes)));
+            } else {
+                tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(beIds)));
+            }
+        }
+
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);
