@@ -195,7 +195,7 @@ PhysicalResultSink
 -- !infer_predicate_join_with_case_when --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----filter((if((score > 170), 'high', 'low') = 'high'))
+----filter((t1.score > 170))
 ------PhysicalOlapScan[t(t1)]
 ----PhysicalOlapScan[t(t2)]
 
