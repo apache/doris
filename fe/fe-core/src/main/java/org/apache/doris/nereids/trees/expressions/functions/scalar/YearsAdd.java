@@ -35,7 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'days_add'.
+ * ScalarFunction 'years_add'.
  */
 public class YearsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
