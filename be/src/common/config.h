@@ -1674,6 +1674,8 @@ DECLARE_mString(binary_plain_encoding_default_impl);
 
 DECLARE_mBool(integer_type_default_use_plain_encoding);
 
+DECLARE_mBool(enable_fuzzy_storage_encoding);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
