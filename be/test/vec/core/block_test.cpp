@@ -963,38 +963,6 @@ TEST(BlockTest, compare_at) {
     ASSERT_GT(ret, 0);
 }
 
-TEST(BlockTest, same_bit) {
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 1, 3});
-    std::vector<bool> same_bit = {false, true, false};
-    block.set_same_bit(same_bit.begin(), same_bit.end());
-    ASSERT_EQ(block.get_same_bit(0), false);
-    ASSERT_EQ(block.get_same_bit(1), true);
-    ASSERT_EQ(block.get_same_bit(2), false);
-
-    auto block2 = block;
-    block2.set_num_rows(2);
-    ASSERT_EQ(block2.rows(), 2);
-
-    int64_t length = 3;
-    block2.skip_num_rows(length);
-    ASSERT_EQ(1, length);
-    ASSERT_EQ(block2.rows(), 0);
-
-    block2 = block;
-    length = 1;
-    block2.skip_num_rows(length);
-    ASSERT_EQ(block2.rows(), 2);
-    ASSERT_EQ(block2.get_same_bit(0), true);
-
-    block2.skip_num_rows(length);
-    ASSERT_EQ(block2.rows(), 1);
-    ASSERT_EQ(block2.get_same_bit(0), false);
-
-    block.clear_same_bit();
-
-    ASSERT_EQ(block.get_same_bit(1), false);
-}
-
 TEST(BlockTest, dump) {
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
     auto types = block.dump_types();

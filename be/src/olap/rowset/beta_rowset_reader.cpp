@@ -348,60 +348,6 @@ Status BetaRowsetReader::_init_iterator() {
     return Status::OK();
 }
 
-Status BetaRowsetReader::next_block(vectorized::Block* block) {
-    RETURN_IF_ERROR(_init_iterator_once());
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (_empty) {
-        return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
-    }
-
-    RuntimeState* runtime_state = nullptr;
-    if (_read_context != nullptr) {
-        runtime_state = _read_context->runtime_state;
-    }
-
-    do {
-        auto s = _iterator->next_batch(block);
-        if (!s.ok()) {
-            if (!s.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to read next block: " << s.to_string();
-            }
-            return s;
-        }
-
-        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-            return runtime_state->cancel_reason();
-        }
-    } while (block->empty());
-
-    return Status::OK();
-}
-
-Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
-    RETURN_IF_ERROR(_init_iterator_once());
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    RuntimeState* runtime_state = nullptr;
-    if (_read_context != nullptr) {
-        runtime_state = _read_context->runtime_state;
-    }
-
-    do {
-        auto s = _iterator->next_block_view(block_view);
-        if (!s.ok()) {
-            if (!s.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to read next block view: " << s.to_string();
-            }
-            return s;
-        }
-
-        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
-            return runtime_state->cancel_reason();
-        }
-    } while (block_view->empty());
-
-    return Status::OK();
-}
-
 bool BetaRowsetReader::_should_push_down_value_predicates() const {
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
     // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y]
