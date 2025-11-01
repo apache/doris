@@ -74,7 +74,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String dlfAccessPublic = "false";
 
     @Getter
-    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token", "fs.oss.securityToken"},
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token",
+            "fs.oss.securityToken", "AWS_TOKEN"},
             required = false,
             sensitive = true,
             description = "The session token of OSS.")
