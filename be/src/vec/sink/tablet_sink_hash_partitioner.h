@@ -46,10 +46,14 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
+    Status try_cut_in_line(Block& prior_block) const;
+    void finish_cut_in_line() const { _row_distribution._deal_batched = false; }
+    void mark_last_block() const { _row_distribution._deal_batched = true; }
 
     ChannelField get_channel_ids() const override;
+    const std::vector<bool>& get_skipped(int size) const { return _skipped; }
+
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
     Status close(RuntimeState* state) override;
@@ -58,9 +62,6 @@ private:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
     }
-
-    Status _send_new_partition_batch(RuntimeState* state, vectorized::Block* input_block,
-                                     bool eos) const;
 
     const int64_t _txn_id = -1;
     const TOlapTableSchemaParam _tablet_sink_schema;
@@ -79,6 +80,7 @@ private:
     mutable RowDescriptor* _tablet_sink_row_desc = nullptr;
     mutable std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
     mutable std::vector<HashValType> _hash_vals;
+    mutable std::vector<bool> _skipped;
 };
 #include "common/compile_check_end.h"
 
