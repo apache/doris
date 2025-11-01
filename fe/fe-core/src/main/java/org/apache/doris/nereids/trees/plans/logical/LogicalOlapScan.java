@@ -72,7 +72,7 @@ import java.util.stream.Collectors;
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan {
+public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan, SupportPruneNestedColumn {
 
     private static final Logger LOG = LogManager.getLogger(LogicalOlapScan.class);
 
@@ -850,5 +850,27 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             replaceMap.put(originOutputs.get(i), targetOutputs.get(i));
         }
         return replaceMap;
+    }
+
+    /** withPrunedTypeSlots */
+    public LogicalOlapScan withPrunedTypeSlots(List<Slot> outputSlots) {
+        Map<Pair<Long, String>, Slot> replaceSlotMap = new HashMap<>();
+        for (Slot outputSlot : outputSlots) {
+            Pair<Long, String> key = Pair.of(selectedIndexId, outputSlot.getName());
+            replaceSlotMap.put(key, outputSlot);
+        }
+
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                groupExpression, Optional.empty(),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, replaceSlotMap, tableSample, directMvScan, colToSubPathsMap,
+                manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
+                annOrderKeys, annLimit, tableAlias);
+    }
+
+    @Override
+    public boolean supportPruneNestedColumn() {
+        return true;
     }
 }
