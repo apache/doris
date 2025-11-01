@@ -66,6 +66,3 @@
 2	record2	200
 3	record3	300
 
--- !test_rewrite_data_files_results --
-0	1	2	3
-
