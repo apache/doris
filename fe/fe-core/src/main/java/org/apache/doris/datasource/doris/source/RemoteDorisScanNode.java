@@ -249,7 +249,7 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         ExprSubstitutionMap sMap = new ExprSubstitutionMap();
         for (SlotRef slotRef : slotRefs) {
             SlotRef slotRef1 = (SlotRef) slotRef.clone();
-            slotRef1.setTblName(null);
+            slotRef1.setTableNameInfoToNull();
             slotRef1.setLabel("`" + slotRef1.getColumnName() + "`");
             sMap.put(slotRef, slotRef1);
         }
