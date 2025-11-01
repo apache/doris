@@ -62,19 +62,20 @@ suite("test_str_to_date") {
         exception "is invalid"
     }
 
-    test {
-        sql "SELECT /*+SET_VAR(debug_skip_fold_constant=false) */STR_TO_DATE('09:30:17', '%h:%i:%s');"
-        exception "is invalid"
-    }
-    test {
-        sql "SELECT /*+SET_VAR(debug_skip_fold_constant=true) */STR_TO_DATE('09:30:17', '%h:%i:%s');"
-        exception "is invalid"
-    }
+    qt_const_test5 """
+        SELECT /*+SET_VAR(debug_skip_fold_constant=false) */STR_TO_DATE('09:30:17', '%h:%i:%s');
+    """
+
+    qt_const_test6 """
+        SELECT /*+SET_VAR(debug_skip_fold_constant=false) */STR_TO_DATE('09:30:17', '%h:%i:%s');
+    """
 
     qt_short_1 " select STR_TO_DATE('2023', '%Y') "
     qt_short_2 " select STR_TO_DATE(null, '%Y') "
     qt_short_3 " select STR_TO_DATE('2023', null) "
     qt_short_4 " select STR_TO_DATE(null, null) "
+    qt_short_5 " select STR_TO_DATE('202501', '%Y%m') "
+    qt_short_6 " select STR_TO_DATE('202503', '%Y%m') "
 
     test {
         sql """
