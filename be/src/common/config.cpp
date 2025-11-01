@@ -627,6 +627,8 @@ DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
+// Whether to enable stream load record to audit log table, the default is true.
+DEFINE_mBool(enable_stream_load_record_to_audit_log_table, "true");
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
