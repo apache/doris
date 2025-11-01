@@ -175,6 +175,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Default;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
@@ -706,6 +707,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
             scalar(Dceil.class, "dceil"),
             scalar(DecodeAsVarchar.class, "decode_as_varchar"),
+            scalar(Default.class, "default"),
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),
