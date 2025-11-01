@@ -228,11 +228,7 @@ public class SlotDescriptor {
 
     public ColumnStats getStats() {
         if (stats == null) {
-            if (column != null) {
-                stats = column.getStats();
-            } else {
-                stats = new ColumnStats();
-            }
+            stats = new ColumnStats();
         }
         // FIXME(dhc): mock ndv
         stats.setNumDistinctValues((long) parent.getCardinality());
