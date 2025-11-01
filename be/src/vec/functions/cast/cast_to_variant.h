@@ -29,6 +29,11 @@ struct CastFromVariant {
         auto& data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& col_from = col_with_type_and_name.column;
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
         const auto& variant = assert_cast<const ColumnVariant&>(*col_from);
         ColumnPtr col_to = data_type_to->create_column();
         if (!variant.is_finalized()) {
@@ -109,6 +114,11 @@ struct CastToVariant {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& from_type = col_with_type_and_name.type;
         const auto& col_from = col_with_type_and_name.column;
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
         // set variant root column/type to from column/type
         auto variant = ColumnVariant::create(true /*always nullable*/);
         variant->create_root(from_type, col_from->assume_mutable());

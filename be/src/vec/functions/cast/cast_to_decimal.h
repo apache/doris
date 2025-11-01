@@ -488,6 +488,11 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
                         const NullMap::value_type* null_map = nullptr) const override {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
 
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
@@ -533,6 +538,11 @@ public:
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
                                         named_from.column->get_name());
+        }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
         }
 
         UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
@@ -628,6 +638,11 @@ public:
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
                                         named_from.column->get_name());
         }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
 
         UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
         UInt32 from_scale = 0;
@@ -722,6 +737,11 @@ public:
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
                                         named_from.column->get_name());
+        }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
         }
 
         const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
@@ -832,6 +852,11 @@ public:
         if (!col_from) {
             return Status::RuntimeError("Illegal column {} of first argument of function cast",
                                         named_from.column->get_name());
+        }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
         }
 
         const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
