@@ -128,8 +128,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         if (reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
             RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
-                                                segment_num_rows);
+            RETURN_IF_ERROR(stats_output->rowid_conversion->add(
+                    reader.current_block_row_locations(), segment_num_rows));
         }
 
         output_rows += block.rows();
@@ -315,8 +315,8 @@ Status Merger::vertical_compact_one_group(
         if (is_key && reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
             RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->add(reader.current_block_row_locations(),
-                                                segment_num_rows);
+            RETURN_IF_ERROR(stats_output->rowid_conversion->add(
+                    reader.current_block_row_locations(), segment_num_rows));
         }
         output_rows += block.rows();
         block.clear_column_data();

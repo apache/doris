@@ -1634,6 +1634,8 @@ DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& confi
 
 DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
 
+DEFINE_mInt64(rowid_conversion_max_bytes, "-1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
