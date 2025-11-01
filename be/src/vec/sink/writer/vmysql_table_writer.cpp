@@ -62,10 +62,8 @@ std::string MysqlConnInfo::debug_string() const {
 }
 
 VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
-                                     const VExprContextSPtrs& output_expr_ctxs,
-                                     std::shared_ptr<pipeline::Dependency> dep,
-                                     std::shared_ptr<pipeline::Dependency> fin_dep)
-        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep) {
+                                     const VExprContextSPtrs& output_expr_ctxs)
+        : BlockingWriter(output_expr_ctxs) {
     const auto& t_mysql_sink = t_sink.mysql_table_sink;
     _conn_info.host = t_mysql_sink.host;
     _conn_info.port = t_mysql_sink.port;
@@ -85,6 +83,7 @@ Status VMysqlTableWriter::close(Status) {
 }
 
 Status VMysqlTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+    RETURN_IF_ERROR(BlockingWriter::open(state, profile));
     _mysql_conn = mysql_init(nullptr);
     if (_mysql_conn == nullptr) {
         return Status::InternalError("Call mysql_init failed.");

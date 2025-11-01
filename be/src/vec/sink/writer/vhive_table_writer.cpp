@@ -32,10 +32,8 @@ namespace vectorized {
 #include "common/compile_check_begin.h"
 
 VHiveTableWriter::VHiveTableWriter(const TDataSink& t_sink,
-                                   const VExprContextSPtrs& output_expr_ctxs,
-                                   std::shared_ptr<pipeline::Dependency> dep,
-                                   std::shared_ptr<pipeline::Dependency> fin_dep)
-        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
+                                   const VExprContextSPtrs& output_expr_ctxs)
+        : BlockingWriter(output_expr_ctxs), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.hive_table_sink);
 }
 
@@ -43,9 +41,10 @@ Status VHiveTableWriter::init_properties(ObjectPool* pool) {
     return Status::OK();
 }
 
-Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
+Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+    RETURN_IF_ERROR(BlockingWriter::open(state, profile));
     _state = state;
-    _operator_profile = operator_profile;
+    _operator_profile = profile;
     DCHECK(_operator_profile->get_child("CustomCounters") != nullptr);
     RuntimeProfile* custom_counters = _operator_profile->get_child("CustomCounters");
     // add all counter
