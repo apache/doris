@@ -25,7 +25,9 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -182,7 +184,11 @@ public class FunctionUtil {
                 if (function.isUDTFunction()) {
                     JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
                 } else {
-                    JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+                    if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                        JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+                    } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                        PythonUdf.translateToNereidsFunction(dbName, (ScalarFunction) function);
+                    }
                 }
             } else if (function instanceof AggregateFunction) {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
@@ -213,4 +219,9 @@ public class FunctionUtil {
         }
     }
 
+    public static void checkEnablePythonUdf() throws AnalysisException {
+        if (!Config.enable_python_udf) {
+            throw new AnalysisException("python_udf has been disabled.");
+        }
+    }
 }
