@@ -367,6 +367,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" index_id={}", req.index_id());
     } else if constexpr (is_any_v<Request, RestoreJobRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, UpdateMergeFileInfoRequest>) {
+        return fmt::format(" merge_file_path={}", req.merge_file_path());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -2211,5 +2213,26 @@ Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status
                                         : 3600;
     return Status::OK();
 }
+
+Status CloudMetaMgr::update_merge_file_info(const std::string& merge_file_path,
+                                           const cloud::MergedFileInfoPB& merge_file_info) {
+    VLOG_DEBUG << "Updating meta service for merge file: " << merge_file_path
+               << " with " << merge_file_info.total_file_num() << " small files"
+               << ", total bytes: " << merge_file_info.total_file_bytes();
+
+    // Create request
+    cloud::UpdateMergeFileInfoRequest req;
+    cloud::UpdateMergeFileInfoResponse resp;
+
+    // Set required fields
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_merge_file_path(merge_file_path);
+    *req.mutable_merge_file_info() = merge_file_info;
+
+    // Make RPC call using retry pattern
+    return retry_rpc("update merge file info", req, &resp,
+                     &cloud::MetaService_Stub::update_merge_file_info);
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::cloud

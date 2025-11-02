@@ -131,6 +131,14 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
+// Merge file manager config
+DEFINE_mInt64(merge_file_size_threshold_bytes, "5242880"); // 5MB
+DEFINE_mInt64(merge_file_time_threshold_ms, "100"); // 100ms
+DEFINE_mInt64(small_file_threshold_bytes, "1048576"); // 1MB
+DEFINE_mInt64(uploaded_file_retention_seconds, "60"); // 1 minute
+DEFINE_mInt64(index_retention_seconds, "60"); // 1 minute
+DEFINE_mInt64(merge_file_cleanup_interval_seconds, "60"); // 1 minute
+
 DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
@@ -141,5 +149,6 @@ DEFINE_mBool(enable_cache_read_from_peer, "true");
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
