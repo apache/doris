@@ -1676,6 +1676,7 @@ functionNameIdentifier
     | CURRENT_CATALOG
     | CURRENT_USER
     | DATABASE
+    | DEFAULT
     | IF
     | LEFT
     | LIKE
@@ -1976,7 +1977,6 @@ nonReserved
     | DECIMAL
     | DECIMALV2
     | DECIMALV3
-    | DEFAULT
     | DEFERRED
     | DEMAND
     | DIAGNOSE
