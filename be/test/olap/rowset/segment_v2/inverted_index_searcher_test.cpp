@@ -386,4 +386,86 @@ TEST_F(InvertedIndexSearcherBuilderFlowTest, test_string_type_builder) {
     EXPECT_TRUE(output_searcher.has_value());
     EXPECT_GE(builder->get_reader_size(), 0);
 }
+
+// Test FulltextIndexSearcherBuilder::build with CL_ERR_EmptyIndexSegment error
+// This covers the code path in FulltextIndexSearcherBuilder::build line 43
+TEST_F(InvertedIndexSearcherBuilderFlowTest, test_fulltext_builder_empty_index_segment) {
+    auto* tmp_dir = new lucene::store::RAMDirectory();
+    std::unique_ptr<lucene::store::Directory> dir =
+            std::unique_ptr<lucene::store::Directory>(_CL_POINTER(tmp_dir));
+
+    // Create a segments file with SegmentInfos size = 0 to trigger CL_ERR_EmptyIndexSegment
+    // Format: FORMAT (int32_t), VERSION (int64_t), COUNTER (int32_t), SIZE (int32_t)
+    // CURRENT_FORMAT = FORMAT_SHARED_DOC_STORE = -4
+    auto* segments_output = dir->createOutput("segments");
+    int32_t format = -4; // CURRENT_FORMAT = FORMAT_SHARED_DOC_STORE
+    int64_t version = 1;
+    int32_t counter = 0;
+    int32_t size = 0; // Empty SegmentInfos to trigger CL_ERR_EmptyIndexSegment
+    segments_output->writeInt(format);
+    segments_output->writeLong(version);
+    segments_output->writeInt(counter);
+    segments_output->writeInt(size);
+    segments_output->close();
+    _CLDELETE(segments_output);
+
+    FulltextIndexSearcherBuilder builder;
+    OptionalIndexSearcherPtr output_searcher;
+    auto st = builder.build(dir.get(), output_searcher);
+    // Should fail with INVERTED_INDEX_FILE_CORRUPTED (CL_ERR_EmptyIndexSegment)
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
+}
+
+// Test BKDIndexSearcherBuilder::build with bkd_reader->open() returning false
+// This covers the code path in BKDIndexSearcherBuilder::build line 67
+TEST_F(InvertedIndexSearcherBuilderFlowTest, test_bkd_builder_open_returns_false) {
+    auto* tmp_dir = new lucene::store::RAMDirectory();
+    std::unique_ptr<lucene::store::Directory> dir =
+            std::unique_ptr<lucene::store::Directory>(_CL_POINTER(tmp_dir));
+
+    // Create BKD files with meta file having indexFP = 0 to make open() return false
+    auto* bkd_data = dir->createOutput("bkd");
+    bkd_data->writeInt(123); // Write some dummy data
+    bkd_data->close();
+    _CLDELETE(bkd_data);
+
+    auto* bkd_meta = dir->createOutput("bkd_meta");
+    int32_t type = 0;    // Field type
+    int64_t indexFP = 0; // This will make read_meta return 0, causing open() to return false
+    bkd_meta->writeInt(type);
+    bkd_meta->writeLong(indexFP);
+    bkd_meta->close();
+    _CLDELETE(bkd_meta);
+
+    auto* bkd_index = dir->createOutput("bkd_index");
+    bkd_index->writeInt(456); // Write some dummy data
+    bkd_index->close();
+    _CLDELETE(bkd_index);
+
+    BKDIndexSearcherBuilder builder;
+    OptionalIndexSearcherPtr output_searcher;
+    auto st = builder.build(dir.get(), output_searcher);
+    // Should succeed even though open() returned false (it logs but continues)
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(output_searcher.has_value());
+}
+
+// Test IndexSearcherBuilder::get_index_searcher error propagation
+// Note: The code path at line 109 (result.has_value() == false after build succeeds)
+// is likely unreachable in current implementations since build() always sets output_searcher
+// when it succeeds. However, this test ensures the method correctly handles errors from build().
+TEST_F(InvertedIndexSearcherBuilderFlowTest, test_get_index_searcher_error_propagation) {
+    // Test that errors from build() are properly propagated by get_index_searcher()
+    auto* tmp_dir = new lucene::store::RAMDirectory();
+    std::unique_ptr<lucene::store::Directory> dir =
+            std::unique_ptr<lucene::store::Directory>(_CL_POINTER(tmp_dir));
+
+    FulltextIndexSearcherBuilder builder;
+    auto result = builder.get_index_searcher(dir.get());
+    // Empty directory should cause build to fail, so get_index_searcher should return error
+    EXPECT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().code() == ErrorCode::INVERTED_INDEX_FILE_CORRUPTED ||
+                result.error().code() == ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+}
 } // namespace doris::segment_v2
