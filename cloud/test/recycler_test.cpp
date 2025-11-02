@@ -31,6 +31,7 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "common/config.h"
@@ -5249,6 +5250,301 @@ TEST(RecyclerTest, delete_rowset_data) {
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
+    }
+}
+
+TEST(RecyclerTest, delete_rowset_data_merge_file_single_rowset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view kResourceId = "merge_file_resource_single";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(kResourceId));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(kResourceId));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    auto rowset = create_rowset(std::string(kResourceId), 9527, 1024, 2, schema, 6001);
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, true));
+
+    auto merge_map = rowset.mutable_merge_file_segment_index();
+    std::string merge_file_path =
+            fmt::format("merge/{}/{}.dat", rowset.tablet_id(), rowset.rowset_id_v2());
+    constexpr int64_t kSmallFileSize = 128;
+    for (int i = 0; i < rowset.num_segments(); ++i) {
+        std::string small_path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
+        auto& index_pb = (*merge_map)[small_path];
+        index_pb.set_merge_file_path(merge_file_path);
+        index_pb.set_offset(i * kSmallFileSize);
+        index_pb.set_size(kSmallFileSize);
+    }
+
+    accessor->put_file(merge_file_path, "");
+    MergedFileInfoPB merge_info;
+    merge_info.set_ref_cnt(rowset.num_segments());
+    merge_info.set_total_file_num(rowset.num_segments());
+    merge_info.set_left_file_num(rowset.num_segments());
+    merge_info.set_total_file_bytes(kSmallFileSize * rowset.num_segments());
+    merge_info.set_left_file_bytes(kSmallFileSize * rowset.num_segments());
+    merge_info.set_state(MergedFileInfoPB::NORMAL);
+    for (const auto& [small_path, _] : *merge_map) {
+        auto* small_file = merge_info.add_small_files();
+        small_file->set_path(small_path);
+        small_file->set_size(kSmallFileSize);
+        small_file->set_deleted(false);
+    }
+
+    std::string merge_key = merge_file_key({instance_id, merge_file_path});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string merge_val;
+        ASSERT_TRUE(merge_info.SerializeToString(&merge_val));
+        txn->put(merge_key, merge_val);
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    }
+
+    ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string updated_val;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(merge_key, &updated_val));
+    MergedFileInfoPB updated_info;
+    ASSERT_TRUE(updated_info.ParseFromString(updated_val));
+    EXPECT_EQ(0, updated_info.left_file_num());
+    EXPECT_EQ(0, updated_info.ref_cnt());
+    EXPECT_EQ(0, updated_info.left_file_bytes());
+    EXPECT_EQ(MergedFileInfoPB::RECYCLING, updated_info.state());
+    for (const auto& small_file : updated_info.small_files()) {
+        EXPECT_TRUE(small_file.deleted());
+    }
+
+    EXPECT_EQ(1, accessor->exists(merge_file_path));
+}
+
+TEST(RecyclerTest, delete_rowset_data_merge_file_batch_rowsets) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view kResourceId = "merge_file_resource_batch";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(kResourceId));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(kResourceId));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(2);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    auto rowset = create_rowset(std::string(kResourceId), 8642, 512, 1, schema);
+    auto merge_map = rowset.mutable_merge_file_segment_index();
+    std::string merge_file_path =
+            fmt::format("merge/{}/{}_batch.dat", rowset.tablet_id(), rowset.rowset_id_v2());
+    std::string small_path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0);
+    auto& index_pb = (*merge_map)[small_path];
+    index_pb.set_merge_file_path(merge_file_path);
+    index_pb.set_offset(0);
+    index_pb.set_size(256);
+
+    accessor->put_file(small_path, "");
+    accessor->put_file(merge_file_path, "");
+
+    MergedFileInfoPB merge_info;
+    merge_info.set_ref_cnt(1);
+    merge_info.set_total_file_num(1);
+    merge_info.set_left_file_num(1);
+    merge_info.set_total_file_bytes(256);
+    merge_info.set_left_file_bytes(256);
+    merge_info.set_state(MergedFileInfoPB::NORMAL);
+    auto* small_file = merge_info.add_small_files();
+    small_file->set_path(small_path);
+    small_file->set_size(256);
+    small_file->set_deleted(false);
+
+    std::string merge_key = merge_file_key({instance_id, merge_file_path});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string merge_val;
+        ASSERT_TRUE(merge_info.SerializeToString(&merge_val));
+        txn->put(merge_key, merge_val);
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    }
+
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    rowsets.emplace(rowset.rowset_id_v2(), rowset);
+    ASSERT_EQ(0, recycler.delete_rowset_data(rowsets, RowsetRecyclingState::TMP_ROWSET, ctx));
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string updated_val;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(merge_key, &updated_val));
+    MergedFileInfoPB updated_info;
+    ASSERT_TRUE(updated_info.ParseFromString(updated_val));
+    EXPECT_EQ(0, updated_info.left_file_num());
+    EXPECT_EQ(0, updated_info.ref_cnt());
+    EXPECT_EQ(0, updated_info.left_file_bytes());
+    EXPECT_EQ(MergedFileInfoPB::RECYCLING, updated_info.state());
+    ASSERT_EQ(1, updated_info.small_files_size());
+    EXPECT_TRUE(updated_info.small_files(0).deleted());
+
+    EXPECT_EQ(1, accessor->exists(merge_file_path));
+}
+
+TEST(RecyclerTest, delete_rowset_data_merge_file_multiple_groups) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view kResourceId = "merge_file_resource_multi";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(kResourceId));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(kResourceId));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    constexpr int kRowsetCount = 10;
+    constexpr int kSegmentsPerRowset = 2;
+    constexpr int64_t kTabletId = 97531;
+    constexpr int64_t kIndexId = 24680;
+    constexpr int64_t kSmallFileSize = 512;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(3);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+    auto index_schema = schema.add_index();
+    index_schema->set_index_id(9001);
+    index_schema->set_index_type(IndexType::INVERTED);
+
+    std::vector<std::string> merge_paths = {
+            fmt::format("merge/{}/group0.dat", kTabletId),
+            fmt::format("merge/{}/group1.dat", kTabletId),
+            fmt::format("merge/{}/group2.dat", kTabletId),
+    };
+
+    std::map<std::string, MergedFileInfoPB> merge_infos;
+    std::map<std::string, int> expected_small_file_counts;
+    std::vector<std::string> segment_paths;
+    std::vector<std::string> index_paths;
+    std::vector<std::string> delete_bitmap_paths;
+
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    int64_t segment_seq = 0;
+
+    for (int i = 0; i < kRowsetCount; ++i) {
+        auto rowset = create_rowset(std::string(kResourceId), kTabletId, kIndexId,
+                                    kSegmentsPerRowset, schema, 1000 + i);
+        ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, true, false, true));
+
+        auto merge_map = rowset.mutable_merge_file_segment_index();
+        for (int seg = 0; seg < kSegmentsPerRowset; ++seg) {
+            std::string small_path = segment_path(kTabletId, rowset.rowset_id_v2(), seg);
+            const std::string& merge_path = merge_paths[segment_seq % merge_paths.size()];
+            auto& index_pb = (*merge_map)[small_path];
+            index_pb.set_merge_file_path(merge_path);
+            index_pb.set_offset(segment_seq * kSmallFileSize);
+            index_pb.set_size(kSmallFileSize);
+
+            auto& merge_info = merge_infos[merge_path];
+            auto* small_file = merge_info.add_small_files();
+            small_file->set_path(small_path);
+            small_file->set_size(kSmallFileSize);
+            small_file->set_deleted(false);
+
+            segment_paths.push_back(small_path);
+            index_paths.push_back(inverted_index_path_v1(
+                    kTabletId, rowset.rowset_id_v2(), seg, index_schema->index_id(),
+                    index_schema->index_suffix_name()));
+            ++segment_seq;
+        }
+
+        delete_bitmap_paths.push_back(delete_bitmap_path(kTabletId, rowset.rowset_id_v2()));
+        rowsets.emplace(rowset.rowset_id_v2(), rowset);
+    }
+
+    for (auto& [merge_path, merge_info] : merge_infos) {
+        accessor->put_file(merge_path, "");
+        int small_count = merge_info.small_files_size();
+        merge_info.set_ref_cnt(small_count);
+        merge_info.set_total_file_num(small_count);
+        merge_info.set_left_file_num(small_count);
+        merge_info.set_total_file_bytes(small_count * kSmallFileSize);
+        merge_info.set_left_file_bytes(small_count * kSmallFileSize);
+        merge_info.set_state(MergedFileInfoPB::NORMAL);
+        expected_small_file_counts.emplace(merge_path, small_count);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string merge_val;
+        ASSERT_TRUE(merge_info.SerializeToString(&merge_val));
+        txn->put(merge_file_key({instance_id, merge_path}), merge_val);
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    }
+
+    ASSERT_EQ(0, recycler.delete_rowset_data(rowsets, RowsetRecyclingState::TMP_ROWSET, ctx));
+
+    for (const auto& [merge_path, expected_count] : expected_small_file_counts) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string updated_val;
+        ASSERT_EQ(TxnErrorCode::TXN_OK,
+                  txn->get(merge_file_key({instance_id, merge_path}), &updated_val));
+        MergedFileInfoPB updated_info;
+        ASSERT_TRUE(updated_info.ParseFromString(updated_val));
+        EXPECT_EQ(0, updated_info.left_file_num());
+        EXPECT_EQ(0, updated_info.left_file_bytes());
+        EXPECT_EQ(0, updated_info.ref_cnt());
+        EXPECT_EQ(expected_count, updated_info.small_files_size());
+        EXPECT_EQ(MergedFileInfoPB::RECYCLING, updated_info.state());
+        for (const auto& small_file : updated_info.small_files()) {
+            EXPECT_TRUE(small_file.deleted());
+        }
+        EXPECT_EQ(1, accessor->exists(merge_path));
+    }
+
+    for (const auto& path : segment_paths) {
+        EXPECT_EQ(1, accessor->exists(path));
+    }
+    for (const auto& path : index_paths) {
+        EXPECT_EQ(1, accessor->exists(path));
+    }
+    for (const auto& path : delete_bitmap_paths) {
+        EXPECT_EQ(1, accessor->exists(path));
     }
 }
 

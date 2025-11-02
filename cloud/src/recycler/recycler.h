@@ -403,6 +403,10 @@ private:
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
+    // return 0 for success otherwise error
+    int process_merge_file_segment_index(const doris::RowsetMetaCloudPB& rs_meta_pb,
+                                         std::vector<std::string>* merge_files_to_delete);
+
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
      * @return 0 if accessor is successfully inited, 1 if stage not found, negative for error
