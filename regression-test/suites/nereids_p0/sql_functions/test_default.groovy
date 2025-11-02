@@ -305,4 +305,41 @@ suite("test_default") {
         FROM ${stringTableName}
         LIMIT 1
     """
+
+    // Test11: PI and E test
+    def pieTableName = "test_default_pi_e"
+    sql "DROP TABLE IF EXISTS ${pieTableName}"
+    sql """
+        CREATE TABLE ${pieTableName} (
+            id     INT     NOT NULL,
+            c_pi   DOUBLE  NULL DEFAULT PI,
+            c_e    DOUBLE  NULL DEFAULT E
+        ) PROPERTIES ( 'replication_num' = '1' )
+    """
+    sql "INSERT INTO ${pieTableName} VALUES (1, NULL, NULL)"
+    qt_pi_e_defaults """
+        SELECT
+            DEFAULT(c_pi),
+            DEFAULT(c_e)
+        FROM ${pieTableName}
+        LIMIT 1
+    """
+
+    // Test 12: Empty table test
+    def emptyTableName = "test_default_empty_table"
+    sql "DROP TABLE IF EXISTS ${emptyTableName}"
+    sql """
+        CREATE TABLE ${emptyTableName} (
+            c_int      INT     NULL DEFAULT 100,
+            c_string   STRING  NULL DEFAULT 'empty table test'
+        ) PROPERTIES ( 'replication_num' = '1' );
+    """
+
+    qt_empty_table_defaults """
+        SELECT
+            DEFAULT(c_int),
+            DEFAULT(c_string)
+        FROM ${emptyTableName}
+        LIMIT 1
+    """
 }

@@ -18,11 +18,16 @@ true	7	32000	2147483647	9223372036854775807	170141183460469231731687303715884105
 \N	\N	\N	\N	\N	\N
 
 -- !datetime_format_defaults --
-2025-01-01	2025-01-01T12:30:45	2025-12-31	2025-12-31T23:59:59	2025-06-15T10:20:30.123456
+2025-01-01	2025-01-01T12:30:45
 
 -- !ip_defaults --
 127.0.0.1	10.0.0.1	::1	2001:db8:85a3::8a2e:370:7334
 
 -- !string_defaults --
 fixed	variable length string	very long string that can be much longer than varchar		
+
+-- !pi_e_defaults --
+3.141592653589793	2.718281828459045
+
+-- !empty_table_defaults --
 
