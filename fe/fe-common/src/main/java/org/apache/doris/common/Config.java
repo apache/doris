@@ -3359,13 +3359,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(description = {"指定存算分离模式下所有 Compute group 的扩缩容预热方式。"
-            + "without_warmup: 直接修改 tablet 分片映射，首次读从 S3 拉取，均衡最快但性能波动最大；"
-            + "async_warmup: 异步预热，尽力而为拉取 cache，均衡较快但可能 cache miss；"
-            + "sync_warmup: 同步预热，确保 cache 迁移完成，均衡较慢但无 cache miss；"
-            + "peer_read_async_warmup: 直接修改 tablet 分片映射，首次读从 Peer BE 拉取，均衡最快可能会影响同计算组中其他 BE 性能。"
-            + "注意：此为全局 FE 配置，也可通过 SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
-            + "设置 compute group 维度的 balance 类型，compute group 维度配置优先级更高",
+    @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+            + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
+            + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
+            + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"
+            + "peer_read_async_warmup: 直接修改tablet分片映射，首次读从Peer BE拉取，均衡最快可能会影响同计算组中其他BE性能。"
+            + "注意：此为全局FE配置，也可通过SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
+            + "设置compute group维度的balance类型，compute group维度配置优先级更高",
         "Specify the scaling and warming methods for all Compute groups in a cloud mode. "
             + "without_warmup: Directly modify shard mapping, first read from S3,"
             + "fastest re-balance but largest fluctuation; "

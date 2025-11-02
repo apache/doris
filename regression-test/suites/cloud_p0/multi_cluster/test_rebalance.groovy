@@ -40,8 +40,8 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
             'sys_log_verbose_modules=org',
         ]
     }
-    clusterOptions[0].feConfigs += ['enable_cloud_warm_up_for_rebalance=true',             'cloud_pre_heating_time_limit_sec=300']
-    clusterOptions[1].feConfigs += ['enable_cloud_warm_up_for_rebalance=false']
+    clusterOptions[0].feConfigs += ['cloud_warm_up_for_rebalance_type=sync_warmup','cloud_pre_heating_time_limit_sec=300']
+    clusterOptions[1].feConfigs += ['cloud_warm_up_for_rebalance_type=without_warmup']
 
 
     for (int i = 0; i < clusterOptions.size(); i++) {
@@ -178,7 +178,7 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
             // add a be
             cluster.addBackend(1, null)
             // warm up
-            sql """admin set frontend config("enable_cloud_warm_up_for_rebalance"="true")"""
+            sql """admin set frontend config("cloud_warm_up_for_rebalance_type"="sync_warmup")"""
 
             // test rebalance thread still work
             awaitUntil(30) {
