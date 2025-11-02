@@ -33,9 +33,4 @@ public class RemoteDorisExternalDatabase extends ExternalDatabase<RemoteDorisExt
         return new RemoteDorisExternalTable(tblId, localTableName, remoteTableName,
             (RemoteDorisExternalCatalog) extCatalog, db);
     }
-
-    public void addTableForTest(RemoteDorisExternalTable tbl) {
-        idToTbl.put(tbl.getId(), tbl);
-        tableNameToId.put(tbl.getName(), tbl.getId());
-    }
 }
