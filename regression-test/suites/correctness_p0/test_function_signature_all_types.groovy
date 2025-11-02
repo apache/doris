@@ -998,6 +998,35 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     sql "DROP TABLE IF EXISTS test_datev1_rf_fact"
     sql "DROP TABLE IF EXISTS test_datev1_rf_dim"
 
+    // ========== Constant expression checks: math & date functions (DATEV1/DATETIMEV1) ==========
+    // Math
+    testFoldConst("SELECT abs(-3), positive(-2), negative(3)")
+    testFoldConst("SELECT ceil(1.2), floor(1.8), round(1.25, 1)")
+    testFoldConst("SELECT sqrt(4), power(2, 10), mod(7, 3)")
+    testFoldConst("SELECT ln(1), log10(100), exp(1)")
+    testFoldConst("SELECT greatest(1, 2, 3), least(1, 2, 3)")
+    testFoldConst("SELECT sin(0), cos(0), tan(0)")
+    testFoldConst("SELECT radians(180), degrees(pi())")
+
+    // Date (v1 semantics) — cast literals to DATEV1/DATETIMEV1
+    testFoldConst("SELECT dayofmonth(cast('2024-02-05' as DATEV1)), " +
+                  "dayofweek(cast('2024-02-05' as DATEV1)), " +
+                  "dayofyear(cast('2024-02-05' as DATEV1))")
+    testFoldConst("SELECT month(cast('2024-02-05' as DATEV1)), " +
+                  "year(cast('2024-02-05' as DATEV1)), " +
+                  "quarter(cast('2024-02-05' as DATEV1))")
+    testFoldConst("SELECT hour(cast('2024-02-05 12:34:56' as DATETIMEV1)), " +
+                  "minute(cast('2024-02-05 12:34:56' as DATETIMEV1)), " +
+                  "second(cast('2024-02-05 12:34:56' as DATETIMEV1))")
+    testFoldConst("SELECT dayname(cast('2024-02-05' as DATEV1)), " +
+                  "week(cast('2024-02-05' as DATEV1)), " +
+                  "weekday(cast('2024-02-05' as DATEV1)), " +
+                  "weekofyear(cast('2024-02-05' as DATEV1))")
+    testFoldConst("SELECT date_format(cast('2024-02-05' as DATEV1), '%Y-%m-%d'), " +
+                  "to_date(cast('2024-02-05 12:00:00' as DATETIMEV1))")
+    testFoldConst("SELECT date_trunc('day', cast('2024-02-05 12:34:56' as DATETIMEV1)), " +
+                  "date_trunc('month', cast('2024-02-05 12:34:56' as DATETIMEV1))")
+
     // Restore config
     sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = '${originDisableDatev1}')"
     logger.info("restore disable_datev1 to ${originDisableDatev1}")
