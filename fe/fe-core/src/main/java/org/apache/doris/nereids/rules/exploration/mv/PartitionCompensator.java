@@ -56,9 +56,10 @@ import java.util.Set;
 public class PartitionCompensator {
 
     public static final Logger LOG = LogManager.getLogger(PartitionCompensator.class);
-    // if partition pair is null which means can not get partitions from table in QueryPartitionCollector,
-    // we think this table scan query all partitions default
+    // if the partition pair is null which means could not get partitions from table in QueryPartitionCollector,
+    // we think the table scans query all-partitions default
     public static final Pair<RelationId, Set<String>> ALL_PARTITIONS = Pair.of(null, null);
+    // It means all partitions are used when query
     public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
             ImmutableList.of(ALL_PARTITIONS);
 
@@ -256,23 +257,17 @@ public class PartitionCompensator {
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
                     tableUsedPartitionNameMap.get(queryUsedTable);
             if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
+                // It means all partitions are used when query
                 queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
                 continue;
             }
             for (Pair<RelationId, Set<String>> tableUsedPartitionPair : tableUsedPartitions) {
-                if (!customRelationIdSet.isEmpty()) {
-                    if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
-                        queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
-                        continue tableLoop;
-                    }
-                    if (customRelationIdSet.get(tableUsedPartitionPair.key().asInt())) {
-                        usedPartitionSet.addAll(tableUsedPartitionPair.value());
-                    }
-                } else {
-                    if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
-                        queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
-                        continue tableLoop;
-                    }
+                if (ALL_PARTITIONS.equals(tableUsedPartitionPair)) {
+                    // It means all partitions are used when query
+                    queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
+                    continue tableLoop;
+                }
+                if (customRelationIdSet.get(tableUsedPartitionPair.key().asInt())) {
                     usedPartitionSet.addAll(tableUsedPartitionPair.value());
                 }
             }
