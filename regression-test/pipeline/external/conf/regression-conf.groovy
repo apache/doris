@@ -25,6 +25,13 @@ targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLo
 jdbcUser = "root"
 jdbcPassword = ""
 
+//arrow flight sql test config
+extArrowFlightSqlHost = "127.0.0.1"
+extArrowFlightSqlPort = 8081
+extArrowFlightSqlUser = "root"
+extArrowFlightSqlPassword= ""
+extArrowFlightHttpPort= 8131
+
 ccrDownstreamUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 ccrDownstreamUser = "root"
 ccrDownstreamPassword = ""
