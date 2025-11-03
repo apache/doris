@@ -48,6 +48,11 @@ public:
                        const PRecycleCacheRequest* request, PRecycleCacheResponse* response,
                        google::protobuf::Closure* done) override;
 
+    // Get file cached data about the path in file cache
+    void fetch_peer_data(google::protobuf::RpcController* controller,
+                         const PFetchPeerDataRequest* request, PFetchPeerDataResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     CloudStorageEngine& _engine;
 };

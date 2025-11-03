@@ -2838,7 +2838,7 @@ void handle_set_cluster_status(const std::string& instance_id, const ClusterInfo
             });
 }
 
-void handle_alter_vcluster_Info(const std::string& instance_id, const ClusterInfo& cluster,
+void handle_alter_vcluster_info(const std::string& instance_id, const ClusterInfo& cluster,
                                 std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
                                 MetaServiceCode& code) {
     msg = resource_mgr->update_cluster(
@@ -2922,6 +2922,26 @@ void handle_alter_vcluster_Info(const std::string& instance_id, const ClusterInf
                     return msg; // Return validation error
                 }
                 return msg; // Return success or empty message
+            });
+}
+
+void handle_alter_properties(const std::string& instance_id, const ClusterInfo& cluster,
+                             std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
+                             MetaServiceCode& code) {
+    msg = resource_mgr->update_cluster(
+            instance_id, cluster,
+            [&](const ClusterPB& i) { return i.cluster_id() == cluster.cluster.cluster_id(); },
+            [&](ClusterPB& c, std::vector<ClusterPB>&) {
+                std::string msg;
+                std::stringstream ss;
+                if (ClusterPB::COMPUTE != c.type()) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    ss << "just support set COMPUTE cluster status";
+                    msg = ss.str();
+                    return msg;
+                }
+                *c.mutable_properties() = cluster.cluster.properties();
+                return msg;
             });
 }
 
@@ -3009,7 +3029,10 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         handle_set_cluster_status(instance_id, cluster, resource_mgr(), msg, code);
         break;
     case AlterClusterRequest::ALTER_VCLUSTER_INFO:
-        handle_alter_vcluster_Info(instance_id, cluster, resource_mgr(), msg, code);
+        handle_alter_vcluster_info(instance_id, cluster, resource_mgr(), msg, code);
+        break;
+    case AlterClusterRequest::ALTER_PROPERTIES:
+        handle_alter_properties(instance_id, cluster, resource_mgr(), msg, code);
         break;
     default:
         code = MetaServiceCode::INVALID_ARGUMENT;

@@ -525,8 +525,12 @@ public class OutFileClause {
         }
 
         if (copiedProps.containsKey(PROP_DELETE_EXISTING_FILES)) {
-            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES))
-                    & Config.enable_delete_existing_files;
+            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES));
+            if (deleteExistingFiles && !Config.enable_delete_existing_files) {
+                throw new AnalysisException("Deleting existing files is not allowed."
+                        + " To enable this feature, you need to add `enable_delete_existing_files=true`"
+                        + " in fe.conf");
+            }
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -756,4 +760,5 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+
 

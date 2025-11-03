@@ -238,7 +238,7 @@ public class MergeIntoCommandTest {
                     new Cast(new UnboundSlot(ImmutableList.of("alias", "c3")), BigIntType.INSTANCE),
                     new Cast(new IntegerLiteral(2), BigIntType.INSTANCE),
                     new Cast(new IntegerLiteral(3), BigIntType.INSTANCE),
-                    new Cast(new UnboundFunction("current_timestamp", ImmutableList.of()), BigIntType.INSTANCE)
+                    new Cast(new UnboundFunction("CURRENT_TIMESTAMP", ImmutableList.of()), BigIntType.INSTANCE)
             );
             Assertions.assertEquals(expected, result);
         }

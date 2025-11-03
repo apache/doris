@@ -211,6 +211,7 @@ message ClusterPB {
     optional int64 mtime = 11;
     repeated string cluster_names = 12; // clusters in virtual cluster
     optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
+    map<string, string> properties = 14; // clsuter additional properties
 }
 
 message NodeInfoPB {
@@ -1451,6 +1452,7 @@ message AlterClusterRequest {
         UPDATE_CLUSTER_ENDPOINT = 9;
         SET_CLUSTER_STATUS = 10;
         ALTER_VCLUSTER_INFO = 11;
+        ALTER_PROPERTIES = 12;
     }
     optional string instance_id = 1;
     optional string cloud_unique_id = 2; // For auth
