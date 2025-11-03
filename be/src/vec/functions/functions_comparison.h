@@ -322,19 +322,20 @@ private:
 
     Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
-        auto call = [&](const auto& types) -> bool {
-            using Types = std::decay_t<decltype(types)>;
-            using LeftDataType = typename Types::LeftType;
-            using RightDataType = typename Types::RightType;
-
-            DecimalComparison<LeftDataType::PType, RightDataType::PType, Op, false>(
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            DecimalComparison<DispatchType::PType, DispatchType::PType, Op, false>(
                     block, result, col_left, col_right);
             return true;
         };
 
-        if (!call_on_basic_types<true, false, true, false>(col_left.type->get_primitive_type(),
-                                                           col_right.type->get_primitive_type(),
-                                                           call)) {
+        if (col_left.type->get_primitive_type() != col_right.type->get_primitive_type()) {
+            return Status::RuntimeError(
+                    "type of left column {} is not equal to type of right column {}",
+                    col_left.type->get_name(), col_right.type->get_name());
+        }
+
+        if (!dispatch_switch_decimal(col_right.type->get_primitive_type(), call)) {
             return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
                                         col_left.type->get_name(), col_right.type->get_name());
         }
@@ -487,8 +488,6 @@ public:
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
 

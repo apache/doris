@@ -67,9 +67,10 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -129,8 +130,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
@@ -710,19 +711,19 @@ public class MetadataGenerator {
                         continue;
                     }
                     MTMVRelation relation = ((MTMV) table).getRelation();
-                    Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
-                    for (BaseTableInfo info : tablesOneLevel) {
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
-                        trow.addToColumnValue(new TCell().setStringVal(dbName));
-                        trow.addToColumnValue(new TCell().setStringVal(tableName));
-                        trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
-                        trow.addToColumnValue(new TCell().setStringVal(info.getType()));
-                        dataBatch.add(trow);
-                    }
+                    Stream.concat(relation.getBaseTablesOneLevel().stream(), relation.getBaseViewsOneLevel().stream())
+                            .forEach(info -> {
+                                TRow trow = new TRow();
+                                trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                                trow.addToColumnValue(new TCell().setStringVal(dbName));
+                                trow.addToColumnValue(new TCell().setStringVal(tableName));
+                                trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
+                                trow.addToColumnValue(new TCell().setStringVal(info.getType()));
+                                dataBatch.add(trow);
+                            });
                 } else if (table instanceof View) {
                     String tableName = table.getName();
                     if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
@@ -1169,10 +1170,21 @@ public class MetadataGenerator {
 
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
+        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
                 if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
+                    continue;
+                }
+            } else if (job instanceof StreamingInsertJob) {
+                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+                if (!streamingJob.hasPrivilege(userIdentity)) {
+                    continue;
+                }
+            } else {
+                // common insert job
+                if (!hasAdmin) {
                     continue;
                 }
             }
@@ -1196,6 +1208,7 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
+        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
@@ -1204,12 +1217,34 @@ public class MetadataGenerator {
                 if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
                     continue;
                 }
+            } else if (job instanceof StreamingInsertJob) {
+                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+                if (!streamingJob.hasPrivilege(userIdentity)) {
+                    continue;
+                }
+            } else {
+                // common insert job
+                if (!hasAdmin) {
+                    continue;
+                }
             }
-            List<AbstractTask> tasks = job.queryAllTasks();
-            for (AbstractTask task : tasks) {
-                TRow tvfInfo = task.getTvfInfo(job.getJobName());
-                if (tvfInfo != null) {
-                    dataBatch.add(tvfInfo);
+
+            if (job instanceof StreamingInsertJob) {
+                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+                List<StreamingInsertTask> streamingInsertTasks = streamingJob.queryAllStreamTasks();
+                for (StreamingInsertTask task : streamingInsertTasks) {
+                    TRow tvfInfo = task.getTvfInfo(job.getJobName());
+                    if (tvfInfo != null) {
+                        dataBatch.add(tvfInfo);
+                    }
+                }
+            } else {
+                List<AbstractTask> tasks = job.queryAllTasks();
+                for (AbstractTask task : tasks) {
+                    TRow tvfInfo = task.getTvfInfo(job.getJobName());
+                    if (tvfInfo != null) {
+                        dataBatch.add(tvfInfo);
+                    }
                 }
             }
         }
@@ -1285,40 +1320,63 @@ public class MetadataGenerator {
             OlapTable olapTable = (OlapTable) table;
             olapTable.readLock();
             try {
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
-                trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
-                trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
-                trow.addToColumnValue(
+                Collection<Partition> allPartitions = olapTable.getAllPartitions();
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                for (Partition partition : allPartitions) {
+                    TRow trow = new TRow();
+                    long partitionId = partition.getId();
+                    trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
+                    trow.addToColumnValue(
                         new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
-                trow.addToColumnValue(
-                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTypes
+                    trow.addToColumnValue(
+                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTyp
 
-                DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-                if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
-                    StringBuilder distributeKey = new StringBuilder();
-                    for (Column c : distributionColumns) {
-                        if (distributeKey.length() != 0) {
-                            distributeKey.append(",");
+                    DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+                        StringBuilder distributeKey = new StringBuilder();
+                        for (Column c : distributionColumns) {
+                            if (distributeKey.length() != 0) {
+                                distributeKey.append(",");
+                            }
+                            distributeKey.append(c.getName());
                         }
-                        distributeKey.append(c.getName());
-                    }
-                    if (distributeKey.length() == 0) {
-                        trow.addToColumnValue(new TCell().setStringVal(""));
-                    } else {
-                        trow.addToColumnValue(
+                        if (distributeKey.length() == 0) {
+                            trow.addToColumnValue(new TCell().setStringVal(""));
+                        } else {
+                            trow.addToColumnValue(
                                 new TCell().setStringVal(distributeKey.toString()));
+                        }
+                        trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
                     }
-                    trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
-                } else {
-                    trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_KEY
-                    trow.addToColumnValue(new TCell().setStringVal("RANDOM")); // DISTRIBUTE_TYPE
+                    trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
+                    trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            partitionInfo.getType().toString())); // PARTITION_METHOD
+                    PartitionItem item = partitionInfo.getItem(partitionId);
+                    if ((partitionInfo.getType() == PartitionType.UNPARTITIONED) || (item == null)) {
+                        trow.addToColumnValue(new TCell().setStringVal("NULL")); // PARTITION_EXPRESSION
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal(
+                                partitionInfo.getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
+                    }
+                    if (partitionInfo.getType() == PartitionType.RANGE
+                            || partitionInfo.getType() == PartitionType.LIST) {
+                        trow.addToColumnValue(new TCell().setStringVal(item.getItemsSql())); // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal(partitionInfo
+                                .getPartitionRangeString(partitionId))); // RANGE
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal(""));  // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
+                    }
+                    dataBatch.add(trow);
                 }
-                trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
-                trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
-                dataBatch.add(trow);
             } finally {
                 olapTable.readUnlock();
             }
@@ -1344,6 +1402,10 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal("")); // DISTRIBUTE_TYPE
             trow.addToColumnValue(new TCell().setIntVal(0)); // BUCKETS_NUM
             trow.addToColumnValue(new TCell().setIntVal(0)); // PARTITION_NUM
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_METHOD
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_EXPRESSION
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_KEY
+            trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
             dataBatch.add(trow);
         }
     }

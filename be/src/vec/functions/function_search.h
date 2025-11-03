@@ -93,6 +93,10 @@ public:
         return _field_readers;
     }
 
+    const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
+        return _cache;
+    }
+
     IndexIterator* get_iterator(const std::string& field_name) const {
         auto it = _iterators.find(field_name);
         return (it != _iterators.end()) ? it->second : nullptr;
@@ -173,13 +177,13 @@ public:
     // Map clause_type string to InvertedIndexQueryType
     InvertedIndexQueryType clause_type_to_query_type(const std::string& clause_type) const;
 
-    Status build_query_recursive(const FunctionSearch& function, const TSearchClause& clause,
+    Status build_query_recursive(const TSearchClause& clause,
                                  const std::shared_ptr<IndexQueryContext>& context,
                                  FieldReaderResolver& resolver,
                                  inverted_index::query_v2::QueryPtr* out,
                                  std::string* binding_key) const;
 
-    Status build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
+    Status build_leaf_query(const TSearchClause& clause,
                             const std::shared_ptr<IndexQueryContext>& context,
                             FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
                             std::string* binding_key) const;

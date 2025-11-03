@@ -552,7 +552,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
 
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
@@ -621,7 +621,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     bool eof = false;
     do {
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
@@ -1020,7 +1020,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
             reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
+            reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
             reader_context.version = Version(0, end_version);
             if (!_base_tablet_schema->cluster_key_uids().empty()) {
                 for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
@@ -1144,9 +1144,8 @@ Status SchemaChangeJob::_get_versions_to_be_changed(std::vector<Version>* versio
     }
     *max_rowset = rowset;
 
-    RETURN_IF_ERROR(_base_tablet->capture_consistent_versions_unlocked(
-            Version(0, rowset->version().second), versions_to_be_changed, false, false));
-
+    *versions_to_be_changed = DORIS_TRY(_base_tablet->capture_consistent_versions_unlocked(
+            Version(0, rowset->version().second), {}));
     return Status::OK();
 }
 
@@ -1559,8 +1558,9 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
                   << "double write rowsets for version: " << alter_version + 1 << "-" << max_version
                   << " new_tablet=" << _new_tablet->tablet_id();
         std::shared_lock rlock(_new_tablet->get_header_lock());
-        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
-                {alter_version + 1, max_version}, &rowsets));
+        auto ret = DORIS_TRY(_new_tablet->capture_consistent_rowsets_unlocked(
+                {alter_version + 1, max_version}, CaptureRowsetOps {}));
+        rowsets = std::move(ret.rowsets);
     }
     for (auto rowset_ptr : rowsets) {
         std::lock_guard rwlock(_new_tablet->get_rowset_update_lock());
@@ -1578,8 +1578,9 @@ Status SchemaChangeJob::_calc_delete_bitmap_for_mow_table(int64_t alter_version)
         LOG(INFO) << "alter table for unique with merge-on-write, calculate delete bitmap of "
                   << "incremental rowsets for version: " << max_version + 1 << "-"
                   << new_max_version << " new_tablet=" << _new_tablet->tablet_id();
-        RETURN_IF_ERROR(_new_tablet->capture_consistent_rowsets_unlocked(
-                {max_version + 1, new_max_version}, &rowsets));
+        auto ret = DORIS_TRY(_new_tablet->capture_consistent_rowsets_unlocked(
+                {max_version + 1, new_max_version}, CaptureRowsetOps {}));
+        rowsets = std::move(ret.rowsets);
     }
     for (auto&& rowset_ptr : rowsets) {
         RETURN_IF_ERROR(Tablet::update_delete_bitmap_without_lock(_new_tablet, rowset_ptr));

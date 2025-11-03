@@ -122,8 +122,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
         // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
         // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
         // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column = const_cast<ColumnNullable*>(
-                assert_cast<const ColumnNullable*>(dst_logical_column.get()));
+        auto* doris_nullable_column = assert_cast<const ColumnNullable*>(dst_logical_column.get());
         return ColumnNullable::create(_cached_src_physical_column,
                                       doris_nullable_column->get_null_map_column_ptr());
     }

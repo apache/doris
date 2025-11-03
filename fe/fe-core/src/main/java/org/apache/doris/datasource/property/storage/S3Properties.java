@@ -65,7 +65,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     };
 
     private static final String[] REGION_NAMES_FOR_GUESSING = {
-            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "client.region"
     };
 
     @Setter
@@ -79,7 +79,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region"},
+            "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
@@ -158,6 +158,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The sts region of S3.")
     protected String s3StsRegion = "";
 
+    @Getter
     @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn"},
             required = false,
             description = "The iam role of S3.")
@@ -215,11 +216,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         convertGlueToS3EndpointIfNeeded();
     }
 
-    @Override
-    boolean isEndpointCheckRequired() {
-        return false;
-    }
-
     /**
      * Guess if the storage properties is for this storage type.
      * Subclass should override this method to provide the correct implementation.
@@ -266,6 +262,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     protected Set<Pattern> endpointPatterns() {
         return ENDPOINT_PATTERN;
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("s3", "s3a", "s3n");
     }
 
     @Override

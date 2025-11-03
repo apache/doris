@@ -18,13 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -32,7 +30,6 @@ import org.apache.doris.thrift.TFloatLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.text.NumberFormat;
@@ -209,38 +206,6 @@ public class FloatLiteral extends NumericLiteralExpr {
 
     public double getValue() {
         return value;
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2() || targetType.isDecimalV3())) {
-            return super.uncheckedCastTo(targetType);
-        }
-        if (targetType.isFloatingPointType()) {
-            if (!type.equals(targetType)) {
-                FloatLiteral floatLiteral = new FloatLiteral(this);
-                floatLiteral.setType(targetType);
-                return floatLiteral;
-            }
-            return this;
-        } else if (targetType.isDecimalV2()) {
-            // the double constructor does an exact translation, use valueOf() instead.
-            DecimalLiteral res = new DecimalLiteral(BigDecimal.valueOf(value));
-            res.setType(targetType);
-            return res;
-        } else if (targetType.isDecimalV3()) {
-            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-            res.setType(ScalarType.createDecimalV3Type(targetType.getPrecision(),
-                    ((ScalarType) targetType).decimalScale()));
-            return res;
-        }
-        return this;
-    }
-
-    @Override
-    public void swapSign() throws NotImplementedException {
-        // swapping sign does not change the type
-        value = -value;
     }
 
     @Override

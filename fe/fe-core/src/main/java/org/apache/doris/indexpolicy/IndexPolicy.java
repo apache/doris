@@ -59,13 +59,16 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_CHAR_FILTER = "char_filter";
 
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
-            "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu");
+            "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu");
 
     public static final Set<String> BUILTIN_TOKEN_FILTERS = ImmutableSet.of(
-            "asciifolding", "word_delimiter", "lowercase");
+            "empty", "asciifolding", "word_delimiter", "lowercase");
 
     public static final Set<String> BUILTIN_CHAR_FILTERS = ImmutableSet.of(
-            "char_replace");
+            "empty", "char_replace");
+
+    public static final Set<String> BUILTIN_ANALYZERS = ImmutableSet.of(
+            "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik");
 
     private static final Logger LOG = LogManager.getLogger(IndexPolicy.class);
 

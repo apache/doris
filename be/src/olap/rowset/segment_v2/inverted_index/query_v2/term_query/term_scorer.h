@@ -22,6 +22,7 @@
 #include <optional>
 #include <roaring/roaring.hh>
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/null_bitmap_fetcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
@@ -42,12 +43,10 @@ public:
     uint32_t seek(uint32_t target) override { return _segment_postings->seek(target); }
     uint32_t doc() const override { return _segment_postings->doc(); }
     uint32_t size_hint() const override { return _segment_postings->size_hint(); }
+    uint32_t freq() const override { return _segment_postings->freq(); }
+    uint32_t norm() const override { return _segment_postings->norm(); }
 
-    float score() override {
-        auto freq = _segment_postings->freq();
-        auto norm = _segment_postings->norm();
-        return _similarity->score(static_cast<float>(freq), norm);
-    }
+    float score() override { return _similarity->score(freq(), norm()); }
 
     bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
         _ensure_null_bitmap(resolver);
@@ -72,33 +71,15 @@ private:
 
         _null_bitmap_checked = true;
 
-        auto iterator = resolver->iterator_for(*this, _logical_field);
-        if (iterator == nullptr) {
-            return;
-        }
-
-        auto has_null_result = iterator->has_null();
-        if (!has_null_result.has_value() || !has_null_result.value()) {
-            return;
-        }
-
-        segment_v2::InvertedIndexQueryCacheHandle cache_handle;
-        auto status = iterator->read_null_bitmap(&cache_handle);
-        if (!status.ok()) {
-            LOG(WARNING) << "TermScorer failed to read null bitmap for field '" << _logical_field
-                         << "': " << status.to_string();
-            return;
-        }
-
-        auto bitmap_ptr = cache_handle.get_bitmap();
-        if (bitmap_ptr != nullptr) {
-            _null_bitmap = *bitmap_ptr;
+        auto bitmap = FieldNullBitmapFetcher::fetch(resolver, _logical_field, this);
+        if (bitmap != nullptr) {
+            _null_bitmap = *bitmap;
         }
     }
 
     SegmentPostingsPtr _segment_postings;
     SimilarityPtr _similarity;
-    std::string _logical_field = {};
+    std::string _logical_field;
     bool _null_bitmap_checked = false;
     std::optional<roaring::Roaring> _null_bitmap;
 };

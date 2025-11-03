@@ -27,7 +27,9 @@ import java.util.List;
  * collect one level relations
  */
 public class CollectOneLevelRelation extends CollectRelation {
-    public CollectOneLevelRelation() {}
+    public CollectOneLevelRelation() {
+        super(true);
+    }
 
     protected void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
         //do nothing

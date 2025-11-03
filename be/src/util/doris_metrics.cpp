@@ -121,6 +121,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
         "(segment_v2) total number of rows in queried segments (before index pruning)",
         segment_read, Labels({{"type", "segment_row_total"}}));
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(condition_cache_search_count, MetricUnit::OPERATIONS,
+                                     "number of condition cache lookups when digest != 0",
+                                     condition_cache, Labels({{"type", "condition_cache_search"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(condition_cache_hit_count, MetricUnit::OPERATIONS,
+                                     "number of condition cache hits", condition_cache,
+                                     Labels({{"type", "condition_cache_hit"}}));
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_begin_request_total, MetricUnit::OPERATIONS,
                                      "", stream_load_txn_request, Labels({{"type", "begin"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_commit_request_total, MetricUnit::OPERATIONS,
@@ -225,6 +232,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_peer, MetricUnit::OPERATIONS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(udf_close_bthread_count, MetricUnit::OPERATIONS);
 
@@ -250,6 +258,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_search_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_in_memory_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_in_memory_rows_cnt, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_construction, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_build_index_threads, MetricUnit::NOUNIT);
 
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
@@ -324,6 +333,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_search_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_hit_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_begin_request_total);
@@ -393,6 +404,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_peer);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, udf_close_bthread_count);
 
@@ -418,6 +430,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_in_memory_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_in_memory_rows_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_construction);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_build_index_threads);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

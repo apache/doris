@@ -20,17 +20,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
@@ -46,7 +43,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Arrays;
 import java.util.Map;
 
 
@@ -63,8 +59,6 @@ public class CastExpr extends Expr {
 
     // True if this cast does not change the type.
     protected boolean noOp = false;
-
-    protected boolean notFold = false;
 
     protected static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
@@ -92,26 +86,6 @@ public class CastExpr extends Expr {
     // only used restore from readFields.
     private CastExpr() {
 
-    }
-
-    public CastExpr(Type targetType, Expr e) {
-        super();
-        Preconditions.checkArgument(targetType.isValid());
-        Preconditions.checkNotNull(e);
-        type = targetType;
-        targetTypeDef = null;
-        isImplicit = true;
-
-        children.add(e);
-
-        try {
-            analyze();
-        } catch (AnalysisException ex) {
-            LOG.warn("Implicit casts fail", ex);
-            Preconditions.checkState(false,
-                    "Implicit casts should never throw analysis exception.");
-        }
-        analysisDone();
     }
 
     /**
@@ -168,17 +142,6 @@ public class CastExpr extends Expr {
         analysisDone();
     }
 
-    /**
-     * Copy c'tor used in clone().
-     */
-    public CastExpr(TypeDef targetTypeDef, Expr e) {
-        Preconditions.checkNotNull(targetTypeDef);
-        Preconditions.checkNotNull(e);
-        this.targetTypeDef = targetTypeDef;
-        isImplicit = false;
-        children.add(e);
-    }
-
     protected CastExpr(CastExpr other) {
         super(other);
         targetTypeDef = other.targetTypeDef;
@@ -188,10 +151,6 @@ public class CastExpr extends Expr {
 
     private static String getFnName(Type targetType) {
         return "castTo" + targetType.getPrimitiveType().toString();
-    }
-
-    public TypeDef getTargetTypeDef() {
-        return targetTypeDef;
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -299,72 +258,6 @@ public class CastExpr extends Expr {
         }
     }
 
-    public void analyze() throws AnalysisException {
-        // do not analyze ALL cast
-        if (type == Type.ALL) {
-            return;
-        }
-        // cast was asked for in the query, check for validity of cast
-        Type childType = getChild(0).getType();
-
-        // this cast may result in loss of precision, but the user requested it
-        noOp = Type.matchExactType(childType, type, true);
-
-        if (noOp) {
-            // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
-            // set the target type as the child's type.
-            if (type.isDecimalV2() && childType.isDecimalV2()) {
-                getChild(0).setType(type);
-            }
-            return;
-        }
-
-        // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
-        // it is necessary to check if it is castable before creating fn.
-        // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
-        if (type.isArrayType() || childType.isArrayType()) {
-            if (!Type.canCastTo(childType, type)) {
-                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
-                        + " from " + childType + " to " + type);
-            }
-        }
-
-        this.opcode = TExprOpcode.CAST;
-        FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(collectChildReturnTypes())),
-                Type.INVALID, false);
-        if (type.isScalarType()) {
-            fn = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_IDENTICAL);
-        } else {
-            createComplexTypeCastFunction();
-        }
-
-        if (fn == null) {
-            //TODO(xy): check map type
-            if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
-                return;
-            }
-            // same with Type.canCastTo() can be cast to jsonb
-            if (childType.isComplexType() && type.isJsonbType()) {
-                return;
-            }
-            if (childType.isNull() && Type.canCastTo(childType, type)) {
-                return;
-            } else {
-                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
-                    + " from " + childType + " to " + type);
-            }
-        }
-
-        if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
-            Preconditions.checkState(type.isDecimalV3() == fn.getReturnType().isDecimalV3()
-                            || type.isDatetimeV2() == fn.getReturnType().isDatetimeV2(),
-                    type + " != " + fn.getReturnType());
-        } else {
-            Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
-        }
-    }
-
     @Override
     public int hashCode() {
         return super.hashCode();
@@ -390,65 +283,6 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr value = children.get(0);
-        if (!(value instanceof LiteralExpr)) {
-            return this;
-        }
-        Expr targetExpr;
-        try {
-            targetExpr = castTo((LiteralExpr) value);
-            if (targetTypeDef != null) {
-                targetExpr.setType(targetTypeDef.getType());
-            } else {
-                targetExpr.setType(type);
-            }
-        } catch (AnalysisException ae) {
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().getState().reset();
-            }
-            targetExpr = this;
-        } catch (NumberFormatException nfe) {
-            targetExpr = new NullLiteral();
-        }
-        return targetExpr;
-    }
-
-    private Expr castTo(LiteralExpr value) throws AnalysisException {
-        if (value instanceof NullLiteral) {
-            if (targetTypeDef != null) {
-                return NullLiteral.create(targetTypeDef.getType());
-            } else {
-                return NullLiteral.create(type);
-            }
-        } else if (type.isIntegerType()) {
-            return new IntLiteral(value.getLongValue(), type);
-        } else if (type.isLargeIntType()) {
-            return new LargeIntLiteral(value.getStringValue());
-        } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            if (targetTypeDef != null) {
-                DecimalLiteral literal = new DecimalLiteral(value.getStringValue(),
-                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
-                literal.checkPrecisionAndScale(targetTypeDef.getType().getPrecision(),
-                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
-                return literal;
-            } else {
-                return new DecimalLiteral(value.getStringValue());
-            }
-        } else if (type.isFloatingPointType()) {
-            return new FloatLiteral(value.getDoubleValue(), type);
-        } else if (type.isStringType()) {
-            return new StringLiteral(value.getStringValue());
-        } else if (type.isDateType()) {
-            return new StringLiteral(value.getStringValue()).convertToDate(type);
-        } else if (type.isBoolean()) {
-            return new BoolLiteral(value.getStringValue());
-        }
-        return this;
-    }
-
-    @Override
     public boolean isNullable() {
         return children.get(0).isNullable()
                 || (children.get(0).getType().isStringType() && !getType().isStringType())
@@ -463,14 +297,5 @@ public class CastExpr extends Expr {
     @Override
     protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return children.get(0).getStringValueInComplexTypeForQuery(options);
-    }
-
-    public void setNotFold(boolean notFold) {
-        this.notFold = notFold;
-    }
-
-    @Override
-    protected void compactForLiteral(Type type) {
-        // do nothing
     }
 }

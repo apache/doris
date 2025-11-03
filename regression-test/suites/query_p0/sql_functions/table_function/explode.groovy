@@ -213,4 +213,26 @@ suite("explode") {
         lateral view explode([], [1, 2, null, 4, 5], ["ab", "cd", "ef"], [null, null, 1, 2, 3, 4, 5]) t2 as c0, c1, c2, c3 
         order by 1,2,3,4,5;
     """
+
+    qt_select25 """
+        select * from (select 1) t1 lateral view explode(array(struct(1, "a"), struct(2, "b"))) t2 as c1 order by 1,2;
+    """
+    qt_select26 """
+        select * from (select 1) t1 lateral view explode(array(struct(1, "a"), struct(2, "b"))) t2 as c1, c2 order by 1,2,3;
+    """
+
+    qt_select27 """
+        select * from (select 1) t1 
+            lateral view explode(
+                array(struct(1, "a"), struct(2, "b")),
+                array(struct(3, "c"), struct(4, "d"))
+            ) t2 as c1 order by 1,2;
+    """
+    qt_select28 """
+        select * from (select 1) t1 
+            lateral view explode(
+                array(struct(1, "a"), struct(2, "b")),
+                array(struct(3, "c"), struct(4, "d"))
+            ) t2 as c1, c2 order by 1,2;
+    """
 }

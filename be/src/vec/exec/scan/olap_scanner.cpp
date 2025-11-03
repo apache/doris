@@ -65,7 +65,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
 
-using ReadSource = TabletReader::ReadSource;
+using ReadSource = TabletReadSource;
 
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
@@ -96,8 +96,10 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .vir_col_idx_to_type {},
                                  .score_runtime {},
                                  .collection_statistics {},
-                                 .ann_topn_runtime {}}) {
-    _tablet_reader_params.set_read_source(std::move(params.read_source));
+                                 .ann_topn_runtime {},
+                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
+    _tablet_reader_params.set_read_source(std::move(params.read_source),
+                                          _state->skip_delete_bitmap());
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
 }
@@ -218,19 +220,26 @@ Status OlapScanner::prepare() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            CaptureRsReaderOptions opts {
-                    .skip_missing_version = _state->skip_missing_version(),
-                    .enable_prefer_cached_rowset =
-                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
-                    .query_freshness_tolerance_ms =
-                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
-            };
-            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits, opts);
-            if (!st.ok()) {
-                LOG(WARNING) << "fail to init reader.res=" << st;
-                return st;
+            auto maybe_read_source = tablet->capture_read_source(
+                    _tablet_reader_params.version,
+                    {
+                            .skip_missing_versions = _state->skip_missing_version(),
+                            .enable_fetch_rowsets_from_peers =
+                                    config::enable_fetch_rowsets_from_peer_replicas,
+                            .enable_prefer_cached_rowset =
+                                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
+                                                            : false,
+                            .query_freshness_tolerance_ms =
+                                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms()
+                                                            : -1,
+                    });
+            if (!maybe_read_source) {
+                LOG(WARNING) << "fail to init reader. res=" << maybe_read_source.error();
+                return maybe_read_source.error();
             }
+
+            read_source = std::move(maybe_read_source.value());
+
             if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
                 LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
                          tablet->tablet_id(), print_id(_state->query_id()));
@@ -357,7 +366,6 @@ Status OlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
 
-    auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred : _tablet_reader_params.delete_predicates) {
@@ -416,10 +424,6 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();
-
-    if (tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
-        _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-    }
 
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
@@ -590,7 +594,7 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
 }
 
 Status OlapScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
     RETURN_IF_ERROR(Scanner::close(state));
@@ -766,9 +770,8 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    // only cloud deploy mode will use file cache. and keep the same with FileScanner
-    if (config::is_cloud_mode() && config::enable_file_cache &&
-        _state->query_options().enable_file_cache) {
+    // only cloud deploy mode will use file cache.
+    if (config::is_cloud_mode() && config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
@@ -778,6 +781,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_segment_counter,
+                   stats.condition_cache_hit_seg_nums);
+    COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                   stats.condition_cache_filtered_rows);
 
     COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
     COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,

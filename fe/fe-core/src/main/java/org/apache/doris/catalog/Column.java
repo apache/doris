@@ -22,8 +22,6 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -557,20 +555,18 @@ public class Column implements GsonPostProcessable {
         return this.defaultValue;
     }
 
-    public Expr getDefaultValueExpr() throws AnalysisException {
+    public String getDefaultValueSql() {
         if (defaultValue == null) {
             return null;
         }
-        StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
-        if (getDataType() == PrimitiveType.VARCHAR) {
-            return defaultValueLiteral;
-        }
         if (defaultValueExprDef != null) {
-            return defaultValueExprDef.getExpr(type);
+            return defaultValueExprDef.getSql();
         }
-        Expr result = defaultValueLiteral.castTo(getType());
-        result.checkValueValid();
-        return result;
+        if (this.type.isNumericType()) {
+            return defaultValue;
+        } else {
+            return "'" + defaultValue.replace("'", "''") + "'";
+        }
     }
 
 
@@ -610,8 +606,8 @@ public class Column implements GsonPostProcessable {
         return hasOnUpdateDefaultValue;
     }
 
-    public Expr getOnUpdateDefaultValueExpr() {
-        return onUpdateDefaultValueExprDef.getExpr(type);
+    public String getOnUpdateDefaultValueSql() {
+        return onUpdateDefaultValueExprDef.getSql();
     }
 
     public TColumn toThrift() {
@@ -1280,6 +1276,10 @@ public class Column implements GsonPostProcessable {
             }
         }
         return colName;
+    }
+
+    public boolean isGeneratedColumn() {
+        return generatedColumnInfo != null;
     }
 
     public GeneratedColumnInfo getGeneratedColumnInfo() {

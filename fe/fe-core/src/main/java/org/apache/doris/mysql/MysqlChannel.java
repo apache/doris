@@ -114,7 +114,7 @@ public class MysqlChannel implements BytesChannel {
         this.remoteIp = "";
         this.conn = connection;
 
-        // if proxy protocal is enabled, the remote address will be got from proxy protocal header
+        // if proxy protocol is enabled, the remote address will be got from proxy protocol header
         // and overwrite the original remote address.
         if (connection.getPeerAddress() instanceof InetSocketAddress) {
             InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
@@ -597,7 +597,7 @@ public class MysqlChannel implements BytesChannel {
             case OK:
                 return true;
             case CLOSED:
-                sslEngine.closeOutbound();
+                SslEngineHelper.checkClosedProgress("wrap", sslEngineResult, sslEngine, false);
                 return true;
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the serverNetData buffer of any already obtained
@@ -615,13 +615,13 @@ public class MysqlChannel implements BytesChannel {
         }
     }
 
-    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) throws SSLException {
         switch (sslEngineResult.getStatus()) {
             // normal status.
             case OK:
                 return true;
             case CLOSED:
-                sslEngine.closeOutbound();
+                SslEngineHelper.checkClosedProgress("unwrap", sslEngineResult, sslEngine, true);
                 return true;
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the clientAppData buffer of any already obtained
@@ -638,7 +638,7 @@ public class MysqlChannel implements BytesChannel {
         }
     }
 
-    // for proxy protocal only
+    // for proxy protocol only
     public void setRemoteAddr(String ip, int port) {
         this.remoteIp = ip;
         this.remoteHostPortString = NetUtils.getHostPortInAccessibleFormat(ip, port);
