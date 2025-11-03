@@ -317,4 +317,11 @@ suite("list_prune_predicate") {
         contains("partitions=1/3 (p1)")
         notContains("PREDICATES")
     }
+
+    sql "set skip_prune_predicate = true"
+    explain {
+        sql "select * from list_par_data_migration partition p1 where k1=1 or k1=2 or k1=3 or k1=4 order by k1;"
+        contains("partitions=1/3 (p1)")
+        contains("PREDICATES")
+    }
 }
