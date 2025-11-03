@@ -37,10 +37,12 @@
 #include "olap/null_predicate.h"
 #include "olap/tablet_schema.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/type_limit.h"
 #include "vec/columns/column.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/field.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 
@@ -1201,6 +1203,122 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
             // std::cout << "test double GE value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::GE>(
                     {min_field.get(), max_field.get()}, v, true);
+        }
+    }
+}
+
+// test timestamptz zonemap index
+TEST_F(BlockColumnPredicateTest, test_timestamptz_single_column_predicate) {
+    FieldType type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
+    std::unique_ptr<WrapperField> min_field(WrapperField::create_by_type(type, 0));
+    std::unique_ptr<WrapperField> max_field(WrapperField::create_by_type(type, 0));
+
+    cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
+    TimezoneUtils::load_offsets_to_cache();
+    vectorized::CastParameters params;
+    params.is_strict = true;
+
+    // test normal value min max:
+    {
+        std::cout << "========test normal value min max\n";
+        // auto zonemap_min_v = type_limit<TimestampTzValue>::min();
+        // auto zonemap_max_v = type_limit<TimestampTzValue>::max();
+        TimestampTzValue zonemap_min_v;
+        TimestampTzValue zonemap_max_v;
+        EXPECT_TRUE(
+                zonemap_min_v.from_string(StringRef {"0001-01-01 00:00:00"}, &time_zone, params));
+        EXPECT_TRUE(
+                zonemap_max_v.from_string(StringRef {"8999-12-31 23:59:59"}, &time_zone, params));
+        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
+        max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
+
+        // test values within zonemap range
+        std::vector<std::string> values = {"0001-01-01 00:00:00", "2023-01-01 15:00:00",
+                                           "8999-12-31 23:59:59"};
+        for (auto str : values) {
+            TimestampTzValue tz {};
+            EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params));
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                    {min_field.get(), max_field.get()}, tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
+                    {min_field.get(), max_field.get()}, tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
+                    {min_field.get(), max_field.get()}, tz, tz != zonemap_min_v);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
+                    {min_field.get(), max_field.get()}, tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
+                    {min_field.get(), max_field.get()}, tz, tz != zonemap_max_v);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
+                    {min_field.get(), max_field.get()}, tz, true);
+        }
+        // test values out of zonemap range
+        {
+            auto v = type_limit<TimestampTzValue>::min();
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
+                    {min_field.get(), max_field.get()}, v, true);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
+                    {min_field.get(), max_field.get()}, v, false);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
+                    {min_field.get(), max_field.get()}, v, false);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
+                    {min_field.get(), max_field.get()}, v, true);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
+                    {min_field.get(), max_field.get()}, v, true);
+        }
+        // test values out of zonemap range
+        {
+            auto v = type_limit<TimestampTzValue>::max();
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                    {min_field.get(), max_field.get()}, v, false);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
+                    {min_field.get(), max_field.get()}, v, true);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
+                    {min_field.get(), max_field.get()}, v, true);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
+                    {min_field.get(), max_field.get()}, v, true);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
+                    {min_field.get(), max_field.get()}, v, false);
+
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
+                    {min_field.get(), max_field.get()}, v, false);
+        }
+    }
+
+    // test range [min, max]:
+    {
+        std::cout << "========test range [min, max]\n";
+        auto zonemap_min_v = type_limit<TimestampTzValue>::min();
+        auto zonemap_max_v = type_limit<TimestampTzValue>::max();
+        min_field->set_raw_value(&zonemap_min_v, sizeof(zonemap_min_v));
+        max_field->set_raw_value(&zonemap_max_v, sizeof(zonemap_max_v));
+
+        // test values within zonemap range
+        std::vector<std::string> values = {"0000-01-01 00:00:00", "2023-01-01 15:00:00",
+                                           "9999-12-31 23:59:59.999999"};
+        for (auto str : values) {
+            TimestampTzValue tz {};
+            EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params));
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
+                    {min_field.get(), max_field.get()}, tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
+                    {min_field.get(), max_field.get()}, tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
+                    {min_field.get(), max_field.get()}, tz, tz != zonemap_min_v);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
+                    {min_field.get(), max_field.get()}, tz, true);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
+                    {min_field.get(), max_field.get()}, tz, tz != zonemap_max_v);
+            single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
+                    {min_field.get(), max_field.get()}, tz, true);
         }
     }
 }
