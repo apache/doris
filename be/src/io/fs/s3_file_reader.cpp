@@ -143,7 +143,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     while (retry_count <= max_retries) {
         *bytes_read = 0;
         s3_file_reader_read_counter << 1;
-        auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
+        auto resp = client->get_object(
+                {
+                        .bucket = _bucket,
+                        .key = _key,
+                },
                 to, offset, bytes_req, bytes_read);
         // clang-format on
         _s3_stats.total_get_request_counter++;
