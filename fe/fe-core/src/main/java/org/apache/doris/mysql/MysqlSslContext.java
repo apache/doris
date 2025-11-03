@@ -227,14 +227,13 @@ public class MysqlSslContext {
         }
     }
 
-
     private boolean handleWrapResult(SSLEngineResult sslEngineResult) throws SSLException {
         switch (sslEngineResult.getStatus()) {
             // normal status.
             case OK:
                 return true;
             case CLOSED:
-                sslEngine.closeOutbound();
+                SslEngineHelper.checkClosedProgress("wrap", sslEngineResult, sslEngine, false);
                 return true;
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the serverNetData buffer of any already obtained
@@ -252,13 +251,13 @@ public class MysqlSslContext {
         }
     }
 
-    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) throws SSLException {
         switch (sslEngineResult.getStatus()) {
             // normal status.
             case OK:
                 return true;
             case CLOSED:
-                sslEngine.closeOutbound();
+                SslEngineHelper.checkClosedProgress("unwrap", sslEngineResult, sslEngine, true);
                 return true;
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the clientAppData buffer of any already obtained
