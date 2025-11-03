@@ -159,6 +159,10 @@ under the License.
             <artifactId>s3tables</artifactId>
         </dependency>
         <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+        </dependency>
+        <dependency>
             <groupId>software.amazon.s3tables</groupId>
             <artifactId>s3-tables-catalog-for-iceberg</artifactId>
             <version>${s3tables.catalog.version}</version>
