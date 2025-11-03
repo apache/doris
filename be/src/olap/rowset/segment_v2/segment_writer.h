@@ -180,7 +180,7 @@ private:
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
 
-    std::string _full_encode_keys(
+    static std::string _full_encode_keys(
             const std::vector<const KeyCoder*>& key_coders,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
