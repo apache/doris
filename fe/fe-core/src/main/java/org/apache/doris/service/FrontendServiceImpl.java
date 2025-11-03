@@ -1208,7 +1208,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             TLoadTxnBeginResult tmpRes = loadTxnBeginImpl(request, clientAddr);
-            result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
+            result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId()).setTableId(tmpRes.getTableId());
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
             LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
@@ -1278,7 +1278,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
-        result.setTxnId(txnId).setDbId(db.getId());
+        result.setTxnId(txnId).setDbId(db.getId()).setTableId(table.getId());
         return result;
     }
 
@@ -1463,7 +1463,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             return Collections.singletonList(table);
         }
-
+        // (TODO Refrain) for multi table, can we use tableIds but not tableNames? 
         List<String> tbNames;
         // check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
