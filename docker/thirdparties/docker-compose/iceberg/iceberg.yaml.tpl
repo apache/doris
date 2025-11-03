@@ -23,7 +23,6 @@ services:
     image: tabulario/spark-iceberg
     container_name: doris--spark-iceberg
     hostname: doris--spark-iceberg
-    build: spark/
     depends_on:
       rest:
         condition: service_started
