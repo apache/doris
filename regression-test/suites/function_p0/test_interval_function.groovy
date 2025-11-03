@@ -144,6 +144,35 @@ suite("test_interval_function") {
         ORDER BY id;
     """
 
+    // Mixed thresholds: some constants, some columns
+    qt_interval_mixed_thresholds_1 """
+        SELECT id, `INTERVAL`(val_int, thresh1, 20, thresh3, 40, 50) as result
+        FROM ${intervalTestTable}
+        WHERE id <= 7
+        ORDER BY id;
+    """
+
+    qt_interval_mixed_thresholds_2 """
+        SELECT id, `INTERVAL`(val_int, 10, thresh2, thresh3, 40, thresh5) as result
+        FROM ${intervalTestTable}
+        WHERE id <= 7
+        ORDER BY id;
+    """
+
+    qt_interval_mixed_thresholds_3 """
+        SELECT id, `INTERVAL`(val_int, 10, 20, thresh3, thresh4, 50) as result
+        FROM ${intervalTestTable}
+        WHERE id <= 7
+        ORDER BY id;
+    """
+
+    qt_interval_const_value_mixed_thresholds """
+        SELECT id, `INTERVAL`(25, thresh1, 20, thresh3, 40, 50) as result
+        FROM ${intervalTestTable}
+        WHERE id <= 7
+        ORDER BY id;
+    """
+
     qt_interval_complex_1 """
         SELECT `INTERVAL`(100, 1, 10, 50, 100, 200, 500, 1000);
     """
