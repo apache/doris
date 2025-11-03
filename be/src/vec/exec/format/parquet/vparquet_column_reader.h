@@ -412,8 +412,6 @@ public:
                    << _field_schema->name
                    << ". This indicates the SkipReadingReader was incorrectly used as a reference "
                       "column.";
-        // static std::vector<level_t> empty_levels;
-        // return empty_levels;
         __builtin_unreachable();
     }
 
@@ -422,8 +420,6 @@ public:
                    << _field_schema->name
                    << ". This indicates the SkipReadingReader was incorrectly used as a reference "
                       "column.";
-        // static std::vector<level_t> empty_levels;
-        // return empty_levels;
         __builtin_unreachable();
     }
 

@@ -60,7 +60,6 @@ struct ColumnAccessPathConfig {
     std::string column_name;
     std::vector<std::vector<std::string>> all_column_paths; // For all_column_access_paths
     std::vector<std::vector<std::string>> predicate_paths;  // For predicate_column_access_paths
-    bool use_name_paths = true; // true=use field names, false=use indices
 };
 
 // ORC column IDs are assigned in a tree-increment order, root is 0 and children increment sequentially.
@@ -738,12 +737,11 @@ protected:
     }
 
     // Helper function: Run Parquet test with different column ID extraction methods
-    void run_parquet_test_with_method(const std::vector<std::string>& table_column_names,
-                                      const std::vector<ColumnAccessPathConfig>& access_configs,
-                                      const std::set<uint64_t>& expected_column_ids,
-                                      const std::set<uint64_t>& expected_filter_column_ids,
-                                      bool use_top_level_method = false,
-                                      bool should_skip_assertion = false) {
+    void run_parquet_test(const std::vector<std::string>& table_column_names,
+                          const std::vector<ColumnAccessPathConfig>& access_configs,
+                          const std::set<uint64_t>& expected_column_ids,
+                          const std::set<uint64_t>& expected_filter_column_ids,
+                          bool use_top_level_method = false, bool should_skip_assertion = false) {
         std::string test_file =
                 "./be/test/exec/test_data/nested_user_profiles_parquet/"
                 "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
@@ -809,12 +807,11 @@ protected:
     }
 
     // Helper function: Run ORC test with different column ID extraction methods
-    void run_orc_test_with_method(const std::vector<std::string>& table_column_names,
-                                  const std::vector<ColumnAccessPathConfig>& access_configs,
-                                  const std::set<uint64_t>& expected_column_ids,
-                                  const std::set<uint64_t>& expected_filter_column_ids,
-                                  bool use_top_level_method = false,
-                                  bool should_skip_assertion = false) {
+    void run_orc_test(const std::vector<std::string>& table_column_names,
+                      const std::vector<ColumnAccessPathConfig>& access_configs,
+                      const std::set<uint64_t>& expected_column_ids,
+                      const std::set<uint64_t>& expected_filter_column_ids,
+                      bool use_top_level_method = false, bool should_skip_assertion = false) {
         std::string test_file =
                 "./be/test/exec/test_data/nested_user_profiles_orc/"
                 "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
@@ -881,12 +878,8 @@ protected:
 };
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_1) {
-    // Properties:
-
-    // Configure access paths for profile column
     ColumnAccessPathConfig access_config;
     access_config.column_name = "profile";
-    access_config.use_name_paths = true;
 
     access_config.all_column_paths = {{"profile", "address", "coordinates", "lat"},
                                       {"profile", "address", "coordinates", "lng"},
@@ -900,21 +893,20 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_1) {
     std::set<uint64_t> expected_column_ids = {2, 3, 4, 7, 8, 9, 10, 11, 15, 16, 18};
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 10, 11};
 
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids);
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids, true);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids, true);
 
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids);
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids, true);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids, true);
 }
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_2) {
-    // Properties:
-    //     iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
-    // ORC column IDs are assigned in a tree-increment order, root is 0 and children increment sequentially.
+    // ORC column IDs are assigned in a tree-like incremental manner: the root node is 0, and child nodes increase sequentially.
+    // Currently, Parquet uses a similar design.
     // 0: struct (table/root)
     //   1: id (int64)
     //   2: name (string)
@@ -935,36 +927,32 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_2) {
     //           17: name (string)
     //           18: level (int32)
 
-    // 配置profile列的访问路径
     ColumnAccessPathConfig access_config;
     access_config.column_name = "profile";
-    access_config.use_name_paths = true;
 
     access_config.all_column_paths = {{"profile"}};
     access_config.predicate_paths = {{"profile", "address", "coordinates", "lat"},
                                      {"profile", "contact", "email"}};
 
     std::vector<std::string> table_column_names = {"name", "profile"};
-    // column_ids should contain all necessary column IDs (set automatically deduplicates)
     std::set<uint64_t> expected_column_ids = {2,  3,  4,  5,  6,  7,  8,  9, 10,
                                               11, 12, 13, 14, 15, 16, 17, 18};
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 10, 11};
 
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids);
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids, true);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids, true);
 
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids);
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids, true);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids, true);
 }
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_3) {
-    // Properties:
-    //     iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
-    // ORC column IDs are assigned in a tree-increment order, root is 0 and children increment sequentially.
+    // ORC column IDs are assigned in a tree-like incremental manner: the root node is 0, and child nodes increase sequentially.
+    // Currently, Parquet uses a similar design.
     // 0: struct (table/root)
     //   1: id (int64)
     //   2: name (string)
@@ -985,58 +973,54 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_3) {
     //           17: name (string)
     //           18: level (int32)
 
-    // 配置profile列的访问路径
     ColumnAccessPathConfig access_config;
     access_config.column_name = "profile";
-    access_config.use_name_paths = true;
 
     access_config.all_column_paths = {{"profile", "contact"}, {"profile", "address"}};
     access_config.predicate_paths = {{"profile", "address", "coordinates"},
                                      {"profile", "contact", "email"}};
 
     std::vector<std::string> table_column_names = {"name", "profile"};
-    // column_ids should contain all necessary column IDs (set automatically deduplicates)
     std::set<uint64_t> expected_column_ids = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 9, 10, 11};
 
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids);
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids, true);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids, true);
 
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids);
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids, true);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids, true);
 }
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_4) {
-    // 配置profile列的访问路径
     ColumnAccessPathConfig access_config;
     access_config.column_name = "profile";
-    access_config.use_name_paths = true;
 
     access_config.all_column_paths = {};
     access_config.predicate_paths = {};
 
     std::vector<std::string> table_column_names = {"name", "profile"};
-    // column_ids should contain all necessary column IDs (set automatically deduplicates)
     std::set<uint64_t> expected_column_ids = {2,  3,  4,  5,  6,  7,  8,  9, 10,
                                               11, 12, 13, 14, 15, 16, 17, 18};
     std::set<uint64_t> expected_filter_column_ids = {};
 
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids);
-    run_parquet_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                                 expected_filter_column_ids, true);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids);
+    run_parquet_test(table_column_names, {access_config}, expected_column_ids,
+                     expected_filter_column_ids, true);
 
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids);
-    run_orc_test_with_method(table_column_names, {access_config}, expected_column_ids,
-                             expected_filter_column_ids, true);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids);
+    run_orc_test(table_column_names, {access_config}, expected_column_ids,
+                 expected_filter_column_ids, true);
 }
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_5) {
+    // ORC column IDs are assigned in a tree-like incremental manner: the root node is 0, and child nodes increase sequentially.
+    // Currently, Parquet uses a similar design.
     //   19: tags (array)
     //     20: element (string)
     //   21: friends (array)
@@ -1058,7 +1042,6 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_5) {
         // Configure access paths for friends column
         ColumnAccessPathConfig access_config;
         access_config.column_name = "friends";
-        access_config.use_name_paths = true;
 
         access_config.all_column_paths = {{"friends", "*", "nickname"},
                                           {"friends", "*", "friendship_level"}};
@@ -1072,7 +1055,6 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_5) {
         // Configure access paths for recent_activity column
         ColumnAccessPathConfig access_config;
         access_config.column_name = "recent_activity";
-        access_config.use_name_paths = true;
 
         access_config.all_column_paths = {{"recent_activity", "*", "action"},
                                           {"recent_activity", "*", "details", "*", "value"}};
@@ -1083,22 +1065,23 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_5) {
     }
 
     std::vector<std::string> table_column_names = {"name", "friends", "recent_activity"};
-    // column_ids should contain all necessary column IDs (set automatically deduplicates)
     std::set<uint64_t> expected_column_ids = {2, 21, 22, 24, 25, 26, 27, 28, 29, 30, 32};
     std::set<uint64_t> expected_filter_column_ids = {21, 22, 24, 26, 27, 28};
 
-    run_parquet_test_with_method(table_column_names, access_configs, expected_column_ids,
-                                 expected_filter_column_ids);
-    run_parquet_test_with_method(table_column_names, access_configs, expected_column_ids,
-                                 expected_filter_column_ids, true);
+    run_parquet_test(table_column_names, access_configs, expected_column_ids,
+                     expected_filter_column_ids);
+    run_parquet_test(table_column_names, access_configs, expected_column_ids,
+                     expected_filter_column_ids, true);
 
-    run_orc_test_with_method(table_column_names, access_configs, expected_column_ids,
-                             expected_filter_column_ids);
-    run_orc_test_with_method(table_column_names, access_configs, expected_column_ids,
-                             expected_filter_column_ids, true);
+    run_orc_test(table_column_names, access_configs, expected_column_ids,
+                 expected_filter_column_ids);
+    run_orc_test(table_column_names, access_configs, expected_column_ids,
+                 expected_filter_column_ids, true);
 }
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_6) {
+    // ORC column IDs are assigned in a tree-like incremental manner: the root node is 0, and child nodes increase sequentially.
+    // Currently, Parquet uses a similar design.
     //   33: attributes (map)
     //     34: key (string)
     //     35: value (string)
@@ -1165,7 +1148,6 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_6) {
         // Configure access paths for complex_attributes column
         ColumnAccessPathConfig access_config;
         access_config.column_name = "complex_attributes";
-        access_config.use_name_paths = true;
 
         access_config.all_column_paths = {
                 {"complex_attributes", "*", "metadata", "version"},
@@ -1183,30 +1165,28 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_6) {
     {
         std::vector<std::string> table_column_names = {"name", "complex_attributes"};
         // parquet values should access keys
-        // column_ids should contain all necessary column IDs (set automatically deduplicates)
         std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52, 53,
                                                   54, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
                                                   72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
         std::set<uint64_t> expected_filter_column_ids = {36, 37, 38, 39, 40};
 
-        run_parquet_test_with_method(table_column_names, access_configs, expected_column_ids,
-                                     expected_filter_column_ids);
-        run_parquet_test_with_method(table_column_names, access_configs, expected_column_ids,
-                                     expected_filter_column_ids, true);
+        run_parquet_test(table_column_names, access_configs, expected_column_ids,
+                         expected_filter_column_ids);
+        run_parquet_test(table_column_names, access_configs, expected_column_ids,
+                         expected_filter_column_ids, true);
     }
 
     {
         std::vector<std::string> table_column_names = {"name", "complex_attributes"};
         // orc values should access keys because need to deduplicate by keys
-        // column_ids should contain all necessary column IDs (set automatically deduplicates)
         std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52, 53,
                                                   54, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
                                                   72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
         std::set<uint64_t> expected_filter_column_ids = {36, 37, 38, 39, 40};
-        run_orc_test_with_method(table_column_names, access_configs, expected_column_ids,
-                                 expected_filter_column_ids);
-        run_orc_test_with_method(table_column_names, access_configs, expected_column_ids,
-                                 expected_filter_column_ids, true);
+        run_orc_test(table_column_names, access_configs, expected_column_ids,
+                     expected_filter_column_ids);
+        run_orc_test(table_column_names, access_configs, expected_column_ids,
+                     expected_filter_column_ids, true);
     }
 }
 

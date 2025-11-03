@@ -98,13 +98,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _state(state),
           _obj_pool(new ObjectPool()),
           _column_ids(column_ids),
-          _filter_column_ids(filter_column_ids) {
-    //std::cout << "[RowGroupReader] _column_ids: ";
-    //for (const auto& col_id : _column_ids) {
-    //    std::cout << col_id << " ";
-    //}
-    //std::cout << std::endl;
-}
+          _filter_column_ids(filter_column_ids) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -438,14 +432,13 @@ Status RowGroupReader::_read_column_data(Block* block,
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
                     column_ptr, column_type, _table_info_node_ptr->get_children_node(read_col_name),
                     filter_map, batch_size - col_read_rows, &loop_rows, &col_eof, is_dict_filter));
-            // Debug: print loop_rows for this iteration
-            //std::cout << "[RowGroupReader] column '" << read_col_name << "' loop_rows=" << loop_rows
-            //          << " col_read_rows_so_far=" << col_read_rows << std::endl;
+            VLOG_DEBUG << "[RowGroupReader] column '" << read_col_name
+                       << "' loop_rows=" << loop_rows << " col_read_rows_so_far=" << col_read_rows
+                       << std::endl;
             col_read_rows += loop_rows;
         }
-        // Debug: print rows read for this column
-        //std::cout << "[RowGroupReader] column '" << read_col_name << "' read_rows=" << col_read_rows
-        //          << std::endl;
+        VLOG_DEBUG << "[RowGroupReader] column '" << read_col_name
+                   << "' read_rows=" << col_read_rows << std::endl;
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
             LOG(WARNING) << "[RowGroupReader] Mismatched read rows among parquet columns. "
                             "previous_batch_read_rows="
@@ -741,10 +734,6 @@ Status RowGroupReader::_fill_missing_columns(
                 block->erase(result_column_id);
             }
         }
-
-        // auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
-        // auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
-        // nullable_column->insert_many_defaults(rows);
     }
     return Status::OK();
 }
@@ -1135,7 +1124,6 @@ ParquetColumnReader::Statistics RowGroupReader::statistics() {
     }
     return st;
 }
-
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

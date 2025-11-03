@@ -639,7 +639,6 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    // const std::string& _ctz;
     std::string _ctz;
 
     int32_t _offset_days = 0;
@@ -663,11 +662,8 @@ private:
     // file column name to orc type
     std::unordered_map<std::string, const orc::Type*> _type_map;
 
-    // Optimized type conversion support
-    // column ID to file original type mapping for handling partial column selection
+    // Column ID to file original type mapping for handling incomplete MAP type due to column pruning.
     std::unordered_map<uint64_t, const orc::Type*> _column_id_to_file_type;
-    // Keep reference to file root type for complete type information
-    const orc::Type* _file_root_type = nullptr;
 
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;

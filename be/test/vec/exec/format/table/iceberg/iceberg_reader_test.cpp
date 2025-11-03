@@ -465,12 +465,10 @@ protected:
 };
 
 // Test reading real Iceberg Parquet file using IcebergTableReader
-TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
+TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
-    Properties:
-    iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
     Schema:
     message table {
     required int64 id = 1;
@@ -603,12 +601,10 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
 }
 
 // Test reading real Iceberg Orc file using IcebergTableReader
-TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
+TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
-    Properties:
-    iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
     Schema:
     message table {
     required int64 id = 1;

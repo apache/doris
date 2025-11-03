@@ -462,7 +462,7 @@ protected:
 };
 
 // Test reading real Hive Parquet file using HiveTableReader
-TEST_F(HiveReaderTest, ReadHiveParquetFile) {
+TEST_F(HiveReaderTest, read_hive_parquet_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -604,7 +604,7 @@ TEST_F(HiveReaderTest, ReadHiveParquetFile) {
 }
 
 // Test reading real Hive Orc file using HiveTableReader
-TEST_F(HiveReaderTest, ReadHiveOrcFile) {
+TEST_F(HiveReaderTest, read_hive_rrc_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
