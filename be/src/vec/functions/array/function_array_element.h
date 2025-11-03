@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -100,32 +101,50 @@ public:
                                 arg_0->get_name()));
         }
     }
-
+    // input arguments[0] when it's array:
+    // ARRAY(NULLABLE(INT))                 // OK
+    // const(ARRAY(NULLABLE(INT)))          // OK
+    // NULLABLE(ARRAY(NULLABLE(INT))        // OK
+    // const(NULLABLE(ARRAY(NULLABLE(INT))) // OK
+    // NULLABLE(const(ARRAY(NULLABLE(INT))) // seems not exist
+    // NULLABLE(const(NULLABLE(ARRAY(NULLABLE(INT)))) // seems not exist
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        auto left_type = block.get_by_position(arguments[0]).type;
+        auto& left_name = block.get_by_position(arguments[0]).name;
+
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
-        block.replace_by_position(
-                arguments[0],
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
-        auto col_left = block.get_by_position(arguments[0]);
-        if (col_left.column->is_nullable()) {
-            auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
+        if (left_column->is_nullable()) {
+            const auto* null_col = check_and_get_column<ColumnNullable>(*left_column);
             src_null_map = null_col->get_null_map_column().get_data().data();
-            args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
-                     col_left.name},
+            args = {{null_col->get_nested_column_ptr(), remove_nullable(left_type), left_name},
                     block.get_by_position(arguments[1])};
         } else {
-            args = {col_left, block.get_by_position(arguments[1])};
+            args = {{left_column, remove_nullable(left_type), left_name},
+                    block.get_by_position(arguments[1])};
         }
         ColumnPtr res_column = nullptr;
-        if (is_column<ColumnMap>(args[0].column.get()) ||
-            check_column_const<ColumnMap>(args[0].column.get())) {
-            res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
+        if (is_column<ColumnMap>(args[0].column.get())) {
+            if (left_const) {
+                res_column = _execute_map<true>(args, input_rows_count, src_null_map, dst_null_map);
+
+            } else {
+                res_column =
+                        _execute_map<false>(args, input_rows_count, src_null_map, dst_null_map);
+            }
         } else {
-            res_column = _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
+            if (left_const) {
+                res_column =
+                        _execute_nullable<true>(args, input_rows_count, src_null_map, dst_null_map);
+            } else {
+                res_column = _execute_nullable<false>(args, input_rows_count, src_null_map,
+                                                      dst_null_map);
+            }
         }
         if (!res_column) {
             return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
@@ -139,20 +158,22 @@ public:
 
 private:
     //=========================== map element===========================//
-    ColumnPtr _get_mapped_idx(const ColumnArray& column,
-                              const ColumnWithTypeAndName& argument) const {
+    template <bool LCONST>
+    ColumnPtr _get_mapped_idx(const ColumnArray& column, const ColumnWithTypeAndName& argument,
+                              size_t input_rows_count) const {
         auto right_column = make_nullable(argument.column->convert_to_full_column_if_const());
         const ColumnArray::Offsets64& offsets = column.get_offsets();
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
-        size_t rows = offsets.size();
+
         // prepare return data
         auto matched_indices = ColumnVector<MapIndiceDataType::PType>::create();
-        matched_indices->reserve(rows);
+        matched_indices->reserve(input_rows_count);
 
-        for (size_t i = 0; i < rows; i++) {
+        for (size_t i = 0; i < input_rows_count; i++) {
             bool matched = false;
-            size_t begin = offsets[i - 1];
-            size_t end = offsets[i];
+            auto left_row = LCONST ? 0 : i;
+            size_t begin = offsets[left_row - 1];
+            size_t end = offsets[left_row];
             for (size_t j = begin; j < end; j++) {
                 if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
                     matched_indices->insert_value(
@@ -171,23 +192,27 @@ private:
         return matched_indices;
     }
 
-    template <typename ColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
-                              const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
-        const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
+    template <typename ColumnType, bool LCONST>
+    ColumnPtr _execute_number(const ColumnArray::Offsets64& array_offsets,
+                              const IColumn& array_nested_column,
+                              const UInt8* array_outside_null_map, const IColumn& indices_column,
+                              const UInt8* array_nested_null_map, UInt8* dst_null_map,
+                              size_t input_rows_count) const {
+        const auto& nested_data = assert_cast<const ColumnType&>(array_nested_column).get_data();
 
-        auto dst_column = nested_column.clone_empty();
-        auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
-        dst_data.resize(offsets.size());
+        auto dst_column = array_nested_column.clone_empty();
+        auto& dst_data = assert_cast<ColumnType&>(*dst_column).get_data();
+        dst_data.resize(input_rows_count);
 
         // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            auto left_row = LCONST ? 0 : row;
+            size_t off = array_offsets[left_row - 1];
+            size_t len = array_offsets[left_row] - off;
+            // it's still OK for indices_column if it's const column
+            auto index = indices_column.get_int(row);
             // array is nullable
-            bool null_flag = bool(arr_null_map && arr_null_map[row]);
+            bool null_flag = bool(array_outside_null_map && array_outside_null_map[row]);
             // calc index in nested column
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
@@ -197,7 +222,7 @@ private:
                 null_flag = true;
             }
             // nested column nullable check
-            if (!null_flag && nested_null_map && nested_null_map[index]) {
+            if (!null_flag && array_nested_null_map && array_nested_null_map[index]) {
                 null_flag = true;
             }
             // actual data copy
@@ -213,25 +238,26 @@ private:
         return dst_column;
     }
 
+    template <bool LCONST>
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
-        const auto& src_str_offs =
-                reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
-        const auto& src_str_chars =
-                reinterpret_cast<const ColumnString&>(nested_column).get_chars();
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              size_t input_rows_count) const {
+        const auto& src_str_offs = assert_cast<const ColumnString&>(nested_column).get_offsets();
+        const auto& src_str_chars = assert_cast<const ColumnString&>(nested_column).get_chars();
 
         // prepare return data
         auto dst_column = ColumnString::create();
         auto& dst_str_offs = dst_column->get_offsets();
-        dst_str_offs.resize(offsets.size());
+        dst_str_offs.resize(input_rows_count);
         auto& dst_str_chars = dst_column->get_chars();
         dst_str_chars.reserve(src_str_chars.size());
 
         // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            auto left_row = LCONST ? 0 : row;
+            size_t off = offsets[left_row - 1];
+            size_t len = offsets[left_row] - off;
             auto index = indices.get_int(row);
             // array is nullable
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
@@ -266,12 +292,11 @@ private:
         return dst_column;
     }
 
+    template <bool LCONST>
     ColumnPtr _execute_map(const ColumnsWithTypeAndName& arguments, size_t input_rows_count,
                            const UInt8* src_null_map, UInt8* dst_null_map) const {
-        auto left_column = arguments[0].column->convert_to_full_column_if_const();
-        DataTypePtr val_type =
-                reinterpret_cast<const DataTypeMap&>(*arguments[0].type).get_value_type();
-        const auto& map_column = reinterpret_cast<const ColumnMap&>(*left_column);
+        DataTypePtr val_type = assert_cast<const DataTypeMap&>(*arguments[0].type).get_value_type();
+        const auto& map_column = assert_cast<const ColumnMap&>(*arguments[0].column);
 
         // create column array to find keys
         auto key_arr = ColumnArray::create(map_column.get_keys_ptr(), map_column.get_offsets_ptr());
@@ -283,9 +308,9 @@ private:
         if (rows <= 0) {
             return nullptr;
         }
-        if (key_arr->is_nullable()) {
-        }
-        ColumnPtr matched_indices = _get_mapped_idx(*key_arr, arguments[1]);
+
+        ColumnPtr matched_indices =
+                _get_mapped_idx<LCONST>(*key_arr, arguments[1], input_rows_count);
         if (!matched_indices) {
             return nullptr;
         }
@@ -294,20 +319,23 @@ private:
         ColumnWithTypeAndName data(std::move(val_arr), std::make_shared<DataTypeArray>(val_type),
                                    "value");
         ColumnsWithTypeAndName args = {data, indices};
-        return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
+        return _execute_nullable<LCONST>(args, input_rows_count, src_null_map, dst_null_map);
     }
 
+    template <bool LCONST>
     ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              size_t input_rows_count) const {
         // prepare return data
         auto dst_column = nested_column.clone_empty();
-        dst_column->reserve(offsets.size());
+        dst_column->reserve(input_rows_count);
 
         // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            auto left_row = LCONST ? 0 : row;
+            size_t off = offsets[left_row - 1];
+            size_t len = offsets[left_row] - off;
             auto index = indices.get_int(row);
             // array is nullable
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
@@ -335,23 +363,26 @@ private:
         return dst_column;
     }
 
+    template <bool LCONST>
     ColumnPtr _execute_nullable(const ColumnsWithTypeAndName& arguments, size_t input_rows_count,
                                 const UInt8* src_null_map, UInt8* dst_null_map) const {
-        // check array nested column type and get data
-        auto left_column = arguments[0].column->convert_to_full_column_if_const();
-        const auto& array_column = assert_cast<const ColumnArray&>(*left_column);
+        // ARRAY(NULLABLE(INT)) size = left_const ? 1 : input_rows_count
+        DCHECK(!is_column_const(*arguments[0].column))
+                << " " << LCONST << " " << arguments[0].column->dump_structure();
+        const auto& array_column = assert_cast<const ColumnArray&>(*arguments[0].column);
+        const auto& nullable_nested_column = array_column.get_data();
         const auto& offsets = array_column.get_offsets();
-        DCHECK(offsets.size() == input_rows_count);
-        const UInt8* nested_null_map = nullptr;
-        ColumnPtr nested_column = nullptr;
-        if (is_column_nullable(array_column.get_data())) {
-            const auto& nested_null_column =
-                    reinterpret_cast<const ColumnNullable&>(array_column.get_data());
-            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-            nested_column = nested_null_column.get_nested_column_ptr();
-        } else {
-            nested_column = array_column.get_data_ptr();
-        }
+
+        DCHECK(offsets.size() == input_rows_count || LCONST)
+                << " " << LCONST << " "
+                << " offsets size: " << offsets.size() << " input_rows_count: " << input_rows_count;
+
+        DCHECK(is_column_nullable(nullable_nested_column))
+                << " " << LCONST << " " << nullable_nested_column.dump_structure();
+
+        const auto& nested_null_column = assert_cast<const ColumnNullable&>(nullable_nested_column);
+        const UInt8* nested_null_map = nested_null_column.get_null_map_column().get_data().data();
+        ColumnPtr nested_column = nested_null_column.get_nested_column_ptr();
 
         ColumnPtr res = nullptr;
         auto left_element_type = remove_nullable(
@@ -364,17 +395,18 @@ private:
 
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;
-            res = _execute_number<typename DispatchType::ColumnType>(
-                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map);
+            res = _execute_number<typename DispatchType::ColumnType, LCONST>(
+                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map,
+                    input_rows_count);
             return true;
         };
 
         if (is_string_type(left_element_type->get_primitive_type())) {
-            res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map);
+            res = _execute_string<LCONST>(offsets, *nested_column, src_null_map, *idx_col,
+                                          nested_null_map, dst_null_map, input_rows_count);
         } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(), call)) {
-            res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map);
+            res = _execute_common<LCONST>(offsets, *nested_column, src_null_map, *idx_col,
+                                          nested_null_map, dst_null_map, input_rows_count);
         }
         return res;
     }
