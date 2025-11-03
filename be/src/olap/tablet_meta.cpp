@@ -517,6 +517,11 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         column->set_variant_max_sparse_column_statistics_size(
                 tcolumn.variant_max_sparse_column_statistics_size);
     }
+    if (tcolumn.__isset.variant_flatten_keys) {
+        for (auto& key : tcolumn.variant_flatten_keys) {
+            column->add_variant_flatten_keys(key);
+        }
+    }
 }
 
 void TabletMeta::remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version) {

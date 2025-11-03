@@ -215,6 +215,7 @@ import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
+import org.apache.doris.nereids.DorisParser.FlattenKeyListContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.FunctionArgumentsContext;
@@ -1951,6 +1952,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
         return ctx == null ? ImmutableMap.of() : visitPropertyItemList(ctx.fileProperties);
+    }
+
+    @Override
+    public List<String> visitFlattenKeyList(FlattenKeyListContext ctx) {
+        // also "*"
+        if (ctx.ASTERISK() != null) {
+            return ImmutableList.of("*");
+        }
+        return ctx == null ? ImmutableList.of() : visitIdentifierSeq(ctx.keyNames) ;
     }
 
     @Override
@@ -4840,6 +4850,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
+        List<String> flattenKeys = variantCtx.flattenKeys != null
+                ? visitFlattenKeyList(variantCtx.flattenKeys) : Lists.newArrayList();
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
@@ -4867,7 +4879,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                    variantMaxSparseColumnStatisticsSize);
+                    variantMaxSparseColumnStatisticsSize, flattenKeys);
     }
 
     @Override
