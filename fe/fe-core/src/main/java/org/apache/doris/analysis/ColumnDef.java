@@ -334,8 +334,146 @@ public class ColumnDef {
     }
 
     public void analyze(boolean isOlap) throws AnalysisException {
-    }
+        if (name == null || typeDef == null) {
+            throw new AnalysisException("No column name or column type in column definition.");
+        }
+        FeNameFormat.checkColumnName(name);
+        FeNameFormat.checkColumnCommentLength(comment);
 
+        typeDef.analyze();
+
+        Type type = typeDef.getType();
+
+        if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
+            throw new AnalysisException("quantile_state is disabled"
+                    + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
+        }
+
+        // disable Bitmap Hll type in keys, values without aggregate function.
+        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+            if (isKey) {
+                throw new AnalysisException("Key column can not set complex type:" + name);
+            }
+            if (keysType == null || keysType == KeysType.AGG_KEYS) {
+                if (aggregateType == null) {
+                    throw new AnalysisException("complex type have to use aggregate function: " + name);
+                }
+            }
+            if (!isAllowNull) {
+                throw new AnalysisException("complex type column must be not nullable, column:" + name);
+            }
+        }
+
+        // A column is a key column if and only if isKey is true.
+        // aggregateType == null does not mean that this is a key column,
+        // because when creating a UNIQUE KEY table, aggregateType is implicit.
+        if (aggregateType != null) {
+            if (isKey) {
+                throw new AnalysisException("Key column can not set aggregation type: " + name);
+            }
+
+            // check if aggregate type is valid
+            if (aggregateType != AggregateType.GENERIC
+                    && !aggregateType.checkCompatibility(type.getPrimitiveType())) {
+                throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
+                        toString(), type.toSql()));
+            }
+            if (aggregateType == AggregateType.GENERIC) {
+                if (!SessionVariable.enableAggState()) {
+                    throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
+                }
+            }
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.FLOAT || type.getPrimitiveType() == PrimitiveType.DOUBLE) {
+            if (isOlap && isKey) {
+                throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
+            }
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.HLL) {
+            if (defaultValue != null && defaultValue.isSet) {
+                throw new AnalysisException("Hll type column can not set default value");
+            }
+            defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.value.equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value)) {
+                throw new AnalysisException("Bitmap type column default value only support null or "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value);
+            }
+            defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.ARRAY && isOlap) {
+            if (isKey()) {
+                throw new AnalysisException("Array can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.value.equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value)) {
+                throw new AnalysisException("Array type column default value only support null or "
+                        + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value);
+            }
+        }
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING && isOlap) {
+            throw new AnalysisException("String Type should not be used in key column[" + getName()
+                    + "].");
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.JSONB
+                || type.getPrimitiveType() == PrimitiveType.VARIANT) {
+            if (isKey()) {
+                throw new AnalysisException("JSONB or VARIANT type should not be used in key column[" + getName()
+                        + "].");
+            }
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("JSONB or VARIANT type column default value just support null");
+            }
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.MAP) {
+            if (isKey()) {
+                throw new AnalysisException("Map can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Map type column default value just support null");
+            }
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.STRUCT) {
+            if (isKey()) {
+                throw new AnalysisException("Struct can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Struct type column default value just support null");
+            }
+        }
+
+
+        if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
+            if (!isAllowNull) {
+                throw new AnalysisException(
+                        "REPLACE_IF_NOT_NULL column must be nullable, maybe should use REPLACE, column:" + name);
+            }
+            if (!defaultValue.isSet) {
+                defaultValue = DefaultValue.NULL_DEFAULT_VALUE;
+            }
+        }
+
+        if (!isAllowNull && defaultValue == DefaultValue.NULL_DEFAULT_VALUE) {
+            throw new AnalysisException("Can not set null default value to non nullable column: " + name);
+        }
+
+        if (type.isScalarType() && defaultValue.isSet && defaultValue.value != null) {
+            validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
+        }
+        validateGeneratedColumnInfo();
+    }
 
     @SuppressWarnings("checkstyle:Indentation")
     public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef)
