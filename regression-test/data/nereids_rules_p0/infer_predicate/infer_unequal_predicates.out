@@ -32,7 +32,7 @@ PhysicalResultSink
 
 -- !should_infer_because_d_is_partition_column --
 PhysicalResultSink
---filter((t1.c < 10) and (t1.d < 10) and (t1.d < t1.c))
+--filter((t1.c < 10) and (t1.d < t1.c))
 ----PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
 
 -- !infer_with_equal --
@@ -53,17 +53,17 @@ PhysicalResultSink
 
 -- !infer_long_chain_same_table_infer_a_and_d --
 PhysicalResultSink
---filter((t1.a < 10) and (t1.a < t1.d) and (t1.c < 10) and (t1.d < 10) and (t1.d < t1.c))
+--filter((t1.a < 10) and (t1.a < t1.d) and (t1.c < 10) and (t1.d < t1.c))
 ----PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
 
 -- !infer_long_chain_same_table_not_infer_c --
 PhysicalResultSink
---filter((t1.a < 10) and (t1.a < t1.c) and (t1.c < t1.d) and (t1.d < 10))
+--filter((t1.a < 10) and (t1.a < t1.c) and (t1.c < t1.d))
 ----PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
 
 -- !remove_useless_input_predicate_c_less_than_10 --
 PhysicalResultSink
---filter((t1.a < 10) and (t1.a < t1.c) and (t1.c < t1.d) and (t1.d < 10))
+--filter((t1.a < 10) and (t1.a < t1.c) and (t1.c < t1.d))
 ----PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
 
 -- !remove_useless_predicate --
@@ -78,7 +78,7 @@ PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.d)
 ----filter((t1.a < 10))
 ------PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
-----filter((t2.c < 10) and (t2.d < 10) and (t2.d < t2.c))
+----filter((t2.c < 10) and (t2.d < t2.c))
 ------PhysicalOlapScan[infer_unequal_predicates_t2(t2)]
 
 -- !infer_with_constant_and_columns --
@@ -86,7 +86,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.c)) otherCondition=()
 ----filter((t1.a > 1))
 ------PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
-----filter((t2.c < t2.d) and (t2.c > 1) and (t2.d > 1))
+----filter((t2.c < t2.d) and (t2.c > 1))
 ------PhysicalOlapScan[infer_unequal_predicates_t2(t2)]
 
 -- !no_infer --
@@ -107,7 +107,7 @@ PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.a < t2.a)
 ----filter((t1.a < 10))
 ------PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
-----filter((t2.a < 10) and (t2.a < t2.c) and (t2.c < t2.d) and (t2.d < 10))
+----filter((t2.a < 10) and (t2.a < t2.c) and (t2.c < t2.d))
 ------PhysicalOlapScan[infer_unequal_predicates_t2(t2)]
 
 -- !infer_cast_int --
@@ -126,10 +126,9 @@ PhysicalResultSink
 -- !no_redundant_predicates --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d = t2.d)) otherCondition=()
-----filter((t1.c > 1) and (t1.d < 10) and (t1.d = t1.c) and (t1.d > 1))
+----filter((t1.c > 1) and (t1.d = t1.c))
 ------PhysicalOlapScan[infer_unequal_predicates_t1(t1)]
-----filter((t2.d < 10) and (t2.d > 1))
-------PhysicalOlapScan[infer_unequal_predicates_t2(t2)]
+----PhysicalOlapScan[infer_unequal_predicates_t2(t2)]
 
 -- !expr_unequal_infer_same_table1 --
 PhysicalResultSink
