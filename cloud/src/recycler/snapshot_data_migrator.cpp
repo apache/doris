@@ -90,7 +90,7 @@ void SnapshotDataMigrator::migration_loop() {
             if (migrating_instance_map_.count(instance_id)) continue;
         }
 
-        auto migrator = std::make_shared<InstanceDataMigrator>(txn_kv_, instance, migrate_context_);
+        auto migrator = std::make_shared<InstanceDataMigrator>(txn_kv_, instance);
         if (migrator->init() != 0) {
             LOG(WARNING) << "failed to init instance migrator, instance_id="
                          << instance.instance_id();
@@ -187,12 +187,10 @@ bool SnapshotDataMigrator::is_instance_need_migrate(const InstanceInfoPB& instan
 }
 
 InstanceDataMigrator::InstanceDataMigrator(std::shared_ptr<TxnKv> txn_kv,
-                                           const InstanceInfoPB& instance,
-                                           SnapshotDataMigrateContext& migrate_context)
+                                           const InstanceInfoPB& instance)
         : txn_kv_(std::move(txn_kv)),
           instance_id_(instance.instance_id()),
-          instance_info_(instance),
-          migrate_context_(migrate_context) {}
+          instance_info_(instance) {}
 
 InstanceDataMigrator::~InstanceDataMigrator() {
     if (!stopped()) {
