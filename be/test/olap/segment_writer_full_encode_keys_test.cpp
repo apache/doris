@@ -25,7 +25,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "util/key_util.h"
 #include "util/slice.h"
-#include "vec/common/string_view.h" // hex_dump
+#include "vec/common/string_container.h" // hex_dump
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
@@ -92,8 +92,8 @@ TEST(SegmentWriterFullEncodeKeysTest, TestSegmentWriterKeyEncoding) {
     std::string encoded0 = SegmentWriter::_full_encode_keys(key_coders, key_columns, 0);
     std::string encoded1 = SegmentWriter::_full_encode_keys(key_coders, key_columns, 1);
     ////////////////////////////////////////////////////////////////////////////
-    std::cout << StringView(encoded0).dump_hex() << std::endl; // X'02850505050261026262'
-    std::cout << StringView(encoded1).dump_hex() << std::endl; // X'0285050505026101026363'
+    std::cout << StringContainer(encoded0).dump_hex() << std::endl; // X'02850505050261026262'
+    std::cout << StringContainer(encoded1).dump_hex() << std::endl; // X'0285050505026101026363'
     // EXPECT_LT(encoded0, encoded1); // BANG! not satisfied
 }
 
