@@ -363,7 +363,10 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_batch(output_block.get());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
                 if (s != Status::OK()) {
                     eof = true;
                 }
@@ -869,7 +872,10 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_batch(output_block.get());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
                 if (s != Status::OK()) {
                     eof = true;
                 }
@@ -1134,7 +1140,10 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                 std::shared_ptr<vectorized::Block> output_block =
                         std::make_shared<vectorized::Block>(
                                 tablet_schema->create_block(return_columns));
-                s = rowset_reader->next_batch(output_block.get());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
                 if (s != Status::OK()) {
                     eof = true;
                 }
