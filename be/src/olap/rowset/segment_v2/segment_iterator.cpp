@@ -1336,19 +1336,6 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
     auto expr_it = _common_expr_inverted_index_status.find(cid);
     if (expr_it != _common_expr_inverted_index_status.end()) {
         const auto& expr_map = expr_it->second;
-
-        {
-            std::vector<std::string> keys_hex;
-            keys_hex.reserve(expr_map.size());
-            for (const auto& expr_entry : expr_map) {
-                keys_hex.push_back(
-                        fmt::format("{:#x}", reinterpret_cast<uintptr_t>(expr_entry.first)));
-            }
-            LOG_INFO(
-                    "Checking common expression inverted index status for column ID {}: {} "
-                    "entries, keys: {}",
-                    cid, expr_map.size(), fmt::join(keys_hex, ","));
-        }
         return std::all_of(expr_map.begin(), expr_map.end(),
                            [](const auto& expr_entry) { return expr_entry.second; });
     }
@@ -2416,22 +2403,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             auto res = _next_batch_internal(block);
 
             if (res.is<END_OF_FILE>()) {
-                LOG_INFO("Process EOF");
                 // Since we have a type check at the caller.
                 // So a replacement of nothing column with real column is needed.
                 const auto& idx_to_datatype = _opts.vir_col_idx_to_type;
                 for (const auto& pair : _vir_cid_to_idx_in_block) {
                     size_t idx = pair.second;
                     auto type = idx_to_datatype.find(idx)->second;
-                    LOG_INFO("Replace virtual column idx {} with type {}", idx, type->get_name());
                     block->replace_by_position(idx, type->create_column());
-
-                    const vectorized::ColumnNothing* col_nothing =
-                            check_and_get_column<vectorized::ColumnNothing>(
-                                    block->get_by_position(idx).column.get());
-                    if (col_nothing) {
-                        LOG_INFO("Found ColumnNothing for virtual column idx {}", idx);
-                    }
                 }
 
                 if (_opts.condition_cache_digest && !_find_condition_cache) {
@@ -2527,8 +2505,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
-        LOG_INFO("TopN optimization applied, nrows_read_limit={}, topn_limit={}", nrows_read_limit,
-                 _opts.topn_limit);
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
@@ -2551,10 +2527,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (_selected_size == 0) {
         return _process_eof(block);
     }
-    LOG_INFO(
-            "SegmentIterator read {} rows in next_batch, _is_need_vec_eval {} _is_need_short_eval "
-            "{} _is_need_expr_eval {}",
-            _selected_size, _is_need_vec_eval, _is_need_short_eval, _is_need_expr_eval);
+
     if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
         _sel_rowid_idx.resize(_selected_size);
 
@@ -2652,7 +2625,6 @@ Status SegmentIterator::_process_columns(const std::vector<ColumnId>& column_ids
 }
 
 void SegmentIterator::_fill_column_nothing() {
-    LOG_INFO("Fill ColumnNothing for virtual columns when all rows are filtered out");
     // If column_predicate filters out all rows, the corresponding column in _current_return_columns[cid] must be a ColumnNothing.
     // Because:
     // 1. Before each batch, _init_return_columns is called to initialize _current_return_columns, and virtual columns in _current_return_columns are initialized as ColumnNothing.
@@ -2670,8 +2642,7 @@ void SegmentIterator::_fill_column_nothing() {
 }
 
 Status SegmentIterator::_check_output_block(vectorized::Block* block) {
-    // #ifndef NDEBUG
-    LOG_INFO("Checking output block, rows {}", block->rows());
+#ifndef NDEBUG
     size_t rows = block->rows();
     size_t idx = 0;
     for (const auto& entry : *block) {
@@ -2701,7 +2672,7 @@ Status SegmentIterator::_check_output_block(vectorized::Block* block) {
         }
         idx++;
     }
-    // #endif
+#endif
     return Status::OK();
 }
 
@@ -2723,7 +2694,6 @@ Status SegmentIterator::_process_eof(vectorized::Block* block) {
     _column_iterators.clear();
     _bitmap_index_iterators.clear();
     _index_iterators.clear();
-    LOG_INFO("Segment iterarator process eof");
     return Status::EndOfFile("no more data in segment");
 }
 
