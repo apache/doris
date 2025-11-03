@@ -244,6 +244,9 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
             _unplanned_tables.find(plan.table_name) == _unplanned_tables.end()) {
             return Status::Aborted("Missing vital param: table_name");
         }
+        if (plan.__isset.table_id) {
+            _ctx->table_id_list.push_back(plan.table_id);
+        }
 
         _inflight_cnt++;
         TPipelineFragmentParamsList mocked;

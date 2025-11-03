@@ -298,6 +298,9 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.__set_commitInfos(ctx->commit_infos);
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
     request.__set_tbls(ctx->table_list);
+    if (!ctx->table_id_list.empty()) {
+        request.__set_table_ids(ctx->table_id_list);
+    }
 
     VLOG_DEBUG << "commit txn request:" << apache::thrift::ThriftDebugString(request);
 

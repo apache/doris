@@ -1464,7 +1464,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             return Collections.singletonList(table);
         }
-        // (TODO Refrain) for multi table, can we use tableIds but not tableNames? 
+        // Use table IDs if available (for multi-table loads)
+        if (CollectionUtils.isNotEmpty(request.getTableIds())) {
+            List<Table> tables = new ArrayList<>(request.getTableIds().size());
+            for (Long tableId : request.getTableIds()) {
+                Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
+                if (table == null) {
+                    throw new MetaNotFoundException("unknown table, table_id=" + tableId);
+                }
+                tables.add(table);
+            }
+            if (tables.size() > 1) {
+                tables.sort(Comparator.comparing(Table::getId));
+            }
+            // Update multi table running transaction table ids
+            Env.getCurrentGlobalTransactionMgr()
+                    .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), request.getTableIds());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTableIds());
+            }
+            return tables;
+        }
+
+        // Fallback to table names (backward compatibility)
         List<String> tbNames;
         // check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
