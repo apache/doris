@@ -100,10 +100,12 @@ public class AgentTaskQueue {
     public static synchronized void removeTask(long backendId, Consumer<AgentTask> onTaskRemoved) {
         Map<TTaskType, Map<Long, AgentTask>> tasks = AgentTaskQueue.tasks.row(backendId);
         tasks.forEach((type, taskSet) -> {
-            taskSet.forEach((signature, task) -> {
-                removeTask(backendId, type, signature);
-                onTaskRemoved.accept(task);
-            });
+            Iterator<Map.Entry<Long, AgentTask>> it = taskSet.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<Long, AgentTask> entry = it.next();
+                it.remove();
+                onTaskRemoved.accept(entry.getValue());
+            }
         });
     }
 

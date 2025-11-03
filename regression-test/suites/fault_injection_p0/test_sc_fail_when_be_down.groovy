@@ -1,6 +1,23 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_sc_stuck_when_be_down", "docker") {
+suite("test_sc_fail_when_be_down", "docker") {
     def options = new ClusterOptions()
     options.cloudMode = false
     options.beNum = 3
@@ -11,7 +28,7 @@ suite("test_sc_stuck_when_be_down", "docker") {
     docker(options) {
         GetDebugPoint().clearDebugPointsForAllBEs()
 
-        def tblName = "test_sc_stuck_when_be_down"
+        def tblName = "test_sc_fail_when_be_down"
         sql """ DROP TABLE IF EXISTS ${tblName} """
         sql """
                 CREATE TABLE IF NOT EXISTS ${tblName} (
@@ -29,29 +46,21 @@ suite("test_sc_stuck_when_be_down", "docker") {
 
         GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob._do_process_alter_tablet.sleep")
         try {
-            sql """ ALTER TABLE ${tblName} MODIFY COLUMN v0 VARCHAR(100) """
-            sleep(3000)
-            cluster.stopBackends(1)
-            waitForSchemaChangeDone {
-                sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tblName}' ORDER BY createtime DESC LIMIT 1 """
-                time 600
-            }
-        } finally {
-        }
-
-        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.sleep")
-        try {
             sql """ ALTER TABLE ${tblName} MODIFY COLUMN v1 VARCHAR(100) """
-            sleep(3000)
+            sleep(1000)
             cluster.stopBackends(1, 2)
+            sleep(10000)
+            def ret = sql """ SHOW ALTER TABLE COLUMN WHERE TableName='test_sc_stuck_when_be_down' ORDER BY createtime DESC LIMIT 1 """
+            println(ret)
             waitForSchemaChangeDone {
                 sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tblName}' ORDER BY createtime DESC LIMIT 1 """
                 time 600
             }
             assertTrue(false)
-        } catch (Exception ignore) {
+        } catch (Throwable ignore) {
             // do nothing
         } finally {
+            GetDebugPoint().clearDebugPointsForAllBEs()
         }
     }
 }

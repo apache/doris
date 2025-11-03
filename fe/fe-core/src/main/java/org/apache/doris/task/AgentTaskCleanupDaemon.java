@@ -25,32 +25,41 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class AgentTaskCleanupDaemon extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(AgentTaskCleanupDaemon.class);
+
     public AgentTaskCleanupDaemon() {
         super("agent-task-cleanup", Config.agent_task_health_check_intervals_ms);
     }
 
     @Override
     protected void runAfterCatalogReady() {
+        LOG.info("Begin to clean up inactive agent tasks");
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         infoService.getAllClusterBackends(false)
                 .stream()
                 .filter(backend -> !backend.isAlive())
                 .map(Backend::getId)
                 .forEach(this::removeInactiveBeAgentTasks);
+        LOG.info("Finish to clean up inactive agent tasks");
     }
 
     private void removeInactiveBeAgentTasks(Long beId) {
         AgentTaskQueue.removeTask(beId, (agentTask -> {
-            long tabletId = agentTask.getTabletId();
-            String errMsg = "BE down, this agent task is aborted. BE=" + beId + ", tablet=" + tabletId;
+            String errMsg = "BE down, this agent task is aborted";
             if (agentTask instanceof PushTask) {
                 PushTask task = ((PushTask) agentTask);
-                task.countDownLatchWithStatus(beId, tabletId, new Status(TStatusCode.ABORTED, errMsg));
+                task.countDownLatchWithStatus(beId, agentTask.getTabletId(), new Status(TStatusCode.ABORTED, errMsg));
             }
             agentTask.setFinished(true);
             agentTask.setErrorCode(TStatusCode.ABORTED);
             agentTask.setErrorMsg(errMsg);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("BE down, remove agent task: {}", agentTask);
+            }
         }));
     }
 }
