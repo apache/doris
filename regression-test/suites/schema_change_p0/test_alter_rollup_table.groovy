@@ -101,7 +101,7 @@ suite("test_alter_rollup_table") {
             balance
         );
     """
-    
+
     sleep(10000)
 
     sql """
@@ -122,7 +122,7 @@ suite("test_alter_rollup_table") {
     sleep(10000)
 
     sql """
-        ALTER TABLE ${tbName} MODIFY COLUMN event_date DATETIME
+        ALTER TABLE ${tbName} MODIFY COLUMN event_date DATETIME key
     """
 
     sql """
