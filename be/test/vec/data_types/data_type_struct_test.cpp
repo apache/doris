@@ -388,7 +388,7 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
         m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
 
         // nested Struct
-        Tuple t1, t2;
+        Struct t1, t2;
         t1.push_back(Field::create_field<TYPE_STRING>("clever"));
         t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
@@ -397,7 +397,7 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
         t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
 
         // Struct
-        Tuple tt1, tt2;
+        Struct tt1, tt2;
         tt1.push_back(Field::create_field<TYPE_ARRAY>(a1));
         tt1.push_back(Field::create_field<TYPE_MAP>(m1));
         tt1.push_back(Field::create_field<TYPE_STRUCT>(t1));
@@ -425,7 +425,7 @@ TEST_F(DataTypeStructTest, writeColumnToOrc) {
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {dt1, dt2});
     auto serde = st->get_serde(1);
 
-    Tuple test_data;
+    Struct test_data;
     test_data.push_back(Field::create_field<TYPE_BIGINT>(100));
     test_data.push_back(Field::create_field<TYPE_BIGINT>(200));
 
@@ -463,7 +463,7 @@ TEST_F(DataTypeStructTest, formString) {
     DataTypePtr dt1 = std::make_shared<DataTypeInt32>();
     DataTypePtr dt2 = std::make_shared<DataTypeString>();
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {dt1, dt2});
-    Tuple tt1;
+    Struct tt1;
     tt1.push_back(Field::create_field<TYPE_INT>(100));
     tt1.push_back(Field::create_field<TYPE_STRING>("asd"));
 
@@ -495,7 +495,7 @@ TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {
     DataTypePtr dt1 = std::make_shared<DataTypeInt32>();
     DataTypePtr dt2 = std::make_shared<DataTypeString>();
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {dt1, dt2});
-    Tuple tt1;
+    Struct tt1;
     tt1.push_back(Field::create_field<TYPE_INT>(100));
     tt1.push_back(Field::create_field<TYPE_STRING>("asd"));
 

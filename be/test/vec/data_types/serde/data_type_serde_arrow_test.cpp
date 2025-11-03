@@ -360,7 +360,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
             DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
             type_desc = st;
-            Tuple t1, t2;
+            Struct t1, t2;
             t1.push_back(Field::create_field<TYPE_STRING>("amory cute"));
             t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
             t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));

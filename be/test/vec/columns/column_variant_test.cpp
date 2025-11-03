@@ -2788,7 +2788,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
 
     // Test Tuple
     {
-        Tuple t1;
+        Struct t1;
         t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
         t1.push_back(Field::create_field<TYPE_BIGINT>(Int64(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
