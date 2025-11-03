@@ -21,25 +21,15 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/column_helper.h"
 
 namespace doris::vectorized {
 
 void DataTypeAggStateSerde::_encode_to_base64(const char* data, size_t size,
                                               BufferWritable& bw) const {
-    // 如果数据为空，base64编码后也是空字符串
-    if (size == 0) {
-        return;
-    }
-
-    // 计算base64编码后的长度（约为原始长度的4/3，向上取整）
-    size_t encoded_size = (size + 2) / 3 * 4;
-    std::string base64_encoded;
-    base64_encoded.reserve(encoded_size);
-
     // 使用util中的base64_encode函数进行编码
+    // base64_encode函数已经处理了空字符串的情况（会编码为空字符串）
+    std::string base64_encoded;
     base64_encode(std::string(data, size), &base64_encoded);
 
     // 将base64编码后的字符串写入buffer

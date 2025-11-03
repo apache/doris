@@ -61,7 +61,23 @@ protected:
         }
         
         // Base64字符串长度必须是4的倍数（考虑padding）
-        return str.length() % 4 == 0 || (str.length() % 4 == 1 && str.back() == '=');
+        // padding可以是0、1或2个'='字符
+        size_t len = str.length();
+        if (len % 4 != 0) {
+            return false;
+        }
+        
+        // 检查padding的正确性：只在最后1-2个字符可以是'='
+        size_t padding_count = 0;
+        for (size_t i = len - 1; i >= len - 2 && i < len; --i) {
+            if (str[i] == '=') {
+                padding_count++;
+            } else {
+                break;
+            }
+        }
+        // padding最多2个字符
+        return padding_count <= 2;
     }
 
     DataTypeSerDeSPtr nested_serde;
