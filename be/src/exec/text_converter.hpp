@@ -34,6 +34,7 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -212,6 +213,35 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
 
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
+    case TYPE_OBJECT: {
+        // 检查是否是AggState类型，如果是则需要base64解码
+        auto data_type_ptr = slot_desc->get_data_type_ptr();
+        if (data_type_ptr && data_type_ptr->get_family_name() &&
+            std::string(data_type_ptr->get_family_name()) == "AggState") {
+            // AggState类型，需要base64解码后反序列化
+            std::string csv_data(data, len);
+            std::string decoded_data;
+            if (base64_decode(csv_data, &decoded_data) && decoded_data.size() > 0) {
+                // base64解码成功，使用insert_data方法插入二进制数据
+                // 注意：ColumnComplexType的insert_data方法会根据类型进行反序列化
+                // 如果AggState已经在column_complex.h中实现了对应的处理逻辑，则可以使用
+                try {
+                    // 对于复杂类型，insert_data会将二进制数据反序列化为对应的对象
+                    col_ptr->insert_data(decoded_data.data(), decoded_data.size());
+                } catch (...) {
+                    // 如果插入失败，标记为解析失败
+                    parse_result = StringParser::PARSE_FAILURE;
+                }
+            } else {
+                // base64解码失败或数据为空
+                parse_result = StringParser::PARSE_FAILURE;
+            }
+        } else {
+            // 其他OBJECT类型，按原样处理（可能是字符串类型）
+            reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data, len);
+        }
+        break;
+    }
     case TYPE_HLL: {
         reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(
                 HyperLogLog(Slice(data, len)));

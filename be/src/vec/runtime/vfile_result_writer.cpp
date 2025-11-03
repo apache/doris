@@ -36,8 +36,30 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "util/url_coding.h"
+#include "vec/columns/column_complex.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 
 namespace doris::vectorized {
+
+// 简单的BufferWritable实现，用于将数据写入string
+class StringBufferWritable : public BufferWritable {
+public:
+    explicit StringBufferWritable(std::string& buffer) : _buffer(buffer) {}
+    
+    void write(const char* data, int len) override {
+        _buffer.append(data, len);
+    }
+    
+    void commit() override {
+        // 对于string buffer，commit不需要特殊处理
+    }
+    
+private:
+    std::string& _buffer;
+};
+
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 using doris::operator<<;
 
@@ -273,7 +295,31 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << buf;
                     break;
                 }
-                case TYPE_OBJECT:
+                case TYPE_OBJECT: {
+                    // 检查是否是AggState类型，如果是则进行base64编码
+                    if (col.type && col.type->get_family_name() &&
+                        std::string(col.type->get_family_name()) == "AggState") {
+                        // AggState类型需要序列化为base64编码的字符串
+                        // 使用DataType的to_string方法获取序列化的二进制数据
+                        std::string serialized_data;
+                        StringBufferWritable buffer_writable(serialized_data);
+                        col.type->to_string(*col.column, i, buffer_writable);
+                        buffer_writable.commit();
+                        
+                        if (serialized_data.size() > 0) {
+                            std::string base64_encoded;
+                            base64_encode(serialized_data, &base64_encoded);
+                            _plain_text_outstream << base64_encoded;
+                        } else {
+                            _plain_text_outstream << "";
+                        }
+                    } else {
+                        // 其他OBJECT类型按原样处理
+                        auto value = col.column->get_data_at(i);
+                        _plain_text_outstream << value;
+                    }
+                    break;
+                }
                 case TYPE_HLL:
                 case TYPE_VARCHAR:
                 case TYPE_CHAR:
