@@ -643,6 +643,7 @@ struct TLoadTxnCommitRequest {
     18: optional bool groupCommit
     19: optional i64 receiveBytes
     20: optional i64 backendId 
+    21: optional list<i64> table_ids
 }
 
 struct TLoadTxnCommitResult {
