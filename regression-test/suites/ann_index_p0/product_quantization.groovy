@@ -46,7 +46,7 @@ suite("product_quantization") {
             properties('replication_num' = '1');"""
     test {
         sql """insert into product_quantization values (1, [1.0, 2.0, 3.0, 4.0])"""
-        exception """Not enough training data for PQ index"""
+        exception """exception occurred during training"""
     }
 
     sql """drop table if exists product_quantization"""
