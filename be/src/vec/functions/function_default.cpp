@@ -69,6 +69,8 @@ public:
         // Reference the behavior in MySQL:
         // if column is NULLABLE, return all NULLs
         // else return zero datetime values like `0000-00-00 00:00:00` or `0000-00-00`
+        // Because Doris has a range limit for date & datetime, `0000-00-00` cannot be represented.
+        // So here we use the smallest representable value instead
         if (is_date_type(res_primitive_type) && has_default_value &&
             (default_value == "CURRENT_TIMESTAMP" || default_value == "CURRENT_DATE")) {
             if (is_nullable) {
@@ -107,14 +109,15 @@ public:
 
             if (parse_status.ok() && temp_column->size() > 0) {
                 temp_column->get(0, default_field);
-            }
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
                 res_col->insert(default_field);
+                block.replace_by_position(
+                        result, ColumnNullable::create(
+                                        ColumnConst::create(std::move(res_col), input_rows_count),
+                                        std::move(null_map)));
+            } else [[unlikely]] {
+                return Status::FatalError("Failed to parse default value for column '{}'",
+                                          col_name);
             }
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
-            return Status::OK();
         } else {
             if (is_nullable) {
                 return return_with_all_null(block, result, res_nested_type, input_rows_count);
@@ -157,10 +160,12 @@ private:
     static Status return_with_all_null(Block& block, uint32_t result,
                                        const DataTypePtr& nested_type, size_t input_rows_count) {
         MutableColumnPtr res_col = nested_type->create_column();
-        res_col->insert_many_defaults(input_rows_count);
+        res_col->insert_default();
         auto null_map = ColumnUInt8::create(input_rows_count, 1);
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res_col), std::move(null_map)));
+        block.replace_by_position(
+                result,
+                ColumnNullable::create(ColumnConst::create(std::move(res_col), input_rows_count),
+                                       std::move(null_map)));
         return Status::OK();
     }
 
@@ -172,13 +177,13 @@ private:
         switch (primitive_type) {
         case TYPE_DATE:
         case TYPE_DATETIME:
-            insert_min_datetime_values<TYPE_DATETIME>(res_col, input_rows_count);
+            insert_min_datetime_value<TYPE_DATETIME>(res_col);
             break;
         case TYPE_DATEV2:
-            insert_min_datetime_values<TYPE_DATEV2>(res_col, input_rows_count);
+            insert_min_datetime_value<TYPE_DATEV2>(res_col);
             break;
         case TYPE_DATETIMEV2:
-            insert_min_datetime_values<TYPE_DATETIMEV2>(res_col, input_rows_count);
+            insert_min_datetime_value<TYPE_DATETIMEV2>(res_col);
             break;
         default:
             return Status::InternalError("Unsupported date/time type for zero datetime: {}",
@@ -186,13 +191,15 @@ private:
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res_col), std::move(null_map)));
+        block.replace_by_position(
+                result,
+                ColumnNullable::create(ColumnConst::create(std::move(res_col), input_rows_count),
+                                       std::move(null_map)));
         return Status::OK();
     }
 
     template <PrimitiveType Type>
-    static void insert_min_datetime_values(MutableColumnPtr& res_col, size_t count) {
+    static void insert_min_datetime_value(MutableColumnPtr& res_col) {
         using ItemType = typename PrimitiveTypeTraits<Type>::ColumnItemType;
         ItemType min_value;
 
@@ -205,9 +212,7 @@ private:
             min_value = MIN_DATETIME_V2;
         }
 
-        for (size_t i = 0; i < count; ++i) {
-            res_col->insert_data(reinterpret_cast<const char*>(&min_value), sizeof(ItemType));
-        }
+        res_col->insert_data(reinterpret_cast<const char*>(&min_value), sizeof(ItemType));
     }
 };
 #include "common/compile_check_end.h"
