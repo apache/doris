@@ -909,6 +909,7 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     auto& ss = *local_state.Base::_shared_state;
     RETURN_IF_ERROR(ss.reset_hash_table());
     local_state._serialize_key_arena_memory_usage->set((int64_t)0);
+    local_state._agg_arena_pool.clear(true);
     return Status::OK();
 }
 
