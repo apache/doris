@@ -109,8 +109,11 @@ public class MTMVRewriteUtil {
     }
 
     /**
-     *
-     * */
+     * Get mtmv partitions by related table partitions, if relatedPartitions is null, return all mtmv partitions
+     * if mtmv is self-manage partition, return all mtmv partitions,
+     * if mtmv is nested mv, return all mtmv partitions,
+     * else return mtmv partitions by relatedPartitions
+     */
     private static Set<String> getMtmvPartitionsByRelatedPartitions(MTMV mtmv, MTMVRefreshContext refreshContext,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {

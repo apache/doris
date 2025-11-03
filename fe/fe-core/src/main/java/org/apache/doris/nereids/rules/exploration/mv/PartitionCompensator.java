@@ -267,9 +267,7 @@ public class PartitionCompensator {
                     queryUsedRelatedTablePartitionsMap.put(queryUsedTable, null);
                     continue tableLoop;
                 }
-                if (customRelationIdSet.get(tableUsedPartitionPair.key().asInt())) {
-                    usedPartitionSet.addAll(tableUsedPartitionPair.value());
-                }
+                usedPartitionSet.addAll(tableUsedPartitionPair.value());
             }
             queryUsedRelatedTablePartitionsMap.put(queryUsedTable, usedPartitionSet);
         }
