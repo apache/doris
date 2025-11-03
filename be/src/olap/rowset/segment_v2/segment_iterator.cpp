@@ -2010,12 +2010,12 @@ Status SegmentIterator::_init_current_block(
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const auto* column_desc = _schema->column(cid);
-        if (!_is_pred_column[cid] &&
-            !_segment->same_with_storage_type(
-                    cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
+
+        auto file_column_type = _storage_name_and_type[cid].second;
+        auto expected_type = Schema::get_data_type_ptr(*column_desc);
+        if (!_is_pred_column[cid] && !file_column_type->equals(*expected_type)) {
             // The storage layer type is different from schema needed type, so we use storage
             // type to read columns instead of schema type for safety
-            auto file_column_type = _storage_name_and_type[cid].second;
             VLOG_DEBUG << fmt::format(
                     "Recreate column with expected type {}, file column type {}, col_name {}, "
                     "col_path {}",
@@ -2446,11 +2446,10 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
         if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
-        if (!_segment->same_with_storage_type(
-                    i, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
-            const Field* field_type = _schema->column(i);
-            vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
-            vectorized::DataTypePtr file_column_type = _storage_name_and_type[i].second;
+        const Field* field_type = _schema->column(i);
+        vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
+        vectorized::DataTypePtr file_column_type = _storage_name_and_type[i].second;
+        if (!file_column_type->equals(*expected_type)) {
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
