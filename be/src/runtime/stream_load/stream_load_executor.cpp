@@ -204,6 +204,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     if (result.__isset.db_id) {
         ctx->db_id = result.db_id;
     }
+    if (result.__isset.table_id) {
+        ctx->table_id = result.table_id;
+    }
     ctx->need_rollback = true;
 
     return Status::OK();
@@ -287,6 +290,9 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
         request.__set_db_id(ctx->db_id);
     }
     request.__set_tbl(ctx->table);
+    if (ctx->table_id > 0) {
+        request.__set_table_id(ctx->table_id);
+    }
     request.__set_txnId(ctx->txn_id);
     request.__set_sync(true);
     request.__set_commitInfos(ctx->commit_infos);
@@ -350,6 +356,9 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
         request.__set_db_id(ctx->db_id);
     }
     request.__set_tbl(ctx->table);
+    if (ctx->table_id > 0) {
+        request.__set_table_id(ctx->table_id);
+    }
     request.__set_txnId(ctx->txn_id);
     request.__set_reason(ctx->status.to_string());
     request.__set_tbls(ctx->table_list);
