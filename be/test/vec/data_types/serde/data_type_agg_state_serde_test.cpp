@@ -129,7 +129,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnString) {
         
         // 验证可以解码回原始数据
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode base64 for row " << i;
         EXPECT_EQ(decoded, test_cases[i]) << "Decoded data doesn't match original for row " << i;
     }
@@ -180,7 +180,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnFixedLengthObject) {
         
         // 验证可以解码回原始数据
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode base64 for row " << i;
         EXPECT_EQ(decoded.size(), object_size) << "Decoded size mismatch for row " << i;
         EXPECT_EQ(memcmp(decoded.data(), test_cases[i].data(), object_size), 0)
@@ -206,7 +206,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeEmptyData) {
         std::string serialized = output_col->get_data_at(0).to_string();
         // 空字符串编码后应该也是空字符串或有效的base64
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success);
         EXPECT_EQ(decoded, "");
     }
@@ -255,7 +255,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeCsvSpecialChars) {
         
         // 验证可以正确解码
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode for row " << i;
         EXPECT_EQ(decoded, special_char_cases[i]) << "Decoded data mismatch for row " << i;
     }
@@ -291,7 +291,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeLargeData) {
         
         // 验证可以解码
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode large data for row " << i;
         EXPECT_EQ(decoded.size(), sizes[i]) << "Decoded size mismatch for row " << i;
     }
@@ -333,7 +333,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeRandomData) {
         
         // 验证可以解码
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode random data for row " << i;
         EXPECT_EQ(decoded.size(), column->get_data_at(i).size) 
             << "Decoded size mismatch for row " << i;
@@ -360,7 +360,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeToHiveText) {
     
     // 验证可以解码
     std::string decoded;
-    bool decode_success = base64_decode(serialized, &decoded);
+    bool decode_success = doris::base64_decode(serialized, &decoded);
     EXPECT_TRUE(decode_success);
     EXPECT_EQ(decoded, "test_agg_state_data");
 }
@@ -437,7 +437,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeSingleByteValues) {
         
         // 验证可以解码回原始字节
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode byte value " << i;
         EXPECT_EQ(decoded.size(), 1) << "Decoded size mismatch for byte value " << i;
         EXPECT_EQ(static_cast<uint8_t>(decoded[0]), static_cast<uint8_t>(i))
@@ -473,7 +473,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializePerformanceStress) {
         EXPECT_TRUE(isValidBase64(serialized)) << "Invalid base64 for size " << stress_sizes[i];
         
         std::string decoded;
-        bool decode_success = base64_decode(serialized, &decoded);
+        bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode for size " << stress_sizes[i];
         EXPECT_EQ(decoded.size(), stress_sizes[i]) << "Size mismatch for " << stress_sizes[i];
     }
