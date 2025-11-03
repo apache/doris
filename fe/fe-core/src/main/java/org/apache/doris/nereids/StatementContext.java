@@ -274,6 +274,7 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
+    private boolean skipPrunePredicate = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -993,5 +994,12 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    public boolean isSkipPrunePredicate() {
+        return skipPrunePredicate;
+    }
+    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
+        this.skipPrunePredicate = skipPrunePredicate;
     }
 }
