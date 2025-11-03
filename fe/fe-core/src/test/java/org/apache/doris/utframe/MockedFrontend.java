@@ -17,8 +17,9 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.PaloFe;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.DorisFE;
+import org.apache.doris.DorisFE.StartupOptions;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.PrintableMap;
 
 import com.google.common.base.Strings;
@@ -35,7 +36,6 @@ import java.util.Map;
 
 /*
  * This class is used to start a Frontend process locally, for unit test.
- * This is a singleton class. There can be only one instance of this class globally.
  * Usage:
  *      MockedFrontend mockedFrontend = MockedFrontend.getInstance();
  *      mockedFrontend.init(confMap);
@@ -57,7 +57,7 @@ import java.util.Map;
  * There will be 3 directories under running dir/:
  *      running dir/conf/
  *      running dir/log/
- *      running dir/palo-meta/
+ *      running dir/doris-meta/
  *
  *  All these 3 directories will be cleared first.
  *
@@ -66,7 +66,7 @@ public class MockedFrontend {
     public static final String FE_PROCESS = "fe";
 
     // the running dir of this mocked frontend.
-    // log/ palo-meta/ and conf/ dirs will be created under this dir.
+    // log/ doris-meta/ and conf/ dirs will be created under this dir.
     private String runningDir;
     // the min set of fe.conf.
     private static final Map<String, String> MIN_FE_CONF;
@@ -79,28 +79,21 @@ public class MockedFrontend {
         MIN_FE_CONF.put("http_port", "8030");
         MIN_FE_CONF.put("rpc_port", "9020");
         MIN_FE_CONF.put("query_port", "9030");
+        MIN_FE_CONF.put("arrow_flight_sql_port", "8070");
         MIN_FE_CONF.put("edit_log_port", "9010");
         MIN_FE_CONF.put("priority_networks", "127.0.0.1/24");
         MIN_FE_CONF.put("sys_log_verbose_modules", "org");
     }
 
-    private static class SingletonHolder {
-        private static final MockedFrontend INSTANCE = new MockedFrontend();
-    }
-
-    public static MockedFrontend getInstance() {
-        return SingletonHolder.INSTANCE;
-    }
-
     public int getRpcPort() {
-        return Integer.valueOf(finalFeConf.get("rpc_port"));
+        return Integer.parseInt(finalFeConf.get("rpc_port"));
     }
 
     private boolean isInit = false;
 
     // init the fe process. This must be called before starting the frontend process.
     // 1. check if all necessary environment variables are set.
-    // 2. clear and create 3 dirs: runningDir/log/, runningDir/palo-meta/, runningDir/conf/
+    // 2. clear and create 3 dirs: runningDir/log/, runningDir/doris-meta/, runningDir/conf/
     // 3. init fe.conf
     //      The content of "fe.conf" is a merge set of input `feConf` and MIN_FE_CONF
     public void init(String runningDir, Map<String, String> feConf) throws EnvVarNotSetException, IOException {
@@ -121,7 +114,7 @@ public class MockedFrontend {
         // clear and create log dir
         createAndClearDir(runningDir + "/log/");
         // clear and create meta dir
-        createAndClearDir(runningDir + "/palo-meta/");
+        createAndClearDir(runningDir + "/doris-meta/");
         // clear and create conf dir
         createAndClearDir(runningDir + "/conf/");
         // init fe.conf
@@ -134,7 +127,7 @@ public class MockedFrontend {
         finalFeConf = Maps.newHashMap(MIN_FE_CONF);
         // these 2 configs depends on running dir, so set them here.
         finalFeConf.put("LOG_DIR", this.runningDir + "/log");
-        finalFeConf.put("meta_dir", this.runningDir + "/palo-meta");
+        finalFeConf.put("meta_dir", this.runningDir + "/doris-meta");
         finalFeConf.put("sys_log_dir", this.runningDir + "/log");
         finalFeConf.put("audit_log_dir", this.runningDir + "/log");
         finalFeConf.put("tmp_dir", this.runningDir + "/temp_dir");
@@ -183,7 +176,12 @@ public class MockedFrontend {
 
         @Override
         public void run() {
-            PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args);
+            StartupOptions options = new StartupOptions();
+            // For FE unit tests, we don't need these 2 servers.
+            // And it also cost time to start up.
+            options.enableHttpServer = false;
+            options.enableQeService = false;
+            DorisFE.start(frontend.getRunningDir(), frontend.getRunningDir(), args, options);
         }
     }
 
@@ -195,23 +193,22 @@ public class MockedFrontend {
         Thread feThread = new Thread(new FERunnable(this, args), FE_PROCESS);
         feThread.start();
         // wait the catalog to be ready until timeout (30 seconds)
-        waitForCatalogReady(120 * 1000);
-        System.out.println("Fe process is started");
+        waitForCatalogReady(30 * 1000);
     }
 
     private void waitForCatalogReady(long timeoutMs) throws FeStartException {
         long left = timeoutMs;
-        while (!Catalog.getCurrentCatalog().isReady() && left > 0) {
+        while (!Env.getCurrentEnv().isReady() && left > 0) {
             System.out.println("catalog is not ready");
             try {
-                Thread.sleep(5000);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            left -= 5000;
+            left -= 100;
         }
 
-        if (left <= 0 && !Catalog.getCurrentCatalog().isReady()) {
+        if (left <= 0 && !Env.getCurrentEnv().isReady()) {
             throw new FeStartException("fe start failed");
         }
     }

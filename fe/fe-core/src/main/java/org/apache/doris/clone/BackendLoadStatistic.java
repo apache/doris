@@ -39,6 +39,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class BackendLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(BackendLoadStatistic.class);
@@ -68,6 +70,70 @@ public class BackendLoadStatistic {
         }
     }
 
+    public static class BePathLoadStatPair {
+        private BackendLoadStatistic beLoadStatistic;
+        private RootPathLoadStatistic pathLoadStatistic;
+
+        BePathLoadStatPair(BackendLoadStatistic beLoadStatistic, RootPathLoadStatistic pathLoadStatistic) {
+            this.beLoadStatistic = beLoadStatistic;
+            this.pathLoadStatistic = pathLoadStatistic;
+        }
+
+        BackendLoadStatistic getBackendLoadStatistic() {
+            return beLoadStatistic;
+        }
+
+        RootPathLoadStatistic getPathLoadStatistic() {
+            return pathLoadStatistic;
+        }
+
+        @Override
+        public String toString() {
+            return "{ beId: " + beLoadStatistic.getBeId() + ", be score: "
+                    + beLoadStatistic.getLoadScore(pathLoadStatistic.getStorageMedium())
+                    + ", path: " + pathLoadStatistic.getPath()
+                    + ", path used percent: " + pathLoadStatistic.getUsedPercent()
+                    + " }";
+        }
+    }
+
+    public static class BePathLoadStatPairComparator implements Comparator<BePathLoadStatPair> {
+        private double avgBackendLoadScore;
+        private double avgPathUsedPercent;
+
+        BePathLoadStatPairComparator(List<BePathLoadStatPair> loadStats) {
+            avgBackendLoadScore = 0.0;
+            avgPathUsedPercent = 0.0;
+            for (BePathLoadStatPair loadStat : loadStats) {
+                RootPathLoadStatistic pathStat = loadStat.getPathLoadStatistic();
+                avgBackendLoadScore += loadStat.getBackendLoadStatistic().getLoadScore(pathStat.getStorageMedium());
+                avgPathUsedPercent += pathStat.getUsedPercent();
+            }
+            if (!loadStats.isEmpty()) {
+                avgPathUsedPercent /= loadStats.size();
+                avgBackendLoadScore /= loadStats.size();
+            }
+            if (avgBackendLoadScore == 0.0) {
+                avgBackendLoadScore = 1.0;
+            }
+            if (avgPathUsedPercent == 0.0) {
+                avgPathUsedPercent = 1.0;
+            }
+        }
+
+        @Override
+        public int compare(BePathLoadStatPair o1, BePathLoadStatPair o2) {
+            return Double.compare(getCompareValue(o1), getCompareValue(o2));
+        }
+
+        private double getCompareValue(BePathLoadStatPair loadStat) {
+            BackendLoadStatistic beStat = loadStat.getBackendLoadStatistic();
+            RootPathLoadStatistic pathStat = loadStat.getPathLoadStatistic();
+            return 0.5 * beStat.getLoadScore(pathStat.getStorageMedium()) / avgBackendLoadScore
+                    + 0.5 * pathStat.getUsedPercent() / avgPathUsedPercent;
+        }
+    }
+
     public static final BeStatComparator HDD_COMPARATOR = new BeStatComparator(TStorageMedium.HDD);
     public static final BeStatComparator SSD_COMPARATOR = new BeStatComparator(TStorageMedium.SSD);
     public static final BeStatMixComparator MIX_COMPARATOR = new BeStatMixComparator();
@@ -83,18 +149,18 @@ public class BackendLoadStatistic {
     private TabletInvertedIndex invertedIndex;
 
     private long beId;
-    private String clusterName;
-
     private boolean isAvailable;
-
     private Tag tag;
 
     public static class LoadScore {
-        public double replicaNumCoefficient = 0.5;
         public double capacityCoefficient = 0.5;
         public double score = 0.0;
 
         public static final LoadScore DUMMY = new LoadScore();
+
+        public double getReplicaNumCoefficient() {
+            return 1.0 - capacityCoefficient;
+        }
     }
 
     private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
@@ -102,12 +168,12 @@ public class BackendLoadStatistic {
     private Map<TStorageMedium, Long> totalReplicaNumMap = Maps.newHashMap();
     private Map<TStorageMedium, LoadScore> loadScoreMap = Maps.newHashMap();
     private Map<TStorageMedium, Classification> clazzMap = Maps.newHashMap();
+    private Map<TStorageMedium, Classification> maxDiskClazzMap = Maps.newHashMap();
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
-    public BackendLoadStatistic(long beId, String clusterName, Tag tag, SystemInfoService infoService,
-                                TabletInvertedIndex invertedIndex) {
+    public BackendLoadStatistic(long beId, Tag tag, SystemInfoService infoService,
+            TabletInvertedIndex invertedIndex) {
         this.beId = beId;
-        this.clusterName = clusterName;
         this.tag = tag;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
@@ -115,10 +181,6 @@ public class BackendLoadStatistic {
 
     public long getBeId() {
         return beId;
-    }
-
-    public String getClusterName() {
-        return clusterName;
     }
 
     public Tag getTag() {
@@ -168,6 +230,14 @@ public class BackendLoadStatistic {
         return clazzMap.getOrDefault(medium, Classification.INIT);
     }
 
+    public void setMaxDiskClazz(TStorageMedium medium, Classification clazz) {
+        this.maxDiskClazzMap.put(medium, clazz);
+    }
+
+    public Classification getMaxDiskClazz(TStorageMedium medium) {
+        return maxDiskClazzMap.getOrDefault(medium, Classification.INIT);
+    }
+
     public void init() throws LoadBalanceException {
         Backend be = infoService.getBackend(beId);
         if (be == null) {
@@ -187,9 +257,17 @@ public class BackendLoadStatistic {
                         + (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
             }
 
+            // Doris-compose put test all backends' disks on the same physical disk.
+            // Make a little change here.
+            long usedCapacityB = diskInfo.getDiskUsedCapacityB();
+            if (Config.be_rebalancer_fuzzy_test) {
+                usedCapacityB = Math.min(diskInfo.getTotalCapacityB(),
+                        usedCapacityB + Math.abs(diskInfo.getPathHash()) % 10000);
+            }
+
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
                     diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getTotalCapacityB(), usedCapacityB, diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
@@ -232,44 +310,52 @@ public class BackendLoadStatistic {
                 continue;
             }
 
+            // ensure: HIGH - LOW >= 2.5% * 2 = 5%
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
-                    / avgUsedPercent > Config.balance_load_score_threshold) {
+                    > Math.max(avgUsedPercent * Config.balance_load_score_threshold, 0.025)) {
                 if (pathStat.getUsedPercent() > avgUsedPercent) {
-                    pathStat.setClazz(Classification.HIGH);
+                    pathStat.setLocalClazz(Classification.HIGH);
                     highCounter++;
                 } else if (pathStat.getUsedPercent() < avgUsedPercent) {
-                    pathStat.setClazz(Classification.LOW);
+                    pathStat.setLocalClazz(Classification.LOW);
                     lowCounter++;
                 }
             } else {
-                pathStat.setClazz(Classification.MID);
+                pathStat.setLocalClazz(Classification.MID);
                 midCounter++;
             }
         }
 
-        LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
-                beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
+                    beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+        }
     }
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
+            Map<TStorageMedium, Double> maxUsedPercentDiffMap,
             Map<TStorageMedium, Double> avgClusterReplicaNumPerBackendMap) {
 
         for (TStorageMedium medium : TStorageMedium.values()) {
-            LoadScore loadScore = calcSore(totalUsedCapacityMap.getOrDefault(medium, 0L),
+            LoadScore loadScore = calcScore(totalUsedCapacityMap.getOrDefault(medium, 0L),
                     totalCapacityMap.getOrDefault(medium, 1L),
                     totalReplicaNumMap.getOrDefault(medium, 0L),
                     avgClusterUsedCapacityPercentMap.getOrDefault(medium, 0.0),
+                    maxUsedPercentDiffMap.getOrDefault(medium, 0.0),
                     avgClusterReplicaNumPerBackendMap.getOrDefault(medium, 0.0));
 
             loadScoreMap.put(medium, loadScore);
 
-            LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                    beId, medium, loadScore.capacityCoefficient, loadScore.replicaNumCoefficient, loadScore.score);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
+                        beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
+                        loadScore.score);
+            }
         }
     }
 
-    public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
-            double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
+    public static LoadScore calcScore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
+            double avgClusterUsedCapacityPercent, double maxUsedPercentDiff, double avgClusterReplicaNumPerBackend) {
 
         double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacityB);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
@@ -279,18 +365,69 @@ public class BackendLoadStatistic {
 
         LoadScore loadScore = new LoadScore();
 
-        // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
-        // Else if capacity used percent > 75%, set capacityCoefficient to 1.
-        // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
-        // Function: (2 * usedCapacityPercent - 0.5)
-        loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
-                : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
-                        : (2 * usedCapacityPercent - 0.5));
-        loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
+        if (Config.backend_load_capacity_coeficient >= 0.0 && Config.backend_load_capacity_coeficient <= 1.0) {
+            loadScore.capacityCoefficient = Config.backend_load_capacity_coeficient;
+        } else if (!Config.be_rebalancer_fuzzy_test) {
+            // Emphasize disk usage for calculating load score.
+            //
+            // thisBeCapacityCoefficient:
+            //   If this be has a high used capacity percent, we should increase its load score.
+            //   So we increase capacity coefficient with this be's used capacity percent.
+            //
+            // Also we emphasize the difference of disk usage between all the BEs.
+            // For example, if the tablets have a big difference in data size.
+            // Then for below two BEs, their load score maybe the same:
+            // BE A:  disk usage = 60%,  replica number = 2000  (it contains the big tablets)
+            // BE B:  disk usage = 30%,  replica number = 4000  (it contains the small tablets)
+            //
+            // But what we want is: firstly move some big tablets from A to B, after their disk usages are close,
+            // then move some small tablets from B to A, finally both of their disk usages and replica number
+            // are close.
+            //
+            // allBeCapacityCoefficient is used to achieve this, when the max difference between all BE's
+            // disk usages >= 30%,  we set the capacity cofficient to 1.0 and avoid the affect of replica num.
+            // After the disk usage difference decrease, then decrease the capacity cofficient.
+            //
+            double thisBeCapacityCoefficient = getSmoothCofficient(usedCapacityPercent, 0.5,
+                    Config.capacity_used_percent_high_water);
+            double allBeCapacityCoefficient = getSmoothCofficient(maxUsedPercentDiff, 0.05,
+                    Config.used_capacity_percent_max_diff);
+
+            loadScore.capacityCoefficient = Math.max(thisBeCapacityCoefficient, allBeCapacityCoefficient);
+        }
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
-                + replicaNumProportion * loadScore.replicaNumCoefficient;
+                + replicaNumProportion * loadScore.getReplicaNumCoefficient();
 
         return loadScore;
+    }
+
+    // the return cofficient:
+    // 1. percent <= percentLowWatermark: cofficient = 0.5;
+    // 2. percentLowWatermark < percent < percentHighWatermark: cofficient linear increase from 0.5 to 0.99;
+    // 3. percent >= percentHighWatermark: cofficient = 0.99;
+    public static double getSmoothCofficient(double percent, double percentLowWatermark,
+            double percentHighWatermark) {
+        final double lowCofficient = 0.5;
+        final double highCofficient = 0.99;
+
+        // low watermark and high watermark equal, then return 0.75
+        if (Math.abs(percentHighWatermark - percentLowWatermark) < 1e-6) {
+            return (lowCofficient + highCofficient) / 2;
+        }
+        if (percentLowWatermark > percentHighWatermark) {
+            double tmp = percentLowWatermark;
+            percentLowWatermark = percentHighWatermark;
+            percentHighWatermark = tmp;
+        }
+        if (percent <= percentLowWatermark) {
+            return lowCofficient;
+        }
+        if (percent >= percentHighWatermark) {
+            return highCofficient;
+        }
+
+        return lowCofficient + (highCofficient - lowCofficient)
+            * (percent - percentLowWatermark) / (percentHighWatermark - percentLowWatermark);
     }
 
     public BalanceStatus isFit(long tabletSize, TStorageMedium medium,
@@ -300,19 +437,28 @@ public class BackendLoadStatistic {
         for (int i = 0; i < pathStatistics.size(); i++) {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium
-            if (!isSupplement && pathStatistic.getStorageMedium() != medium) {
+            if (!isSupplement && medium != null && pathStatistic.getStorageMedium() != medium) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
+                            beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
+                }
                 continue;
             }
 
             BalanceStatus bStatus = pathStatistic.isFit(tabletSize, isSupplement);
             if (!bStatus.ok()) {
-                status.addErrMsgs(bStatus.getErrMsgs());
+                if (status != BalanceStatus.OK) {
+                    status.addErrMsgs(bStatus.getErrMsgs());
+                }
                 continue;
             }
 
-            result.add(pathStatistic);
-            return BalanceStatus.OK;
+            if (result != null) {
+                result.add(pathStatistic);
+            }
+            status = BalanceStatus.OK;
         }
+
         return status;
     }
 
@@ -360,12 +506,14 @@ public class BackendLoadStatistic {
                 + Math.abs(currentDestPathScore - avgUsedPercent);
         double newDiff = Math.abs(newSrcPathScore - avgUsedPercent) + Math.abs(newDestPathScore - avgUsedPercent);
 
-        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                        + " more balanced: {}",
-                tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
-                currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
-                (newDiff < currentDiff));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                            + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                            + " more balanced: {}",
+                    tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
+                    currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
+                    (newDiff < currentDiff));
+        }
 
         return newDiff < currentDiff;
     }
@@ -392,26 +540,87 @@ public class BackendLoadStatistic {
                 continue;
             }
 
-            if (pathStat.getClazz() == Classification.LOW) {
+            if (pathStat.getLocalClazz() == Classification.LOW) {
                 low.add(pathStat.getPathHash());
-            } else if (pathStat.getClazz() == Classification.HIGH) {
+            } else if (pathStat.getLocalClazz() == Classification.HIGH) {
                 high.add(pathStat.getPathHash());
             } else {
                 mid.add(pathStat.getPathHash());
             }
         }
 
-        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
-                beId, low.size(), mid.size(), high.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                    beId, low.size(), mid.size(), high.size());
+        }
+    }
+
+    public void getPathStatisticByClass(List<RootPathLoadStatistic> low,
+            List<RootPathLoadStatistic> mid, List<RootPathLoadStatistic> high, TStorageMedium storageMedium) {
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getDiskState() == DiskState.OFFLINE
+                    || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
+                continue;
+            }
+
+            if (pathStat.getLocalClazz() == Classification.LOW) {
+                low.add(pathStat);
+            } else if (pathStat.getLocalClazz() == Classification.HIGH) {
+                high.add(pathStat);
+            } else {
+                mid.add(pathStat);
+            }
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                    beId, low.size(), mid.size(), high.size());
+        }
+    }
+
+    public void incrPathsCopingSize(Map<Long, Long> pathsCopingSize) {
+        boolean updated = false;
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            Long copingSize = pathsCopingSize.get(pathStat.getPathHash());
+            if (copingSize != null && copingSize > 0) {
+                pathStat.incrCopingSizeB(copingSize);
+                updated = true;
+            }
+        }
+        if (updated) {
+            Collections.sort(pathStatistics);
+        }
+    }
+
+    public void incrPathCopingSize(long pathHash, long copingSize) {
+        RootPathLoadStatistic pathStat = pathStatistics.stream().filter(
+                p -> p.getPathHash() == pathHash).findFirst().orElse(null);
+        if (pathStat != null) {
+            pathStat.incrCopingSizeB(copingSize);
+            Collections.sort(pathStatistics);
+        }
     }
 
     public List<RootPathLoadStatistic> getPathStatistics() {
         return pathStatistics;
     }
 
-    public long getAvailPathNum(TStorageMedium medium) {
-        return pathStatistics.stream().filter(
-                p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium).count();
+    RootPathLoadStatistic getPathStatisticByPathHash(long pathHash) {
+        return pathStatistics.stream().filter(pathStat -> pathStat.getPathHash() == pathHash)
+                .findFirst().orElse(null);
+    }
+
+    public List<RootPathLoadStatistic> getAvailPaths(TStorageMedium medium) {
+        return getAvailPathStream(medium).collect(Collectors.toList());
+    }
+
+    public boolean hasAvailPathWithGlobalClazz(TStorageMedium medium, Classification globalClazz) {
+        return getAvailPathStream(medium).anyMatch(pathStat -> pathStat.getGlobalClazz() == globalClazz);
+    }
+
+    private Stream<RootPathLoadStatistic> getAvailPathStream(TStorageMedium medium) {
+        return pathStatistics.stream()
+                .filter(p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium);
     }
 
     public boolean hasMedium(TStorageMedium medium) {
@@ -438,20 +647,20 @@ public class BackendLoadStatistic {
     public List<String> getInfo(TStorageMedium medium) {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(beId));
-        info.add(clusterName);
         info.add(String.valueOf(isAvailable));
         long used = totalUsedCapacityMap.getOrDefault(medium, 0L);
         long total = totalCapacityMap.getOrDefault(medium, 0L);
         info.add(String.valueOf(used));
         info.add(String.valueOf(total));
+        info.add(getMaxDiskClazz(medium).name());
         info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(used * 100
                 / (double) total)));
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
         LoadScore loadScore = loadScoreMap.getOrDefault(medium, new LoadScore());
         info.add(String.valueOf(loadScore.capacityCoefficient));
-        info.add(String.valueOf(loadScore.replicaNumCoefficient));
+        info.add(String.valueOf(loadScore.getReplicaNumCoefficient()));
         info.add(String.valueOf(loadScore.score));
-        info.add(clazzMap.getOrDefault(medium, Classification.INIT).name());
+        info.add(getClazz(medium).name());
         return info;
     }
 

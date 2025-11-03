@@ -17,28 +17,27 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
-import java.util.Objects;
+import java.util.List;
 
 /**
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public abstract class ComparisonPredicate extends Expression implements BinaryExpression {
-    /**
-     * Constructor of ComparisonPredicate.
-     *
-     * @param nodeType node type of expression
-     * @param left     left child of comparison predicate
-     * @param right    right child of comparison predicate
-     */
-    public ComparisonPredicate(NodeType nodeType, Expression left, Expression right) {
-        super(nodeType, left, right);
+public abstract class ComparisonPredicate extends BinaryOperator {
+
+    public ComparisonPredicate(List<Expression> children, String symbol) {
+        this(children, symbol, false);
+    }
+
+    public ComparisonPredicate(List<Expression> children, String symbol, boolean inferred) {
+        super(children, symbol, inferred);
     }
 
     @Override
@@ -46,36 +45,28 @@ public abstract class ComparisonPredicate extends Expression implements BinaryEx
         return BooleanType.INSTANCE;
     }
 
-    @Override
-    public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
-    }
-
-    @Override
-    public String toSql() {
-        String nodeType = getType().toString();
-        return left().toSql() + ' ' + nodeType + ' ' + right().toSql();
-    }
-
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitComparisonPredicate(this, context);
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(type, left(), right());
+    public DataType inputType() {
+        return AnyDataType.INSTANCE_WITHOUT_INDEX;
     }
 
+    /**
+     * Commute between left and right children.
+     */
+    public abstract ComparisonPredicate commute();
+
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
+    public void checkLegalityBeforeTypeCoercion() {
+        for (Expression c : children) {
+            if (c.getDataType().isComplexType() && !c.getDataType().isArrayType()) {
+                throw new AnalysisException("comparison predicate could not contains complex type: " + this.toSql());
+            } else if (c.getDataType().isJsonType()) {
+                throw new AnalysisException("comparison predicate could not contains json type: " + this.toSql());
+            }
         }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        ComparisonPredicate other = (ComparisonPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
-                && Objects.equals(right(), other.right());
     }
 }

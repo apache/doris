@@ -22,12 +22,14 @@ import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.BytesInputStream
+import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.OutputUtils
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.http.HttpEntity
 import org.apache.http.HttpStatus
 import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.impl.client.CloseableHttpClient
 import org.apache.http.client.methods.RequestBuilder
 import org.apache.http.entity.FileEntity
 import org.apache.http.entity.InputStreamEntity
@@ -35,11 +37,17 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.CloseableHttpClient
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager
+import org.apache.http.config.ConnectionConfig
+import java.nio.charset.StandardCharsets
+import java.nio.charset.CodingErrorAction
 import org.junit.Assert
+import java.io.InputStream
+import java.io.IOException
 
 @Slf4j
 class StreamLoadAction implements SuiteAction {
-    public final InetSocketAddress address
+    public InetSocketAddress address
     public final String user
     public final String password
     String db
@@ -49,15 +57,22 @@ class StreamLoadAction implements SuiteAction {
     String inputText
     Iterator<List<Object>> inputIterator
     long time
+    boolean retryIfHttpError = false 
     Closure check
     Map<String, String> headers
     SuiteContext context
+    boolean directToBe = false
+    boolean twoPhaseCommit = false
+    boolean enableUtf8Encoding = false  // 新增：UTF-8编码支持开关
 
     StreamLoadAction(SuiteContext context) {
-        this.address = context.config.feHttpInetSocketAddress
+        this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
         this.password = context.config.feHttpPassword
-        this.db = context.config.defaultDb
+
+        def groupList = context.group.split(',')
+        this.db = context.config.getDbNameByFile(context.file)
+
         this.context = context
         this.headers = new LinkedHashMap<>()
         this.headers.put('label', UUID.randomUUID().toString())
@@ -77,6 +92,11 @@ class StreamLoadAction implements SuiteAction {
 
     void table(Closure<String> table) {
         this.table = table.call()
+    }
+
+    void directToBe(String beHost, int beHttpPort) {
+        this.address = new InetSocketAddress(beHost, beHttpPort)
+        this.directToBe = true
     }
 
     void inputStream(InputStream inputStream) {
@@ -103,6 +123,14 @@ class StreamLoadAction implements SuiteAction {
         this.inputText = inputText.call()
     }
 
+    void sql(String sql) {
+        headers.put('sql', sql)
+    }
+
+    void sql(Closure<String> sql) {
+        headers.put('sql', sql.call())
+    }
+
     void file(String file) {
         this.file = file
     }
@@ -119,6 +147,38 @@ class StreamLoadAction implements SuiteAction {
         this.time = time.call()
     }
 
+    void retryIfHttpError(boolean r) {
+        this.retryIfHttpError = r
+    }
+
+    void twoPhaseCommit(boolean twoPhaseCommit) {
+        this.twoPhaseCommit = twoPhaseCommit;
+    }
+
+    void twoPhaseCommit(Closure<Boolean> twoPhaseCommit) {
+        this.twoPhaseCommit = twoPhaseCommit.call();
+    }
+
+    void enableUtf8Encoding(boolean enable) {
+        this.enableUtf8Encoding = enable
+    }
+
+    void enableUtf8Encoding(Closure<Boolean> enable) {
+        this.enableUtf8Encoding = enable.call()
+    }
+
+    // compatible with selectdb case
+    void isCloud(boolean isCloud) {
+    }
+
+    // compatible with selectdb case
+    void isCloud(Closure<Boolean> isCloud) {
+    }
+
+    void setFeAddr(String beHost, int beHttpPort) {
+        this.address = new InetSocketAddress(beHost, beHttpPort)
+    }
+
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
@@ -127,25 +187,56 @@ class StreamLoadAction implements SuiteAction {
         headers.put(key, value)
     }
 
+    void unset(String key) {
+        headers.remove(key)
+    }
+
     @Override
     void run() {
         String responseText = null
         Throwable ex = null
         long startTime = System.currentTimeMillis()
+        def isHttpStream = headers.containsKey("version")
         try {
-            def uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
-            HttpClients.createDefault().withCloseable { client ->
+            def uri = ""
+            if (isHttpStream) {
+                uri = "http://${address.hostString}:${address.port}/api/_http_stream"
+            } else if (twoPhaseCommit) {
+                uri = "http://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+            } else {
+                uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
+            }
+            def client
+            if (enableUtf8Encoding) {
+                // set UTF-8
+                def connConfig = ConnectionConfig.custom()
+                    .setCharset(StandardCharsets.UTF_8)
+                    .setMalformedInputAction(CodingErrorAction.REPLACE)
+                    .setUnmappableInputAction(CodingErrorAction.REPLACE)
+                    .build()
+                def cm = new PoolingHttpClientConnectionManager()
+                cm.setDefaultConnectionConfig(connConfig)
+                client = HttpClients.custom().setConnectionManager(cm).build()
+                log.info("Stream load using UTF-8 encoding for headers")
+            } else {
+                // default：ISO-8859-1
+                client = HttpClients.createDefault()
+            }
+            client.withCloseable { httpClient ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(client)
-                String beLocation = streamLoadToFe(client, requestBuilder)
-                responseText = streamLoadToBe(client, requestBuilder, beLocation, httpEntity)
+                HttpEntity httpEntity = prepareHttpEntity(httpClient)
+                if (!directToBe) {
+                    String beLocation = streamLoadToFe(httpClient, requestBuilder)
+                    log.info("Redirect stream load to ${beLocation}".toString())
+                    requestBuilder.setUri(beLocation)
+                }
+                requestBuilder.setEntity(httpEntity)
+                responseText = streamLoadToBe(httpClient, requestBuilder)
             }
         } catch (Throwable t) {
             ex = t
         }
-        long endTime = System.currentTimeMillis()
-        log.info("Stream load elapsed ${endTime - startTime} ms".toString())
-        checkResult(responseText, ex, startTime, endTime)
+        checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
     }
 
     private String httpGetString(CloseableHttpClient client, String url) {
@@ -155,14 +246,18 @@ class StreamLoadAction implements SuiteAction {
     }
 
     private InputStream httpGetStream(CloseableHttpClient client, String url) {
-        CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
-        int code = resp.getStatusLine().getStatusCode()
-        if (code != HttpStatus.SC_OK) {
-            String streamBody = EntityUtils.toString(resp.getEntity())
-            throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
-        }
+        if (retryIfHttpError) {
+            return new ResumableHttpInputStream(client, url)
+        } else {
+            CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
+            int code = resp.getStatusLine().getStatusCode()
+            if (code != HttpStatus.SC_OK) {
+                String streamBody = EntityUtils.toString(resp.getEntity())
+                throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+            }
 
-        return resp.getEntity().getContent()
+            return resp.getEntity().getContent()
+        }
     }
 
     private RequestBuilder prepareRequestHeader(RequestBuilder requestBuilder) {
@@ -175,6 +270,33 @@ class StreamLoadAction implements SuiteAction {
         }
         requestBuilder.setHeader("Expect", "100-Continue")
         return requestBuilder
+    }
+
+    private String cacheHttpFile(CloseableHttpClient client, String url) {
+        def relativePath = url.substring(url.indexOf('/', 9))
+        def file = new File("${context.config.cacheDataPath}/${relativePath}")
+        if (file.exists()) {
+            log.info("Found ${url} in ${file.getAbsolutePath()}");
+            return file.getAbsolutePath()
+        }
+        log.info("Start to cache data from ${url} to ${file.getAbsolutePath()}");
+        CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
+        int code = resp.getStatusLine().getStatusCode()
+        if (code != HttpStatus.SC_OK) {
+            String streamBody = EntityUtils.toString(resp.getEntity())
+            log.info("Fail to download data ${url}, code: ${code}, body:\n${streamBody}")
+            throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+        }
+
+        file.getParentFile().mkdirs();
+        new File("${context.config.cacheDataPath}/tmp/").mkdir()
+        InputStream httpFileStream = resp.getEntity().getContent()
+        File tmpFile = File.createTempFile("cache", null, new File("${context.config.cacheDataPath}/tmp/"))
+
+        java.nio.file.Files.copy(httpFileStream, tmpFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        java.nio.file.Files.move(tmpFile.toPath(), file.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        log.info("Cached data from ${url} to ${file.getAbsolutePath()}");
+        return file.getAbsolutePath()
     }
 
     private HttpEntity prepareHttpEntity(CloseableHttpClient client) {
@@ -191,19 +313,26 @@ class StreamLoadAction implements SuiteAction {
             String fileName = this.file
             if (fileName.startsWith("http://") || fileName.startsWith("https://")) {
                 log.info("Set stream load input: ${fileName}".toString())
-                entity = new InputStreamEntity(httpGetStream(client, fileName))
-            } else { // local file
-                if (!new File(fileName).isAbsolute()) {
-                    fileName = new File(context.dataPath, fileName).getAbsolutePath()
+                def file = new File(context.config.cacheDataPath)
+                file.mkdirs();
+
+                if (file.exists() && file.isDirectory() && context.config.enableCacheData) {
+                    fileName = cacheHttpFile(client, fileName)
+                } else {
+                    entity = new InputStreamEntity(httpGetStream(client, fileName))
+                    return entity;
                 }
-                def file = new File(fileName)
-                if (!file.exists()) {
-                    log.warn("Stream load input file not exists: ${file}".toString())
-                    throw new IllegalStateException("Stream load input file not exists: ${file}");
-                }
-                log.info("Set stream load input: ${file.canonicalPath}".toString())
-                entity = new FileEntity(file)
             }
+            if (!new File(fileName).isAbsolute()) {
+                fileName = new File(context.dataPath, fileName).getAbsolutePath()
+            }
+            def file = new File(fileName)
+            if (!file.exists()) {
+                log.warn("Stream load input file not exists: ${file}".toString())
+                throw new IllegalStateException("Stream load input file not exists: ${file}");
+            }
+            log.info("Set stream load input: ${file.canonicalPath}".toString())
+            entity = new FileEntity(file)
         }
         return entity
     }
@@ -226,10 +355,7 @@ class StreamLoadAction implements SuiteAction {
         return backendStreamLoadUri
     }
 
-    private String streamLoadToBe(CloseableHttpClient client, RequestBuilder requestBuilder, String beLocation, HttpEntity httpEntity) {
-        log.info("Redirect stream load to ${beLocation}".toString())
-        requestBuilder.setUri(beLocation)
-        requestBuilder.setEntity(httpEntity)
+    private String streamLoadToBe(CloseableHttpClient client, RequestBuilder requestBuilder) {
         String responseText
         try{
             client.execute(requestBuilder.build()).withCloseable { resp ->
@@ -249,7 +375,11 @@ class StreamLoadAction implements SuiteAction {
         return responseText
     }
 
-    private void checkResult(String responseText, Throwable ex, long startTime, long endTime) {
+    private void checkResult(boolean isHttpStream, String responseText, Throwable ex, long startTime, long endTime) {
+        String finalStatus = waitForPublishOrFailure(responseText)
+        log.info("Stream load final status: ${finalStatus}, elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                "response: ${responseText}, " + ex.toString())
+        responseText = responseText.replace("Publish Timeout", finalStatus)
         if (check != null) {
             check.call(responseText, ex, startTime, endTime)
         } else {
@@ -274,17 +404,227 @@ class StreamLoadAction implements SuiteAction {
             long numberLoadedRows = result.NumberLoadedRows.toLong()
             if (numberTotalRows != numberLoadedRows) {
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
-
             }
 
-            if (time > 0) {
-                long elapsed = endTime - startTime
-                try{
-                    Assert.assertTrue("Expect elapsed <= ${time}, but meet ${elapsed}", elapsed <= time)
-                } catch (Throwable t) {
-                    throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
+             if (time > 0) {
+                 long elapsed = endTime - startTime
+                 try {
+                     // stream load may cost more time than expected in regression test, because of case run in parallel.
+                     // So we allow stream load cost more time, use 4 * time as threshold.
+                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 4 * time)
+                 } catch (Throwable t) {
+                     throw new IllegalStateException("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}")
+                 }
+            }
+        }
+    }
+
+    // Sometime the stream load may return "PUBLISH TIMEOUT"
+    // This is not a fatal error but may cause test fail.
+    // So here we wait for at most 60s, using "show transaction" to check the
+    // status of txn, and return once it become ABORTED or VISIBLE.
+    private String waitForPublishOrFailure(String responseText) {
+        try {
+            long maxWaitSecond = 60;
+            def jsonSlurper = new JsonSlurper()
+            def parsed = jsonSlurper.parseText(responseText)
+            String status = parsed.Status
+            if (twoPhaseCommit) {
+                status = parsed.status
+                return status;
+            }
+            long txnId = parsed.TxnId
+            if (!status.equalsIgnoreCase("Publish Timeout")) {
+                return status;
+            }
+
+            log.info("Stream load with txn ${txnId} is publish timeout")
+            String sql = "show transaction from ${db} where id = ${txnId}"
+            String st = "PREPARE"
+            while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && maxWaitSecond > 0) {
+                Thread.sleep(2000)
+                maxWaitSecond -= 2
+                def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+                if (result.size() != 1) {
+                    throw new IllegalStateException("Failed to get txn's ${txnId}")
+                }
+                st = String.valueOf(result[0][3])
+            }
+            log.info("Stream load with txn ${txnId} is ${st}")
+            if (st.equalsIgnoreCase("VISIBLE")) {
+                return "Success";
+            } else {
+                return "Fail";
+            }
+        } catch (Throwable t) {
+            log.info("failed to waitForPublishOrFailure. response: ${responseText}", t);
+            throw t;
+        }
+    }
+
+    /**
+    * A resumable HTTP input stream implementation that supports automatic retry and resume 
+    * on connection failures during data transfer. This stream is designed for reliable 
+    * large file downloads over HTTP with built-in recovery mechanisms, especially when stream
+    * load runs too slowly due to high cpu.
+    * 
+    * Pay Attention:
+    *     Using this class can recover from S3 actively disconnecting due to streaming 
+    *     load stuck, thereby masking the underlying performance bug where stream loading 
+    *     stalls for extended periods.
+    */
+    class ResumableHttpInputStream extends InputStream {
+        private CloseableHttpClient httpClient
+        private String url
+        private long offset = 0
+        private InputStream currentStream
+        private CloseableHttpResponse currentResponse
+        private int maxRetries = 3
+        private int retryDelayMs = 1000
+        private boolean closed = false
+
+        ResumableHttpInputStream(CloseableHttpClient httpClient, String url) {
+            this.httpClient = httpClient
+            this.url = url
+            openNewStream(0)
+        }
+
+        private void openNewStream(long startOffset) {
+            closeCurrentResources() 
+            log.info("open new stream ${this.url} with offset ${startOffset}")
+            
+            int attempts = 0
+            while (attempts <= maxRetries && !closed) {
+                attempts++
+                try {
+                    RequestBuilder builder = RequestBuilder.get(url)
+                    if (startOffset > 0) {
+                        builder.addHeader("Range", "bytes=${startOffset}-")
+                    }
+                    
+                    currentResponse = httpClient.execute(builder.build())
+                    int code = currentResponse.getStatusLine().getStatusCode()
+                    
+                    if (code == HttpStatus.SC_OK || 
+                    (code == HttpStatus.SC_PARTIAL_CONTENT && startOffset > 0)) {
+                        currentStream = currentResponse.getEntity().getContent()
+                        offset = startOffset
+                        return
+                    }
+                    
+                    String body = EntityUtils.toString(currentResponse.getEntity())
+                    throw new IOException("HTTP error ${code} ${currentResponse.getStatusLine().getReasonPhrase()}\n${body}")
+                    
+                } catch (IOException e) {
+                    closeCurrentResources()
+                    if (attempts > maxRetries || closed) {
+                        throw e
+                    }
+                    sleep(retryDelayMs * attempts)
                 }
             }
+        }
+
+        @Override
+        int read() throws IOException {
+            if (closed) throw new IOException("Stream closed")
+            
+            int attempts = 0
+            while (attempts <= maxRetries) {
+                attempts++
+                try {
+                    int byteRead = currentStream.read()
+                    if (byteRead >= 0) offset++
+                    return byteRead
+                } catch (IOException e) {
+                    log.info("${url} read exception: ${e.getMessage()}")
+                    if (attempts > maxRetries || closed) throw e
+                    reopenStreamAfterError()
+                    sleep(retryDelayMs * attempts)
+                }
+            }
+            return -1
+        }
+
+        @Override
+        int read(byte[] b, int off, int len) throws IOException {
+            if (closed) throw new IOException("Stream closed")
+            if (b == null) throw new NullPointerException()
+            if (off < 0 || len < 0 || len > b.length - off) {
+                throw new IndexOutOfBoundsException()
+            }
+            
+            int attempts = 0
+            while (attempts <= maxRetries) {
+                attempts++
+                try {
+                    int bytesRead = currentStream.read(b, off, len)
+                    if (bytesRead > 0) offset += bytesRead
+                    return bytesRead
+                    
+                } catch (IOException e) {
+                    log.info("${url} read exception: ${e.getMessage()}")
+                    if (attempts > maxRetries || closed) throw e
+                    reopenStreamAfterError()
+                    sleep(retryDelayMs * attempts)
+                }
+            }
+            return -1
+        }
+
+        private void reopenStreamAfterError() {
+            closeCurrentResources()
+            openNewStream(offset)
+        }
+
+        private void closeCurrentResources() {
+            try {
+                if (currentStream != null) {
+                    currentStream.close()
+                }
+            } catch (IOException ignored) {}
+            
+            try {
+                if (currentResponse != null) {
+                    currentResponse.close()
+                }
+            } catch (IOException ignored) {}
+            
+            currentStream = null
+            currentResponse = null
+        }
+
+        @Override
+        void close() throws IOException {
+            if (!closed) {
+                closed = true
+                closeCurrentResources()
+            }
+        }
+
+        long getOffset() { offset }
+
+        void setRetryPolicy(int maxRetries, int baseDelayMs) {
+            this.maxRetries = maxRetries
+            this.retryDelayMs = baseDelayMs
+        }
+        
+        @Override
+        int available() throws IOException {
+            return currentStream != null ? currentStream.available() : 0
+        }
+        
+        @Override
+        long skip(long n) throws IOException {
+            if (currentStream == null) return 0
+            long skipped = currentStream.skip(n)
+            offset += skipped
+            return skipped
+        }
+        
+        @Override
+        boolean markSupported() {
+            return false
         }
     }
 }

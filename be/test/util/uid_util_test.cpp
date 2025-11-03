@@ -17,9 +17,10 @@
 
 #include "util/uid_util.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 class UidUtilTest : public testing::Test {

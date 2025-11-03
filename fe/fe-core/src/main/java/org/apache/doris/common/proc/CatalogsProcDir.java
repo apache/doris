@@ -17,15 +17,17 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.datasource.DataSourceIf;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,14 +38,15 @@ import java.util.List;
  * show all catalogs' info
  */
 public class CatalogsProcDir implements ProcDirInterface {
+    private static final Logger LOG = Logger.getLogger(CatalogsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("CatalogIds").add("CatalogName").add("DatabaseNum")
+            .add("CatalogIds").add("CatalogName").add("DatabaseNum").add("LastUpdateTime")
             .build();
 
-    private Catalog catalog;
+    private Env env;
 
-    public CatalogsProcDir(Catalog catalog) {
-        this.catalog = catalog;
+    public CatalogsProcDir(Env env) {
+        this.env = env;
     }
 
     @Override
@@ -53,7 +56,7 @@ public class CatalogsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String catalogIdStr) throws AnalysisException {
-        if (catalog == null || Strings.isNullOrEmpty(catalogIdStr)) {
+        if (env == null || Strings.isNullOrEmpty(catalogIdStr)) {
             throw new AnalysisException("Catalog id is null");
         }
 
@@ -64,32 +67,39 @@ public class CatalogsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid catalog id format: " + catalogIdStr);
         }
 
-        DataSourceIf ds = catalog.getDataSourceMgr().getCatalog(catalogId);
-        if (ds == null) {
-            throw new AnalysisException("Catalog " + catalogIdStr + " does not exist");
+        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogId);
+        if (catalog == null) {
+            throw new AnalysisException("Catalog " + catalogIdStr + " does not exist. Id " + catalogId);
         }
 
-        return new DbsProcDir(catalog, ds);
+        return new DbsProcDir(env, catalog);
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<Long> catalogIds = catalog.getDataSourceMgr().getCatalogIds();
+        List<Long> catalogIds = env.getCatalogMgr().getCatalogIds();
         // get info
         List<List<Comparable>> catalogInfos = Lists.newArrayList();
         for (long catalogId : catalogIds) {
-            DataSourceIf ds = catalog.getDataSourceMgr().getCatalog(catalogId);
-            if (ds == null) {
+            CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogId);
+            if (catalog == null) {
                 continue;
             }
             List<Comparable> catalogInfo = Lists.newArrayList();
-            catalogInfo.add(ds.getId());
-            catalogInfo.add(ds.getName());
-            catalogInfo.add(ds.getDbNames().size());
+            catalogInfo.add(catalog.getId());
+            catalogInfo.add(catalog.getName());
+            int size = -1;
+            try {
+                size = catalog.getDbNames().size();
+            } catch (Exception e) {
+                LOG.warn("failed to get database: ", e);
+            }
+            catalogInfo.add(size);
+            catalogInfo.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
             catalogInfos.add(catalogInfo);
         }
 

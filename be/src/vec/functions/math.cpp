@@ -15,99 +15,159 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstdint>
+#include <cstring>
+
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <dlfcn.h>
+
+#include <cmath>
+#include <string>
+#include <type_traits>
+
+#include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
-#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
+#include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
-#include "vec/functions/function_math_unary_to_null_type.h"
-#include "vec/functions/function_string.h"
+#include "vec/functions/function_math_unary_alway_nullable.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris::vectorized {
 
-const double log_10[] = {
-        1e000, 1e001, 1e002, 1e003, 1e004, 1e005, 1e006, 1e007, 1e008, 1e009, 1e010, 1e011, 1e012,
-        1e013, 1e014, 1e015, 1e016, 1e017, 1e018, 1e019, 1e020, 1e021, 1e022, 1e023, 1e024, 1e025,
-        1e026, 1e027, 1e028, 1e029, 1e030, 1e031, 1e032, 1e033, 1e034, 1e035, 1e036, 1e037, 1e038,
-        1e039, 1e040, 1e041, 1e042, 1e043, 1e044, 1e045, 1e046, 1e047, 1e048, 1e049, 1e050, 1e051,
-        1e052, 1e053, 1e054, 1e055, 1e056, 1e057, 1e058, 1e059, 1e060, 1e061, 1e062, 1e063, 1e064,
-        1e065, 1e066, 1e067, 1e068, 1e069, 1e070, 1e071, 1e072, 1e073, 1e074, 1e075, 1e076, 1e077,
-        1e078, 1e079, 1e080, 1e081, 1e082, 1e083, 1e084, 1e085, 1e086, 1e087, 1e088, 1e089, 1e090,
-        1e091, 1e092, 1e093, 1e094, 1e095, 1e096, 1e097, 1e098, 1e099, 1e100, 1e101, 1e102, 1e103,
-        1e104, 1e105, 1e106, 1e107, 1e108, 1e109, 1e110, 1e111, 1e112, 1e113, 1e114, 1e115, 1e116,
-        1e117, 1e118, 1e119, 1e120, 1e121, 1e122, 1e123, 1e124, 1e125, 1e126, 1e127, 1e128, 1e129,
-        1e130, 1e131, 1e132, 1e133, 1e134, 1e135, 1e136, 1e137, 1e138, 1e139, 1e140, 1e141, 1e142,
-        1e143, 1e144, 1e145, 1e146, 1e147, 1e148, 1e149, 1e150, 1e151, 1e152, 1e153, 1e154, 1e155,
-        1e156, 1e157, 1e158, 1e159, 1e160, 1e161, 1e162, 1e163, 1e164, 1e165, 1e166, 1e167, 1e168,
-        1e169, 1e170, 1e171, 1e172, 1e173, 1e174, 1e175, 1e176, 1e177, 1e178, 1e179, 1e180, 1e181,
-        1e182, 1e183, 1e184, 1e185, 1e186, 1e187, 1e188, 1e189, 1e190, 1e191, 1e192, 1e193, 1e194,
-        1e195, 1e196, 1e197, 1e198, 1e199, 1e200, 1e201, 1e202, 1e203, 1e204, 1e205, 1e206, 1e207,
-        1e208, 1e209, 1e210, 1e211, 1e212, 1e213, 1e214, 1e215, 1e216, 1e217, 1e218, 1e219, 1e220,
-        1e221, 1e222, 1e223, 1e224, 1e225, 1e226, 1e227, 1e228, 1e229, 1e230, 1e231, 1e232, 1e233,
-        1e234, 1e235, 1e236, 1e237, 1e238, 1e239, 1e240, 1e241, 1e242, 1e243, 1e244, 1e245, 1e246,
-        1e247, 1e248, 1e249, 1e250, 1e251, 1e252, 1e253, 1e254, 1e255, 1e256, 1e257, 1e258, 1e259,
-        1e260, 1e261, 1e262, 1e263, 1e264, 1e265, 1e266, 1e267, 1e268, 1e269, 1e270, 1e271, 1e272,
-        1e273, 1e274, 1e275, 1e276, 1e277, 1e278, 1e279, 1e280, 1e281, 1e282, 1e283, 1e284, 1e285,
-        1e286, 1e287, 1e288, 1e289, 1e290, 1e291, 1e292, 1e293, 1e294, 1e295, 1e296, 1e297, 1e298,
-        1e299, 1e300, 1e301, 1e302, 1e303, 1e304, 1e305, 1e306, 1e307, 1e308};
-
-#define ARRAY_ELEMENTS(A) ((uint64_t)(sizeof(A) / sizeof(A[0])))
-
-double my_double_round(double value, int64_t dec, bool dec_unsigned, bool truncate) {
-    bool dec_negative = (dec < 0) && !dec_unsigned;
-    uint64_t abs_dec = dec_negative ? -dec : dec;
-    /*
-       tmp2 is here to avoid return the value with 80 bit precision
-       This will fix that the test round(0.1,1) = round(0.1,1) is true
-       Tagging with volatile is no guarantee, it may still be optimized away...
-       */
-    volatile double tmp2 = 0.0;
-
-    double tmp =
-            (abs_dec < ARRAY_ELEMENTS(log_10) ? log_10[abs_dec] : std::pow(10.0, (double)abs_dec));
-
-    // Pre-compute these, to avoid optimizing away e.g. 'floor(v/tmp) * tmp'.
-    volatile double value_div_tmp = value / tmp;
-    volatile double value_mul_tmp = value * tmp;
-
-    if (dec_negative && std::isinf(tmp)) {
-        tmp2 = 0.0;
-    } else if (!dec_negative && std::isinf(value_mul_tmp)) {
-        tmp2 = value;
-    } else if (truncate) {
-        if (value >= 0.0) {
-            tmp2 = dec < 0 ? std::floor(value_div_tmp) * tmp : std::floor(value_mul_tmp) / tmp;
-        } else {
-            tmp2 = dec < 0 ? std::ceil(value_div_tmp) * tmp : std::ceil(value_mul_tmp) / tmp;
-        }
-    } else {
-        tmp2 = dec < 0 ? std::round(value_div_tmp) * tmp : std::round(value_mul_tmp) / tmp;
-    }
-
-    return tmp2;
-}
 struct AcosName {
     static constexpr auto name = "acos";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAcos = FunctionMathUnary<UnaryFunctionVectorized<AcosName, std::acos>>;
+using FunctionAcos =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcosName, std::acos>>;
+
+struct AcoshName {
+    static constexpr auto name = "acosh";
+    static constexpr bool is_invalid_input(Float64 x) { return x < 1; }
+};
+using FunctionAcosh =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcoshName, std::acosh>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_asin
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAsin = FunctionMathUnary<UnaryFunctionVectorized<AsinName, std::asin>>;
+using FunctionAsin =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AsinName, std::asin>>;
 
-struct AtanName {
-    static constexpr auto name = "atan";
+struct AsinhName {
+    static constexpr auto name = "asinh";
 };
-using FunctionAtan = FunctionMathUnary<UnaryFunctionVectorized<AtanName, std::atan>>;
+using FunctionAsinh = FunctionMathUnary<UnaryFunctionPlain<AsinhName, std::asinh>>;
+
+class FunctionAtan : public IFunction {
+public:
+    static constexpr auto name = "atan";
+    static FunctionPtr create() { return std::make_shared<FunctionAtan>(); }
+
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        if (arguments.size() == 1) {
+            return execute_unary(block, arguments, result, input_rows_count);
+        } else if (arguments.size() == 2) {
+            return execute_binary(block, arguments, result, input_rows_count);
+        } else {
+            return Status::InvalidArgument("atan function expects 1 or 2 arguments, but got {}",
+                                           arguments.size());
+        }
+    }
+
+private:
+    Status execute_unary(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                         size_t input_rows_count) const {
+        auto res_col = ColumnFloat64::create(input_rows_count);
+        auto& res_data = res_col->get_data();
+
+        const auto& col_data =
+                assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get())
+                        ->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            res_data[i] = std::atan(col_data[i]);
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+    Status execute_binary(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                          size_t input_rows_count) const {
+        auto [col_y, is_const_y] = unpack_if_const(block.get_by_position(arguments[0]).column);
+        auto [col_x, is_const_x] = unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        auto result_column = ColumnFloat64::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+
+        if (is_const_y) {
+            auto y_val = assert_cast<const ColumnFloat64*>(col_y.get())->get_element(0);
+
+            const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
+            const auto& x_data = x_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_val, x_data[i]);
+            }
+        } else if (is_const_x) {
+            auto x_val = assert_cast<const ColumnFloat64*>(col_x.get())->get_element(0);
+
+            const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
+            const auto& y_data = y_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_data[i], x_val);
+            }
+        } else {
+            const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
+            const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
+            const auto& y_data = y_col->get_data();
+            const auto& x_data = x_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_data[i], x_data[i]);
+            }
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+};
+
+struct AtanhName {
+    static constexpr auto name = "atanh";
+    static constexpr bool is_invalid_input(Float64 x) { return x <= -1 || x >= 1; }
+};
+using FunctionAtanh =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
 struct CosName {
     static constexpr auto name = "cos";
 };
-using FunctionCos = FunctionMathUnary<UnaryFunctionVectorized<CosName, std::cos>>;
+using FunctionCos = FunctionMathUnary<UnaryFunctionPlain<CosName, std::cos>>;
+
+struct CoshName {
+    static constexpr auto name = "cosh";
+};
+using FunctionCosh = FunctionMathUnary<UnaryFunctionPlain<CoshName, std::cosh>>;
 
 struct EImpl {
     static constexpr auto name = "e";
@@ -124,103 +184,45 @@ using FunctionPi = FunctionMathConstFloat64<PiImpl>;
 struct ExpName {
     static constexpr auto name = "exp";
 };
-using FunctionExp = FunctionMathUnary<UnaryFunctionVectorized<ExpName, std::exp>>;
-
-#define LOG_FUNCTION_IMPL(CLASS, NAME, FUNC)                          \
-    struct CLASS##Impl {                                              \
-        using Type = DataTypeFloat64;                                 \
-        using RetType = Float64;                                      \
-        static constexpr auto name = #NAME;                           \
-        template <typename T, typename U>                             \
-        static void execute(const T* src, U* dst, UInt8& null_flag) { \
-            null_flag = src[0] <= 0;                                  \
-            dst[0] = static_cast<U>(FUNC((double)src[0]));            \
-        }                                                             \
-    };                                                                \
-    using Function##CLASS = FunctionMathUnaryToNullType<CLASS##Impl>;
-
-LOG_FUNCTION_IMPL(Log10, log10, std::log10);
-LOG_FUNCTION_IMPL(Log2, log2, std::log2);
-LOG_FUNCTION_IMPL(Ln, ln, std::log);
-
-struct LogName {
-    static constexpr auto name = "log";
-};
-
-template <typename A, typename B>
-struct LogImpl {
-    using ResultType = Float64;
-    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
-
-    static const constexpr bool allow_decimal = false;
-    static constexpr double EPSILON = 1e-9;
-
-    template <typename Result = ResultType>
-    static void apply(const typename Traits::ArrayA& a, B b,
-                      typename ColumnVector<Result>::Container& c,
-                      typename Traits::ArrayNull& null_map) {
-        size_t size = c.size();
-        UInt8 is_null = b <= 0;
-        memset(null_map.data(), is_null, size);
-
-        if (!is_null) {
-            for (size_t i = 0; i < size; i++) {
-                if (a[i] <= 0 || std::fabs(a[i] - 1.0) < EPSILON) {
-                    null_map[i] = 1;
-                } else {
-                    c[i] = static_cast<Float64>(std::log(static_cast<Float64>(b)) /
-                                                std::log(static_cast<Float64>(a[i])));
-                }
-            }
-        }
-    }
-
-    template <typename Result>
-    static inline Result apply(A a, B b, UInt8& is_null) {
-        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
-        return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
-                                    std::log(static_cast<Float64>(a)));
-    }
-};
-using FunctionLog = FunctionBinaryArithmetic<LogImpl, LogName, true>;
-
-struct CeilName {
-    static constexpr auto name = "ceil";
-};
-using FunctionCeil = FunctionMathUnary<UnaryFunctionVectorized<CeilName, std::ceil, DataTypeInt64>>;
+using FunctionExp = FunctionMathUnary<UnaryFunctionPlain<ExpName, std::exp>>;
 
 template <typename A>
 struct SignImpl {
-    using ResultType = Int8;
-    static inline ResultType apply(A a) {
-        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
-            return static_cast<ResultType>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
-        else if constexpr (std::is_signed_v<A>)
-            return static_cast<ResultType>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        else if constexpr (std::is_unsigned_v<A>)
-            return static_cast<ResultType>(a == 0 ? 0 : 1);
+    static constexpr PrimitiveType ResultType = TYPE_TINYINT;
+    static inline UInt8 apply(A a) {
+        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>) {
+            return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
+        } else if constexpr (IsSignedV<A>) {
+            return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
+        } else {
+            static_assert(std::is_same_v<A, void>, "Unsupported type in SignImpl");
+        }
     }
 };
 
 struct NameSign {
     static constexpr auto name = "sign";
 };
-using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign, false>;
+using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign>;
 
 template <typename A>
 struct AbsImpl {
-    using ResultType =
-            std::conditional_t<IsDecimalNumber<A>, A, typename NumberTraits::ResultOfAbs<A>::Type>;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
 
-    static inline ResultType apply(A a) {
-        if constexpr (IsDecimalNumber<A>)
-            return a < 0 ? A(-a) : a;
-        else if constexpr (std::is_integral_v<A> && std::is_signed_v<A>)
-            return a < 0 ? static_cast<ResultType>(~a) + 1 : a;
-        else if constexpr (std::is_integral_v<A> && std::is_unsigned_v<A>)
-            return static_cast<ResultType>(a);
-        else if constexpr (std::is_floating_point_v<A>)
-            return static_cast<ResultType>(std::abs(a));
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        if constexpr (IsDecimalNumber<A>) {
+            return a < A(0) ? A(-a) : a;
+        } else if constexpr (IsIntegralV<A>) {
+            return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                                      ~a) +
+                                      1
+                            : a;
+        } else if constexpr (std::is_floating_point_v<A>) {
+            return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
+                    std::abs(a));
+        } else {
+            static_assert(std::is_same_v<A, void>, "Unsupported type in AbsImpl");
+        }
     }
 };
 
@@ -228,61 +230,171 @@ struct NameAbs {
     static constexpr auto name = "abs";
 };
 
-using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs, false>;
+template <typename A>
+struct ResultOfUnaryFunc;
+
+template <>
+struct ResultOfUnaryFunc<UInt8> {
+    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int8> {
+    static constexpr PrimitiveType ResultType = TYPE_TINYINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int16> {
+    static constexpr PrimitiveType ResultType = TYPE_SMALLINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int32> {
+    static constexpr PrimitiveType ResultType = TYPE_INT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int64> {
+    static constexpr PrimitiveType ResultType = TYPE_BIGINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Int128> {
+    static constexpr PrimitiveType ResultType = TYPE_LARGEINT;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal32> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL32;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal64> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL64;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal128V3> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL128I;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal128V2> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMALV2;
+};
+
+template <>
+struct ResultOfUnaryFunc<Decimal256> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMAL256;
+};
+
+template <>
+struct ResultOfUnaryFunc<float> {
+    static constexpr PrimitiveType ResultType = TYPE_FLOAT;
+};
+
+template <>
+struct ResultOfUnaryFunc<double> {
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+};
+
+using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs>;
 
 template <typename A>
 struct NegativeImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) { return -a; }
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType
+    apply(A a) {
+        return -a;
+    }
 };
 
 struct NameNegative {
     static constexpr auto name = "negative";
 };
 
-using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative, false>;
+using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative>;
 
 template <typename A>
 struct PositiveImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) { return static_cast<ResultType>(a); }
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    }
 };
 
 struct NamePositive {
     static constexpr auto name = "positive";
 };
 
-using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive, false>;
+using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
 struct SinName {
     static constexpr auto name = "sin";
 };
-using FunctionSin = FunctionMathUnary<UnaryFunctionVectorized<SinName, std::sin>>;
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
+
+struct SinhName {
+    static constexpr auto name = "sinh";
+};
+using FunctionSinh = FunctionMathUnary<UnaryFunctionPlain<SinhName, std::sinh>>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_sqrt
+    static constexpr bool is_invalid_input(Float64 x) { return x < 0; }
 };
-using FunctionSqrt = FunctionMathUnary<UnaryFunctionVectorized<SqrtName, std::sqrt>>;
+using FunctionSqrt =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<SqrtName, std::sqrt>>;
+
+struct CbrtName {
+    static constexpr auto name = "cbrt";
+};
+using FunctionCbrt = FunctionMathUnary<UnaryFunctionPlain<CbrtName, std::cbrt>>;
 
 struct TanName {
     static constexpr auto name = "tan";
 };
-using FunctionTan = FunctionMathUnary<UnaryFunctionVectorized<TanName, std::tan>>;
+using FunctionTan = FunctionMathUnary<UnaryFunctionPlain<TanName, std::tan>>;
 
-struct FloorName {
-    static constexpr auto name = "floor";
+struct TanhName {
+    static constexpr auto name = "tanh";
 };
-using FunctionFloor =
-        FunctionMathUnary<UnaryFunctionVectorized<FloorName, std::floor, DataTypeInt64>>;
+using FunctionTanh = FunctionMathUnary<UnaryFunctionPlain<TanhName, std::tanh>>;
+
+struct CotName {
+    static constexpr auto name = "cot";
+};
+double cot(double x) {
+    return 1.0 / std::tan(x);
+}
+using FunctionCot = FunctionMathUnary<UnaryFunctionPlain<CotName, cot>>;
+
+struct SecName {
+    static constexpr auto name = "sec";
+};
+double sec(double x) {
+    return 1.0 / std::cos(x);
+}
+using FunctionSec = FunctionMathUnary<UnaryFunctionPlain<SecName, sec>>;
+
+struct CscName {
+    static constexpr auto name = "csc";
+};
+double csc(double x) {
+    return 1.0 / std::sin(x);
+}
+using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CscName, csc>>;
 
 template <typename A>
 struct RadiansImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) {
-        return static_cast<ResultType>(a * PiImpl::value / 180.0);
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a / 180.0 *
+                                                                                     PiImpl::value);
     }
 };
 
@@ -290,14 +402,15 @@ struct NameRadians {
     static constexpr auto name = "radians";
 };
 
-using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians, false>;
+using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians>;
 
 template <typename A>
 struct DegreesImpl {
-    using ResultType = A;
+    static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline ResultType apply(A a) {
-        return static_cast<ResultType>(a * 180.0 / PiImpl::value);
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a * 180.0 /
+                                                                                     PiImpl::value);
     }
 };
 
@@ -305,19 +418,19 @@ struct NameDegrees {
     static constexpr auto name = "degrees";
 };
 
-using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees, false>;
+using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees>;
 
 struct NameBin {
     static constexpr auto name = "bin";
 };
 struct BinImpl {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::Int64;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BIGINT;
     using Type = Int64;
     using ReturnColumnType = ColumnString;
 
     static std::string bin_impl(Int64 value) {
-        uint64_t n = static_cast<uint64_t>(value);
+        auto n = static_cast<uint64_t>(value);
         const size_t max_bits = sizeof(uint64_t) * 8;
         char result[max_bits];
         uint32_t index = max_bits;
@@ -341,100 +454,390 @@ struct BinImpl {
 
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
-struct RoundName {
-    static constexpr auto name = "round";
-};
-
-/// round(double)-->int64
-/// key_str:roundFloat64
-template <typename Name>
-struct RoundOneImpl {
-    using Type = DataTypeInt64;
-    static constexpr auto name = RoundName::name;
-    static constexpr auto rows_per_iteration = 1;
-    static constexpr bool always_returns_float64 = false;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>()};
-    }
-
-    template <typename T, typename U>
-    static void execute(const T* src, U* dst) {
-        dst[0] = static_cast<Int64>(std::round(static_cast<Float64>(src[0])));
-    }
-};
-using FunctionRoundOne = FunctionMathUnary<RoundOneImpl<RoundName>>;
-
-template <typename A, typename B>
 struct PowImpl {
-    using ResultType = double;
-    static const constexpr bool allow_decimal = false;
-
-    template <typename type>
-    static inline double apply(A a, B b) {
-        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return std::pow((double)a, (double)b);
-    }
-};
-struct PowName {
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "pow";
+    static constexpr bool need_replace_null_data_to_default = true;
+    static constexpr bool is_nullable = false;
+    static inline double apply(double a, double b) { return std::pow(a, b); }
 };
-using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
-
-template <typename A, typename B>
-struct TruncateImpl {
-    using ResultType = double;
-    static const constexpr bool allow_decimal = false;
-
-    template <typename type>
-    static inline double apply(A a, B b) {
-        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Float64>(
-                my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, true));
+struct LogImpl {
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
+    static constexpr auto name = "log";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = true;
+    static constexpr double EPSILON = 1e-9;
+    static inline double apply(double a, double b, UInt8& is_null) {
+        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
+        return std::log(b) / std::log(a);
     }
 };
-struct TruncateName {
-    static constexpr auto name = "truncate";
+struct Atan2Impl {
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
+    static constexpr auto name = "atan2";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
+    static inline double apply(double a, double b) { return std::atan2(a, b); }
 };
-using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName, false>;
 
-/// round(double,int32)-->double
-/// key_str:roundFloat64Int32
-template <typename A, typename B>
-struct RoundTwoImpl {
-    using ResultType = double;
-    static const constexpr bool allow_decimal = false;
+template <typename Impl>
+class FunctionMathBinary : public IFunction {
+public:
+    using cpp_type = typename PrimitiveTypeTraits<Impl::type>::CppType;
+    using column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
+
+    static constexpr auto name = Impl::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Impl>()))>;
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionMathBinary<Impl>>(); }
+
+    bool is_variadic() const override { return has_variadic_argument; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) {
+            return Impl::get_variadic_argument_types();
+        }
+        return {};
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto res = std::make_shared<DataTypeNumber<Impl::type>>();
+        return Impl::is_nullable ? make_nullable(res) : res;
+    }
+    bool need_replace_null_data_to_default() const override {
+        return Impl::need_replace_null_data_to_default;
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& column_left = block.get_by_position(arguments[0]).column;
+        auto& column_right = block.get_by_position(arguments[1]).column;
+        bool is_const_left = is_column_const(*column_left);
+        bool is_const_right = is_column_const(*column_right);
+
+        ColumnPtr column_result = nullptr;
+
+        DCHECK(!(is_const_left && is_const_right)) << "both of column can not be const";
+        if (is_const_left) {
+            column_result = constant_vector(column_left, column_right);
+        } else if (is_const_right) {
+            column_result = vector_constant(column_left, column_right);
+        } else {
+            column_result = vector_vector(column_left, column_right);
+        }
+        block.replace_by_position(result, std::move(column_result));
+
+        return Status::OK();
+    }
+
+private:
+    ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left.get());
+        auto column_result = column_type::create(column_left->size());
+
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_left->size(), 0);
+            auto& a = column_left_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>(), n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& a = column_left_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>());
+            }
+            return column_result;
+        }
+    }
+
+    ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+
+        const auto* column_right_ptr = assert_cast<const column_type*>(column_right.get());
+        auto column_result = column_type::create(column_right->size());
+
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_right->size(), 0);
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i], n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = b.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i]);
+            }
+            return column_result;
+        }
+    }
+
+    ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left->get_ptr().get());
+        const auto* column_right_ptr =
+                assert_cast<const column_type*>(column_right->get_ptr().get());
+
+        auto column_result = column_type::create(column_left->size());
+
+        if constexpr (Impl::is_nullable) {
+            auto null_map = ColumnUInt8::create(column_result->size(), 0);
+            auto& a = column_left_ptr->get_data();
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            auto& n = null_map->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b[i], n[i]);
+            }
+            return ColumnNullable::create(std::move(column_result), std::move(null_map));
+        } else {
+            auto& a = column_left_ptr->get_data();
+            auto& b = column_right_ptr->get_data();
+            auto& c = column_result->get_data();
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b[i]);
+            }
+            return column_result;
+        }
+    }
+};
+
+class FunctionNormalCdf : public IFunction {
+public:
+    static constexpr auto name = "normal_cdf";
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionNormalCdf>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>(),
+                std::make_shared<DataTypeFloat64>()};
+    }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto result_column = ColumnFloat64::create(input_rows_count);
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+
+        auto& result_data = result_column->get_data();
+        NullMap& result_null_map =
+                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data();
+
+        ColumnPtr argument_columns[3];
+        bool col_const[3];
+        size_t argument_size = arguments.size();
+        for (int i = 0; i < argument_size; ++i) {
+            argument_columns[i] = block.get_by_position(arguments[i]).column;
+            col_const[i] = is_column_const(*argument_columns[i]);
+            if (col_const[i]) {
+                argument_columns[i] =
+                        static_cast<const ColumnConst&>(*argument_columns[i]).get_data_column_ptr();
+            }
+        }
+
+        const auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        const auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        const auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
+
+        result_column->reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            double mean = mean_col->get_element(index_check_const(i, col_const[0]));
+            double sd = sd_col->get_element(index_check_const(i, col_const[1]));
+            double v = value_col->get_element(index_check_const(i, col_const[2]));
+
+            if (!check_argument(sd)) [[unlikely]] {
+                result_null_map[i] = true;
+                continue;
+            }
+            result_data[i] = calculate_cell(mean, sd, v);
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
+        return Status::OK();
+    }
+
+    static bool check_argument(double sd) { return sd > 0; }
+    static double calculate_cell(double mean, double sd, double v) {
+#ifdef __APPLE__
+        const double sqrt2 = std::sqrt(2);
+#else
+        constexpr double sqrt2 = std::numbers::sqrt2;
+#endif
+
+        return 0.5 * (std::erf((v - mean) / (sd * sqrt2)) + 1);
+    }
+};
+
+template <typename A>
+struct SignBitImpl {
+    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
+
+    static inline bool apply(A a) { return std::signbit(static_cast<Float64>(a)); }
+};
+
+struct NameSignBit {
+    static constexpr auto name = "signbit";
+};
+
+using FunctionSignBit = FunctionUnaryArithmetic<SignBitImpl, NameSignBit>;
+
+double EvenImpl(double a) {
+    double mag = std::abs(a);
+    double even_mag = 2 * std::ceil(mag / 2);
+    return std::copysign(even_mag, a);
+}
+
+struct NameEven {
+    static constexpr auto name = "even";
+};
+
+using FunctionEven = FunctionMathUnary<UnaryFunctionPlain<NameEven, EvenImpl>>;
+
+template <PrimitiveType A>
+struct GcdImpl {
+    using cpp_type = typename PrimitiveTypeTraits<A>::CppType;
+
+    static constexpr PrimitiveType type = A;
+    static constexpr auto name = "gcd";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>(),
-                std::make_shared<vectorized::DataTypeInt32>()};
+        using datatype = typename PrimitiveTypeTraits<A>::DataType;
+        return {std::make_shared<datatype>(), std::make_shared<datatype>()};
     }
 
-    template <typename type>
-    static inline double apply(A a, B b) {
-        /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Float64>(
-                my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, false));
+    static inline cpp_type apply(cpp_type a, cpp_type b) {
+        return static_cast<cpp_type>(std::gcd(a, b));
     }
 };
-using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName, false>;
 
-// TODO: Now math may cause one thread compile time too long, because the function in math
-// so mush. Split it to speed up compile time in the future
+template <PrimitiveType A>
+struct LcmImpl {
+    using cpp_type = typename PrimitiveTypeTraits<A>::CppType;
+
+    static constexpr PrimitiveType type = A;
+    static constexpr auto name = "lcm";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
+
+    static DataTypes get_variadic_argument_types() {
+        using datatype = typename PrimitiveTypeTraits<A>::DataType;
+        return {std::make_shared<datatype>(), std::make_shared<datatype>()};
+    }
+
+    static inline cpp_type apply(cpp_type a, cpp_type b) {
+        return static_cast<cpp_type>(std::lcm(a, b));
+    }
+};
+
+enum class FloatPointNumberJudgmentType {
+    IsNan = 0,
+    IsInf,
+};
+
+struct ImplIsNan {
+    static constexpr auto name = "isnan";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsNan;
+};
+
+struct ImplIsInf {
+    static constexpr auto name = "isinf";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsInf;
+};
+
+template <typename Impl>
+class FunctionFloatingPointNumberJudgment : public IFunction {
+public:
+    using IFunction::execute;
+
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionFloatingPointNumberJudgment>(); }
+
+private:
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeBool>();
+    }
+
+    void execute_impl_with_type(const auto* input_column,
+                                DataTypeBool::ColumnType::Container& output, size_t size) const {
+        for (int i = 0; i < size; i++) {
+            auto value = input_column->get_element(i);
+            if constexpr (Impl::type == FloatPointNumberJudgmentType::IsNan) {
+                output[i] = std::isnan(value);
+            } else if constexpr (Impl::type == FloatPointNumberJudgmentType::IsInf) {
+                output[i] = std::isinf(value);
+            }
+        }
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst = DataTypeBool::ColumnType::create();
+        auto& dst_data = dst->get_data();
+        dst_data.resize(input_rows_count);
+        const auto* column = block.get_by_position(arguments[0]).column.get();
+        if (const auto* col_f64 = check_and_get_column<ColumnFloat64>(column)) {
+            execute_impl_with_type(col_f64, dst_data, input_rows_count);
+        } else if (const auto* col_f32 = check_and_get_column<ColumnFloat32>(column)) {
+            execute_impl_with_type(col_f32, dst_data, input_rows_count);
+        } else {
+            return Status::InvalidArgument("Unsupported column type  {} for function {}",
+                                           column->get_name(), get_name());
+        }
+        block.replace_by_position(result, std::move(dst));
+        return Status::OK();
+    }
+};
+
+using FunctionIsNan = FunctionFloatingPointNumberJudgment<ImplIsNan>;
+using FunctionIsInf = FunctionFloatingPointNumberJudgment<ImplIsInf>;
+
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
+    factory.register_function<FunctionAcosh>();
     factory.register_function<FunctionAsin>();
+    factory.register_function<FunctionAsinh>();
     factory.register_function<FunctionAtan>();
+    factory.register_function<FunctionAtanh>();
+    factory.register_function<FunctionMathBinary<LogImpl>>();
+    factory.register_function<FunctionMathBinary<PowImpl>>();
+    factory.register_function<FunctionMathBinary<Atan2Impl>>();
     factory.register_function<FunctionCos>();
-    factory.register_function<FunctionCeil>();
-    factory.register_alias("ceil", "dceil");
-    factory.register_alias("ceil", "ceiling");
+    factory.register_function<FunctionCosh>();
     factory.register_function<FunctionE>();
-    factory.register_function<FunctionLn>();
     factory.register_alias("ln", "dlog1");
-    factory.register_function<FunctionLog>();
-    factory.register_function<FunctionLog2>();
-    factory.register_function<FunctionLog10>();
+    factory.register_function<FunctionMathLog<ImplLn>>();
+    factory.register_function<FunctionMathLog<ImplLog2>>();
+    factory.register_function<FunctionMathLog<ImplLog10>>();
     factory.register_alias("log10", "dlog10");
     factory.register_function<FunctionPi>();
     factory.register_function<FunctionSign>();
@@ -442,22 +845,36 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNegative>();
     factory.register_function<FunctionPositive>();
     factory.register_function<FunctionSin>();
+    factory.register_function<FunctionSinh>();
     factory.register_function<FunctionSqrt>();
     factory.register_alias("sqrt", "dsqrt");
+    factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
-    factory.register_function<FunctionFloor>();
-    factory.register_alias("floor", "dfloor");
-    factory.register_function<FunctionRoundOne>();
-    factory.register_function<FunctionRoundTwo>();
-    factory.register_function<FunctionPow>();
+    factory.register_function<FunctionTanh>();
+    factory.register_function<FunctionCot>();
+    factory.register_function<FunctionSec>();
+    factory.register_function<FunctionCosec>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");
     factory.register_alias("pow", "fpow");
     factory.register_function<FunctionExp>();
     factory.register_alias("exp", "dexp");
-    factory.register_function<FunctionTruncate>();
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
+    factory.register_function<FunctionNormalCdf>();
+    factory.register_function<FunctionSignBit>();
+    factory.register_function<FunctionEven>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_TINYINT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_INT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_LARGEINT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_INT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_LARGEINT>>>();
+    factory.register_function<FunctionIsNan>();
+    factory.register_function<FunctionIsInf>();
 }
 } // namespace doris::vectorized

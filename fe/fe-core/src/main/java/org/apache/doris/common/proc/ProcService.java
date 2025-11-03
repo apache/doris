@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -35,17 +35,16 @@ public final class ProcService {
 
     private ProcService() {
         root = new BaseProcDir();
-        root.register("auth", new AuthProcDir(Catalog.getCurrentCatalog().getAuth()));
-        root.register("backends", new BackendsProcDir(Catalog.getCurrentSystemInfo()));
-        root.register("catalogs", new CatalogsProcDir(Catalog.getCurrentCatalog()));
-        root.register("dbs", new DbsProcDir(Catalog.getCurrentCatalog(), Catalog.getCurrentInternalCatalog()));
-        root.register("jobs", new JobsDbProcDir(Catalog.getCurrentCatalog()));
-        root.register("statistic", new StatisticProcNode(Catalog.getCurrentCatalog()));
+        root.register("auth", new AuthProcDir(Env.getCurrentEnv().getAuth()));
+        root.register("backends", new BackendsProcDir(Env.getCurrentSystemInfo()));
+        root.register("catalogs", new CatalogsProcDir(Env.getCurrentEnv()));
+        root.register("dbs", new DbsProcDir(Env.getCurrentEnv(), Env.getCurrentInternalCatalog()));
+        root.register("jobs", new JobsDbProcDir(Env.getCurrentEnv()));
+        root.register("statistic", new StatisticProcNode(Env.getCurrentEnv()));
         root.register("tasks", new TasksProcDir());
-        root.register("frontends", new FrontendsProcNode(Catalog.getCurrentCatalog()));
-        root.register("brokers", Catalog.getCurrentCatalog().getBrokerMgr().getProcNode());
-        root.register("resources", Catalog.getCurrentCatalog().getResourceMgr().getProcNode());
-        root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getCurrentCatalog()));
+        root.register("frontends", new FrontendsProcNode(Env.getCurrentEnv()));
+        root.register("brokers", Env.getCurrentEnv().getBrokerMgr().getProcNode());
+        root.register("resources", Env.getCurrentEnv().getResourceMgr().getProcNode());
         root.register("transactions", new TransDbProcDir());
         root.register("trash", new TrashProcDir());
         root.register("monitor", new MonitorProcDir());
@@ -58,6 +57,8 @@ public final class ProcService {
         root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
         root.register("bdbje", new BDBJEProcDir());
+        root.register("diagnose", new DiagnoseProcDir());
+        root.register("binlog", new BinlogProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node

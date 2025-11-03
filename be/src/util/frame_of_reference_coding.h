@@ -17,37 +17,49 @@
 
 #pragma once
 
-#include <cstdlib>
-#include <iostream>
-#include <limits>
+#include <stdint.h>
 
+#include <cstdlib>
+#include <vector>
+
+#include "common/cast_set.h"
 #include "olap/olap_common.h"
 #include "olap/uint24.h"
-#include "util/bit_stream_utils.h"
-#include "util/bit_stream_utils.inline.h"
 #include "util/faststring.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
-static inline uint8_t bits_less_than_64(const uint64_t v) {
-    return v == 0 ? 0 : 64 - __builtin_clzll(v);
+inline uint8_t leading_zeroes(const uint64_t v) {
+    if (v == 0) {
+        return 64;
+    }
+    return cast_set<uint8_t>(__builtin_clzll(v));
+}
+
+inline uint8_t bits_less_than_64(const uint64_t v) {
+    return 64 - leading_zeroes(v);
 }
 
 // See https://stackoverflow.com/questions/28423405/counting-the-number-of-leading-zeros-in-a-128-bit-integer
-static inline uint8_t bits_may_more_than_64(const uint128_t v) {
+inline uint8_t bits_may_more_than_64(const uint128_t v) {
+    // See https://stackoverflow.com/questions/49580083/builtin-clz-returns-incorrect-value-for-input-zero
+    if (v == 0) {
+        return 0;
+    }
     uint64_t hi = v >> 64;
-    uint64_t lo = v;
-    int z[3] = {__builtin_clzll(hi), __builtin_clzll(lo) + 64, 128};
+    auto lo = static_cast<uint64_t>(v); // Use static_cast to get low 64 bits without range check
+    int z[3] = {leading_zeroes(hi), leading_zeroes(lo) + 64, 128};
     int idx = !hi + ((!lo) & (!hi));
-    return 128 - z[idx];
+    return cast_set<uint8_t>(128 - z[idx]);
 }
 
 template <typename T>
-static inline uint8_t bits(const T v) {
+uint8_t bits(const T v) {
     if (sizeof(T) <= 8) {
-        return bits_less_than_64(v);
+        return bits_less_than_64(static_cast<uint64_t>(v));
     } else {
-        return bits_may_more_than_64(v);
+        return bits_may_more_than_64(static_cast<uint128_t>(v));
     }
 }
 
@@ -95,7 +107,10 @@ public:
 
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
-    uint32_t len() { return _buffer->size() + _storage_formats.size() + _bit_widths.size() + 5; }
+    uint32_t len() {
+        return cast_set<uint32_t>(_buffer->size() + _storage_formats.size() + _bit_widths.size() +
+                                  5);
+    }
 
     // Resets all the state in the encoder.
     void clear() {
@@ -106,6 +121,13 @@ public:
 
 private:
     void bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+
+    void bit_pack_8(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+
+    template <typename U>
+    void bit_pack_4(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
+
+    void bit_pack_1(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     void bit_packing_one_frame_value(const T* input);
 
@@ -118,7 +140,7 @@ private:
     static const uint8_t FRAME_VALUE_NUM = 128;
     T _buffered_values[FRAME_VALUE_NUM];
 
-    faststring* _buffer;
+    faststring* _buffer = nullptr;
     std::vector<uint8_t> _storage_formats;
     std::vector<uint8_t> _bit_widths;
 };
@@ -149,6 +171,9 @@ public:
 
 private:
     void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
+
+    template <typename U>
+    void bit_unpack_optimize(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
 
     uint32_t frame_size(uint32_t frame_index) {
         return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
@@ -186,4 +211,5 @@ private:
     uint32_t _current_decoded_frame = -1;
     std::vector<T> _out_buffer; // store values of decoded frame
 };
+#include "common/compile_check_end.h"
 } // namespace doris

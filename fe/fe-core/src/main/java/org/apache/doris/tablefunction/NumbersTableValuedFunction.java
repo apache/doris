@@ -17,62 +17,88 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TDataGenFunctionName;
+import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
-import org.apache.doris.thrift.TTVFScanRange;
-import org.apache.doris.thrift.TTVFunctionName;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 // Table function that generate int64 numbers
 // have a single column number
 
 /**
- * The Implement of table valued function——numbers(N,M).
+ * The Implement of table valued function——numbers("number" = "N").
  */
-public class NumbersTableValuedFunction extends TableValuedFunctionInf {
+public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
-    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
+    public static final String NUMBER = "number";
+    public static final String CONST_VALUE = "const_value";
+    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(NUMBER)
+            .add(CONST_VALUE)
+            .build();
     // The total numbers will be generated.
     private long totalNumbers;
-    // The total backends will server it.
-    private int tabletsNum;
+    private boolean useConst = false;
+    private long constValue;
 
     /**
      * Constructor.
      * @param params params from user
-     * @throws UserException exception
+     * @throws AnalysisException exception
      */
-    public NumbersTableValuedFunction(List<String> params) throws UserException {
-        if (params.size() < 1 || params.size() > 2) {
-            throw new UserException(
-                    "numbers table function only support numbers(10000 /*total numbers*/)"
-                        + "or numbers(10000, 2 /*number of tablets to run*/)");
+    public NumbersTableValuedFunction(Map<String, String> params) throws AnalysisException {
+        if (!params.containsKey(NUMBER)) {
+            throw new AnalysisException("number not set");
         }
-        totalNumbers = Long.parseLong(params.get(0));
-        // default tabletsNum is 1.
-        tabletsNum = 1;
-        if (params.size() == 2) {
-            tabletsNum = Integer.parseInt(params.get(1));
+        for (String key : params.keySet()) {
+            if (PROPERTIES_SET.contains(key)) {
+                try {
+                    switch (key) {
+                        case NUMBER:
+                            totalNumbers = Long.parseLong(params.get(key));
+                            break;
+                        case CONST_VALUE:
+                            useConst = true;
+                            constValue = Long.parseLong(params.get(key));
+                            break;
+                        default:
+                            break;
+                    }
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("cannot parse param value " + params.get(key));
+                }
+            }
         }
     }
 
+    public long getTotalNumbers() {
+        return totalNumbers;
+    }
+
+    public boolean getUseConst() {
+        return useConst;
+    }
+
+    public long getConstValue() {
+        return constValue;
+    }
+
     @Override
-    public TTVFunctionName getFuncName() {
-        return TTVFunctionName.NUMBERS;
+    public TDataGenFunctionName getDataGenFunctionName() {
+        return TDataGenFunctionName.NUMBERS;
     }
 
     @Override
@@ -90,7 +116,7 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
     @Override
     public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         List<Backend> backendList = Lists.newArrayList();
-        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (be.isAlive()) {
                 backendList.add(be);
             }
@@ -98,17 +124,16 @@ public class NumbersTableValuedFunction extends TableValuedFunctionInf {
         if (backendList.isEmpty()) {
             throw new AnalysisException("No Alive backends");
         }
+
         Collections.shuffle(backendList);
         List<TableValuedFunctionTask> res = Lists.newArrayList();
-        for (int i = 0; i < tabletsNum; ++i) {
-            TScanRange scanRange = new TScanRange();
-            TTVFScanRange tvfScanRange = new TTVFScanRange();
-            TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
-            tvfNumbersScanRange.setTotalNumbers(totalNumbers);
-            tvfScanRange.setNumbersParams(tvfNumbersScanRange);
-            scanRange.setTvfScanRange(tvfScanRange);
-            res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
-        }
+        TScanRange scanRange = new TScanRange();
+        TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
+        TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange().setTotalNumbers(totalNumbers)
+                .setUseConst(useConst).setConstValue(constValue);
+        dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
+        scanRange.setDataGenScanRange(dataGenScanRange);
+        res.add(new TableValuedFunctionTask(backendList.get(0), scanRange));
         return res;
     }
 }

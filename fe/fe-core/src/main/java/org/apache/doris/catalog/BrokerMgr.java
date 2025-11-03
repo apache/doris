@@ -29,15 +29,18 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -49,7 +52,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class BrokerMgr {
     public static final ImmutableList<String> BROKER_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IP").add("HostName").add("Port").add("Alive")
+            .add("Name").add("Host").add("Port").add("Alive")
             .add("LastStartTime").add("LastUpdateTime").add("ErrMsg")
             .build();
 
@@ -108,6 +111,21 @@ public class BrokerMgr {
         }
     }
 
+    public List<FsBroker> getBrokers(String brokerName) {
+        List<FsBroker> result = null;
+        lock.lock();
+        try {
+            List<FsBroker> brokerList = brokerListMap.get(brokerName);
+            if (brokerList == null || brokerList.isEmpty()) {
+                return null;
+            }
+            result = new ArrayList<>(brokerList);
+        } finally {
+            lock.unlock();
+        }
+        return result;
+    }
+
     public FsBroker getAnyBroker(String brokerName) {
         lock.lock();
         try {
@@ -128,14 +146,37 @@ public class BrokerMgr {
         }
     }
 
+    public FsBroker getAnyAliveBroker() {
+        lock.lock();
+        try {
+            List<FsBroker> allBrokers = new ArrayList<>();
+            for (List<FsBroker> list : brokerListMap.values()) {
+                allBrokers.addAll(list);
+            }
+
+            Collections.shuffle(allBrokers);
+            for (FsBroker fsBroker : allBrokers) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+        return null;
+    }
+
     public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+        if (brokerName == null) {
+            throw new AnalysisException("Unknown broker name(" + brokerName + ")");
+        }
         if (brokerName.equalsIgnoreCase(BrokerDesc.MULTI_LOAD_BROKER)) {
             return new FsBroker("127.0.0.1", 0);
         }
         lock.lock();
         try {
             ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(brokerName);
-            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
+            if (brokerAddsMap == null || brokerAddsMap.isEmpty()) {
                 throw new AnalysisException("Unknown broker name(" + brokerName + ")");
             }
             List<FsBroker> brokers = brokerAddsMap.get(host);
@@ -199,15 +240,16 @@ public class BrokerMgr {
                 List<FsBroker> addressList = brokerAddrsMap.get(pair.first);
                 for (FsBroker addr : addressList) {
                     if (addr.port == pair.second) {
-                        throw new DdlException("Broker(" + pair.first + ":" + pair.second
+                        throw new DdlException("Broker(" + NetUtils
+                                .getHostPortInAccessibleFormat(pair.first, pair.second)
                                 + ") has already in brokers.");
                     }
                 }
                 addedBrokerAddress.add(new FsBroker(pair.first, pair.second));
             }
-            Catalog.getCurrentCatalog().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
+            Env.getCurrentEnv().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
             for (FsBroker address : addedBrokerAddress) {
-                brokerAddrsMap.put(address.ip, address);
+                brokerAddrsMap.put(address.host, address);
             }
             brokersMap.put(name, brokerAddrsMap);
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -225,7 +267,7 @@ public class BrokerMgr {
                 brokersMap.put(name, brokerAddrsMap);
             }
             for (FsBroker address : addresses) {
-                brokerAddrsMap.put(address.ip, address);
+                brokerAddrsMap.put(address.host, address);
             }
 
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -254,12 +296,13 @@ public class BrokerMgr {
                     }
                 }
                 if (!found) {
-                    throw new DdlException("Broker(" + pair.first + ":" + pair.second + ") has not in brokers.");
+                    throw new DdlException("Broker(" + NetUtils
+                            .getHostPortInAccessibleFormat(pair.first, pair.second) + ") has not in brokers.");
                 }
             }
-            Catalog.getCurrentCatalog().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));
+            Env.getCurrentEnv().getEditLog().logDropBroker(new ModifyBrokerInfo(name, droppedAddressList));
             for (FsBroker address : droppedAddressList) {
-                brokerAddrsMap.remove(address.ip, address);
+                brokerAddrsMap.remove(address.host, address);
             }
 
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -273,7 +316,7 @@ public class BrokerMgr {
         try {
             ArrayListMultimap<String, FsBroker> brokerAddrsMap = brokersMap.get(name);
             for (FsBroker addr : addresses) {
-                brokerAddrsMap.remove(addr.ip, addr);
+                brokerAddrsMap.remove(addr.host, addr);
             }
 
             brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
@@ -288,7 +331,7 @@ public class BrokerMgr {
             if (!brokersMap.containsKey(name)) {
                 throw new DdlException("Unknown broker name(" + name + ")");
             }
-            Catalog.getCurrentCatalog().getEditLog().logDropAllBroker(name);
+            Env.getCurrentEnv().getEditLog().logDropAllBroker(name);
             brokersMap.remove(name);
             brokerListMap.remove(name);
         } finally {
@@ -343,8 +386,7 @@ public class BrokerMgr {
                     for (FsBroker broker : entry.getValue().values()) {
                         List<String> row = Lists.newArrayList();
                         row.add(brokerName);
-                        row.add(broker.ip);
-                        row.add(NetUtils.getHostnameByIp(broker.ip));
+                        row.add(broker.host);
                         row.add(String.valueOf(broker.port));
                         row.add(String.valueOf(broker.isAlive));
                         row.add(TimeUtils.longToTimeString(broker.lastStartTime));
@@ -361,7 +403,9 @@ public class BrokerMgr {
     }
 
     public static class ModifyBrokerInfo implements Writable {
+        @SerializedName(value = "n")
         public String brokerName;
+        @SerializedName(value = "a")
         public List<FsBroker> brokerAddresses;
 
         public ModifyBrokerInfo() {
@@ -374,26 +418,11 @@ public class BrokerMgr {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            Text.writeString(out, brokerName);
-            out.writeInt(brokerAddresses.size());
-            for (FsBroker address : brokerAddresses) {
-                address.write(out);
-            }
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
 
-        public void readFields(DataInput in) throws IOException {
-            brokerName = Text.readString(in);
-            int size = in.readInt();
-            brokerAddresses = Lists.newArrayList();
-            for (int i = 0; i < size; ++i) {
-                brokerAddresses.add(FsBroker.readIn(in));
-            }
-        }
-
-        public static ModifyBrokerInfo readIn(DataInput in) throws IOException {
-            ModifyBrokerInfo info = new ModifyBrokerInfo();
-            info.readFields(in);
-            return info;
+        public static ModifyBrokerInfo read(DataInput in) throws IOException {
+            return GsonUtils.GSON.fromJson(Text.readString(in), ModifyBrokerInfo.class);
         }
     }
 }

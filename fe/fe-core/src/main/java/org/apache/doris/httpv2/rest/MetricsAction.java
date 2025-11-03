@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
@@ -24,7 +25,9 @@ import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
@@ -34,26 +37,30 @@ import javax.servlet.http.HttpServletResponse;
 //fehost:port/metrics
 //fehost:port/metrics?type=core
 @RestController
-public class MetricsAction {
-
+public class MetricsAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(MetricsAction.class);
     private static final String TYPE_PARAM = "type";
 
-    @RequestMapping(path = "/metrics")
+    @GetMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
-            visitor = new SimpleCoreMetricVisitor("doris_fe");
+            visitor = new SimpleCoreMetricVisitor();
         } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
-            visitor = new JsonMetricVisitor("doris_fe");
+            visitor = new JsonMetricVisitor();
         } else {
-            visitor = new PrometheusMetricVisitor("doris_fe");
+            visitor = new PrometheusMetricVisitor();
         }
         response.setContentType("text/plain");
         try {
             response.getWriter().write(MetricRepo.getMetric(visitor));
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
 
     }

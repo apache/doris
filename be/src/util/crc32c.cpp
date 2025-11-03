@@ -18,12 +18,10 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c.cc
 
-#include "util/crc32c.h"
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
-#elif defined(__aarch64__)
-#include <sse2neon.h>
-#endif
+// IWYU pragma: no_include <crc32intrin.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "util/coding.h"
 
 namespace doris {
@@ -228,7 +226,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
     uint64_t l = crc ^ 0xffffffffu;
 
 // Align n to (1 << m) byte boundary
-#define ALIGN(n, m) ((n + ((1 << m) - 1)) & ~((1 << m) - 1))
+#define CRC_ALIGN(n, m) ((n + ((1 << m) - 1)) & ~((1 << m) - 1))
 
 #define STEP1                      \
     do {                           \
@@ -239,7 +237,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
     // Point x at first 16-byte aligned byte in string.  This might be
     // just past the end of the string.
     const uintptr_t pval = reinterpret_cast<uintptr_t>(p);
-    const uint8_t* x = reinterpret_cast<const uint8_t*>(ALIGN(pval, 4));
+    const uint8_t* x = reinterpret_cast<const uint8_t*>(CRC_ALIGN(pval, 4));
     if (x <= e) {
         // Process bytes until finished or p is 16-byte aligned
         while (p != x) {
@@ -260,7 +258,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
         STEP1;
     }
 #undef STEP1
-#undef ALIGN
+#undef CRC_ALIGN
     return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 

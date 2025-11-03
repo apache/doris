@@ -17,17 +17,19 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
@@ -35,9 +37,13 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -49,10 +55,17 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
@@ -71,18 +84,21 @@ public class RestoreJobTest {
     private long repoId = 20000;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
 
     private MockBackupHandler backupHandler;
 
     private MockRepositoryMgr repoMgr;
 
+    public RestoreJobTest() throws UserException {
+    }
+
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
-        public MockBackupHandler(Catalog catalog) {
-            super(catalog);
+        public MockBackupHandler(Env env) {
+            super(env);
         }
 
         @Override
@@ -110,41 +126,41 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+            FileSystemFactory.get(BrokerProperties.of("broker", Maps.newHashMap())));
 
     private BackupMeta backupMeta;
 
     @Before
     public void setUp() throws Exception {
         db = CatalogMocker.mockDb();
-        backupHandler = new MockBackupHandler(catalog);
+        backupHandler = new MockBackupHandler(env);
         repoMgr = new MockRepositoryMgr();
 
-        Deencapsulation.setField(catalog, "backupHandler", backupHandler);
+        Deencapsulation.setField(env, "backupHandler", backupHandler);
 
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = id.getAndIncrement();
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
@@ -153,11 +169,13 @@ public class RestoreJobTest {
         new Expectations() {
             {
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
-                        anyString, (TStorageMedium) any);
+                        Maps.newHashMap(), (TStorageMedium) any, false, true);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> selectBackendIdsForReplicaCreation(
-                            ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium medium) {
+                            ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
+                            TStorageMedium medium, boolean isStorageMediumSpecified,
+                            boolean isOnlyForCheck) {
                         List<Long> beIds = Lists.newArrayList();
                         beIds.add(CatalogMocker.BACKEND1_ID);
                         beIds.add(CatalogMocker.BACKEND2_ID);
@@ -231,7 +249,7 @@ public class RestoreJobTest {
 
                 for (Tablet tablet : index.getTablets()) {
                     List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
-                            tablet.getId() + ".idx",  tablet.getId() + ".hdr");
+                            tablet.getId() + ".idx", tablet.getId() + ".hdr");
                     BackupTabletInfo tabletInfo = new BackupTabletInfo(tablet.getId(), files);
                     idxInfo.sortedTabletInfoList.add(tabletInfo);
                 }
@@ -239,10 +257,11 @@ public class RestoreJobTest {
         }
 
         // drop this table, cause we want to try restoring this table
-        db.dropTable(expectedRestoreTbl.getName());
+        db.unregisterTable(expectedRestoreTbl.getName());
 
-        job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, catalog, repo.getId());
+        job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false, false, false,
+                env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
@@ -271,4 +290,52 @@ public class RestoreJobTest {
         System.out.println("tbl signature: " + tbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
     }
 
+    @Test
+    public void testSerialization() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("restoreJob", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        job.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        RestoreJob job2 = RestoreJob.read(in);
+
+        Assert.assertEquals(job.getJobId(), job2.getJobId());
+        Assert.assertEquals(job.getDbId(), job2.getDbId());
+        Assert.assertEquals(job.getCreateTime(), job2.getCreateTime());
+        Assert.assertEquals(job.getType(), job2.getType());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
+    }
+
+    @Test
+    public void testResetPartitionVisibleAndNextVersionForRestore() throws Exception {
+        long visibleVersion = 1234;
+        long remotePartId = 123;
+        String partName = "p20240723";
+        MaterializedIndex index = new MaterializedIndex();
+        Partition remotePart = new Partition(remotePartId, partName, index, new HashDistributionInfo());
+        remotePart.setVisibleVersionAndTime(visibleVersion, 0);
+        remotePart.setNextVersion(visibleVersion + 10);
+
+        OlapTable localTbl = new OlapTable();
+        localTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.addPartition(remotePart);
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+
+        ReplicaAllocation alloc = new ReplicaAllocation();
+        job.resetPartitionForRestore(localTbl, remoteTbl, partName, alloc);
+
+        Partition localPart = remoteTbl.getPartition(partName);
+        Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
+        Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+    }
 }

@@ -27,4 +27,6 @@ public class DistributedPlanColocateRule {
     public static final String COLOCATE_GROUP_IS_NOT_STABLE = "Colocate group is not stable";
     public static final String INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY
             = "Inconsistent distribution of table and queries";
+    public static final String NULL_AWARE_LEFT_ANTI_JOIN_MUST_BROADCAST
+            = "Build side of null aware left anti join must be broadcast";
 }

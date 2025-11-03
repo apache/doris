@@ -17,15 +17,20 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "http/http_handler.h"
-#include "olap/base_compaction.h"
-#include "olap/storage_engine.h"
+#include "http/http_handler_with_auth.h"
 #include "olap/tablet.h"
 
 namespace doris {
+class HttpRequest;
 
-enum CompactionActionType {
+class ExecEnv;
+
+enum class CompactionActionType {
     SHOW_INFO = 1,
     RUN_COMPACTION = 2,
     RUN_COMPACTION_STATUS = 3,
@@ -34,19 +39,17 @@ enum CompactionActionType {
 const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
+const std::string PARAM_COMPACTION_FULL = "full";
+const std::string PARAM_COMPACTION_REMOTE = "remote";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
-class CompactionAction : public HttpHandler {
+class CompactionAction : public HttpHandlerWithAuth {
 public:
-    CompactionAction(CompactionActionType type) : _type(type) {
-        _compaction_mem_tracker =
-                type == RUN_COMPACTION ? MemTracker::create_tracker(-1, "ManualCompaction", nullptr,
-                                                                    MemTrackerLevel::VERBOSE)
-                                       : nullptr;
-    }
+    CompactionAction(CompactionActionType ctype, ExecEnv* exec_env, StorageEngine& engine,
+                     TPrivilegeHier::type hier, TPrivilegeType::type ptype);
 
-    virtual ~CompactionAction() {}
+    ~CompactionAction() override = default;
 
     void handle(HttpRequest* req) override;
 
@@ -58,25 +61,15 @@ private:
     Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
     /// thread callback function for the tablet to do compaction
-    Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
+    Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type,
+                                        bool fethch_from_remote);
 
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
-    /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
-
-    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
-
 private:
-    CompactionActionType _type;
-
-    /// running check mutex
-    static std::mutex _compaction_running_mutex;
-    /// whether there is manual compaction running
-    static bool _is_compaction_running;
-    /// memory tracker
-    std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    StorageEngine& _engine;
+    CompactionActionType _compaction_type;
 };
 
 } // end namespace doris

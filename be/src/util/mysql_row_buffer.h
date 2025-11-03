@@ -48,15 +48,21 @@ namespace doris {
  *
  */
 using int128_t = __int128;
-class DateTimeValue;
 class DecimalV2Value;
+class IPv4Value;
+class IPv6Value;
 
+template <bool is_binary_format = false>
 class MysqlRowBuffer {
 public:
     MysqlRowBuffer();
     ~MysqlRowBuffer();
 
     void reset() { _pos = _buf; }
+
+    // Prepare for binary row buffer
+    // init bitmap
+    void start_binary_row(uint64_t num_cols);
 
     // TODO(zhaochun): add signed/unsigned support
     int push_tinyint(int8_t data);
@@ -67,15 +73,17 @@ public:
     int push_largeint(int128_t data);
     int push_float(float data);
     int push_double(double data);
-    int push_time(double data);
-    int push_datetime(const DateTimeValue& data);
+    int push_timev2(double data, int scale);
+    template <typename DateType>
+    int push_datetime(const DateType& data, int scale);
     int push_decimal(const DecimalV2Value& data, int round_scale);
+    int push_ipv4(const IPv4Value& ipv4_val);
+    int push_ipv6(const IPv6Value& ipv6_val);
     int push_string(const char* str, int64_t length);
     int push_null();
 
-    // this function reserved size, change the pos step size, return old pos
-    // Becareful when use the returned pointer.
-    char* reserved(int64_t size);
+    template <typename DateType>
+    int push_vec_datetime(DateType& data, int scale = -1);
 
     const char* buf() const { return _buf; }
     const char* pos() const { return _pos; }
@@ -118,13 +126,22 @@ public:
 private:
     int reserve(int64_t size);
 
-    char* _pos;
-    char* _buf;
+    // append data into buffer
+    int append(const char* data, int64_t len);
+    // the same as mysql net_store_data
+    // the first few bytes is length, followed by data
+    int append_var_string(const char* data, int64_t len);
+
+    char* _pos = nullptr;
+    char* _buf = nullptr;
     int64_t _buf_size;
-    char _default_buf[4096];
 
     int _dynamic_mode;
-    char* _len_pos;
+    uint64_t _len_pos;
+    uint32_t _field_pos = 0;
+    uint32_t _field_count = 0;
+
+    char _default_buf[4096];
 };
 
 } // namespace doris

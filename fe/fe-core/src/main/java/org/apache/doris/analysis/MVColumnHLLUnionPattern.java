@@ -44,13 +44,13 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             }
         } else if (fnExpr.getChild(0) instanceof FunctionCallExpr) {
             FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-            if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
+            if (!child0FnExpr.getType().equals(Type.HLL)) {
                 return false;
             }
             SlotRef slotRef = child0FnExpr.getChild(0).unwrapSlotRef();
             if (slotRef == null) {
                 return false;
-            } else if (slotRef.getType() == Type.DECIMALV2) {
+            } else if (slotRef.getType() == Type.DECIMALV2 || slotRef.getType().isDecimalV3()) {
                 return false;
             }
             return true;

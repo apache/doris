@@ -21,183 +21,44 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
-set(AGENT_TEST_FILES
-    agent/utils_test.cpp
-    # agent/agent_server_test.cpp
-    # agent/cgroups_mgr_test.cpp
-    # agent/heartbeat_server_test.cpp
-)
-set(COMMON_TEST_FILES
-    common/resource_tls_test.cpp
-    common/status_test.cpp
-    common/config_test.cpp
-)
-set(ENV_TEST_FILES
-    env/env_posix_test.cpp
-)
+file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
-set(EXEC_TEST_FILES
-    exec/hash_table_test.cpp
-    exec/olap_common_test.cpp
-    exec/json_scanner_test.cpp
-    exec/json_scanner_with_jsonpath_test.cpp
-    exec/parquet_scanner_test.cpp
-    exec/orc_scanner_test.cpp
-    exec/plain_text_line_reader_uncompressed_test.cpp
-    exec/plain_text_line_reader_gzip_test.cpp
-    exec/plain_text_line_reader_bzip_test.cpp
-    exec/plain_text_line_reader_lz4frame_test.cpp
-    exec/broker_scanner_test.cpp
-    exec/broker_scan_node_test.cpp
-    exec/tablet_info_test.cpp
-    exec/tablet_sink_test.cpp
-    exec/buffered_reader_test.cpp
-    exec/es_http_scan_node_test.cpp
-    exec/es_predicate_test.cpp
-    exec/es_query_builder_test.cpp
-    exec/es_scan_reader_test.cpp
-    exec/s3_reader_test.cpp
-    exec/multi_bytes_separator_test.cpp
-    exec/hdfs_file_reader_test.cpp
-    # exec/new_olap_scan_node_test.cpp
-    # exec/pre_aggregation_node_test.cpp
-    # exec/partitioned_hash_table_test.cpp
-    # exec/olap_scanner_test.cpp
-    # exec/olap_meta_reader_test.cpp
-    # exec/olap_scan_node_test.cpp
-    # exec/mysql_scan_node_test.cpp
-    # exec/mysql_scanner_test.cpp
-    # exec/csv_scanner_test.cpp
-    # exec/csv_scan_node_test.cpp
-    # exec/csv_scan_bench_test.cpp
-    # exec/schema_scan_node_test.cpp
-    # exec/unix_odbc_test.cpp
-    # exec/schema_scanner_test.cpp
-    # exec/set_executor_test.cpp
-    # exec/schema_scanner/schema_authors_scanner_test.cpp
-    # exec/schema_scanner/schema_columns_scanner_test.cpp
-    # exec/schema_scanner/schema_create_table_scanner_test.cpp
-    # exec/schema_scanner/schema_open_tables_scanner_test.cpp
-    # exec/schema_scanner/schema_schemata_scanner_test.cpp
-    # exec/schema_scanner/schema_table_names_scanner_test.cpp
-    # exec/schema_scanner/schema_tables_scanner_test.cpp
-    # exec/schema_scanner/schema_variables_scanner_test.cpp
-    # exec/schema_scanner/schema_engines_scanner_test.cpp
-    # exec/schema_scanner/schema_collations_scanner_test.cpp
-    # exec/schema_scanner/schema_charsets_scanner_test.cpp
-    # exec/broker_reader_test.cpp
-)
+# Remove all cpp files from vector_search subdirectory
+# Since cpp files in vector search subdirs use header files from faiss.
+# The compile check used by doris can not be applied to faiss headers.
+# So vector_search cpp files are compiled in a separate library using different compile options.
+file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS olap/vector_search/*.cpp)
+list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
 
-if(DEFINED DORIS_WITH_LZO)
-    set(EXEC_TEST_FILES ${EXEC_FILES} exec/plain_text_line_reader_lzop_test.cpp)
+if(NOT DEFINED DORIS_WITH_LZO)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
 endif()
 
-set(EXPRS_TEST_FILES
-    # exprs/binary_predicate_test.cpp
-    # exprs/in_predicate_test.cpp
-    # exprs/expr-test.cpp
-    # exprs/hybrid_set_test.cpp
-    # exprs/in-predicate-test.cpp
-    exprs/json_function_test.cpp
-    exprs/string_functions_test.cpp
-    exprs/timestamp_functions_test.cpp
-    exprs/percentile_approx_test.cpp
-    exprs/percentile_test.cpp
-    exprs/bitmap_function_test.cpp
-    exprs/hll_function_test.cpp
-    exprs/encryption_functions_test.cpp
-    exprs/math_functions_test.cpp
-    exprs/topn_function_test.cpp
-    exprs/runtime_filter_test.cpp
-    exprs/bloom_filter_predicate_test.cpp
-    exprs/array_functions_test.cpp
-    exprs/quantile_function_test.cpp
-    exprs/window_funnel_test.cpp
-)
-set(GEO_TEST_FILES
-    geo/wkt_parse_test.cpp
-    geo/geo_functions_test.cpp
-    geo/geo_types_test.cpp
-)
-set(GUTIL_TEST_FILES
-    gutil/strings/numbers_test.cpp
-)
-set(HTTP_TEST_FILES
-    http/message_body_sink_test.cpp
-    http/http_utils_test.cpp
-    http/http_client_test.cpp
-    # TODO this will overide HttpChannel and make other test failed
-    # http/stream_load_test.cpp
-    # http/metrics_action_test.cpp
-)
-set(OLAP_TEST_FILES
-    olap/engine_storage_migration_task_test.cpp
-    olap/timestamped_version_tracker_test.cpp
-    olap/tablet_schema_helper.cpp
-    olap/delta_writer_test.cpp
-    olap/delete_handler_test.cpp
-    olap/row_block_test.cpp
-    olap/row_block_v2_test.cpp
-    olap/byte_buffer_test.cpp
-    olap/lru_cache_test.cpp
-    olap/bloom_filter_test.cpp
-    olap/bloom_filter_column_predicate_test.cpp
-    olap/comparison_predicate_test.cpp
-    olap/in_list_predicate_test.cpp
-    olap/null_predicate_test.cpp
-    olap/file_helper_test.cpp
-    olap/file_utils_test.cpp
-    olap/cumulative_compaction_policy_test.cpp
-    olap/row_cursor_test.cpp
-    olap/skiplist_test.cpp
-    olap/olap_meta_test.cpp
-    olap/decimal12_test.cpp
-    olap/column_vector_test.cpp
-    olap/storage_types_test.cpp
-    olap/aggregate_func_test.cpp
-    olap/rowset/segment_v2/bitshuffle_page_test.cpp
-    olap/rowset/segment_v2/plain_page_test.cpp
-    olap/rowset/segment_v2/bitmap_index_test.cpp
-    olap/rowset/segment_v2/binary_plain_page_test.cpp
-    olap/rowset/segment_v2/binary_prefix_page_test.cpp
-    olap/rowset/segment_v2/column_reader_writer_test.cpp
-    olap/rowset/segment_v2/encoding_info_test.cpp
-    olap/rowset/segment_v2/ordinal_page_index_test.cpp
-    olap/rowset/segment_v2/rle_page_test.cpp
-    olap/rowset/segment_v2/binary_dict_page_test.cpp
-    olap/rowset/segment_v2/segment_test.cpp
-    olap/rowset/segment_v2/row_ranges_test.cpp
-    olap/rowset/segment_v2/frame_of_reference_page_test.cpp
-    olap/rowset/segment_v2/block_bloom_filter_test.cpp
-    olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
-    olap/rowset/segment_v2/zone_map_index_test.cpp
-    olap/tablet_meta_test.cpp
-    olap/tablet_meta_manager_test.cpp
-    olap/tablet_mgr_test.cpp
-    olap/tablet_test.cpp
-    # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
-    #olap/rowset/rowset_meta_manager_test.cpp
-    olap/rowset/rowset_meta_test.cpp
-    olap/rowset/beta_rowset_test.cpp
-    olap/rowset/unique_rowset_id_generator_test.cpp
-    olap/rowset/rowset_tree_test.cpp
-    # TODO yiguolei: it is using alpha rowset to test, should use beta rowset
-    #olap/txn_manager_test.cpp
-    olap/generic_iterators_test.cpp
-    olap/key_coder_test.cpp
-    olap/short_key_index_test.cpp
-    olap/page_cache_test.cpp
-    olap/hll_test.cpp
-    olap/selection_vector_test.cpp
-    olap/block_column_predicate_test.cpp
-    olap/options_test.cpp
-    olap/fs/file_block_manager_test.cpp
-    olap/common_test.cpp
-    olap/primary_key_index_test.cpp
-    # olap/memtable_flush_executor_test.cpp
-    # olap/push_handler_test.cpp
-    olap/tablet_cooldown_test.cpp
-    olap/tablet_clone_test.cpp
+if (OS_MACOSX)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/util/system_metrics_test.cpp)
+endif()
+
+list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
+
+# todo: need fix those ut
+list(REMOVE_ITEM UT_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/http/metrics_action_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_plain_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_prefix_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/bitshuffle_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/column_reader_writer_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/plain_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/rle_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/olap/remote_rowset_gc_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -361,33 +222,66 @@ set(VEC_TEST_FILES
     vec/olap/char_type_padding_test.cpp
 )
 
-add_executable(doris_be_test
-    ${AGENT_TEST_FILES}
-    ${COMMON_TEST_FILES}
-    ${ENV_TEST_FILES}
-    ${EXEC_TEST_FILES}
-    ${EXPRS_TEST_FILES}
-    ${GEO_TEST_FILES}
-    ${GUTIL_TEST_FILES}
-    ${HTTP_TEST_FILES}
-    ${OLAP_TEST_FILES}
-    ${RUNTIME_TEST_FILES}
-    ${TESTUTIL_TEST_FILES}
-    ${UDF_TEST_FILES}
-    ${UTIL_TEST_FILES}
-    ${VEC_TEST_FILES}
+message(STATUS "Disable the metrics collection for orc")
+add_compile_definitions(ENABLE_METRICS=0)
+
+list(APPEND UT_FILES
+    ${CONTRIB_PATH}/apache-orc/c++/test/MemoryInputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/MemoryOutputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestAttributes.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBlockBuffer.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBufferedOutputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBloomFilter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestByteRle.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestByteRLEEncoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnPrinter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnReader.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestCompression.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecimal.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDictionaryEncoding.cc
+    #${CONTRIB_PATH}/apache-orc/c++/test/TestDriver.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestInt128.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestMurmur3.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestPredicateLeaf.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestPredicatePushdown.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestReader.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRleDecoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRleEncoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRLEV2Util.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestSargsApplier.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestSearchArgument.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestStripeIndexStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestTimestampStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestTimezone.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestType.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestWriter.cc
 )
 
-target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
-set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
+include_directories(
+  ${CMAKE_SOURCE_DIR}/../contrib/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/apache-orc/c++/include
+)
 
-if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
-    add_executable(benchmark_tool
-    tools/benchmark_tool.cpp
-    testutil/test_util.cpp
-    olap/tablet_schema_helper.cpp
+# Removed test files are added back using separate compile arguments.
+add_subdirectory(olap/vector_search)
+
+add_executable(doris_be_test ${UT_FILES})
+
+target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+    -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
+set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h -Wno-shadow -Wno-shadow-field)
+
+if (OS_MACOSX AND ARCH_ARM)
+    find_program(DSYMUTIL NAMES dsymutil)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
+    find_program(LLVM_STRIP NAMES llvm-strip)
+    message(STATUS "llvm-strip found: ${LLVM_STRIP}")
+    add_custom_command(TARGET doris_be_test POST_BUILD
+        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+        COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
     )
-
-    target_link_libraries(benchmark_tool ${TEST_LINK_LIBS})
-    set_target_properties(benchmark_tool PROPERTIES COMPILE_FLAGS "-fno-access-control")
 endif()

@@ -20,13 +20,17 @@
 
 #pragma once
 
+#include <cstddef>
+#include <tuple>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -47,11 +51,15 @@ const Type* check_and_get_data_type(const IDataType* data_type) {
 
 template <typename Type>
 const ColumnConst* check_and_get_column_const(const IColumn* column) {
-    if (!column || !is_column_const(*column)) return {};
+    if (!column || !is_column_const(*column)) {
+        return nullptr;
+    }
 
-    const ColumnConst* res = assert_cast<const ColumnConst*>(column);
+    const auto* res = assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(column);
 
-    if (!check_column<Type>(&res->get_data_column())) return {};
+    if (!is_column<Type>(&res->get_data_column())) {
+        return nullptr;
+    }
 
     return res;
 }
@@ -60,7 +68,9 @@ template <typename Type>
 const Type* check_and_get_column_constData(const IColumn* column) {
     const ColumnConst* res = check_and_get_column_const<Type>(column);
 
-    if (!res) return {};
+    if (!res) {
+        return nullptr;
+    }
 
     return static_cast<const Type*>(&res->get_data_column());
 }
@@ -74,26 +84,31 @@ bool check_column_const(const IColumn* column) {
 const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColumn* column);
 
 /// Transform anything to Field.
-template <typename T>
-inline std::enable_if_t<!IsDecimalNumber<T>, Field> to_field(const T& x) {
-    return Field(NearestFieldType<T>(x));
+template <PrimitiveType T>
+    requires(!is_decimal(T))
+Field to_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& x) {
+    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::NearestFieldType(x));
 }
 
-template <typename T>
-inline std::enable_if_t<IsDecimalNumber<T>, Field> to_field(const T& x, UInt32 scale) {
-    return Field(NearestFieldType<T>(x, scale));
+template <PrimitiveType T>
+    requires(is_decimal(T))
+Field to_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& x, UInt32 scale) {
+    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::NearestFieldType(x, scale));
 }
 
 Columns convert_const_tuple_to_constant_elements(const ColumnConst& column);
 
-/// Returns the copy of a given block in which each column specified in
-/// the "arguments" parameter is replaced with its respective nested
-/// column if it is nullable.
-Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args);
+/// Returns the copy of a tmp block and temp args order same as args
+/// in which only args column each column specified in the "arguments"
+/// parameter is replaced with its respective nested column if it is nullable.
+std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
+                                                                  const ColumnNumbers& args,
+                                                                  const bool need_check_same);
 
-/// Similar function as above. Additionally transform the result type if needed.
-Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args,
-                                       size_t result);
+// Same as above and return the new_res loc in tuple
+std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
+                                                                          const ColumnNumbers& args,
+                                                                          uint32_t result);
 
 /// Checks argument type at specified index with predicate.
 /// throws if there is no argument at specified index or if predicate returns false.

@@ -17,30 +17,56 @@
 
 #include "olap/primary_key_index.h"
 
+#include <butil/time.h>
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <utility>
+
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "io/fs/file_writer.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/types.h"
 
 namespace doris {
 
+static bvar::Adder<size_t> g_primary_key_index_memory_bytes("doris_primary_key_index_memory_bytes");
+
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
-    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
     segment_v2::IndexedColumnWriterOptions options;
-    options.write_ordinal_index = false;
+    options.write_ordinal_index = true;
     options.write_value_index = true;
-    options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
-    // TODO(liaoxin) test to confirm whether it needs to be compressed
-    options.compression = segment_v2::NO_COMPRESSION; // currently not compressed
-    _index_builder.reset(new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
-    return _index_builder->init();
+    options.data_page_size = config::primary_key_data_page_size;
+    options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info->type(), true);
+    options.compression = segment_v2::ZSTD;
+    _primary_key_index_builder.reset(
+            new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
+    RETURN_IF_ERROR(_primary_key_index_builder->init());
+
+    auto opt = segment_v2::BloomFilterOptions();
+    opt.fpp = 0.01;
+    RETURN_IF_ERROR(segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
+            opt, type_info, &_bloom_filter_index_builder));
+    return Status::OK();
 }
 
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
-    _index_builder->add(&key);
+    RETURN_IF_ERROR(_primary_key_index_builder->add(&key));
+    Slice key_without_seq = Slice(key.get_data(), key.get_size() - _seq_col_length - _rowid_length);
+    RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(&key_without_seq, 1));
     // the key is already sorted, so the first key is min_key, and
     // the last key is max_key.
     if (UNLIKELY(_num_rows == 0)) {
         _min_key.append(key.get_data(), key.get_size());
     }
+    DCHECK(key.compare(_max_key) > 0)
+            << "found duplicate key or key is not sorted! current key: " << key
+            << ", last max key: " << _max_key;
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
     _num_rows++;
@@ -48,18 +74,60 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     return Status::OK();
 }
 
-Status PrimaryKeyIndexBuilder::finalize(segment_v2::IndexedColumnMetaPB* meta) {
+Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta) {
     // finish primary key index
-    return _index_builder->finish(meta);
+    RETURN_IF_ERROR(_primary_key_index_builder->finish(meta->mutable_primary_key_index()));
+    _disk_size += _primary_key_index_builder->disk_size();
+
+    // set min_max key, the sequence column should be removed
+    meta->set_min_key(min_key().to_string());
+    meta->set_max_key(max_key().to_string());
+
+    // finish bloom filter index
+    RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
+    uint64_t start_size = _file_writer->bytes_appended();
+    RETURN_IF_ERROR(
+            _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index()));
+    _disk_size += _file_writer->bytes_appended() - start_size;
+    _primary_key_index_builder.reset(nullptr);
+    _bloom_filter_index_builder.reset(nullptr);
+    return Status::OK();
 }
 
-Status PrimaryKeyIndexReader::parse(io::FileSystem* fs, const std::string& path,
-                                    const segment_v2::IndexedColumnMetaPB& meta) {
+Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
+                                          const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                                          OlapReaderStatistics* pk_index_load_stats) {
     // parse primary key index
-    _index_reader.reset(new segment_v2::IndexedColumnReader(fs, path, meta));
-    RETURN_IF_ERROR(_index_reader->load(_use_page_cache, _kept_in_memory));
+    _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
+    _index_reader->set_is_pk_index(true);
+    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
+                                        pk_index_load_stats));
 
-    _parsed = true;
+    _index_parsed = true;
+    return Status::OK();
+}
+
+Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
+                                       const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                                       OlapReaderStatistics* pk_index_load_stats) {
+    // parse bloom filter
+    segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
+    segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
+                                                       column_index_meta.bloom_filter_index());
+    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false,
+                                         pk_index_load_stats));
+    std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
+    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter, pk_index_load_stats));
+    RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
+    segment_v2::g_pk_total_bloom_filter_num << 1;
+    segment_v2::g_pk_total_bloom_filter_total_bytes << _bf->size();
+    segment_v2::g_pk_read_bloom_filter_num << 1;
+    segment_v2::g_pk_read_bloom_filter_total_bytes << _bf->size();
+    _bf_num += 1;
+    _bf_bytes += _bf->size();
+
+    _bf_parsed = true;
+
     return Status::OK();
 }
 

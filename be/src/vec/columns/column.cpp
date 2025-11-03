@@ -20,22 +20,23 @@
 
 #include "vec/columns/column.h"
 
-#include <sstream>
-
+#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/core/field.h"
+#include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
 std::string IColumn::dump_structure() const {
     std::stringstream res;
-    res << get_family_name() << "(size = " << size();
+    res << get_name() << "(size = " << size();
 
     ColumnCallback callback = [&](ColumnPtr& subcolumn) {
         res << ", " << subcolumn->dump_structure();
     };
 
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
     const_cast<IColumn*>(this)->for_each_subcolumn(callback);
 
     res << ")";
@@ -46,12 +47,79 @@ void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
 }
 
+void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                          IColumn::Permutation& perms, EqualRange& range, bool last_column) const {
+    sorter->sort_column(static_cast<const IColumn&>(*this), flags, perms, range, last_column);
+}
+
+void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                               int direction, std::vector<uint8_t>& cmp_res,
+                               uint8_t* __restrict filter) const {
+    auto sz = this->size();
+    DCHECK(cmp_res.size() == sz);
+    size_t begin = simd::find_zero(cmp_res, 0);
+    while (begin < sz) {
+        size_t end = simd::find_one(cmp_res, begin + 1);
+        for (size_t row_id = begin; row_id < end; row_id++) {
+            int res = this->compare_at(row_id, rhs_row_id, rhs, nan_direction_hint);
+            if (res * direction < 0) {
+                filter[row_id] = 1;
+                cmp_res[row_id] = 1;
+            } else if (res * direction > 0) {
+                cmp_res[row_id] = 1;
+            }
+        }
+        begin = simd::find_zero(cmp_res, end + 1);
+    }
+}
+
+void IColumn::serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                      const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                keys[i].size += sizeof(UInt8);
+                continue;
+            }
+            // not null
+            *dest = false;
+            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = false;
+            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
+        }
+    }
+}
+
+void IColumn::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                        PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
+}
+
 bool is_column_nullable(const IColumn& column) {
-    return check_column<ColumnNullable>(column);
+    return is_column<ColumnNullable>(column);
 }
 
 bool is_column_const(const IColumn& column) {
-    return check_column<ColumnConst>(column);
+    return is_column<ColumnConst>(column);
 }
 
 } // namespace doris::vectorized

@@ -17,19 +17,23 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
 #include <cstddef>
-#include <memory>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
+#include "olap/metadata_adder.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
@@ -77,8 +81,7 @@ private:
     uint32_t _count = 0;
 };
 
-class IndexPageIterator;
-class IndexPageReader {
+class IndexPageReader : public MetadataAdder<IndexPageReader> {
 public:
     IndexPageReader() : _parsed(false) {}
 
@@ -109,6 +112,8 @@ public:
     void reset();
 
 private:
+    int64_t get_metadata_size() const override;
+
     bool _parsed;
 
     IndexPageFooterPB _footer;
@@ -122,7 +127,7 @@ public:
 
     // Find the largest index entry whose key is <= search_key.
     // Return OK status when such entry exists.
-    // Return NotFound when no such entry is found (all keys > search_key).
+    // Return ENTRY_NOT_FOUND when no such entry is found (all keys > search_key).
     // Return other error status otherwise.
     Status seek_at_or_before(const Slice& search_key);
 
@@ -138,15 +143,21 @@ public:
         return true;
     }
 
-    const Slice& current_key() const { return _reader->get_key(_pos); }
+    // Return true when has next page.
+    bool has_next() { return (_pos + 1) < _reader->count(); }
 
-    const PagePointer& current_page_pointer() const { return _reader->get_value(_pos); }
+    const Slice& current_key() const { return _reader->get_key(cast_set<int>(_pos)); }
+
+    const PagePointer& current_page_pointer() const {
+        return _reader->get_value(cast_set<int>(_pos));
+    }
 
 private:
-    const IndexPageReader* _reader;
+    const IndexPageReader* _reader = nullptr;
 
     size_t _pos;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

@@ -17,34 +17,38 @@
 
 #pragma once
 
-#include <roaring/roaring.hh>
+#include <stdint.h>
+
+#include <memory>
+#include <utility>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_system.h"
-#include "olap/column_block.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "runtime/mem_pool.h"
+#include "olap/types.h"
+#include "util/once.h"
+
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
 
-class TypeInfo;
-
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 class BitmapIndexIterator;
-class IndexedColumnReader;
-class IndexedColumnIterator;
+class BitmapIndexPB;
 
-class BitmapIndexReader {
+class BitmapIndexReader : public MetadataAdder<BitmapIndexReader> {
 public:
-    explicit BitmapIndexReader(io::FileSystem* fs, const std::string& path,
-                               const BitmapIndexPB* bitmap_index_meta)
-            : _fs(fs),
-              _path(path),
-              _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
-              _bitmap_index_meta(bitmap_index_meta) {}
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader, const BitmapIndexPB& index_meta)
+            : _file_reader(std::move(file_reader)),
+              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()) {
+        _index_meta.reset(new BitmapIndexPB(index_meta));
+    }
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
@@ -56,15 +60,18 @@ public:
     const TypeInfo* type_info() { return _type_info; }
 
 private:
+    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<BitmapIndexPB>);
+
+private:
     friend class BitmapIndexIterator;
 
-    io::FileSystem* _fs;
-    std::string _path;
-    const TypeInfo* _type_info;
-    const BitmapIndexPB* _bitmap_index_meta;
+    io::FileReaderSPtr _file_reader;
+    const TypeInfo* _type_info = nullptr;
     bool _has_null = false;
+    DorisCallOnce<Status> _load_once;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
     std::unique_ptr<IndexedColumnReader> _bitmap_column_reader;
+    std::unique_ptr<BitmapIndexPB> _index_meta;
 };
 
 class BitmapIndexIterator {
@@ -73,8 +80,7 @@ public:
             : _reader(reader),
               _dict_column_iter(reader->_dict_column_reader.get()),
               _bitmap_column_iter(reader->_bitmap_column_reader.get()),
-              _current_rowid(0),
-              _pool(new MemPool("BitmapIndexIterator")) {}
+              _current_rowid(0) {}
 
     bool has_null_bitmap() const { return _reader->_has_null; }
 
@@ -84,7 +90,7 @@ public:
     // by `current_ordinal()`, *exact_match is set to indicate whether the
     // seeked value exactly matches `value` or not
     //
-    // Returns NotFound when no such value exists (all values in dictionary < `value`).
+    // Returns Status::Error<ENTRY_NOT_FOUND> when no such value exists (all values in dictionary < `value`).
     // Returns other error status otherwise.
     Status seek_dictionary(const void* value, bool* exact_match);
 
@@ -102,17 +108,17 @@ public:
     // Read and union all bitmaps in range [from, to) into `result`
     Status read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result);
 
-    rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
+    rowid_t bitmap_nums() const { return static_cast<rowid_t>(_reader->bitmap_nums()); }
 
     rowid_t current_ordinal() const { return _current_rowid; }
 
 private:
-    BitmapIndexReader* _reader;
+    BitmapIndexReader* _reader = nullptr;
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
-    rowid_t _current_rowid;
-    std::unique_ptr<MemPool> _pool;
+    rowid_t _current_rowid = 0;
 };
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

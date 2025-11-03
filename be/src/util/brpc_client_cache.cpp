@@ -17,15 +17,32 @@
 
 #include "util/brpc_client_cache.h"
 
-namespace doris {
+#include <gen_cpp/function_service.pb.h> // IWYU pragma: keep
+#include <gen_cpp/internal_service.pb.h> // IWYU pragma: keep
 
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
+
+namespace doris {
+#include "common/compile_check_begin.h"
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_stream_endpoint_stub_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_function_endpoint_stub_count, MetricUnit::NOUNIT);
 
 template <>
-BrpcClientCache<PBackendService_Stub>::BrpcClientCache() {
-    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
+BrpcClientCache<PBackendService_Stub>::BrpcClientCache(std::string protocol,
+                                                       std::string connection_type,
+                                                       std::string connection_group)
+        : _protocol(protocol),
+          _connection_type(connection_type),
+          _connection_group(connection_group) {
+    if (connection_group == "streaming") {
+        REGISTER_HOOK_METRIC(brpc_stream_endpoint_stub_count,
+                             [this]() { return _stub_map.size(); });
+    } else {
+        REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
+    }
 }
 
 template <>
@@ -34,7 +51,12 @@ BrpcClientCache<PBackendService_Stub>::~BrpcClientCache() {
 }
 
 template <>
-BrpcClientCache<PFunctionService_Stub>::BrpcClientCache() {
+BrpcClientCache<PFunctionService_Stub>::BrpcClientCache(std::string protocol,
+                                                        std::string connection_type,
+                                                        std::string connection_group)
+        : _protocol(protocol),
+          _connection_type(connection_type),
+          _connection_group(connection_group) {
     REGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count, [this]() { return _stub_map.size(); });
 }
 
@@ -42,4 +64,5 @@ template <>
 BrpcClientCache<PFunctionService_Stub>::~BrpcClientCache() {
     DEREGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count);
 }
+#include "common/compile_check_end.h"
 } // namespace doris

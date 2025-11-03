@@ -15,11 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-spec-builders.h>
+#include <gtest/gtest-matchers.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "exprs/mock_vexpr.h"
+#include "testutil/any_type.h"
+#include "vec/core/types.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
-#include "vec/exprs/table_function/vexplode_split.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/function/function_test_util.h"
 
 namespace doris::vectorized {
@@ -31,8 +41,8 @@ using ::testing::SetArgPointee;
 
 class TableFunctionTest : public testing::Test {
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    void SetUp() override {}
+    void TearDown() override {}
 
     void clear() {
         _ctx = nullptr;
@@ -44,21 +54,21 @@ protected:
     void init_expr_context(int child_num) {
         clear();
 
-        _root = std::make_unique<MockVExpr>();
+        _root = std::make_shared<MockVExpr>();
         for (int i = 0; i < child_num; ++i) {
             _column_ids.push_back(i);
-            _children.push_back(std::make_unique<MockVExpr>());
+            _children.push_back(std::make_shared<MockVExpr>());
             EXPECT_CALL(*_children[i], execute(_, _, _))
                     .WillRepeatedly(DoAll(SetArgPointee<2>(_column_ids[i]), Return(Status::OK())));
-            _root->add_child(_children[i].get());
+            _root->add_child(_children[i]);
         }
-        _ctx = std::make_unique<VExprContext>(_root.get());
+        _ctx = std::make_shared<VExprContext>(_root);
     }
 
 private:
-    std::unique_ptr<VExprContext> _ctx;
-    std::unique_ptr<MockVExpr> _root;
-    std::vector<std::unique_ptr<MockVExpr>> _children;
+    VExprContextSPtr _ctx;
+    std::shared_ptr<MockVExpr> _root;
+    std::vector<std::shared_ptr<MockVExpr>> _children;
     std::vector<int> _column_ids;
 };
 
@@ -66,29 +76,96 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     init_expr_context(1);
     VExplodeTableFunction explode_outer;
     explode_outer.set_outer();
-    explode_outer.set_vexpr_context(_ctx.get());
+    explode_outer.set_expr_context(_ctx);
 
     // explode_outer(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
-        Array vec = {Int32(1), Int32(2), Int32(3)};
-        InputDataSet input_set = {{vec}, {Null()}, {Array()}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
+        TestArray vec = {Int32(1), Null(), Int32(2), Int32(3)};
+        InputDataSet input_set = {{AnyType {vec}}, {Null()}, {AnyType {TestArray {}}}};
 
-        InputTypeSet output_types = {TypeIndex::Int32};
-        InputDataSet output_set = {{Int32(1)}, {Int32(2)}, {Int32(3)}, {Null()}, {Null()}};
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)},
+                                   {Int32(3)}, {Null()}, {Null()}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
 
     // explode_outer(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
-        InputDataSet input_set = {{Null()}, {Array()}, {vec}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
-        InputTypeSet output_types = {TypeIndex::String};
+        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
         InputDataSet output_set = {
                 {Null()}, {Null()}, {std::string("abc")}, {std::string("")}, {std::string("def")}};
+
+        check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
+    }
+
+    // explode_outer(Array<Decimal>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
+        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_DECIMALV2};
+        InputDataSet output_set = {{Null()},
+                                   {Null()},
+                                   {ut_type::DECIMALV2(17014116.67)},
+                                   {ut_type::DECIMALV2(-17014116.67)}};
+
+        check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
+    }
+}
+
+TEST_F(TableFunctionTest, vexplode_outer_v2) {
+    init_expr_context(1);
+    VExplodeV2TableFunction explode_outer;
+    explode_outer.set_outer();
+    explode_outer.set_expr_context(_ctx);
+
+    // explode_outer(Array<Int32>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
+        TestArray vec = {Int32(1), Null(), Int32(2), Int32(3)};
+        InputDataSet input_set = {{AnyType {vec}}, {Null()}, {AnyType {TestArray {}}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
+
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)},
+                                   {Int32(3)}, {Null()}, {Null()}};
+
+        check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
+    }
+
+    // explode_outer(Array<String>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
+
+        InputDataSet output_set = {
+                {Null()}, {Null()}, {std::string("abc")}, {std::string("")}, {std::string("def")}};
+
+        check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
+    }
+
+    // // explode_outer(Array<Decimal>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
+        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_DECIMALV2};
+
+        InputDataSet output_set = {{Null()},
+                                   {Null()},
+                                   {ut_type::DECIMALV2(17014116.67)},
+                                   {ut_type::DECIMALV2(-17014116.67)}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -97,69 +174,157 @@ TEST_F(TableFunctionTest, vexplode_outer) {
 TEST_F(TableFunctionTest, vexplode) {
     init_expr_context(1);
     VExplodeTableFunction explode;
-    explode.set_vexpr_context(_ctx.get());
+    explode.set_expr_context(_ctx);
 
     // explode(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
-        Array vec = {Int32(1), Int32(2), Int32(3)};
-        InputDataSet input_set = {{vec}, {Null()}, {Array()}};
+        TestArray vec = {Int32(1), Null(), Int32(2), Int32(3)};
+        InputDataSet input_set = {{AnyType {vec}}, {Null()}, {AnyType {TestArray {}}}};
 
-        InputTypeSet output_types = {TypeIndex::Int32};
-        InputDataSet output_set = {{Int32(1)}, {Int32(2)}, {Int32(3)}};
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)}, {Int32(3)}};
 
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
 
     // explode(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
-        InputDataSet input_set = {{Null()}, {Array()}, {vec}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
-        InputTypeSet output_types = {TypeIndex::String};
+        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
         InputDataSet output_set = {{std::string("abc")}, {std::string("")}, {std::string("def")}};
 
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+    }
+
+    // explode(Array<Date>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE};
+        TestArray vec = {Null(), std::string("2022-01-02")};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_DATE};
+        InputDataSet output_set = {{Null()}, {std::string("2022-01-02")}};
+
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+    }
+}
+
+TEST_F(TableFunctionTest, vexplode_v2) {
+    init_expr_context(1);
+    VExplodeV2TableFunction explode;
+    explode.set_expr_context(_ctx);
+
+    // explode(Array<Int32>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
+
+        TestArray vec = {Int32(1), Null(), Int32(2), Int32(3)};
+        InputDataSet input_set = {{AnyType {vec}}, {Null()}, {AnyType {TestArray {}}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)}, {Int32(3)}};
+
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+    }
+
+    // explode(Array<String>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
+
+        InputDataSet output_set = {{std::string("abc")}, {std::string("")}, {std::string("def")}};
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+    }
+
+    // explode(Array<Date>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE};
+        TestArray vec = {Null(), std::string("2022-01-02")};
+        InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_DATE};
+
+        InputDataSet output_set = {{Null()}, {std::string("2022-01-02")}};
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+    }
+}
+
+TEST_F(TableFunctionTest, vexplode_v2_two_param) {
+    init_expr_context(2);
+    VExplodeV2TableFunction explode;
+    explode.set_expr_context(_ctx);
+    // explode(Array<String>, Array<String>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("one"), std::string("two"), std::string("three")};
+        TestArray vec1 = {std::string("1"), std::string("2"), std::string("3")};
+        InputDataSet input_set = {{vec, vec1}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_VARCHAR,
+                                     PrimitiveType::TYPE_VARCHAR};
+
+        InputDataSet output_set = {{{TestArray {std::string("one"), std::string("1")}}},
+                                   {{TestArray {std::string("two"), std::string("2")}}},
+                                   {{TestArray {std::string("three"), std::string("3")}}}};
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, true);
+    }
+
+    // explode(null, Array<String>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("one"), std::string("two"), std::string("three")};
+        InputDataSet input_set = {{Null(), vec}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_VARCHAR,
+                                     PrimitiveType::TYPE_VARCHAR};
+
+        InputDataSet output_set = {{{TestArray {Null(), std::string("one")}}},
+                                   {{TestArray {Null(), std::string("two")}}},
+                                   {{TestArray {Null(), std::string("three")}}}};
+
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, true);
+    }
+
+    // explode(Array<Null>, Array<String>)
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
+        TestArray vec = {std::string("one"), std::string("two"), std::string("three")};
+        TestArray vec1 = {std::string("1"), Null(), std::string("3")};
+        InputDataSet input_set = {{vec, vec1}};
+
+        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_VARCHAR,
+                                     PrimitiveType::TYPE_VARCHAR};
+
+        InputDataSet output_set = {{{TestArray {std::string("one"), std::string("1")}}},
+                                   {{TestArray {std::string("two"), Null()}}},
+                                   {{TestArray {std::string("three"), std::string("3")}}}};
+
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, true);
     }
 }
 
 TEST_F(TableFunctionTest, vexplode_numbers) {
     init_expr_context(1);
     VExplodeNumbersTableFunction tfn;
-    tfn.set_vexpr_context(_ctx.get());
+    tfn.set_expr_context(_ctx);
 
     {
-        InputTypeSet input_types = {TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
         InputDataSet input_set = {{Int32(2)}, {Int32(3)}, {Null()}, {Int32(0)}, {Int32(-2)}};
 
-        InputTypeSet output_types = {TypeIndex::Int32};
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
         InputDataSet output_set = {{Int32(0)}, {Int32(1)}, {Int32(0)}, {Int32(1)}, {Int32(2)}};
-
-        check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
-    }
-}
-
-TEST_F(TableFunctionTest, vexplode_split) {
-    init_expr_context(2);
-    VExplodeSplitTableFunction tfn;
-    tfn.set_vexpr_context(_ctx.get());
-
-    {
-        // Case 1: explode_split(null) --- null
-        // Case 2: explode_split("a,b,c", ",") --> ["a", "b", "c"]
-        // Case 3: explode_split("a,b,c", "a,")) --> ["", "b,c"]
-        // Case 4: explode_split("", ",")) --> [""]
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-        InputDataSet input_set = {{Null(), Null()},
-                                  {std::string("a,b,c"), std::string(",")},
-                                  {std::string("a,b,c"), std::string("a,")},
-                                  {std::string(""), std::string(",")}};
-
-        InputTypeSet output_types = {TypeIndex::String};
-        InputDataSet output_set = {{std::string("a")}, {std::string("b")},   {std::string("c")},
-                                   {std::string("")},  {std::string("b,c")}, {std::string("")}};
 
         check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
     }

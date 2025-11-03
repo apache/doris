@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog;
@@ -40,7 +40,7 @@ public class BackendsProcDirTest {
     @Mocked
     private TabletInvertedIndex tabletInvertedIndex;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
 
@@ -62,15 +62,15 @@ public class BackendsProcDirTest {
                 editLog.logBackendStateChange((Backend) any);
                 minTimes = 0;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 10000L;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                catalog.clear();
+                env.clear();
                 minTimes = 0;
 
                 systemInfoService.getBackend(1000);
@@ -91,21 +91,21 @@ public class BackendsProcDirTest {
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = tabletInvertedIndex;
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }

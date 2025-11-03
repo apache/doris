@@ -22,24 +22,19 @@
 
 #include <atomic>
 #include <functional>
-#include <iomanip>
+#include <map>
+#include <memory>
 #include <mutex>
-#include <ostream>
-#include <set>
-#include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include "common/config.h"
-#include "util/core_local.h"
 #include "util/histogram.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
 namespace rj = RAPIDJSON_NAMESPACE;
-
-class MetricRegistry;
 
 enum class MetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
 
@@ -68,8 +63,8 @@ using Labels = std::unordered_map<std::string, std::string>;
 
 class Metric {
 public:
-    Metric() {}
-    virtual ~Metric() {}
+    Metric() = default;
+    virtual ~Metric() = default;
     virtual std::string to_string() const = 0;
     virtual std::string to_prometheus(const std::string& display_name, const Labels& entity_labels,
                                       const Labels& metric_labels) const;
@@ -84,7 +79,7 @@ template <typename T>
 class AtomicMetric : public Metric {
 public:
     AtomicMetric() : _value(T()) {}
-    virtual ~AtomicMetric() {}
+    virtual ~AtomicMetric() = default;
 
     std::string to_string() const override { return std::to_string(value()); }
 
@@ -102,81 +97,10 @@ protected:
     std::atomic<T> _value;
 };
 
-template <typename T>
-class LockSimpleMetric : public Metric {
-public:
-    LockSimpleMetric() : _value(T()) {}
-    virtual ~LockSimpleMetric() {}
-
-    std::string to_string() const override { return std::to_string(value()); }
-
-    T value() const {
-        std::lock_guard<SpinLock> l(_lock);
-        return _value;
-    }
-
-    void increment(const T& delta) {
-        std::lock_guard<SpinLock> l(this->_lock);
-        _value += delta;
-    }
-
-    void set_value(const T& value) {
-        std::lock_guard<SpinLock> l(this->_lock);
-        _value = value;
-    }
-
-    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
-        return rj::Value(value());
-    }
-
-protected:
-    // We use spinlock instead of std::atomic is because atomic don't support
-    // double's fetch_add
-    // TODO(zc): If this is atomic is bottleneck, we change to thread local.
-    // performance: on Intel(R) Xeon(R) CPU E5-2450 int64_t
-    //  original type: 2ns/op
-    //  single thread spinlock: 26ns/op
-    //  multiple thread(8) spinlock: 2500ns/op
-    mutable SpinLock _lock;
-    T _value;
-};
-
-template <typename T>
-class CoreLocalCounter : public Metric {
-public:
-    CoreLocalCounter() {}
-    virtual ~CoreLocalCounter() {}
-
-    std::string to_string() const override {
-        std::stringstream ss;
-        ss << value();
-        return ss.str();
-    }
-
-    T value() const {
-        T sum = 0;
-        for (int i = 0; i < _value.size(); ++i) {
-            sum += *_value.access_at_core(i);
-        }
-        return sum;
-    }
-
-    void increment(const T& delta) { __sync_fetch_and_add(_value.access(), delta); }
-
-    void reset() { _value.reset(); }
-
-    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
-        return rj::Value(value());
-    }
-
-protected:
-    CoreLocalValue<T> _value;
-};
-
 class HistogramMetric : public Metric {
 public:
-    HistogramMetric() {}
-    virtual ~HistogramMetric() {}
+    HistogramMetric() = default;
+    virtual ~HistogramMetric() = default;
 
     HistogramMetric(const HistogramMetric&) = delete;
     HistogramMetric& operator=(const HistogramMetric&) = delete;
@@ -202,48 +126,32 @@ public:
 
 protected:
     static std::map<std::string, double> _s_output_percentiles;
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     HistogramStat _stats;
 };
 
 template <typename T>
 class AtomicCounter : public AtomicMetric<T> {
 public:
-    AtomicCounter() {}
-    virtual ~AtomicCounter() {}
+    AtomicCounter() = default;
+    virtual ~AtomicCounter() = default;
 };
 
 template <typename T>
 class AtomicGauge : public AtomicMetric<T> {
 public:
     AtomicGauge() : AtomicMetric<T>() {}
-    virtual ~AtomicGauge() {}
+    virtual ~AtomicGauge() = default;
 };
 
-template <typename T>
-class LockCounter : public LockSimpleMetric<T> {
-public:
-    LockCounter() : LockSimpleMetric<T>() {}
-    virtual ~LockCounter() {}
-};
-
-// This can only used for trival type
-template <typename T>
-class LockGauge : public LockSimpleMetric<T> {
-public:
-    LockGauge() : LockSimpleMetric<T>() {}
-    virtual ~LockGauge() {}
-};
-
-using IntCounter = CoreLocalCounter<int64_t>;
-using IntAtomicCounter = AtomicCounter<int64_t>;
-using UIntCounter = CoreLocalCounter<uint64_t>;
-using DoubleCounter = LockCounter<double>;
+using IntCounter = AtomicCounter<int64_t>;
+using UIntCounter = AtomicCounter<uint64_t>;
+using DoubleCounter = AtomicCounter<double>;
 using IntGauge = AtomicGauge<int64_t>;
 using UIntGauge = AtomicGauge<uint64_t>;
-using DoubleGauge = LockGauge<double>;
-
+using DoubleGauge = AtomicGauge<double>;
 using Labels = std::unordered_map<std::string, std::string>;
+
 struct MetricPrototype {
 public:
     MetricPrototype(MetricType type_, MetricUnit unit_, std::string name_,
@@ -303,14 +211,11 @@ public:
 #define INT_GAUGE_METRIC_REGISTER(entity, metric) \
     metric = (IntGauge*)(entity->register_metric<IntGauge>(&METRIC_##metric))
 
-#define INT_DOUBLE_METRIC_REGISTER(entity, metric) \
+#define DOUBLE_GAUGE_METRIC_REGISTER(entity, metric) \
     metric = (DoubleGauge*)(entity->register_metric<DoubleGauge>(&METRIC_##metric))
 
 #define INT_UGAUGE_METRIC_REGISTER(entity, metric) \
     metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric))
-
-#define INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, metric) \
-    metric = (IntAtomicCounter*)(entity->register_metric<IntAtomicCounter>(&METRIC_##metric))
 
 #define HISTOGRAM_METRIC_REGISTER(entity, metric) \
     metric = (HistogramMetric*)(entity->register_metric<HistogramMetric>(&METRIC_##metric))
@@ -339,8 +244,8 @@ enum class MetricEntityType { kServer, kTablet };
 
 class MetricEntity {
 public:
-    MetricEntity(MetricEntityType type, const std::string& name, const Labels& labels)
-            : _type(type), _name(name), _labels(labels) {}
+    MetricEntity(MetricEntityType type, std::string name, Labels labels)
+            : _type(type), _name(std::move(name)), _labels(std::move(labels)) {}
     ~MetricEntity() {
         for (auto& metric : _metrics) {
             delete metric.second;
@@ -351,7 +256,7 @@ public:
 
     template <typename T>
     Metric* register_metric(const MetricPrototype* metric_type) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         auto inserted_metric = _metrics.insert(std::make_pair(metric_type, nullptr));
         if (inserted_metric.second) {
             // If not exist, make a new metric pointer
@@ -377,7 +282,7 @@ private:
     std::string _name;
     Labels _labels;
 
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     MetricMap _metrics;
     std::map<std::string, std::function<void()>> _hooks;
 };
@@ -402,7 +307,7 @@ using EntityMetricsByType =
 
 class MetricRegistry {
 public:
-    MetricRegistry(const std::string& name) : _name(name) {}
+    MetricRegistry(std::string name) : _name(std::move(name)) {}
     ~MetricRegistry();
 
     std::shared_ptr<MetricEntity> register_entity(
@@ -421,7 +326,7 @@ public:
 private:
     const std::string _name;
 
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     // MetricEntity -> register count
     std::unordered_map<std::shared_ptr<MetricEntity>, int32_t, MetricEntityHash,
                        MetricEntityEqualTo>

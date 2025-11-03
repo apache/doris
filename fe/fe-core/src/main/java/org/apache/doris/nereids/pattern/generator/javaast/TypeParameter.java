@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern.generator.javaast;
 
 import java.util.Optional;
 
-
 /** java's type. */
 public class TypeParameter implements JavaAstNode {
     public final String identifier;
@@ -32,10 +31,7 @@ public class TypeParameter implements JavaAstNode {
 
     @Override
     public String toString() {
-        if (typeBound.isPresent()) {
-            return identifier + " extends " + typeBound.get();
-        } else {
-            return identifier;
-        }
+        return typeBound.map(bound -> identifier + " extends " + bound)
+                .orElse(identifier);
     }
 }

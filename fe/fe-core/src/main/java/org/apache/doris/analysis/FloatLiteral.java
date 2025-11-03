@@ -18,22 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.FormatOptions;
+import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFloatLiteral;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.math.BigDecimal;
+import com.google.gson.annotations.SerializedName;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.text.NumberFormat;
 
-public class FloatLiteral extends LiteralExpr {
+public class FloatLiteral extends NumericLiteralExpr {
+    @SerializedName("v")
     private double value;
 
     public FloatLiteral() {
@@ -115,8 +117,14 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
         }
         return Double.compare(value, expr.getDoubleValue());
     }
@@ -127,28 +135,57 @@ public class FloatLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
+    }
+
+    @Override
     public String getStringValue() {
         // TODO: Here is weird use float to represent TIME type
         // rethink whether it is reasonable to use this way
-        if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
+        if (type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
-        return Double.toString(value);
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setGroupingUsed(false);
+        if (type == Type.FLOAT) {
+            nf.setMaximumFractionDigits(7);
+        } else {
+            nf.setMaximumFractionDigits(16);
+        }
+        return nf.format(value);
     }
 
-    public static Type getDefaultTimeType(Type type) throws AnalysisException {
-        switch (type.getPrimitiveType()) {
-            case TIME:
-                if (Config.use_date_v2_by_default) {
-                    return Type.TIMEV2;
-                } else {
-                    return Type.TIME;
+    @Override
+    public String getStringValueForQuery(FormatOptions options) {
+        if (type == Type.TIMEV2) {
+            // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
+            // for example '11:22:33' -> 11:22:33
+            String timeStr = getStringValue();
+            return timeStr.substring(1, timeStr.length() - 1);
+        } else {
+            if (type == Type.FLOAT) {
+                Float fValue = (float) value;
+                if (fValue.equals(Float.POSITIVE_INFINITY)) {
+                    value = Double.POSITIVE_INFINITY;
                 }
-            case TIMEV2:
-                return type;
-            default:
-                throw new AnalysisException("Invalid time type: " + type);
+                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
+                    value = Double.NEGATIVE_INFINITY;
+                }
+            }
+            return FractionalFormat.getFormatStringValue(value, type == Type.DOUBLE ? 16 : 7,
+                    type == Type.DOUBLE ? "%.15E" : "%.6E");
         }
+    }
+
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        String ret = this.getStringValueForQuery(options);
+        if (type == Type.TIMEV2) {
+            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
+        }
+        return ret;
     }
 
     @Override
@@ -169,48 +206,6 @@ public class FloatLiteral extends LiteralExpr {
 
     public double getValue() {
         return value;
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2())) {
-            return super.uncheckedCastTo(targetType);
-        }
-        if (targetType.isFloatingPointType()) {
-            if (!type.equals(targetType)) {
-                FloatLiteral floatLiteral = new FloatLiteral(this);
-                floatLiteral.setType(targetType);
-                return floatLiteral;
-            }
-            return this;
-        } else if (targetType.isDecimalV2()) {
-            // the double constructor does an exact translation, use valueOf() instead.
-            return new DecimalLiteral(BigDecimal.valueOf(value));
-        }
-        return this;
-    }
-
-    @Override
-    public void swapSign() throws NotImplementedException {
-        // swapping sign does not change the type
-        value = -value;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeDouble(value);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = in.readDouble();
-    }
-
-    public static FloatLiteral read(DataInput in) throws IOException {
-        FloatLiteral literal = new FloatLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

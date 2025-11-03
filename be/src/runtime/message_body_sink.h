@@ -17,6 +17,12 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+
 #include "common/status.h"
 #include "util/byte_buffer.h"
 
@@ -24,7 +30,7 @@ namespace doris {
 
 class MessageBodySink {
 public:
-    virtual ~MessageBodySink() {}
+    virtual ~MessageBodySink() = default;
     virtual Status append(const char* data, size_t size) = 0;
     virtual Status append(const ByteBufferPtr& buf) { return append(buf->ptr, buf->remaining()); }
     // called when all data has been append
@@ -38,14 +44,14 @@ public:
 protected:
     bool _finished = false;
     bool _cancelled = false;
-    std::string _cancelled_reason = "";
+    std::string _cancelled_reason;
 };
 
 // write message to a local file
 class MessageBodyFileSink : public MessageBodySink {
 public:
-    MessageBodyFileSink(const std::string& path) : _path(path) {}
-    virtual ~MessageBodyFileSink();
+    MessageBodyFileSink(std::string path) : _path(std::move(path)) {}
+    ~MessageBodyFileSink() override;
 
     Status open();
 

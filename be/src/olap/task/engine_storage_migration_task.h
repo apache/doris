@@ -15,61 +15,73 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
+#pragma once
 
-#include "gen_cpp/AgentService_types.h"
-#include "olap/olap_define.h"
+#include <gen_cpp/olap_file.pb.h>
+
+#include <mutex>
+#include <shared_mutex>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class DataDir;
+class StorageEngine;
 
 /// This task is used to migrate the specified tablet to the specified data directory.
 // Usually used for storage medium migration, or migration of tablets between disks.
-class EngineStorageMigrationTask : public EngineTask {
+class EngineStorageMigrationTask final : public EngineTask {
 public:
-    virtual Status execute();
+    Status execute() override;
 
-public:
-    EngineStorageMigrationTask(const TabletSharedPtr& tablet, DataDir* dest_store);
-    ~EngineStorageMigrationTask() {}
+    EngineStorageMigrationTask(StorageEngine& engine, TabletSharedPtr tablet, DataDir* dest_store);
+    ~EngineStorageMigrationTask() override;
 
 private:
     Status _migrate();
     // check if task is timeout
     bool _is_timeout();
-    Status _get_versions(int32_t start_version, int32_t* end_version,
+    Status _get_versions(int64_t start_version, int64_t* end_version,
                          std::vector<RowsetSharedPtr>* consistent_rowsets);
     Status _check_running_txns();
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration lock is transferred to the caller if check succ
-    Status _check_running_txns_until_timeout(std::unique_lock<std::shared_mutex>* migration_wlock);
+    Status _check_running_txns_until_timeout(
+            std::unique_lock<std::shared_timed_mutex>* migration_wlock);
 
     // if the size less than threshold, return true
     bool _is_rowsets_size_less_than_threshold(
             const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
-    Status _gen_and_write_header_to_hdr_file(
-            uint64_t shard, const std::string& full_path,
-            const std::vector<RowsetSharedPtr>& consistent_rowsets);
+    Status _gen_and_write_header_to_hdr_file(int32_t shard, const std::string& full_path,
+                                             const std::vector<RowsetSharedPtr>& consistent_rowsets,
+                                             int64_t end_version);
     Status _reload_tablet(const std::string& full_path);
 
-    void _generate_new_header(uint64_t new_shard,
+    void _generate_new_header(int32_t new_shard,
                               const std::vector<RowsetSharedPtr>& consistent_rowsets,
-                              TabletMetaSharedPtr new_tablet_meta);
+                              TabletMetaSharedPtr new_tablet_meta, int64_t end_version);
 
     // TODO: hkp
     // rewrite this function
     Status _copy_index_and_data_files(const std::string& full_path,
-                                      const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
+                                      const std::vector<RowsetSharedPtr>& consistent_rowsets,
+                                      RowsetBinlogMetasPB* all_binlog_metas_pb) const;
 
 private:
+    StorageEngine& _engine;
     // tablet to do migrated
     TabletSharedPtr _tablet;
     // destination data dir
-    DataDir* _dest_store;
+    DataDir* _dest_store = nullptr;
     int64_t _task_start_time;
+    std::vector<PendingRowsetGuard> _pending_rs_guards;
 }; // EngineTask
 
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H

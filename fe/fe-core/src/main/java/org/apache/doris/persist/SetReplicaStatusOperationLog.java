@@ -36,11 +36,14 @@ public class SetReplicaStatusOperationLog implements Writable {
     private long tabletId;
     @SerializedName(value = "replicaStatus")
     private ReplicaStatus replicaStatus;
+    @SerializedName(value = "userDropTime")
+    private long userDropTime;
 
-    public SetReplicaStatusOperationLog(long backendId, long tabletId, ReplicaStatus replicaStatus) {
+    public SetReplicaStatusOperationLog(long backendId, long tabletId, ReplicaStatus replicaStatus, long userDropTime) {
         this.backendId = backendId;
         this.tabletId = tabletId;
         this.replicaStatus = replicaStatus;
+        this.userDropTime = userDropTime;
     }
 
     public long getTabletId() {
@@ -53,6 +56,10 @@ public class SetReplicaStatusOperationLog implements Writable {
 
     public ReplicaStatus getReplicaStatus() {
         return replicaStatus;
+    }
+
+    public long getUserDropTime() {
+        return userDropTime;
     }
 
     public static SetReplicaStatusOperationLog read(DataInput in) throws IOException {

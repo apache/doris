@@ -1,27 +1,26 @@
 // Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements. See the NOTICE file
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
-// regarding copyright ownership. The ASF licenses this file
+// regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
-// with the License. You may obtain a copy of the License at
+// with the License.  You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied. See the License for the
+// KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
 
 package org.apache.doris.ha;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -42,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class BDBHA implements HAProtocol {
     private static final Logger LOG = LogManager.getLogger(BDBHA.class);
@@ -69,11 +69,6 @@ public class BDBHA implements HAProtocol {
     }
 
     @Override
-    public long getEpochNumber() {
-        return 0;
-    }
-
-    @Override
     public boolean fencing() {
         Database epochDb = environment.getEpochDB();
 
@@ -89,7 +84,7 @@ public class BDBHA implements HAProtocol {
                 DatabaseEntry theData = new DatabaseEntry(new byte[1]);
                 OperationStatus status = epochDb.putNoOverwrite(null, theKey, theData);
                 if (status == OperationStatus.SUCCESS) {
-                    Catalog.getCurrentCatalog().setEpoch(myEpoch);
+                    Env.getCurrentEnv().setEpoch(myEpoch);
                     return true;
                 } else if (status == OperationStatus.KEYEXIST) {
                     return false;
@@ -97,11 +92,11 @@ public class BDBHA implements HAProtocol {
                     throw new Exception(status.toString());
                 }
             } catch (Exception e) {
-                LOG.error("fencing failed. tried {} times", i, e);
+                LOG.warn("fencing failed. tried {} times", i, e);
                 try {
                     Thread.sleep(2000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("fencing sleep exception:", e1);
                 }
             }
         }
@@ -110,11 +105,12 @@ public class BDBHA implements HAProtocol {
 
     @Override
     public List<InetSocketAddress> getObserverNodes() {
+        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         if (replicationGroupAdmin == null) {
-            return null;
+            return ret;
         }
-        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
+
         try {
             ReplicationGroup replicationGroup = replicationGroupAdmin.getGroup();
             for (ReplicationNode replicationNode : replicationGroup.getSecondaryNodes()) {
@@ -129,11 +125,12 @@ public class BDBHA implements HAProtocol {
 
     @Override
     public List<InetSocketAddress> getElectableNodes(boolean leaderIncluded) {
+        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         if (replicationGroupAdmin == null) {
-            return null;
+            return ret;
         }
-        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
+
         try {
             ReplicationGroup replicationGroup = replicationGroupAdmin.getGroup();
             for (ReplicationNode replicationNode : replicationGroup.getElectableNodes()) {
@@ -163,83 +160,40 @@ public class BDBHA implements HAProtocol {
     }
 
     @Override
-    public List<InetSocketAddress> getNoneLeaderNodes() {
-        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        if (replicationGroupAdmin == null) {
-            return null;
-        }
-        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
-        try {
-            ReplicationGroup replicationGroup = replicationGroupAdmin.getGroup();
-            for (ReplicationNode replicationNode : replicationGroup.getSecondaryNodes()) {
-                ret.add(replicationNode.getSocketAddress());
-            }
-            for (ReplicationNode replicationNode : replicationGroup.getElectableNodes()) {
-                if (!replicationNode.getName().equals(replicationGroupAdmin.getMasterNodeName())) {
-                    ret.add(replicationNode.getSocketAddress());
-                }
-            }
-        } catch (UnknownMasterException e) {
-            LOG.warn("Catch UnknownMasterException when calling getNoneLeaderNodes.", e);
-            return null;
-        }
-        return ret;
-    }
-
-    @Override
-    public void transferToMaster() {
-
-    }
-
-    @Override
-    public void transferToNonMaster() {
-
-    }
-
-    @Override
-    public boolean isLeader() {
-        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        String leaderName = replicationGroupAdmin.getMasterNodeName();
-        return leaderName.equals(nodeName);
-    }
-
-    @Override
     public boolean removeElectableNode(String nodeName) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         if (replicationGroupAdmin == null) {
             return false;
         }
         try {
+            LOG.info("remove electable node: {}", nodeName);
             replicationGroupAdmin.removeMember(nodeName);
         } catch (MemberNotFoundException e) {
-            LOG.error("the deleting electable node is not found {}", nodeName, e);
+            LOG.warn("the electable node is not found {}", nodeName, e);
             return false;
-        } catch (MasterStateException e) {
-            LOG.error("the deleting electable node is master {}", nodeName, e);
-            return false;
+        } catch (Exception e) {
+            LOG.error("remove electable node {} meeting unkown exception:", nodeName, e);
+            System.exit(-1);
         }
         return true;
     }
 
-    // When new Follower FE is added to the cluster, it should also be added to the
-    // helper sockets in
-    // ReplicationGroupAdmin, in order to fix the following case:
-    // 1. A Observer starts with helper of master FE.
-    // 2. Master FE is dead, new Master is elected.
-    // 3. Observer's helper sockets only contains the info of the dead master FE.
-    // So when you try to get frontends' info from this Observer, it will throw the
-    // Exception:
-    // "Could not determine master from helpers at:[/dead master FE host:port]"
-    public void addHelperSocket(String ip, Integer port) {
+    public boolean updateNodeAddress(String nodeName, String newHostName, int port) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        Set<InetSocketAddress> helperSockets =
-                Sets.newHashSet(replicationGroupAdmin.getHelperSockets());
-        InetSocketAddress newHelperSocket = new InetSocketAddress(ip, port);
-        if (!helperSockets.contains(newHelperSocket)) {
-            helperSockets.add(newHelperSocket);
-            environment.setNewReplicationGroupAdmin(helperSockets);
-            LOG.info("add {}:{} to helper sockets", ip, port);
+        if (replicationGroupAdmin == null) {
+            return false;
         }
+        try {
+            LOG.info("update electable node {} with new host name: {}, port: {}", nodeName, newHostName, port);
+            replicationGroupAdmin.updateAddress(nodeName, newHostName, port);
+        } catch (MemberNotFoundException e) {
+            LOG.error("the updating electable node is not found {}", nodeName, e);
+            return false;
+        } catch (MasterStateException e) {
+            LOG.error("the updating electable node is master {}", nodeName, e);
+            return false;
+        }
+        return true;
     }
 
     public void removeConflictNodeIfExist(String host, int port) {
@@ -265,8 +219,11 @@ public class BDBHA implements HAProtocol {
         unReadyElectableNodes.add(nodeName);
         ReplicatedEnvironment replicatedEnvironment = environment.getReplicatedEnvironment();
         if (replicatedEnvironment != null) {
+            int override = totalFollowerCount - unReadyElectableNodes.size();
+            LOG.info("set electable group size override to {}, total follower count: {}, add unready node: {}",
+                    override, totalFollowerCount, nodeName);
             replicatedEnvironment.setRepMutableConfig(new ReplicationMutableConfig()
-                    .setElectableGroupSizeOverride(totalFollowerCount - unReadyElectableNodes.size()));
+                    .setElectableGroupSizeOverride(override));
         }
     }
 
@@ -277,11 +234,38 @@ public class BDBHA implements HAProtocol {
             if (unReadyElectableNodes.isEmpty()) {
                 // Setting ElectableGroupSizeOverride to 0 means remove this config,
                 // and bdb will use the normal electable group size.
+                LOG.info("remove electable group size override, total follower count: {}, remove unready node: {}",
+                        totalFollowerCount, nodeName);
                 replicatedEnvironment.setRepMutableConfig(
                         new ReplicationMutableConfig().setElectableGroupSizeOverride(0));
             } else {
+                int override = totalFollowerCount - unReadyElectableNodes.size();
+                LOG.info("set electable group size override to {}, total follower count: {}, remove unready node: {}",
+                        override, totalFollowerCount, nodeName);
                 replicatedEnvironment.setRepMutableConfig(new ReplicationMutableConfig()
-                        .setElectableGroupSizeOverride(totalFollowerCount - unReadyElectableNodes.size()));
+                        .setElectableGroupSizeOverride(override));
+            }
+        }
+    }
+
+    public void removeDroppedMember(ConcurrentLinkedQueue<String> removedFrontends) {
+        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
+        if (replicationGroupAdmin == null) {
+            return;
+        }
+        Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
+        LOG.debug("removedFrontends:{}", removedFrontends);
+        for (ReplicationNode replicationNode : replicationNodes) {
+            LOG.debug("node:{}", replicationNode.toString());
+            if (removedFrontends.contains(replicationNode.getName())) {
+                try {
+                    replicationGroupAdmin.removeMember(replicationNode.getName());
+                } catch (MemberNotFoundException e) {
+                    LOG.warn("the electable node is not found {}", replicationNode.getName());
+                } catch (Exception e) {
+                    LOG.error("remove electable node {} meeting unknown exception:", replicationNode.getName(), e);
+                    System.exit(-1);
+                }
             }
         }
     }

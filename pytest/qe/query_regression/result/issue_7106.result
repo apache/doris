@@ -1,0 +1,10 @@
+set sql_mode='';
+()
+show variables like 'sql_mode';
+(['sql_mode', ''],)
+set sql_mode = "STRICT_TRANS_TABLES";
+()
+show variables like 'sql_mode';
+(['sql_mode', 'STRICT_TRANS_TABLES'],)
+select @@sql_mode;
+(['STRICT_TRANS_TABLES'],)

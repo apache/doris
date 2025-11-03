@@ -17,45 +17,44 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * Add Expression.
  */
-public class Add extends Arithmetic implements BinaryExpression {
+public class Add extends BinaryArithmetic implements PropagateNullable {
+
     public Add(Expression left, Expression right) {
-        super(ArithmeticOperator.ADD, left, right);
+        super(ImmutableList.of(left, right), Operator.ADD);
     }
 
-    @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+    private Add(List<Expression> children) {
+        super(children, Operator.ADD);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Add(children.get(0), children.get(1));
+        return new Add(children);
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
+    public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
+        int targetScale = Math.max(t1.getScale(), t2.getScale());
+        int integralPart = Math.max(t1.getRange(), t2.getRange());
+        return processDecimalV3OverFlow(integralPart + 1, targetScale, integralPart);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAdd(this, context);
-    }
-
-
-    public String toString() {
-        return left().toString() + ' ' + getArithmeticOperator().toString() + ' ' + right().toString();
     }
 }

@@ -24,7 +24,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.external.elasticsearch.EsShardPartitions;
+import org.apache.doris.datasource.es.EsShardPartitions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -93,7 +93,7 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                 }
                 partitionInfo.add(joiner.join(colNames));  // partition key
                 partitionInfo.add(
-                        rangePartitionInfo.getItem(esShardPartitions.getPartitionId()).getItems().toString()); // range
+                        rangePartitionInfo.getItem(esShardPartitions.getPartitionId()).getItemsString()); // range
                 partitionInfo.add("-");  // dis
                 partitionInfo.add(esShardPartitions.getShardRoutings().size());  // shards
                 partitionInfo.add(1);  //  replica num

@@ -17,29 +17,28 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
-import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.Plans;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -47,59 +46,94 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
-public class RewriteTopDownJobTest implements Plans {
-    public static class FakeRule extends OneRewriteRuleFactory {
+public class RewriteTopDownJobTest {
+    public static class FakeRule implements RewriteRuleFactory {
         @Override
-        public Rule<Plan> build() {
-            return unboundRelation().then(unboundRelation -> plan(
-                new LogicalOlapScan(new Table(0, "test", Table.TableType.OLAP, ImmutableList.of(
-                    new Column("id", Type.INT),
-                    new Column("name", Type.STRING)
-                )), Lists.newArrayList("test"))
-            )).toRule(RuleType.BINDING_RELATION);
+        public List<Rule> buildRules() {
+            return ImmutableList.of(
+                    RuleType.BINDING_RELATION.build(
+                            unboundRelation().then(unboundRelation ->
+                                    new LogicalBoundRelation(
+                                            PlanConstructor.newOlapTable(0L, "test", 0),
+                                            Lists.newArrayList("test"))
+                            )
+                    ),
+                    RuleType.BINDING_PROJECT_SLOT.build(
+                            logicalProject()
+                                    .when(Plan::canBind)
+                                    .then(LogicalPlan::recomputeLogicalProperties)
+                    )
+            );
         }
     }
 
     @Test
     public void testSimplestScene() {
-        UnboundRelation unboundRelation = new UnboundRelation(Lists.newArrayList("test"));
-        Plan leaf = plan(unboundRelation);
-        LogicalProject project = new LogicalProject(ImmutableList.of(
-            new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test")))
+        Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
+                new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                leaf
         );
-        Plan root = plan(project, leaf);
-        Memo memo = new Memo();
-        memo.initialize(root);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyBottomUp(new FakeRule())
+                .checkMemo(memo -> {
+                    Group rootGroup = memo.getRoot();
+                    Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
+                    GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
+                    List<Slot> output = rootGroup.getLogicalProperties().getOutput();
+                    Assertions.assertEquals(1, output.size());
+                    Assertions.assertEquals("name", output.get(0).getName());
+                    Assertions.assertEquals(StringType.INSTANCE, output.get(0).getDataType());
+                    Assertions.assertEquals(1, rootGroupExpression.children().size());
+                    Assertions.assertEquals(PlanType.LOGICAL_PROJECT, rootGroupExpression.getPlan().getType());
 
-        PlannerContext plannerContext = new PlannerContext(memo, new ConnectContext());
-        JobContext jobContext = new JobContext(plannerContext, new PhysicalProperties(), Double.MAX_VALUE);
-        plannerContext.setCurrentJobContext(jobContext);
-        List<Rule<Plan>> fakeRules = Lists.newArrayList(new FakeRule().build());
-        RewriteTopDownJob rewriteTopDownJob = new RewriteTopDownJob(memo.getRoot(), fakeRules,
-                plannerContext.getCurrentJobContext());
-        plannerContext.pushJob(rewriteTopDownJob);
-        plannerContext.getJobScheduler().executeJobPool(plannerContext);
+                    Group leafGroup = rootGroupExpression.child(0);
+                    output = leafGroup.getLogicalProperties().getOutput();
+                    Assertions.assertEquals(2, output.size());
+                    Assertions.assertEquals("id", output.get(0).getName());
+                    Assertions.assertEquals(IntegerType.INSTANCE, output.get(0).getDataType());
+                    Assertions.assertEquals("name", output.get(1).getName());
+                    Assertions.assertEquals(StringType.INSTANCE, output.get(1).getDataType());
+                    Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
+                    GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
+                    Assertions.assertEquals(PlanType.LOGICAL_BOUND_RELATION, leafGroupExpression.getPlan().getType());
+                });
+    }
 
-        Group rootGroup = memo.getRoot();
-        Assertions.assertEquals(1, rootGroup.getLogicalExpressions().size());
-        GroupExpression rootGroupExpression = rootGroup.getLogicalExpression();
-        List<Slot> output = rootGroup.getLogicalProperties().getOutput();
-        Assertions.assertEquals(output.size(), 1);
-        Assertions.assertEquals(output.get(0).getName(), "name");
-        Assertions.assertEquals(output.get(0).getDataType(), StringType.INSTANCE);
-        Assertions.assertEquals(1, rootGroupExpression.children().size());
-        Assertions.assertEquals(OperatorType.LOGICAL_PROJECT, rootGroupExpression.getOperator().getType());
+    private static class LogicalBoundRelation extends LogicalCatalogRelation {
 
-        Group leafGroup = rootGroupExpression.child(0);
-        output = leafGroup.getLogicalProperties().getOutput();
-        Assertions.assertEquals(output.size(), 2);
-        Assertions.assertEquals(output.get(0).getName(), "id");
-        Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
-        Assertions.assertEquals(output.get(1).getName(), "name");
-        Assertions.assertEquals(output.get(1).getDataType(), StringType.INSTANCE);
-        Assertions.assertEquals(1, leafGroup.getLogicalExpressions().size());
-        GroupExpression leafGroupExpression = leafGroup.getLogicalExpression();
-        Assertions.assertEquals(OperatorType.LOGICAL_BOUND_RELATION, leafGroupExpression.getOperator().getType());
+        public LogicalBoundRelation(TableIf table, List<String> qualifier) {
+            super(StatementScopeIdGenerator.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+                    Optional.empty(), Optional.empty());
+        }
+
+        public LogicalBoundRelation(TableIf table, List<String> qualifier, Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties) {
+            super(StatementScopeIdGenerator.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+                    groupExpression, logicalProperties);
+        }
+
+        @Override
+        public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+            return new LogicalBoundRelation(table, qualifier, groupExpression, Optional.of(getLogicalProperties()));
+        }
+
+        @Override
+        public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+            return new LogicalBoundRelation(table, qualifier, groupExpression, logicalProperties);
+        }
+
+        @Override
+        public LogicalBoundRelation withRelationId(RelationId relationId) {
+            throw new RuntimeException("should not call LogicalBoundRelation's withRelationId method");
+        }
+
+        @Override
+        public LogicalBoundRelation withTableAlias(String alias) {
+            return this;
+        }
     }
 }

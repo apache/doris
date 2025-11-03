@@ -17,10 +17,10 @@
 
 #include "util/doris_metrics.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "common/config.h"
-#include "util/logging.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 
@@ -34,30 +34,18 @@ TEST_F(DorisMetricsTest, Normal) {
     auto server_entity = DorisMetrics::instance()->server_entity();
     // check metric
     {
-        DorisMetrics::instance()->fragment_requests_total->reset();
+        DorisMetrics::instance()->fragment_requests_total->set_value(0);
         DorisMetrics::instance()->fragment_requests_total->increment(12);
         auto metric = server_entity->get_metric("fragment_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("12", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->fragment_request_duration_us->reset();
+        DorisMetrics::instance()->fragment_request_duration_us->set_value(0);
         DorisMetrics::instance()->fragment_request_duration_us->increment(101);
         auto metric = server_entity->get_metric("fragment_request_duration_us");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("101", metric->to_string().c_str());
-    }
-    {
-        DorisMetrics::instance()->http_requests_total->increment(102);
-        auto metric = server_entity->get_metric("http_requests_total");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("102", metric->to_string().c_str());
-    }
-    {
-        DorisMetrics::instance()->http_request_send_bytes->increment(104);
-        auto metric = server_entity->get_metric("http_request_send_bytes");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("104", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->query_scan_bytes->increment(104);
@@ -104,7 +92,7 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     // engine request
     {
-        DorisMetrics::instance()->create_tablet_requests_total->reset();
+        DorisMetrics::instance()->create_tablet_requests_total->set_value(0);
         DorisMetrics::instance()->create_tablet_requests_total->increment(15);
         auto metric =
                 server_entity->get_metric("create_tablet_requests_total", "engine_requests_total");
@@ -112,7 +100,7 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("15", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->drop_tablet_requests_total->reset();
+        DorisMetrics::instance()->drop_tablet_requests_total->set_value(0);
         DorisMetrics::instance()->drop_tablet_requests_total->increment(16);
         auto metric =
                 server_entity->get_metric("drop_tablet_requests_total", "engine_requests_total");
@@ -120,25 +108,11 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("16", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->report_all_tablets_requests_total->increment(17);
-        auto metric = server_entity->get_metric("report_all_tablets_requests_total",
-                                                "engine_requests_total");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("17", metric->to_string().c_str());
-    }
-    {
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         auto metric = server_entity->get_metric("report_all_tablets_requests_skip",
                                                 "engine_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("1", metric->to_string().c_str());
-    }
-    {
-        DorisMetrics::instance()->report_tablet_requests_total->increment(18);
-        auto metric =
-                server_entity->get_metric("report_tablet_requests_total", "engine_requests_total");
-        EXPECT_TRUE(metric != nullptr);
-        EXPECT_STREQ("18", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->schema_change_requests_total->increment(19);
@@ -155,7 +129,7 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("20", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->storage_migrate_requests_total->reset();
+        DorisMetrics::instance()->storage_migrate_requests_total->set_value(0);
         DorisMetrics::instance()->storage_migrate_requests_total->increment(21);
         auto metric = server_entity->get_metric("storage_migrate_requests_total",
                                                 "engine_requests_total");
@@ -203,6 +177,17 @@ TEST_F(DorisMetricsTest, Normal) {
         auto metric = server_entity->get_metric("memory_pool_bytes_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("40", metric->to_string().c_str());
+    }
+    {
+        DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(1000);
+        auto* metric = server_entity->get_metric("get_remote_tablet_slow_time_ms");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("1000", metric->to_string().c_str());
+
+        DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(10);
+        metric = server_entity->get_metric("get_remote_tablet_slow_cnt");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("10", metric->to_string().c_str());
     }
 }
 

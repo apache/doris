@@ -18,7 +18,7 @@
 package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcDirInterface;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -64,7 +64,9 @@ public class SystemController extends BaseController {
         if (Strings.isNullOrEmpty(currentPath)) {
             currentPath = "/";
         }
-        LOG.debug("get /system request, thread id: {}", Thread.currentThread().getId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get /system request, thread id: {}", Thread.currentThread().getId());
+        }
         ResponseEntity entity = appendSystemInfo(currentPath, currentPath, request);
         return entity;
     }
@@ -96,7 +98,7 @@ public class SystemController extends BaseController {
 
         List<String> columnNames = null;
         List<List<String>> rows = null;
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster()) {
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
 
@@ -190,6 +192,10 @@ public class SystemController extends BaseController {
         if (path == null) {
             return "/rest/v1/system";
         } else {
+            final String windowsFileSystemSeparator = "\\";
+            if (windowsFileSystemSeparator.equals(path.getFileSystem().getSeparator())) {
+                return "/rest/v1/system?path=" + path.toString().replace("\\", "/");
+            }
             return "/rest/v1/system?path=" + path.toString();
         }
     }

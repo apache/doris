@@ -18,20 +18,36 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -39,11 +55,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -90,11 +104,14 @@ public class DataDescription {
             FunctionSet.HLL_HASH,
             "substitute");
 
+    private static final String DEFAULT_READ_JSON_BY_LINE = "true";
+
     private final String tableName;
-    private final PartitionNames partitionNames;
+
+    private String dbName;
+    private final PartitionNamesInfo partitionNamesInfo;
     private final List<String> filePaths;
-    private final Separator columnSeparator;
-    private final String fileFormat;
+    private boolean clientLocal = false;
     private final boolean isNegative;
     // column names in the path
     private final List<String> columnsFromPath;
@@ -109,15 +126,8 @@ public class DataDescription {
     private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
-    private Separator lineDelimiter;
     private String columnDef;
     private long backendId;
-    private boolean stripOuterArray = false;
-    private String jsonPaths = "";
-    private String jsonRoot = "";
-    private boolean fuzzyParse = false;
-    private boolean readJsonByLine = false;
-    private boolean numAsString = false;
 
     private String sequenceCol;
 
@@ -134,24 +144,37 @@ public class DataDescription {
 
     private boolean isHadoopLoad = false;
 
-    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    private final LoadTask.MergeType mergeType;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
+    private boolean isMysqlLoad = false;
+    // use for copy into
+    private boolean ignoreCsvRedundantCol = false;
+
+    private boolean isAnalyzed = false;
+
+    TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+
+    private FileFormatProperties fileFormatProperties;
+
+    // This map is used to collect information of file format properties.
+    // The map should be only used in `constructor` and `analyzeWithoutCheckPriv` method.
+    private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     public DataDescription(String tableName,
-                           PartitionNames partitionNames,
+                           PartitionNamesInfo partitionNamesInfo,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
-        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
+        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, fileFormat, null,
                 isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
-                           PartitionNames partitionNames,
+                           PartitionNamesInfo partitionNamesInfo,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
@@ -165,12 +188,114 @@ public class DataDescription {
                            Expr deleteCondition,
                            String sequenceColName,
                            Map<String, String> properties) {
+        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, null,
+                fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
+                mergeType, deleteCondition, sequenceColName, properties);
+    }
+
+    /**
+     * this constructor is for full parameters
+     */
+    public DataDescription(String tableName,
+                           PartitionNamesInfo partitionNamesInfo,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           String fileFormat,
+                           String compressType,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties,
+                           boolean isHadoopLoad,
+                           String dbName,
+                           String srcTableName,
+                           List<ImportColumnDesc> parsedColumnExprList,
+                           Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+                           TUniqueKeyUpdateMode uniquekeyUpdateMode,
+                           boolean clientLocal,
+                           List<Long> fileSize,
+                           String columnDef,
+                           long backendId,
+                           boolean isMysqlLoad,
+                           boolean ignoreCsvRedundantCol,
+                           FileFormatProperties fileFormatProperties,
+                           Map<String, String> analysisMap) {
         this.tableName = tableName;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
-        this.columnSeparator = columnSeparator;
-        this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
+        this.whereExpr = whereExpr;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
+        this.sequenceCol = sequenceColName;
+        this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
+
+        this.isHadoopLoad = isHadoopLoad;
+        this.dbName = dbName;
+        this.srcTableName = srcTableName;
+        this.parsedColumnExprList = parsedColumnExprList;
+        this.columnToHadoopFunction.putAll(columnToHadoopFunction);
+        this.uniquekeyUpdateMode = uniquekeyUpdateMode;
+        this.clientLocal = clientLocal;
+        this.fileSize = fileSize;
+        this.columnDef = columnDef;
+        this.backendId = backendId;
+        this.isMysqlLoad = isMysqlLoad;
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
+        this.fileFormatProperties = fileFormatProperties;
+        this.analysisMap = analysisMap;
+    }
+
+    public DataDescription(String tableName,
+                           PartitionNamesInfo partitionNamesInfo,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           String fileFormat,
+                           String compressType,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties) {
+        this.tableName = tableName;
+        this.partitionNamesInfo = partitionNamesInfo;
+        this.filePaths = filePaths;
+        this.fileFieldNames = columns;
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -181,11 +306,29 @@ public class DataDescription {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
     }
 
     // data from table external_hive_table
     public DataDescription(String tableName,
-                           PartitionNames partitionNames,
+                           PartitionNamesInfo partitionNamesInfo,
                            String srcTableName,
                            boolean isNegative,
                            List<Expr> columnMappingList,
@@ -194,11 +337,9 @@ public class DataDescription {
                            Expr deleteCondition,
                            Map<String, String> properties) {
         this.tableName = tableName;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.filePaths = null;
         this.fileFieldNames = null;
-        this.columnSeparator = null;
-        this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -208,6 +349,154 @@ public class DataDescription {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+    }
+
+    // data desc for mysql client
+    public DataDescription(TableNameInfo tableName,
+                           PartitionNamesInfo partitionNamesInfo,
+                           String file,
+                           boolean clientLocal,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           int skipLines,
+                           List<Expr> columnMappingList,
+                           Map<String, String> properties) {
+        this.tableName = tableName.getTbl();
+        this.dbName = tableName.getDb();
+        this.partitionNamesInfo = partitionNamesInfo;
+        this.filePaths = Lists.newArrayList(file);
+        this.clientLocal = clientLocal;
+        this.fileFieldNames = columns;
+        this.columnsFromPath = null;
+        this.isNegative = false;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null;
+        this.whereExpr = null;
+        this.srcTableName = null;
+        this.mergeType = null;
+        this.deleteCondition = null;
+        this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
+        this.isMysqlLoad = true;
+        columnsNameToLowerCase(fileFieldNames);
+    }
+
+    // For stream load using external file scan node.
+    public DataDescription(String tableName, LoadTaskInfo taskInfo) {
+        this.tableName = tableName;
+        this.partitionNamesInfo = taskInfo.getPartitionNamesInfo();
+
+        if (!Strings.isNullOrEmpty(taskInfo.getPath())) {
+            this.filePaths = Lists.newArrayList(taskInfo.getPath());
+        } else {
+            // Add a dummy path to just make analyze() happy.
+            this.filePaths = Lists.newArrayList("dummy");
+        }
+
+        this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
+        this.columnsFromPath = null;
+        this.isNegative = taskInfo.getNegative();
+        this.columnMappingList = taskInfo.getColumnExprDescs().getColumnMappingList();
+        this.precedingFilterExpr = taskInfo.getPrecedingFilter();
+        this.whereExpr = taskInfo.getWhereExpr();
+        this.srcTableName = null;
+        this.mergeType = taskInfo.getMergeType();
+        this.deleteCondition = taskInfo.getDeleteCondition();
+        this.sequenceCol = taskInfo.getSequenceCol();
+
+        this.properties = Maps.newHashMap();
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, getFileFormat(taskInfo));
+        if (taskInfo.getCompressType() != null) {
+            putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, taskInfo.getCompressType().toString());
+        }
+        if (taskInfo.getColumnSeparator() != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+                    taskInfo.getColumnSeparator().getOriSeparator());
+        }
+        if (taskInfo.getLineDelimiter() != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER,
+                    taskInfo.getLineDelimiter().getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENCLOSE, new String(new byte[]{taskInfo.getEnclose()}));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ESCAPE, new String(new byte[]{taskInfo.getEscape()}));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
+                String.valueOf(taskInfo.getTrimDoubleQuotes()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
+                String.valueOf(taskInfo.getSkipLines()));
+
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                String.valueOf(taskInfo.isStripOuterArray()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_PATHS, taskInfo.getJsonPaths());
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_ROOT, taskInfo.getJsonRoot());
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(taskInfo.isFuzzyParse()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
+                String.valueOf(taskInfo.isReadJsonByLine()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
+
+        this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
+        columnsNameToLowerCase(fileFieldNames);
+    }
+
+    private void putAnalysisMapIfNonNull(String key, String value) {
+        if (value != null) {
+            this.analysisMap.put(key, value);
+        }
+    }
+
+    private String getFileFormat(LoadTaskInfo taskInfo) {
+        // get file format
+        if (!Strings.isNullOrEmpty(taskInfo.getHeaderType())) {
+            // for "csv_with_name" and "csv_with_name_and_type"
+            return taskInfo.getHeaderType();
+        } else {
+            TFileFormatType type = taskInfo.getFormatType();
+            if (Util.isCsvFormat(type)) {
+                // ignore the "compress type" in format, such as FORMAT_CSV_GZ
+                // the compress type is saved in "compressType"
+                return "csv";
+            } else {
+                switch (type) {
+                    case FORMAT_ORC:
+                        return "orc";
+                    case FORMAT_PARQUET:
+                        return "parquet";
+                    case FORMAT_JSON:
+                        return "json";
+                    case FORMAT_TEXT:
+                        return "hive_text";
+                    case FORMAT_WAL:
+                        return "wal";
+                    case FORMAT_ARROW:
+                        return "arrow";
+                    default:
+                        return "unknown";
+                }
+            }
+        }
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -370,7 +659,7 @@ public class DataDescription {
     private static void validateHllHash(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
         for (int i = 0; i < args.size(); ++i) {
             String argColumn = args.get(i);
-            if (!columnNameMap.containsKey(argColumn)) {
+            if (argColumn == null || !columnNameMap.containsKey(argColumn)) {
                 throw new AnalysisException("Column is not in sources, column: " + argColumn);
             }
             args.set(i, columnNameMap.get(argColumn));
@@ -383,12 +672,16 @@ public class DataDescription {
         }
     }
 
+    public String getDbName() {
+        return dbName;
+    }
+
     public String getTableName() {
         return tableName;
     }
 
-    public PartitionNames getPartitionNames() {
-        return partitionNames;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     public Expr getPrecdingFilterExpr() {
@@ -421,19 +714,15 @@ public class DataDescription {
         return fileFieldNames;
     }
 
-    public String getFileFormat() {
-        return fileFormat;
+    public List<Expr> getColumnMappingList() {
+        if (columnMappingList == null || columnMappingList.isEmpty()) {
+            return null;
+        }
+        return columnMappingList;
     }
 
     public List<String> getColumnsFromPath() {
         return columnsFromPath;
-    }
-
-    public String getColumnSeparator() {
-        if (columnSeparator == null) {
-            return null;
-        }
-        return columnSeparator.getSeparator();
     }
 
     public boolean isNegative() {
@@ -446,17 +735,6 @@ public class DataDescription {
 
     public void setBeAddr(TNetworkAddress addr) {
         beAddr = addr;
-    }
-
-    public String getLineDelimiter() {
-        if (lineDelimiter == null) {
-            return null;
-        }
-        return lineDelimiter.getSeparator();
-    }
-
-    public void setLineDelimiter(Separator lineDelimiter) {
-        this.lineDelimiter = lineDelimiter;
     }
 
     public String getSequenceCol() {
@@ -487,52 +765,8 @@ public class DataDescription {
         this.backendId = backendId;
     }
 
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public void setStripOuterArray(boolean stripOuterArray) {
-        this.stripOuterArray = stripOuterArray;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public void setFuzzyParse(boolean fuzzyParse) {
-        this.fuzzyParse = fuzzyParse;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public void setNumAsString(boolean numAsString) {
-        this.numAsString = numAsString;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public void setJsonPaths(String jsonPaths) {
-        this.jsonPaths = jsonPaths;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
-    public void setJsonRoot(String jsonRoot) {
-        this.jsonRoot = jsonRoot;
-    }
-
-    @Deprecated
-    public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
-        if (Strings.isNullOrEmpty(functionName) || pair == null) {
-            return;
-        }
-        columnToHadoopFunction.put(functionName, pair);
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
@@ -551,12 +785,28 @@ public class DataDescription {
         return isHadoopLoad;
     }
 
+    public boolean isClientLocal() {
+        return clientLocal;
+    }
+
     public String getSrcTableName() {
         return srcTableName;
     }
 
     public boolean isLoadFromTable() {
         return !Strings.isNullOrEmpty(srcTableName);
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public boolean getIgnoreCsvRedundantCol() {
+        return ignoreCsvRedundantCol;
+    }
+
+    public void setIgnoreCsvRedundantCol(boolean ignoreCsvRedundantCol) {
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
     }
 
     /*
@@ -571,7 +821,7 @@ public class DataDescription {
      *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
-    private void analyzeColumns() throws AnalysisException {
+    public void analyzeColumns() throws AnalysisException {
         if ((fileFieldNames == null || fileFieldNames.isEmpty())
                 && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
@@ -627,7 +877,10 @@ public class DataDescription {
                         + "The mapping operator error, op: " + predicate.getOp());
             }
             Expr child0 = predicate.getChild(0);
-            if (!(child0 instanceof SlotRef)) {
+            if (child0 instanceof CastExpr && child0.getChild(0) instanceof SlotRef) {
+                predicate.setChild(0, child0.getChild(0));
+                child0 = predicate.getChild(0);
+            } else if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
                         + "The mapping column error. column: " + child0.toSql());
             }
@@ -638,45 +891,40 @@ public class DataDescription {
             // hadoop load only supports the FunctionCallExpr
             Expr child1 = predicate.getChild(1);
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Hadoop load only supports the designated function. "
-                        + "The error mapping function is:" + child1.toSql());
+                throw new AnalysisException(
+                        "Hadoop load only supports the designated function. " + "The error mapping function is:"
+                                + child1.toSql());
             }
-            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
+            // Must clone the expr, because in routine load, the expr will be analyzed for each task.
+            Expr cloned = child1.clone();
+            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, cloned);
             parsedColumnExprList.add(importColumnDesc);
-            if (child1 instanceof FunctionCallExpr) {
-                analyzeColumnToHadoopFunction(column, child1);
+            if (cloned instanceof FunctionCallExpr) {
+                analyzeColumnToHadoopFunction(column, cloned);
             }
         }
     }
 
-    private void analyzeMultiLoadColumns() throws AnalysisException {
+    public void analyzeMultiLoadColumns() throws AnalysisException {
         if (columnDef == null || columnDef.isEmpty()) {
             return;
         }
-        String columnsSQL = "COLUMNS (" + columnDef + ")";
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
-        ImportColumnsStmt columnsStmt;
+
+        List<Expression> expressions;
         try {
-            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
-        } catch (Error e) {
-            LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
-            throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
-        } catch (AnalysisException e) {
-            LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
-            String errorMessage = parser.getErrorMsg(columnsSQL);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to parse columns header, sql={}", columnsSQL, e);
-            throw new AnalysisException("parse columns header failed", e);
+            expressions = NereidsLoadUtils.parseExpressionSeq(columnDef);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
-        if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            parsedColumnExprList = columnsStmt.getColumns();
+        for (Expression expr : expressions) {
+            if (expr instanceof BinaryOperator) {
+                // we should translate Expression to Expr
+                Expr legacyExpr = PlanUtils.translateToLegacyExpr(expr.child(1), null, ConnectContext.get());
+                parsedColumnExprList.add(new ImportColumnDesc(expr.child(0).getExpressionName(), legacyExpr));
+            } else {
+                parsedColumnExprList.add(new ImportColumnDesc(expr.getExpressionName()));
+            }
         }
     }
 
@@ -707,19 +955,26 @@ public class DataDescription {
             }
         }
 
-        Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
+        Pair<String, List<String>> functionPair = Pair.of(functionName, args);
         columnToHadoopFunction.put(columnName, functionPair);
     }
 
     private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
         OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
         // no sequence column in load and table schema
         if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
             return;
         }
+        // table has sequence map col
+        if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null) {
+            return;
+        }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                return;
+            }
             throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
@@ -730,7 +985,7 @@ public class DataDescription {
         boolean hasSourceSequenceCol = false;
         if (!parsedColumnExprList.isEmpty()) {
             for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-                if (importColumnDesc.getColumnName().equals(sequenceCol)) {
+                if (importColumnDesc.getColumnName().equalsIgnoreCase(sequenceCol)) {
                     hasSourceSequenceCol = true;
                     break;
                 }
@@ -738,7 +993,7 @@ public class DataDescription {
         } else {
             List<Column> columns = olapTable.getBaseSchema();
             for (Column column : columns) {
-                if (column.getName().equals(sequenceCol)) {
+                if (column.getName().equalsIgnoreCase(sequenceCol)) {
                     hasSourceSequenceCol = true;
                     break;
                 }
@@ -750,44 +1005,15 @@ public class DataDescription {
         }
     }
 
-    private void analyzeProperties() throws AnalysisException {
-        Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        analysisMap.putAll(properties);
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
-            lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
-            lineDelimiter.analyze();
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE)) {
-            fuzzyParse = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY)) {
-            stripOuterArray = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONPATHS)) {
-            jsonPaths = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONPATHS);
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONROOT)) {
-            jsonRoot = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONROOT);
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
-            numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
-        }
-    }
-
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("No table name in load statement.");
         }
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
-                PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, tableName,
+                        PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(), fullDbName + ": " + tableName);
@@ -795,8 +1021,9 @@ public class DataDescription {
 
         // check hive table auth
         if (isLoadFromTable()) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
-                    PrivPredicate.SELECT)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, srcTableName,
+                            PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
@@ -804,7 +1031,28 @@ public class DataDescription {
         }
     }
 
+    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void columnsNameToLowerCase(List<String> columns) {
+        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            return;
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            String column = columns.remove(i);
+            columns.add(i, column.toLowerCase());
+        }
+    }
+
     public void analyze(String fullDbName) throws AnalysisException {
+        if (isAnalyzed) {
+            return;
+        }
+        checkLoadPriv(fullDbName);
+        checkMergeType();
+        analyzeWithoutCheckPriv(fullDbName);
+        isAnalyzed = true;
+    }
+
+    private void checkMergeType() throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
@@ -814,86 +1062,39 @@ public class DataDescription {
         if (mergeType != LoadTask.MergeType.APPEND && isNegative) {
             throw new AnalysisException("not support MERGE or DELETE with NEGATIVE.");
         }
-        checkLoadPriv(fullDbName);
-        analyzeWithoutCheckPriv(fullDbName);
-        if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("Negative is only used when merge type is append.");
-        }
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
-        if (!isLoadFromTable()) {
-            if (filePaths == null || filePaths.isEmpty()) {
-                throw new AnalysisException("No file path in load statement.");
-            }
-            for (int i = 0; i < filePaths.size(); ++i) {
-                filePaths.set(i, filePaths.get(i).trim());
-            }
-        }
+        analyzeFilePaths();
 
-        if (columnSeparator != null) {
-            columnSeparator.analyze();
-        }
-
-        if (partitionNames != null) {
-            partitionNames.analyze(null);
+        if (partitionNamesInfo != null) {
+            partitionNamesInfo.validate();
         }
 
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        if (properties != null) {
-            analyzeProperties();
-        }
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrDeferred(
+                analysisMap.getOrDefault(FileFormatProperties.PROP_FORMAT, ""));
+        fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
-    /*
-     * If user does not specify COLUMNS in load stmt, we fill it here.
-     * eg1:
-     *      both COLUMNS and SET clause is empty. after fill:
-     *      (k1,k2,k3)
-     *
-     * eg2:
-     *      COLUMNS is empty, SET is not empty
-     *      SET ( k2 = default_value("2") )
-     *      after fill:
-     *      (k1, k2, k3)
-     *      SET ( k2 = default_value("2") )
-     *
-     * eg3:
-     *      COLUMNS is empty, SET is not empty
-     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     *      after fill:
-     *      (k1,k2,k3)
-     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     *
-     */
-    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) {
-        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
-            return;
-        }
-
-        fileFieldNames = Lists.newArrayList();
-
-        Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-            mappingColNames.add(importColumnDesc.getColumnName());
-        }
-
-        for (Column column : baseSchema) {
-            if (!mappingColNames.contains(column.getName())) {
-                parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
+    private void analyzeFilePaths() throws AnalysisException {
+        if (!isLoadFromTable()) {
+            if (filePaths == null || filePaths.isEmpty()) {
+                throw new AnalysisException("No file path in load statement.");
             }
-            fileFieldNames.add(column.getName());
+            filePaths.replaceAll(String::trim);
         }
-
-        LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);
     }
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (isLoadFromTable()) {
+        if (isMysqlLoad) {
+            sb.append("DATA ").append(isClientLocal() ? "LOCAL " : "");
+            sb.append("INFILE '").append(filePaths.get(0)).append("'");
+        } else if (isLoadFromTable()) {
             sb.append(mergeType.toString());
             sb.append(" DATA FROM TABLE ").append(srcTableName);
         } else {
@@ -909,21 +1110,34 @@ public class DataDescription {
         if (isNegative) {
             sb.append(" NEGATIVE");
         }
-        sb.append(" INTO TABLE ").append(tableName);
-        if (partitionNames != null) {
+        sb.append(" INTO TABLE ");
+        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
+        if (partitionNamesInfo != null) {
             sb.append(" ");
-            sb.append(partitionNames.toSql());
+            sb.append(partitionNamesInfo.toSql());
         }
-        if (columnSeparator != null) {
-            sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        if (analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) != null) {
+            sb.append(" COLUMNS TERMINATED BY ")
+                    .append("'")
+                    .append(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR))
+                    .append("'");
         }
-        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
-            sb.append(" COLUMNS FROM PATH AS (");
-            Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
+        if (analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER) != null && isMysqlLoad) {
+            sb.append(" LINES TERMINATED BY ")
+                    .append("'")
+                    .append(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER))
+                    .append("'");
+        }
+        if (!Strings.isNullOrEmpty(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            sb.append(" FORMAT AS '" + analysisMap.get(FileFormatProperties.PROP_FORMAT) + "'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
             Joiner.on(", ").appendTo(sb, fileFieldNames).append(")");
+        }
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            sb.append(" COLUMNS FROM PATH AS (");
+            Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
         }
         if (columnMappingList != null && !columnMappingList.isEmpty()) {
             sb.append(" SET (");
@@ -941,6 +1155,17 @@ public class DataDescription {
             sb.append(" DELETE ON ").append(deleteCondition.toSql());
         }
         return sb.toString();
+    }
+
+    public void checkKeyTypeForLoad(OlapTable table) throws AnalysisException {
+        if (getMergeType() != LoadTask.MergeType.APPEND) {
+            if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            } else if (!table.hasDeleteSign()) {
+                throw new AnalysisException(
+                        "load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+        }
     }
 
     @Override

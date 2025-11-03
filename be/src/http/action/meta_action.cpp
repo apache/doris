@@ -17,26 +17,38 @@
 
 #include "http/action/meta_action.h"
 
+#include <json2pb/pb_to_json.h>
+#include <stdint.h>
+
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 
+#include "cloud/config.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "util/json_util.h"
+#include "util/easy_json.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
+const static std::string OP = "op";
+const static std::string DATA_SIZE = "data_size";
+const static std::string HEADER = "header";
+
+MetaAction::MetaAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
@@ -55,31 +67,41 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
         return Status::InternalError("convert failed, {}", e.what());
     }
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
-        return Status::InternalError("no tablet exist");
+    auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
+    std::string operation = req->param(OP);
+    if (operation == HEADER) {
+        TabletMeta tablet_meta;
+        tablet->generate_tablet_meta_copy(tablet_meta, true);
+        json2pb::Pb2JsonOptions json_options;
+        json_options.pretty_json = true;
+        json_options.bytes_to_base64 = enable_byte_to_base64;
+        tablet_meta.to_json(json_meta, json_options);
+        return Status::OK();
+    } else if (operation == DATA_SIZE) {
+        if (!config::is_cloud_mode()) {
+            EasyJson data_size;
+            {
+                auto* local_tablet = static_cast<Tablet*>(tablet.get());
+                std::shared_lock rowset_ldlock(tablet->get_header_lock());
+                data_size["local_data_size"] = local_tablet->tablet_local_size();
+                data_size["remote_data_size"] = local_tablet->tablet_remote_size();
+            }
+            *json_meta = data_size.ToString();
+        }
+        return Status::OK();
     }
-    TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    tablet->generate_tablet_meta_copy(tablet_meta);
-    json2pb::Pb2JsonOptions json_options;
-    json_options.pretty_json = true;
-    json_options.bytes_to_base64 = enable_byte_to_base64;
-    tablet_meta->to_json(json_meta, json_options);
-    return Status::OK();
+    return Status::InternalError("invalid operation");
 }
 
 void MetaAction::handle(HttpRequest* req) {
-    if (_meta_type == META_TYPE::HEADER) {
-        std::string json_meta;
-        Status status = _handle_header(req, &json_meta);
-        std::string status_result = status.to_json();
-        LOG(INFO) << "handle request result:" << status_result;
-        if (status.ok()) {
-            HttpChannel::send_reply(req, HttpStatus::OK, json_meta);
-        } else {
-            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
-        }
+    std::string json_meta;
+    Status status = _handle_header(req, &json_meta);
+    std::string status_result = status.to_json();
+    LOG(INFO) << "handle request result:" << status_result;
+    if (status.ok()) {
+        HttpChannel::send_reply(req, HttpStatus::OK, json_meta);
+    } else {
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
     }
 }
 

@@ -65,11 +65,7 @@ public class ErrorReport {
 
     public static void reportDdlException(String pattern, ErrorCode errorCode, Object... objs)
             throws DdlException {
-        throw new DdlException(reportCommon(pattern, errorCode, objs));
-    }
-
-    public static void report(String pattern, Object... objs) {
-        report(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs);
+        throw new DdlException(reportCommon(pattern, errorCode, objs), errorCode);
     }
 
     public static void report(ErrorCode errorCode, Object... objs) {

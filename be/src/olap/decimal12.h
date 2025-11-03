@@ -24,6 +24,7 @@
 #include "olap/utils.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // the sign of integer must be same as fraction
 struct decimal12_t {
@@ -51,17 +52,9 @@ struct decimal12_t {
         return *this;
     }
 
-    bool operator<(const decimal12_t& value) const { return cmp(value) < 0; }
-
-    bool operator<=(const decimal12_t& value) const { return cmp(value) <= 0; }
-
-    bool operator>(const decimal12_t& value) const { return cmp(value) > 0; }
-
-    bool operator>=(const decimal12_t& value) const { return cmp(value) >= 0; }
-
     bool operator==(const decimal12_t& value) const { return cmp(value) == 0; }
 
-    bool operator!=(const decimal12_t& value) const { return cmp(value) != 0; }
+    auto operator<=>(const decimal12_t& value) const { return cmp(value) <=> 0; }
 
     int32_t cmp(const decimal12_t& other) const {
         if (integer > other.integer) {
@@ -81,14 +74,16 @@ struct decimal12_t {
         char buf[128] = {'\0'};
 
         if (integer < 0 || fraction < 0) {
-            snprintf(buf, sizeof(buf), "-%lu.%09u", std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "-%" PRIu64 ".%09u", std::abs(integer), std::abs(fraction));
         } else {
-            snprintf(buf, sizeof(buf), "%lu.%09u", std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "%" PRIu64 ".%09u", std::abs(integer), std::abs(fraction));
         }
 
         return std::string(buf);
     }
 
+    // Not modify this structure, ZoneMap use this from_string and to_string
+    // to serialize decimalv2 value to segment files
     Status from_string(const std::string& str) {
         integer = 0;
         fraction = 0;
@@ -97,7 +92,8 @@ struct decimal12_t {
 
         if (sign != nullptr) {
             if (sign != value_string) {
-                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "decimal12_t::from_string meet invalid sign");
             } else {
                 ++value_string;
             }
@@ -112,16 +108,16 @@ struct decimal12_t {
             int32_t f = 0;
             int64_t i = 0;
             if (sepr == value_string) {
-                int32_t f = 0;
                 sscanf(value_string, ".%9d", &f);
             } else {
-                sscanf(value_string, "%18ld.%9d", &i, &f);
+                sscanf(value_string, "%18" PRId64 ".%9d", &i, &f);
             }
             integer = i;
             fraction = f;
 
-            int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
-                                                 : MAX_FRAC_DIGITS_NUM;
+            int64_t frac_len =
+                    (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - static_cast<int64_t>(strlen(sepr + 1))
+                                      : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
             fraction *= g_power_table[frac_len];
         }
@@ -149,4 +145,5 @@ inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
     return os;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

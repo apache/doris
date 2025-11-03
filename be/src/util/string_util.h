@@ -20,7 +20,10 @@
 #include <strings.h>
 
 #include <algorithm>
+#include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
+#include <cctype>
+#include <cstddef>
 #include <map>
 #include <set>
 #include <sstream>
@@ -28,6 +31,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "common/exception.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -65,6 +71,21 @@ inline bool ends_with(std::string const& value, std::string const& ending) {
     return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
+inline std::string_view trim(std::string_view sv) {
+    size_t start = 0;
+    size_t end = sv.size();
+
+    while (start < end && std::isspace(static_cast<unsigned char>(sv[start]))) {
+        ++start;
+    }
+
+    while (end > start && std::isspace(static_cast<unsigned char>(sv[end - 1]))) {
+        --end;
+    }
+
+    return sv.substr(start, end - start);
+}
+
 inline std::vector<std::string> split(const std::string& s, const std::string& delim) {
     std::vector<std::string> out;
     size_t pos {};
@@ -79,7 +100,7 @@ inline std::vector<std::string> split(const std::string& s, const std::string& d
 }
 
 template <typename T>
-inline std::string join(const std::vector<T>& elems, const std::string& delim) {
+std::string join(const std::vector<T>& elems, const std::string& delim) {
     std::stringstream ss;
     for (size_t i = 0; i < elems.size(); ++i) {
         if (i != 0) {
@@ -104,7 +125,7 @@ public:
         if (lhs.size() != rhs.size()) {
             return false;
         }
-        return strncasecmp(lhs.c_str(), rhs.c_str(), 0) == 0;
+        return strncasecmp(lhs.c_str(), rhs.c_str(), lhs.size()) == 0;
     }
 };
 
@@ -121,7 +142,7 @@ public:
 };
 
 size_t hash_of_path(const std::string& identifier, const std::string& path);
-
+Result<int> safe_stoi(const std::string& input, const std::string& name);
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;
 template <class T>
@@ -130,14 +151,19 @@ template <class T>
 using StringCaseUnorderedMap =
         std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
 
-inline auto get_json_token(const std::string_view& path_string) {
-#ifdef USE_LIBCPP
-    return boost::tokenizer<boost::escaped_list_separator<char>>(
-            std::string(path_string), boost::escaped_list_separator<char>("\\", ".", "\""));
-#else
-    return boost::tokenizer<boost::escaped_list_separator<char>>(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
-#endif
+template <typename T>
+auto get_json_token(T& path_string) {
+    try {
+        return boost::tokenizer<boost::escaped_list_separator<char>>(
+                path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    } catch (const boost::escaped_list_error& err) {
+        throw doris::Exception(ErrorCode::INVALID_JSON_PATH, "meet error {}", err.what());
+    }
 }
+
+#ifdef USE_LIBCPP
+template <>
+auto get_json_token(std::string_view& path_string) = delete;
+#endif
 
 } // namespace doris

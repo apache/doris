@@ -22,7 +22,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-
 /** java's type arguments. */
 public class TypeArguments implements JavaAstNode {
     public final List<TypeArgument> typeArguments;

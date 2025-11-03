@@ -25,16 +25,28 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * LogicalPlanOperator must compute and return non-null LogicalProperties without exception,
+ * LogicalPlan must compute and return non-null LogicalProperties without exception,
  * so UnboundRelation.computeLogicalProperties() return a UnboundLogicalProperties temporary.
  */
 public class UnboundLogicalProperties extends LogicalProperties {
-    public UnboundLogicalProperties() {
-        super(() -> ImmutableList.of());
+    public static final UnboundLogicalProperties INSTANCE = new UnboundLogicalProperties();
+
+    private UnboundLogicalProperties() {
+        super(ImmutableList::of, () -> DataTrait.EMPTY_TRAIT);
     }
 
     @Override
     public List<Slot> getOutput() {
         throw new UnboundException("getOutput");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof UnboundLogicalProperties;
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
     }
 }

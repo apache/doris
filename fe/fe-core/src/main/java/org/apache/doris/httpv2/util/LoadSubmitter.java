@@ -17,10 +17,12 @@
 
 package org.apache.doris.httpv2.util;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.rest.UploadAction;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -52,9 +54,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class LoadSubmitter {
     private static final Logger LOG = LogManager.getLogger(LoadSubmitter.class);
 
-    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "Load submitter", true);
+    private ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
+                        Config.http_load_submitter_max_worker_threads, "load-submitter", true);
 
-    private static final String STREAM_LOAD_URL_PATTERN = "http://%s:%d/api/%s/%s/_stream_load";
+    private static final String STREAM_LOAD_URL_PATTERN = "http://%s/api/%s/%s/_stream_load";
 
     public Future<SubmitResult> submit(UploadAction.LoadContext loadContext) {
         LoadSubmitter.Worker worker = new LoadSubmitter.Worker(loadContext);
@@ -83,8 +86,8 @@ public class LoadSubmitter {
             // choose a backend to submit the stream load
             Backend be = selectOneBackend();
 
-            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, be.getHost(),
-                    be.getHttpPort(), loadContext.db, loadContext.tbl);
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort());
+            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, hostPort, loadContext.db, loadContext.tbl);
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
             conn.setRequestMethod("PUT");
@@ -140,11 +143,11 @@ public class LoadSubmitter {
 
         private Backend selectOneBackend() throws LoadException {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (backendIds.isEmpty()) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }
-            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             if (backend == null) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }

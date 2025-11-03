@@ -33,7 +33,6 @@ import java.io.IOException;
 @Description(name = "bitmap_and", value = "a _FUNC_ b - Compute intersection of two or more input bitmaps,"
         + " return the new bitmap")
 public class BitmapAndUDF extends GenericUDF {
-
     private transient BinaryObjectInspector inputOI0;
     private transient BinaryObjectInspector inputOI1;
 
@@ -64,9 +63,8 @@ public class BitmapAndUDF extends GenericUDF {
             BitmapValue bitmapValue0 = BitmapValueUtil.deserializeToBitmap(inputBytes0);
             BitmapValue bitmapValue1 = BitmapValueUtil.deserializeToBitmap(inputBytes1);
             bitmapValue0.and(bitmapValue1);
-            return BitmapValueUtil.serializeToBytes(bitmapValue1);
+            return BitmapValueUtil.serializeToBytes(bitmapValue0);
         } catch (IOException ioException) {
-            ioException.printStackTrace();
             throw new RuntimeException(ioException);
         }
     }

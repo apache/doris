@@ -18,9 +18,15 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,43 +35,67 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
-public class CreateTableInfo implements Writable {
+public class CreateTableInfo implements Writable, GsonPostProcessable {
     public static final Logger LOG = LoggerFactory.getLogger(CreateTableInfo.class);
 
+    @SerializedName(value = "ctl")
+    private String ctlName;
+    @SerializedName(value = "dbId")
+    private long dbId = -1L;
+    @SerializedName(value = "dbName")
     private String dbName;
+    @SerializedName(value = "tbl")
+    private String tblName;
+    @SerializedName(value = "table")
     private Table table;
 
     public CreateTableInfo() {
         // for persist
     }
 
-    public CreateTableInfo(String dbName, Table table) {
+    // for internal table
+    public CreateTableInfo(String dbName, long dbId, Table table) {
+        this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        this.dbId = dbId;
         this.dbName = dbName;
+        this.tblName = table.getName();
         this.table = table;
+    }
+
+    // for external table
+    public CreateTableInfo(String ctlName, String dbName, String tblName) {
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tblName = tblName;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
         return dbName;
     }
 
+    public long getDbId() {
+        return dbId;
+    }
+
+    public String getTblName() {
+        return tblName;
+    }
+
     public Table getTable() {
         return table;
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, dbName);
-        table.write(out);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        dbName = Text.readString(in);
-        table = Table.read(in);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static CreateTableInfo read(DataInput in) throws IOException {
-        CreateTableInfo createTableInfo = new CreateTableInfo();
-        createTableInfo.readFields(in);
-        return createTableInfo;
+        return GsonUtils.GSON.fromJson(Text.readString(in), CreateTableInfo.class);
     }
 
     @Override
@@ -85,5 +115,23 @@ public class CreateTableInfo implements Writable {
 
         return (dbName.equals(info.dbName))
                 && (table.equals(info.table));
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        // In previous versions, ctlName and tblName is not set, so it may be null.
+        return String.format("%s.%s.%s",
+                Strings.isNullOrEmpty(ctlName) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctlName,
+                dbName,
+                Strings.isNullOrEmpty(tblName) ? table.getName() : tblName);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
     }
 }

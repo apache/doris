@@ -104,10 +104,6 @@ public class FlinkOracleCdcDemo {
 
         LogicalType[] types={new IntType(),new VarCharType(),new VarCharType(), new DoubleType()};
 
-        Properties pro = new Properties();
-        pro.setProperty("format", "json");
-        pro.setProperty("strip_outer_array", "false");
-
         map.addSink(
                 DorisSink.sink(
                         fields,

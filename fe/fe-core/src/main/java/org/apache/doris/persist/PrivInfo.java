@@ -17,58 +17,124 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-public class PrivInfo implements Writable {
+public class PrivInfo implements Writable, GsonPostProcessable {
+    @SerializedName(value = "userIdent")
     private UserIdentity userIdent;
+    @SerializedName(value = "tblPattern")
     private TablePattern tblPattern;
+    @SerializedName(value = "resourcePattern")
     private ResourcePattern resourcePattern;
+    @SerializedName(value = "workloadGroupPattern")
+    private WorkloadGroupPattern workloadGroupPattern;
+    @SerializedName(value = "privs")
     private PrivBitSet privs;
+    @SerializedName(value = "passwd")
     private byte[] passwd;
+    @SerializedName(value = "role")
     private String role;
+    @SerializedName(value = "comment")
+    private String comment;
+    @SerializedName(value = "colPrivileges")
+    private Map<ColPrivilegeKey, Set<String>> colPrivileges;
+    @SerializedName(value = "passwordOptions")
+    private PasswordOptions passwordOptions;
+    // Indicates that these roles are granted to a user
+    @SerializedName(value = "roles")
+    private List<String> roles;
+
+    @SerializedName(value = "userId")
+    private String userId;
 
     private PrivInfo() {
 
     }
 
-    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role) {
+    // For create user/set password/create role/drop role
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions) {
+        this(userIdent, privs, passwd, role, passwordOptions, null, null);
+    }
+
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions, String comment, String userId) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
+        this.passwordOptions = passwordOptions;
+        this.comment = comment;
+        this.userId = userId;
     }
 
+    public PrivInfo(String role, String comment) {
+        this.role = role;
+        this.comment = comment;
+    }
+
+    // For grant/revoke
     public PrivInfo(UserIdentity userIdent, TablePattern tablePattern, PrivBitSet privs,
-            byte[] passwd, String role) {
+            byte[] passwd, String role, Map<ColPrivilegeKey, Set<String>> colPrivileges) {
         this.userIdent = userIdent;
         this.tblPattern = tablePattern;
         this.resourcePattern = null;
+        this.workloadGroupPattern = null;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
+        this.colPrivileges = colPrivileges;
     }
 
+    // For grant/revoke resource priv
     public PrivInfo(UserIdentity userIdent, ResourcePattern resourcePattern, PrivBitSet privs,
-                    byte[] passwd, String role) {
+            byte[] passwd, String role) {
         this.userIdent = userIdent;
         this.tblPattern = null;
+        this.workloadGroupPattern = null;
         this.resourcePattern = resourcePattern;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
+    }
+
+    public PrivInfo(UserIdentity userIdent, WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs,
+            byte[] passwd, String role) {
+        this.userIdent = userIdent;
+        this.tblPattern = null;
+        this.resourcePattern = null;
+        this.workloadGroupPattern = workloadGroupPattern;
+        this.privs = privs;
+        this.passwd = passwd;
+        this.role = role;
+    }
+
+    // For grant/revoke roles to/from userIdent
+    public PrivInfo(UserIdentity userIdent, List<String> roles) {
+        this.userIdent = userIdent;
+        this.roles = roles;
     }
 
     public UserIdentity getUserIdent() {
@@ -83,6 +149,10 @@ public class PrivInfo implements Writable {
         return resourcePattern;
     }
 
+    public WorkloadGroupPattern getWorkloadGroupPattern() {
+        return workloadGroupPattern;
+    }
+
     public PrivBitSet getPrivs() {
         return privs;
     }
@@ -95,85 +165,51 @@ public class PrivInfo implements Writable {
         return role;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public PasswordOptions getPasswordOptions() {
+        return passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
+    }
+
+    public List<String> getRoles() {
+        return roles;
+    }
+
+    public Map<ColPrivilegeKey, Set<String>> getColPrivileges() {
+        return colPrivileges;
+    }
+
+    private void removeClusterPrefix() {
+        if (userIdent != null) {
+            userIdent.removeClusterPrefix();
+        }
+        if (roles != null) {
+            for (int i = 0; i < roles.size(); i++) {
+                roles.set(i, ClusterNamespace.getNameFromFullName(roles.get(i)));
+            }
+        }
+        if (role != null) {
+            role = ClusterNamespace.getNameFromFullName(role);
+        }
+    }
+
     public static PrivInfo read(DataInput in) throws IOException {
-        PrivInfo info = new PrivInfo();
-        info.readFields(in);
-        return info;
+        return GsonUtils.GSON.fromJson(Text.readString(in), PrivInfo.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        if (userIdent != null) {
-            out.writeBoolean(true);
-            userIdent.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (tblPattern != null) {
-            out.writeBoolean(true);
-            tblPattern.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (resourcePattern != null) {
-            out.writeBoolean(true);
-            resourcePattern.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (privs != null) {
-            out.writeBoolean(true);
-            privs.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (passwd != null) {
-            out.writeBoolean(true);
-            out.writeInt(passwd.length);
-            out.write(passwd);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        if (!Strings.isNullOrEmpty(role)) {
-            out.writeBoolean(true);
-            Text.writeString(out, role);
-        } else {
-            out.writeBoolean(false);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            userIdent = UserIdentity.read(in);
-        }
-
-        if (in.readBoolean()) {
-            tblPattern = TablePattern.read(in);
-        }
-
-        if (in.readBoolean()) {
-            resourcePattern = ResourcePattern.read(in);
-        }
-
-        if (in.readBoolean()) {
-            privs = PrivBitSet.read(in);
-        }
-
-        if (in.readBoolean()) {
-            int passwordLen = in.readInt();
-            passwd = new byte[passwordLen];
-            in.readFully(passwd);
-        }
-
-        if (in.readBoolean()) {
-            role = Text.readString(in);
-        }
-
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
-
 }

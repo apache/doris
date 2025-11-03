@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
@@ -38,7 +38,7 @@ import java.util.Map;
 public class BackendProcNodeTest {
     private Backend b1;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
 
@@ -55,21 +55,21 @@ public class BackendProcNodeTest {
                 editLog.logBackendStateChange((Backend) any);
                 minTimes = 0;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 10000L;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -97,7 +97,7 @@ public class BackendProcNodeTest {
 
         Assert.assertTrue(result.getRows().size() >= 1);
         Assert.assertEquals(Lists.newArrayList("RootPath", "DataUsedCapacity", "OtherUsedCapacity", "AvailCapacity",
-                "TotalCapacity", "TotalUsedPct", "State", "PathHash"), result.getColumnNames());
+                "TotalCapacity", "TotalUsedPct", "State", "PathHash", "StorageMedium"), result.getColumnNames());
     }
 
 }

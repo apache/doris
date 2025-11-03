@@ -17,8 +17,9 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.collect.ImmutableList;
 
@@ -30,12 +31,16 @@ public class UserPropertyProcNode implements ProcNodeInterface {
             .add("Key").add("Value")
             .build();
 
-    private PaloAuth auth;
-    private String qualifiedUser;
+    public static final ImmutableList<String> ALL_USER_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("User").add("Properties")
+            .build();
 
-    public UserPropertyProcNode(PaloAuth auth, String qualifiedUser) {
+    private Auth auth;
+    private UserIdentity userIdent;
+
+    public UserPropertyProcNode(Auth auth, UserIdentity userIdent) {
         this.auth = auth;
-        this.qualifiedUser = qualifiedUser;
+        this.userIdent = userIdent;
     }
 
     @Override
@@ -43,7 +48,8 @@ public class UserPropertyProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        result.setRows(auth.getUserProperties(qualifiedUser));
+        result.setRows(auth.getUserProperties(userIdent.getQualifiedUser()));
+        result.addRows(auth.getPasswdPolicyInfo(userIdent));
         return result;
     }
 }

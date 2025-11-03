@@ -32,22 +32,12 @@ public class RuntimeFilterId extends Id<RuntimeFilterId> {
             public RuntimeFilterId getNextId() {
                 return new RuntimeFilterId(nextId++);
             }
-
-            @Override
-            public RuntimeFilterId getMaxId() {
-                return new RuntimeFilterId(nextId - 1);
-            }
         };
     }
 
     @Override
     public String toString() {
         return String.format("RF%03d", id);
-    }
-
-    @Override
-    public int hashCode() {
-        return id;
     }
 
     public int compareTo(RuntimeFilterId cmp) {

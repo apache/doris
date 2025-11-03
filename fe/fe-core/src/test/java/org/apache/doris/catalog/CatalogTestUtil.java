@@ -22,15 +22,16 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -93,33 +94,38 @@ public class CatalogTestUtil {
     public static String testEsTable1 = "partitionedEsTable1";
     public static long testEsTableId1 = 14;
 
-    public static Catalog createTestCatalog() throws InstantiationException, IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
-        Constructor<Catalog> constructor = Catalog.class.getDeclaredConstructor();
+    public static Env createTestCatalog()
+            throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
+            NoSuchMethodException, SecurityException {
+        Constructor<Env> constructor = Env.class.getDeclaredConstructor();
         constructor.setAccessible(true);
-        Catalog catalog = constructor.newInstance();
-        catalog.setEditLog(new EditLog("name"));
-        FakeCatalog.setCatalog(catalog);
+        Env env = constructor.newInstance();
+        env.setEditLog(new EditLog("name"));
+        FakeEnv.setEnv(env);
         Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
         Backend backend2 = createBackend(testBackendId2, "host2", 123, 124, 125);
         Backend backend3 = createBackend(testBackendId3, "host3", 123, 124, 125);
-        backend1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        backend2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        Catalog.getCurrentSystemInfo().addBackend(backend1);
-        Catalog.getCurrentSystemInfo().addBackend(backend2);
-        Catalog.getCurrentSystemInfo().addBackend(backend3);
-        catalog.initDefaultCluster();
+        DiskInfo diskInfo = new DiskInfo("/path/to/disk1/");
+        diskInfo.setAvailableCapacityB(2 << 40); // 1TB
+        diskInfo.setTotalCapacityB(2 << 40);
+        diskInfo.setDataUsedCapacityB(2 << 10);
+        backend1.setDisks(ImmutableMap.of("disk1", diskInfo));
+        backend2.setDisks(ImmutableMap.of("disk1", diskInfo));
+        backend3.setDisks(ImmutableMap.of("disk1", diskInfo));
+        Env.getCurrentSystemInfo().addBackend(backend1);
+        Env.getCurrentSystemInfo().addBackend(backend2);
+        Env.getCurrentSystemInfo().addBackend(backend3);
+
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
                 testStartVersion);
-        catalog.unprotectCreateDb(db);
-        return catalog;
+        env.unprotectCreateDb(db);
+        return env;
     }
 
-    public static boolean compareCatalog(Catalog masterCatalog, Catalog slaveCatalog) {
+    public static boolean compareCatalog(Env masterEnv, Env slaveEnv) {
         try {
-            Database masterDb = masterCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
-            Database slaveDb = slaveCatalog.getInternalDataSource().getDbOrMetaException(testDb1);
+            Database masterDb = masterEnv.getInternalCatalog().getDbOrMetaException(testDb1);
+            Database slaveDb = slaveEnv.getInternalCatalog().getDbOrMetaException(testDb1);
             List<Table> tables = masterDb.getTables();
             for (Table table : tables) {
                 Table slaveTable = slaveDb.getTableOrMetaException(table.getId());
@@ -150,10 +156,10 @@ public class CatalogTestUtil {
                         List<Replica> allReplicas = masterTablet.getReplicas();
                         for (Replica masterReplica : allReplicas) {
                             Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
-                            if (slaveReplica.getBackendId() != masterReplica.getBackendId()
+                            if (slaveReplica.getBackendIdWithoutException() != masterReplica.getBackendIdWithoutException()
                                     || slaveReplica.getVersion() != masterReplica.getVersion()
                                     || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
-                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()) {
+                                    || slaveReplica.getLastSuccessVersion() != masterReplica.getLastSuccessVersion()) {
                                 return false;
                             }
                         }
@@ -168,15 +174,28 @@ public class CatalogTestUtil {
 
     public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
             long version) {
-        Catalog.getCurrentInvertedIndex().clear();
+        Env.getCurrentInvertedIndex().clear();
 
-        // replica
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
+        Replica replica1;
+        Replica replica2;
+        Replica replica3;
+        if (Config.isCloudMode()) {
+            // In cloud mode we must create CloudReplica instances to avoid ClassCastException
+            replica1 = new CloudReplica(testReplicaId1, testBackendId1, Replica.ReplicaState.NORMAL, version,
+                    /*schemaHash*/ 0, dbId, tableId, partitionId, indexId, /*idx*/ 0);
+            replica2 = new CloudReplica(testReplicaId2, testBackendId2, Replica.ReplicaState.NORMAL, version,
+                    0, dbId, tableId, partitionId, indexId, 1);
+            replica3 = new CloudReplica(testReplicaId3, testBackendId3, Replica.ReplicaState.NORMAL, version,
+                    0, dbId, tableId, partitionId, indexId, 2);
+        } else {
+            replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
+                    Replica.ReplicaState.NORMAL, -1, 0);
+            replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L, 0L,
+                    Replica.ReplicaState.NORMAL, -1, 0);
+            replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L, 0L,
+                    Replica.ReplicaState.NORMAL, -1, 0);
+        }
+
 
         // tablet
         Tablet tablet = new Tablet(tabletId);
@@ -215,7 +234,7 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -225,8 +244,7 @@ public class CatalogTestUtil {
         table.setBaseIndexId(indexId);
         // db
         Database db = new Database(dbId, testDb1);
-        db.createTable(table);
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        db.registerTable(table);
 
         // add a es table to catalog
         try {
@@ -240,17 +258,22 @@ public class CatalogTestUtil {
     }
 
     public static void createDupTable(Database db) {
-
-        // replica
-        Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
+        Replica replica;
+        if (Config.isCloudMode()) {
+            replica = new CloudReplica(testReplicaId4, testBackendId1, Replica.ReplicaState.NORMAL, testStartVersion,
+                    0, db.getId(), testTableId2, testPartitionId2, testIndexId2, 0);
+        } else {
+            replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
+                    Replica.ReplicaState.NORMAL, -1, 0);
+        }
 
         // tablet
         Tablet tablet = new Tablet(testTabletId2);
 
         // index
         MaterializedIndex index = new MaterializedIndex(testIndexId2, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0,
+                TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica);
@@ -274,7 +297,7 @@ public class CatalogTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId2, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId2, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId2, new ReplicaAllocation((short) 1));
         OlapTable table = new OlapTable(testTableId2, testTable2, columns, KeysType.DUP_KEYS, partitionInfo,
                 distributionInfo);
@@ -283,7 +306,7 @@ public class CatalogTestUtil {
                 TStorageType.COLUMN, KeysType.DUP_KEYS);
         table.setBaseIndexId(testIndexId2);
         // db
-        db.createTable(table);
+        db.registerTable(table);
     }
 
     public static void createEsTable(Database db) throws DdlException {
@@ -305,16 +328,16 @@ public class CatalogTestUtil {
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsTable.HOSTS, "xxx");
-        properties.put(EsTable.INDEX, "doe");
-        properties.put(EsTable.TYPE, "doc");
-        properties.put(EsTable.PASSWORD, "");
-        properties.put(EsTable.USER, "root");
-        properties.put(EsTable.DOC_VALUE_SCAN, "true");
-        properties.put(EsTable.KEYWORD_SNIFF, "true");
+        properties.put(EsResource.HOSTS, "xxx");
+        properties.put(EsResource.INDEX, "doe");
+        properties.put(EsResource.TYPE, "doc");
+        properties.put(EsResource.PASSWORD, "");
+        properties.put(EsResource.USER, "root");
+        properties.put(EsResource.DOC_VALUE_SCAN, "true");
+        properties.put(EsResource.KEYWORD_SNIFF, "true");
         EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
                 columns, properties, partitionInfo);
-        db.createTable(esTable);
+        db.registerTable(esTable);
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
@@ -322,5 +345,95 @@ public class CatalogTestUtil {
         // backend.updateOnce(bePort, httpPort, 10000);
         backend.setAlive(true);
         return backend;
+    }
+
+    public static long getTabletDataSize(long tabletId) {
+        Env env = Env.getCurrentEnv();
+        TabletInvertedIndex invertedIndex = env.getTabletInvertedIndex();
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            return -1L;
+        }
+
+        long dbId = tabletMeta.getDbId();
+        long tableId = tabletMeta.getTableId();
+        long partitionId = tabletMeta.getPartitionId();
+        long indexId = tabletMeta.getIndexId();
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            return -1L;
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            return -1L;
+        }
+        if (table.getType() != Table.TableType.OLAP) {
+            return -1L;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                return -1L;
+            }
+            MaterializedIndex materializedIndex = partition.getIndex(indexId);
+            if (materializedIndex == null) {
+                return -1L;
+            }
+            Tablet tablet = materializedIndex.getTablet(tabletId);
+            if (tablet == null) {
+                return -1L;
+            }
+            return tablet.getDataSize(true, false);
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    public static long getReplicaPathHash(long tabletId, long backendId) {
+        Env env = Env.getCurrentEnv();
+        TabletInvertedIndex invertedIndex = env.getTabletInvertedIndex();
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            return -1L;
+        }
+
+        long dbId = tabletMeta.getDbId();
+        long tableId = tabletMeta.getTableId();
+        long partitionId = tabletMeta.getPartitionId();
+        long indexId = tabletMeta.getIndexId();
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            return -1L;
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            return -1L;
+        }
+        if (table.getType() != Table.TableType.OLAP) {
+            return -1L;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                return -1L;
+            }
+            MaterializedIndex materializedIndex = partition.getIndex(indexId);
+            if (materializedIndex == null) {
+                return -1L;
+            }
+            Tablet tablet = materializedIndex.getTablet(tabletId);
+            for (Replica replica : tablet.getReplicas()) {
+                if (replica.getBackendIdWithoutException() == backendId) {
+                    return replica.getPathHash();
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        return -1;
     }
 }

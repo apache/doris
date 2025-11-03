@@ -17,22 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 // This class saved all temp partitions of a table.
@@ -40,7 +34,7 @@ import java.util.Set;
 // user can load data into some of the temp partitions,
 // and then replace the formal partitions with these temp partitions
 // to make a overwrite load.
-public class TempPartitions implements Writable, GsonPostProcessable {
+public class TempPartitions implements GsonPostProcessable {
     @SerializedName(value = "idToPartition")
     private Map<Long, Partition> idToPartition = Maps.newHashMap();
     private Map<String, Partition> nameToPartition = Maps.newHashMap();
@@ -76,13 +70,8 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
-            if (!Catalog.isCheckpointThread() && needDropTablet) {
-                TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
+            if (needDropTablet) {
+                Env.getCurrentEnv().onErasePartition(partition);
             }
         }
     }
@@ -101,6 +90,10 @@ public class TempPartitions implements Writable, GsonPostProcessable {
 
     public boolean hasPartition(String partName) {
         return nameToPartition.containsKey(partName);
+    }
+
+    public boolean hasPartition(long partitionId) {
+        return idToPartition.containsKey(partitionId);
     }
 
     public boolean isEmpty() {
@@ -126,33 +119,27 @@ public class TempPartitions implements Writable, GsonPostProcessable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static TempPartitions read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, TempPartitions.class);
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Partition partition = Partition.read(in);
-            idToPartition.put(partition.getId(), partition);
-            nameToPartition.put(partition.getName(), partition);
-        }
-        if (in.readBoolean()) {
-            partitionInfo = (RangePartitionInfo) RangePartitionInfo.read(in);
-        }
-    }
-
-    @Override
     public void gsonPostProcess() {
         for (Partition partition : idToPartition.values()) {
             nameToPartition.put(partition.getName(), partition);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TempPartitions that = (TempPartitions) o;
+        return idToPartition.equals(that.idToPartition) && nameToPartition.equals(that.nameToPartition)
+                && Objects.equals(partitionInfo, that.partitionInfo);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(idToPartition, nameToPartition, partitionInfo);
     }
 }

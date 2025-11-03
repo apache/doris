@@ -17,12 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-
-import com.google.common.base.Strings;
 
 public class JobName {
     private String jobName;
@@ -41,14 +36,7 @@ public class JobName {
         return jobName;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName)) {
-            if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            dbName = analyzer.getDefaultDb();
-        }
-        dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+    public void analyze() throws AnalysisException {
     }
 
     public String toSql() {

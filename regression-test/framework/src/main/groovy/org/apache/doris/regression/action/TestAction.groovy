@@ -30,7 +30,6 @@ import org.apache.http.client.methods.RequestBuilder
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
 
-import javax.swing.text.html.parser.Entity
 import java.nio.charset.StandardCharsets
 import java.sql.Connection
 import java.sql.ResultSetMetaData
@@ -39,6 +38,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.junit.Assert
 
 import java.util.function.Consumer
+import java.util.Random
 
 @Slf4j
 @CompileStatic
@@ -46,6 +46,7 @@ class TestAction implements SuiteAction {
     private String sql
     private boolean isOrder
     private String resultFileUri
+    private String resultTag
     private Iterator<Object> resultIterator
     private Object result
     private long time
@@ -67,6 +68,7 @@ class TestAction implements SuiteAction {
             } else {
                 if (exception != null || result.exception != null) {
                     def msg = result.exception?.toString()
+                    log.error("Exception: ${msg}", exception != null ? exception : result.exception)
                     Assert.assertTrue("Expect exception msg contains '${exception}', but meet '${msg}'",
                             msg != null && exception != null && msg.contains(exception))
                 }
@@ -104,14 +106,34 @@ class TestAction implements SuiteAction {
                 }
                 if (this.resultFileUri != null) {
                     Consumer<InputStream> checkFunc = { InputStream inputStream ->
+                        String errorMsg = null
                         def lineIt = new LineIterator(new InputStreamReader(inputStream, StandardCharsets.UTF_8))
-                        def csvIt = new OutputUtils.CsvParserIterator(lineIt)
-                        String errMsg = OutputUtils.checkOutput(csvIt, result.result.iterator(),
-                                { List<String> row -> OutputUtils.toCsvString(row as List<Object>) },
-                                { List<Object> row -> OutputUtils.toCsvString(row) },
-                                "Check failed compare to", result.meta)
-                        if (errMsg != null) {
-                            throw new IllegalStateException(errMsg)
+                        if (resultTag.is(null)) {
+                            def csvIt = new OutputUtils.CsvParserIterator(lineIt)
+                            errorMsg = OutputUtils.checkOutput(csvIt, result.result.iterator(),
+                                    { List<String> row -> OutputUtils.toCsvString(row as List<Object>) },
+                                    { List<Object> row -> OutputUtils.toCsvString(row) },
+                                    "Check failed compare to", result.meta)
+                            if (errorMsg != null) {
+                                throw new IllegalStateException(errorMsg)
+                            }
+                        } else {
+                            def outputIt = OutputUtils.iterator(lineIt)
+                            if (!outputIt.hasNextTagBlock(resultTag)) {
+                                throw new IllegalStateException("Missing output block for tag '${resultTag}': ${context.outputFile.getAbsolutePath()}")
+                            }
+                            def expectCsvResults = outputIt.next()
+                            try {
+                                errorMsg = OutputUtils.checkOutput(expectCsvResults, result.result.iterator(),
+                                        { row -> OutputUtils.toCsvString(row as List<Object>) },
+                                        { row ->  OutputUtils.toCsvString(row) },
+                                        "Check tag '${resultTag}' failed", result.meta)
+                            } catch (Throwable t) {
+                                throw new IllegalStateException("Check tag '${resultTag}' failed, sql:\n${sql}", t)
+                            }
+                            if (errorMsg != null) {
+                                throw new IllegalStateException("Check tag '${resultTag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
+                            }
                         }
                     }
 
@@ -132,7 +154,7 @@ class TestAction implements SuiteAction {
                         if (!new File(fileName).isAbsolute()) {
                             fileName = new File(context.dataPath, fileName).getAbsolutePath()
                         }
-                        def file = new File(fileName)
+                        def file = new File(fileName).getCanonicalFile()
                         if (!file.exists()) {
                             log.warn("Result file not exists: ${file}".toString())
                         }
@@ -169,7 +191,7 @@ class TestAction implements SuiteAction {
         return new ActionResult(result, ex, startTime, endTime, meta)
     }
 
-    void sql(String sql) {
+    void sql(String sql, boolean setRandomParallel = true) {
         this.sql = sql
     }
 
@@ -213,12 +235,17 @@ class TestAction implements SuiteAction {
         this.resultIterator = resultIteratorSupplier.call()
     }
 
-    void resultFile(String resultFile) {
-        this.resultFileUri = resultFile
+    void resultFile(String file, String tag = null) {
+        this.resultFileUri = file
+        this.resultTag = tag
     }
 
     void resultFile(Closure<String> resultFileSupplier) {
         this.resultFileUri = resultFileSupplier.call()
+    }
+
+    void resultTag(String tag) {
+        this.resultTag = tag
     }
 
     void exception(String exceptionMsg) {
@@ -229,7 +256,7 @@ class TestAction implements SuiteAction {
         this.exception = exceptionMsgSupplier.call()
     }
 
-    void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
+    void check(@ClosureParams(value = FromString, options = ["List<List<Object>>,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
 

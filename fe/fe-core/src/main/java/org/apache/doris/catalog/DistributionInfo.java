@@ -18,17 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import java.util.Objects;
 
-public abstract class DistributionInfo implements Writable {
+public abstract class DistributionInfo {
 
     public enum DistributionInfoType {
         HASH,
@@ -36,18 +32,31 @@ public abstract class DistributionInfo implements Writable {
     }
 
     // for Gson runtime type adaptor
-    @SerializedName(value = "typeStr")
-    protected String typeStr;
     @SerializedName(value = "type")
     protected DistributionInfoType type;
+
+    @SerializedName(value = "bucketNum")
+    protected int bucketNum;
+
+    @SerializedName(value = "autoBucket")
+    protected boolean autoBucket;
 
     public DistributionInfo() {
         // for persist
     }
 
     public DistributionInfo(DistributionInfoType type) {
+        this(type, 0, false);
+    }
+
+    public DistributionInfo(DistributionInfoType type, int bucketNum) {
+        this(type, bucketNum, false);
+    }
+
+    public DistributionInfo(DistributionInfoType type, int bucketNum, boolean autoBucket) {
         this.type = type;
-        this.typeStr = this.type.name();
+        this.bucketNum = bucketNum;
+        this.autoBucket = autoBucket;
     }
 
     public DistributionInfoType getType() {
@@ -64,24 +73,44 @@ public abstract class DistributionInfo implements Writable {
         throw new NotImplementedException("not implemented");
     }
 
+    public void markAutoBucket() {
+        autoBucket = true;
+    }
+
     public DistributionDesc toDistributionDesc() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("toDistributionDesc not implemented");
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
+    public boolean getAutoBucket() {
+        return autoBucket;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        type = DistributionInfoType.valueOf(Text.readString(in));
+    public String getColumnsName() {
+        throw new NotImplementedException("getColumnsName not implemented");
     }
 
-    public String toSql() {
+    public String toSql(boolean forSync) {
         return "";
     }
 
-    public boolean equals(DistributionInfo info) {
-        return false;
+    public String toSql() {
+        return toSql(false);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        DistributionInfo that = (DistributionInfo) o;
+        return type == that.type;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(type);
     }
 }

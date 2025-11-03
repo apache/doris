@@ -17,17 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.datasource.InternalDataSource;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.PatternMatcherWrapper;
 
 public class CatalogPrivEntry extends PrivEntry {
     protected static final String ANY_CTL = "*";
@@ -39,10 +33,22 @@ public class CatalogPrivEntry extends PrivEntry {
     protected CatalogPrivEntry() {
     }
 
+    protected CatalogPrivEntry(
+            PatternMatcher ctlPattern, String origCtl,
+            PrivBitSet privSet) {
+        super(privSet);
+        this.ctlPattern = ctlPattern;
+        this.origCtl = origCtl;
+        if (origCtl.equals(ANY_CTL)) {
+            isAnyCtl = true;
+        }
+    }
+
+    @Deprecated
     protected CatalogPrivEntry(PatternMatcher userPattern, String user,
-                               PatternMatcher hostPattern, String origHost,
-                               PatternMatcher ctlPattern, String origCtl,
-                               boolean isDomain, PrivBitSet privSet) {
+            PatternMatcher hostPattern, String origHost,
+            PatternMatcher ctlPattern, String origCtl,
+            boolean isDomain, PrivBitSet privSet) {
         super(hostPattern, origHost, userPattern, user, isDomain, privSet);
         this.ctlPattern = ctlPattern;
         this.origCtl = origCtl;
@@ -51,16 +57,29 @@ public class CatalogPrivEntry extends PrivEntry {
         }
     }
 
+    public static CatalogPrivEntry create(String ctl, PrivBitSet privs)
+            throws AnalysisException {
+        PatternMatcher ctlPattern = createCtlPatternMatcher(ctl);
+
+        if (privs.containsNodePriv() || privs.containsResourcePriv()) {
+            throw new AnalysisException("Catalog privilege can not contains node or resource privileges: " + privs);
+        }
+
+        return new CatalogPrivEntry(ctlPattern, ctl, privs);
+    }
+
+    @Deprecated
     public static CatalogPrivEntry create(String user, String host, String ctl, boolean isDomain, PrivBitSet privs)
             throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
+                CaseSensibility.HOST.getCaseSensibility());
 
         PatternMatcher ctlPattern = createCtlPatternMatcher(ctl);
 
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
-            throw new AnalysisException("Datasource privilege can not contains node or resource privileges: " + privs);
+            throw new AnalysisException("Catalog privilege can not contains node or resource privileges: " + privs);
         }
 
         return new CatalogPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, isDomain, privs);
@@ -90,9 +109,12 @@ public class CatalogPrivEntry extends PrivEntry {
         }
 
         CatalogPrivEntry otherEntry = (CatalogPrivEntry) other;
-        return compareAssist(origUser, otherEntry.origUser,
-                             origHost, otherEntry.origHost,
-                             origCtl, otherEntry.origCtl);
+        return compareAssist(origCtl, otherEntry.origCtl);
+    }
+
+    @Override
+    protected PrivEntry copy() throws AnalysisException, PatternMatcherException {
+        return CatalogPrivEntry.create(this.getOrigCtl(), this.getPrivSet().copy());
     }
 
     @Override
@@ -100,44 +122,13 @@ public class CatalogPrivEntry extends PrivEntry {
         if (!(other instanceof CatalogPrivEntry)) {
             return false;
         }
-
         CatalogPrivEntry otherEntry = (CatalogPrivEntry) other;
-        return origUser.equals(otherEntry.origUser) && origHost.equals(otherEntry.origHost)
-                && origCtl.equals(otherEntry.origCtl) && isDomain == otherEntry.isDomain;
+        return origCtl.equals(otherEntry.origCtl);
     }
 
     @Override
     public String toString() {
-        return String.format("catalog privilege. user: %s, host: %s, ctl: %s, priv: %s, set by resolver: %b",
-                origUser, origHost, origCtl, privSet.toString(), isSetByDomainResolver);
+        return String.format("catalog privilege. ctl: %s, priv: %s",
+                origCtl, privSet.toString());
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = CatalogPrivEntry.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-        super.write(out);
-        Text.writeString(out, origCtl);
-        isClassNameWrote = false;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
-            origCtl = Text.readString(in);
-        } else {
-            origCtl = InternalDataSource.INTERNAL_DS_NAME;
-        }
-        try {
-            ctlPattern = createCtlPatternMatcher(origCtl);
-        } catch (AnalysisException e) {
-            throw new IOException(e);
-        }
-        isAnyCtl = origCtl.equals(ANY_CTL);
-    }
-
 }

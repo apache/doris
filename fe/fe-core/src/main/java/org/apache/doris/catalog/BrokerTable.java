@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TBrokerTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -26,13 +25,11 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringEscapeUtils;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.List;
@@ -46,11 +43,16 @@ public class BrokerTable extends Table {
     private static final String COLUMN_SEPARATOR = "column_separator";
     private static final String LINE_DELIMITER = "line_delimiter";
     private static final String FILE_FORMAT = "format";
+    @SerializedName("bn")
     private String brokerName;
+    @SerializedName("ps")
     private List<String> paths;
+    @SerializedName("cs")
     private String columnSeparator;
+    @SerializedName("ld")
     private String lineDelimiter;
     private String fileFormat;
+    @SerializedName("bp")
     private Map<String, String> brokerProperties;
 
     public BrokerTable() {
@@ -207,43 +209,5 @@ public class BrokerTable extends Table {
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setBrokerTable(tBrokerTable);
         return tTableDescriptor;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Text.writeString(out, brokerName);
-        out.writeInt(paths.size());
-        for (String path : paths) {
-            Text.writeString(out, path);
-        }
-        Text.writeString(out, columnSeparator);
-        Text.writeString(out, lineDelimiter);
-        out.writeInt(brokerProperties.size());
-        for (Map.Entry<String, String> prop : brokerProperties.entrySet()) {
-            Text.writeString(out, prop.getKey());
-            Text.writeString(out, prop.getValue());
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        brokerName = Text.readString(in);
-        int size = in.readInt();
-        paths = Lists.newArrayList();
-        for (int i = 0; i < size; i++) {
-            paths.add(Text.readString(in));
-        }
-        columnSeparator = Text.readString(in);
-        lineDelimiter = Text.readString(in);
-        brokerProperties = Maps.newHashMap();
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            brokerProperties.put(key, val);
-        }
     }
 }

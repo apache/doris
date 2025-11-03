@@ -17,21 +17,38 @@
 
 #include "vec/aggregate_functions/aggregate_function_window_funnel.h"
 
+#include <string>
+
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const Array& parameters,
-                                                             const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(argument_types);
+                                                             const bool result_is_nullable,
+                                                             const AggregateFunctionAttr& attr) {
+    if (argument_types.size() < 3) {
+        LOG(WARNING) << "window_funnel's argument less than 3.";
+        return nullptr;
+    }
+    if (argument_types[2]->get_primitive_type() == TYPE_DATETIMEV2) {
+        return creator_without_type::create<AggregateFunctionWindowFunnel>(
+                argument_types, result_is_nullable, attr);
+    } else {
+        LOG(WARNING) << "Only support DateTime type as window argument!";
+        return nullptr;
+    }
 }
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("window_funnel", create_aggregate_function_window_funnel, false);
+    factory.register_function_both("window_funnel", create_aggregate_function_window_funnel);
+}
+void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
+    BeExecVersionManager::registe_restrict_function_compatibility("window_funnel");
 }
 } // namespace doris::vectorized

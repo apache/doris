@@ -41,7 +41,7 @@ public abstract class AliasGenerator {
     public String getNextAlias() {
         Preconditions.checkNotNull(aliasPrefix);
         while (true) {
-            String candidateAlias = aliasPrefix + Integer.toString(numGeneratedAliases++);
+            String candidateAlias = aliasPrefix + (numGeneratedAliases++);
             if (usedAliases.add(candidateAlias)) {
                 // add success
                 return candidateAlias;

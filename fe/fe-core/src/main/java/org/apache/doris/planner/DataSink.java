@@ -22,8 +22,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.odbc.sink.OdbcTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -36,9 +39,11 @@ import org.apache.doris.thrift.TExplainLevel;
 public abstract class DataSink {
     // Fragment that this DataSink belongs to. Set by the PlanFragment enclosing this sink.
     protected PlanFragment fragment;
+    protected boolean isMerge = false;
 
     /**
-     * Return an explain string for the DataSink. Each line of the explain will be prefixed
+     * Return an explain string for the DataSink. Each line of the explain will be
+     * prefixed
      * by "prefix"
      *
      * @param prefix each explain line will be started with the given prefix
@@ -60,13 +65,25 @@ public abstract class DataSink {
 
     public abstract DataPartition getOutputPartition();
 
-    public static DataSink createDataSink(Table table) throws AnalysisException {
+    public static DataSink createDataSink(TableIf table) throws AnalysisException {
         if (table instanceof MysqlTable) {
             return new MysqlTableSink((MysqlTable) table);
         } else if (table instanceof OdbcTable) {
             return new OdbcTableSink((OdbcTable) table);
+        } else if (table instanceof HMSExternalTable) {
+            return new HiveTableSink((HMSExternalTable) table);
+        } else if (table instanceof IcebergExternalTable) {
+            return new IcebergTableSink((IcebergExternalTable) table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }
+    }
+
+    public boolean isMerge() {
+        return isMerge;
+    }
+
+    public void setMerge(boolean merge) {
+        isMerge = merge;
     }
 }

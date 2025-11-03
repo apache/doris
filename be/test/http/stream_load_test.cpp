@@ -17,222 +17,110 @@
 
 #include "http/action/stream_load.h"
 
-#include <event2/http.h>
-#include <event2/http_struct.h>
 #include <gtest/gtest.h>
-#include <rapidjson/document.h>
 
-#include "exec/schema_scanner/schema_helper.h"
-#include "gen_cpp/HeartbeatService_types.h"
+#include <memory>
+
+#include "common/config.h"
+#include "event2/buffer.h"
+#include "event2/event.h"
+#include "event2/http.h"
+#include "event2/http_struct.h"
+#include "evhttp.h"
+#include "http/ev_http_server.h"
 #include "http/http_channel.h"
+#include "http/http_common.h"
+#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
+#include "http/utils.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/thread_resource_mgr.h"
-#include "util/brpc_client_cache.h"
-#include "util/cpu_info.h"
-
-struct mg_connection;
 
 namespace doris {
 
-std::string k_response_str;
-
-// Send Unauthorized status with basic challenge
-void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& realm) {}
-
-void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {}
-
-void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {}
-
-void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
-    k_response_str = content;
-}
-
-void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t size) {}
-
-extern TLoadTxnBeginResult k_stream_load_begin_result;
-extern TLoadTxnCommitResult k_stream_load_commit_result;
-extern TLoadTxnRollbackResult k_stream_load_rollback_result;
-extern TStreamLoadPutResult k_stream_load_put_result;
-extern Status k_stream_load_plan_status;
-
-class StreamLoadActionTest : public testing::Test {
+class StreamLoadTest : public testing::Test {
 public:
-    StreamLoadActionTest() {}
-    virtual ~StreamLoadActionTest() {}
-    void SetUp() override {
-        k_stream_load_begin_result = TLoadTxnBeginResult();
-        k_stream_load_commit_result = TLoadTxnCommitResult();
-        k_stream_load_rollback_result = TLoadTxnRollbackResult();
-        k_stream_load_put_result = TStreamLoadPutResult();
-        k_stream_load_plan_status = Status::OK();
-        k_response_str = "";
-        config::streaming_load_max_mb = 1;
-
-        _env._thread_mgr = new ThreadResourceMgr();
-        _env._master_info = new TMasterInfo();
-        _env._load_stream_mgr = new LoadStreamMgr();
-        _env._internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
-        _env._function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-        _env._stream_load_executor = new StreamLoadExecutor(&_env);
-
-        _evhttp_req = evhttp_request_new(nullptr, nullptr);
-    }
-    void TearDown() override {
-        delete _env._internal_client_cache;
-        _env._internal_client_cache = nullptr;
-        delete _env._function_client_cache;
-        _env._function_client_cache = nullptr;
-        delete _env._load_stream_mgr;
-        _env._load_stream_mgr = nullptr;
-        delete _env._master_info;
-        _env._master_info = nullptr;
-        delete _env._thread_mgr;
-        _env._thread_mgr = nullptr;
-        delete _env._stream_load_executor;
-        _env._stream_load_executor = nullptr;
-
-        if (_evhttp_req != nullptr) {
-            evhttp_request_free(_evhttp_req);
-        }
-    }
-
-private:
-    ExecEnv _env;
-    evhttp_request* _evhttp_req = nullptr;
+    StreamLoadTest() = default;
+    virtual ~StreamLoadTest() = default;
+    void SetUp() override {}
+    void TearDown() override {}
 };
 
-TEST_F(StreamLoadActionTest, no_auth) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Fail", doc["Status"].GetString());
+void http_request_done_cb(struct evhttp_request* req, void* arg) {
+    event_base_loopbreak((struct event_base*)arg);
 }
 
-TEST_F(StreamLoadActionTest, normal) {
-    StreamLoadAction action(&_env);
+TEST_F(StreamLoadTest, TestHeader) {
+    // 1G
+    auto wal_mgr = WalManager::create_unique(ExecEnv::GetInstance(), config::group_commit_wal_path);
+    static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_1", 1000, 0, 0));
+    static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_2", 10000, 0, 0));
+    static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_3", 100000, 0, 0));
+    ExecEnv::GetInstance()->set_wal_mgr(std::move(wal_mgr));
+    // 1. empty info
+    {
+        auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+        HttpRequest req(evhttp_req);
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH).empty(), true);
+        evhttp_request_free(evhttp_req);
+    }
 
-    HttpRequest request(_evhttp_req);
+    // 2. chunked stream load whih group commit
+    {
+        //struct event_base* base = nullptr;
+        char uri[] = "Http://127.0.0.1/test.txt";
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        evhttp_req->type = EVHTTP_REQ_GET;
+        evhttp_req->uri = uri;
+        evhttp_req->uri_elems = evhttp_uri_parse(uri);
+        evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
+        HttpRequest req(evhttp_req);
+        req.init_from_evhttp();
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH).empty(), true);
+        evhttp_uri_free(evhttp_req->uri_elems);
+        evhttp_req->uri = nullptr;
+        evhttp_req->uri_elems = nullptr;
+        evhttp_request_free(evhttp_req);
+    }
 
-    struct evhttp_request ev_req;
-    ev_req.remote_host = nullptr;
-    request._ev_req = &ev_req;
+    // 3. small stream load whih group commit
+    {
+        char uri[] = "Http://127.0.0.1/test.txt";
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        evhttp_req->type = EVHTTP_REQ_GET;
+        evhttp_req->uri = uri;
+        evhttp_req->uri_elems = evhttp_uri_parse(uri);
+        evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
+        evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "20000");
+        HttpRequest req(evhttp_req);
+        req.init_from_evhttp();
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH), "20000");
+        EXPECT_EQ(load_size_smaller_than_wal_limit(20000), true);
+        evhttp_uri_free(evhttp_req->uri_elems);
+        evhttp_req->uri = nullptr;
+        evhttp_req->uri_elems = nullptr;
+        evhttp_request_free(evhttp_req);
+    }
 
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "0");
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Success", doc["Status"].GetString());
+    // 4. large stream load whih group commit
+    {
+        char uri[] = "Http://127.0.0.1/test.txt";
+        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        evhttp_req->type = EVHTTP_REQ_GET;
+        evhttp_req->uri = uri;
+        evhttp_req->uri_elems = evhttp_uri_parse(uri);
+        evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
+        evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "1073741824");
+        HttpRequest req(evhttp_req);
+        req.init_from_evhttp();
+        EXPECT_EQ(req.header(HttpHeaders::CONTENT_LENGTH), "1073741824");
+        EXPECT_EQ(load_size_smaller_than_wal_limit(1073741824), false);
+        evhttp_uri_free(evhttp_req->uri_elems);
+        evhttp_req->uri = nullptr;
+        evhttp_req->uri_elems = nullptr;
+        evhttp_request_free(evhttp_req);
+    }
 }
-
-TEST_F(StreamLoadActionTest, put_fail) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-
-    struct evhttp_request ev_req;
-    ev_req.remote_host = nullptr;
-    request._ev_req = &ev_req;
-
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status = Status::InternalError("TestFail");
-    status.to_thrift(&k_stream_load_put_result.status);
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Fail", doc["Status"].GetString());
-}
-
-TEST_F(StreamLoadActionTest, commit_fail) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-    struct evhttp_request ev_req;
-    ev_req.remote_host = nullptr;
-    request._ev_req = &ev_req;
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status = Status::InternalError("TestFail");
-    status.to_thrift(&k_stream_load_commit_result.status);
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Fail", doc["Status"].GetString());
-}
-
-TEST_F(StreamLoadActionTest, begin_fail) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-    struct evhttp_request ev_req;
-    ev_req.remote_host = nullptr;
-    request._ev_req = &ev_req;
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status = Status::InternalError("TestFail");
-    status.to_thrift(&k_stream_load_begin_result.status);
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Fail", doc["Status"].GetString());
-}
-
-#if 0
-TEST_F(StreamLoadActionTest, receive_failed) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::TRANSFER_ENCODING, "chunked");
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Fail", doc["Status"].GetString());
-}
-#endif
-
-TEST_F(StreamLoadActionTest, plan_fail) {
-    StreamLoadAction action(&_env);
-
-    HttpRequest request(_evhttp_req);
-    struct evhttp_request ev_req;
-    ev_req.remote_host = nullptr;
-    request._ev_req = &ev_req;
-    request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    k_stream_load_plan_status = Status::InternalError("TestFail");
-    request.set_handler(&action);
-    action.on_header(&request);
-    action.handle(&request);
-
-    rapidjson::Document doc;
-    doc.Parse(k_response_str.c_str());
-    EXPECT_STREQ("Fail", doc["Status"].GetString());
-}
-
 } // namespace doris

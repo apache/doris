@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include "vec/aggregate_functions/aggregate_function_bitmap.h"
-#include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
-#include "vec/aggregate_functions/aggregate_function_min_max.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/aggregate_function_sum.h"
-#include "vec/aggregate_functions/aggregate_function_window.h"
+namespace doris {
+#include "common/compile_check_begin.h"
+namespace vectorized {
+class AggregateFunctionSimpleFactory;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -34,3 +34,5 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

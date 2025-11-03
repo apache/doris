@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
+select
     cntrycode,
     count(*) as numcust,
     sum(c_acctbal) as totacctbal
@@ -28,7 +28,7 @@ from
             customer
         where
             substring(c_phone, 1, 2) in
-                ('13', '31', '23', '29', '30', '18', '17')
+            ('13', '31', '23', '29', '30', '18', '17')
             and c_acctbal > (
                 select
                     avg(c_acctbal)
@@ -37,7 +37,7 @@ from
                 where
                     c_acctbal > 0.00
                     and substring(c_phone, 1, 2) in
-                        ('13', '31', '23', '29', '30', '18', '17')
+                      ('13', '31', '23', '29', '30', '18', '17')
             )
             and not exists (
                 select

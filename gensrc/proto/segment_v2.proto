@@ -40,6 +40,7 @@ enum EncodingTypePB {
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
     FOR_ENCODING = 7; // Frame-Of-Reference
+    PLAIN_ENCODING_V2 = 8; // Binary plain with varuint length prefix
 }
 
 enum CompressionTypePB {
@@ -51,6 +52,7 @@ enum CompressionTypePB {
     LZ4F = 5;
     ZLIB = 6;
     ZSTD = 7;
+    LZ4HC = 8;
 }
 
 enum PageTypePB {
@@ -59,6 +61,7 @@ enum PageTypePB {
     INDEX_PAGE = 2;
     DICTIONARY_PAGE = 3;
     SHORT_KEY_PAGE = 4;
+    PRIMARY_KEY_INDEX_PAGE = 5;
 }
 
 message DataPageFooterPB {
@@ -69,8 +72,8 @@ message DataPageFooterPB {
     // required: size of nullmap, 0 if the page doesn't contain NULL
     optional uint32 nullmap_size = 3;
     // only for array column
-    // Save the first array's first item's ordinal.
-    optional uint64 first_array_item_ordinal = 4;
+    // Save the offset of next page 
+    optional uint64 next_array_item_ordinal = 4;
 }
 
 message IndexPageFooterPB {
@@ -133,7 +136,42 @@ message ZoneMapPB {
     optional bool has_not_null = 4;
     // whether this zone is including all values;
     optional bool pass_all = 5 [default = false];
+    // whether the zone has +Infinity value
+    optional bool has_positive_inf = 6;
+    // whether the zone has -Infinity value
+    optional bool has_negative_inf = 7;
+    // whether the zone has NaN value
+    optional bool has_nan = 8;
 }
+
+message ColumnPathPartInfo {
+    // key represent a part of key in full parts info
+    optional string key = 1;
+    // is_nested indicates that the part if a nested array
+    optional bool is_nested = 2;
+    // anonymous_array_level indicates the nested level of array
+    optional uint32 anonymous_array_level = 3;
+}
+
+// Persist info for PathInData that represents path in document, e.g. JSON.
+// Each variant's subcolumn must persist it's path info to storage, since it only
+// uses path info to identify a column in storage instead of column unique id
+message ColumnPathInfo {
+    // The full path string representation
+    optional string path = 1;
+    // A list of parts, each part indicate a sub path of the whole path
+    repeated ColumnPathPartInfo path_part_infos = 2;
+    optional bool has_nested = 3;
+    // The original parent variant's unique id, used to distinguish from different variants
+    optional uint32 parrent_column_unique_id = 4;
+    // is_typed flags if the subcolumn is assigned specific types
+    optional bool is_typed = 5;
+}
+
+message VariantStatisticsPB {
+    // in the order of subcolumns in variant
+    map<string, uint32> sparse_column_non_null_size = 2;
+} 
 
 message ColumnMetaPB {
     // column id in table schema
@@ -159,7 +197,37 @@ message ColumnMetaPB {
     // required by array/struct/map reader to create child reader.
     optional uint64 num_rows = 11;
     repeated string children_column_names = 12;
+    
+    // persist info for PathInData that represents path in document, e.g. JSON.
+    optional ColumnPathInfo column_path_info = 13;
 
+    // Extra type info to be compatible with tabet schema
+    optional bytes default_value = 14; // ColumnMessage.default_value ?
+    optional int32 precision = 15; // ColumnMessage.precision
+    optional int32 frac = 16; // ColumnMessag
+
+    repeated ColumnMetaPB sparse_columns = 17; // deprecated
+
+    optional bool result_is_nullable = 18; // used on agg_state type
+    optional string function_name = 19; // used on agg_state type
+    optional int32 be_exec_version = 20; // used on agg_state type
+    optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
+    optional int32 variant_max_subcolumns_count = 22 [default = 0];
+    optional uint64 none_null_size = 23 [default = 0];
+
+    optional uint64 compressed_data_bytes = 24;
+    optional uint64 uncompressed_data_bytes = 25;
+    optional uint64 raw_data_bytes = 26;
+}
+
+message PrimaryKeyIndexMetaPB {
+    // primary key index
+    optional IndexedColumnMetaPB primary_key_index = 1;
+    // bloom filter index
+    optional ColumnIndexMetaPB bloom_filter_index = 2;
+
+    optional bytes min_key = 3;
+    optional bytes max_key = 4;
 }
 
 message SegmentFooterPB {
@@ -175,6 +243,9 @@ message SegmentFooterPB {
 
     // Short key index's page
     optional PagePointerPB short_key_index_page = 9;
+
+    // Primary key index meta
+    optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
 }
 
 message BTreeMetaPB {
@@ -252,11 +323,13 @@ message BitmapIndexPB {
 
 enum HashStrategyPB {
     HASH_MURMUR3_X64_64 = 0;
+    CITY_HASH_64 = 1;
 }
 
 enum BloomFilterAlgorithmPB {
     BLOCK_BLOOM_FILTER = 0;
     CLASSIC_BLOOM_FILTER = 1;
+    NGRAM_BLOOM_FILTER = 2;
 }
 
 message BloomFilterIndexPB {

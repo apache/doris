@@ -15,9 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
+#include <string>
+
+#include "gtest/gtest_pred_impl.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris::vectorized {
@@ -33,10 +40,10 @@ TEST(CharTypePaddingTest, CharTypePaddingFullTest) {
     for (size_t i = 0; i < rows; i++) {
         input->insert_data(str.data(), str.length());
     }
-    EXPECT_FALSE(ConvertorChar::should_padding(input, str.length()));
+    EXPECT_FALSE(ConvertorChar::should_padding(input.get(), str.length()));
 
     input->insert_data(str.data(), str.length() - 1);
-    EXPECT_TRUE(ConvertorChar::should_padding(input, str.length()));
+    EXPECT_TRUE(ConvertorChar::should_padding(input.get(), str.length()));
 }
 
 TEST(CharTypePaddingTest, CharTypePaddingDataTest) {
@@ -49,7 +56,7 @@ TEST(CharTypePaddingTest, CharTypePaddingDataTest) {
         input->insert_data(str.data(), str.length() - i);
     }
 
-    auto output = ConvertorChar::clone_and_padding(input, str.length());
+    auto output = ConvertorChar::clone_and_padding(input.get(), str.length());
 
     for (int i = 0; i < rows; i++) {
         auto cell = output->get_data_at(i).to_string();

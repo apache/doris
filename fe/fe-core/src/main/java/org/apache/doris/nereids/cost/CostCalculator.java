@@ -17,86 +17,40 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorVisitor;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalAggregate;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalProject;
-import org.apache.doris.statistics.StatsDeriveResult;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import java.util.List;
 
 /**
  * Calculate the cost of a plan.
- * Inspired by Presto.
  */
+// TODO: memory cost and network cost should be estimated by byte size.
 public class CostCalculator {
+
     /**
-     * Constructor.
+     * Calculate cost for groupExpression
      */
-    public static double calculateCost(GroupExpression groupExpression) {
-        PlanContext planContext = new PlanContext(groupExpression);
-        CostEstimator costCalculator = new CostEstimator();
-        CostEstimate costEstimate = groupExpression.getOperator().accept(costCalculator, planContext);
-        return costFormula(costEstimate);
+    public static Cost calculateCost(ConnectContext connectContext, GroupExpression groupExpression,
+            List<PhysicalProperties> childrenProperties) {
+        PlanContext planContext = new PlanContext(connectContext, groupExpression);
+        if (childrenProperties.size() >= 2
+                && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
+            planContext.setBroadcastJoin();
+        }
+
+        CostModel costModelV1 = new CostModel(connectContext);
+        return groupExpression.getPlan().accept(costModelV1, planContext);
     }
 
-    private static double costFormula(CostEstimate costEstimate) {
-        double cpuCostWeight = 1;
-        double memoryCostWeight = 1;
-        double networkCostWeight = 1;
-        return costEstimate.getCpuCost() * cpuCostWeight + costEstimate.getMemoryCost() * memoryCostWeight
-                + costEstimate.getNetworkCost() * networkCostWeight;
-    }
-
-    private static class CostEstimator extends OperatorVisitor<CostEstimate, PlanContext> {
-        @Override
-        public CostEstimate visitOperator(Operator operator, PlanContext context) {
-            return CostEstimate.zero();
-        }
-
-        @Override
-        public CostEstimate visitPhysicalAggregation(PhysicalAggregate physicalAggregate, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            return CostEstimate.ofCpu(statistics.computeSize());
-        }
-
-        @Override
-        public CostEstimate visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            return CostEstimate.ofCpu(statistics.computeSize());
-        }
-
-        @Override
-        public CostEstimate visitPhysicalHashJoin(PhysicalHashJoin physicalHashJoin, PlanContext context) {
-            Preconditions.checkState(context.getGroupExpression().arity() == 2);
-            Preconditions.checkState(context.getChildrenStats().size() == 2);
-
-            StatsDeriveResult leftStatistics = context.getChildStatistics(0);
-            StatsDeriveResult rightStatistics = context.getChildStatistics(1);
-
-            // TODO: handle some case
-
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
-
-            // handle cross join, onClause is empty .....
-
-            return new CostEstimate(
-                    leftStatistics.computeColumnSize(leftIds) + rightStatistics.computeColumnSize(rightIds),
-                    rightStatistics.computeColumnSize(rightIds), 0);
-        }
-
-        @Override
-        public CostEstimate visitPhysicalProject(PhysicalProject physicalProject, PlanContext context) {
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            return CostEstimate.ofCpu(statistics.computeSize());
-        }
+    public static Cost addChildCost(ConnectContext connectContext, Plan plan, Cost planCost, Cost childCost,
+            int index) {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        return CostModel.addChildCost(sessionVariable, planCost, childCost);
     }
 }

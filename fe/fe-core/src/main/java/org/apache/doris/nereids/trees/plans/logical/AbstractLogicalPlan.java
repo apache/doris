@@ -18,44 +18,45 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Abstract class for all concrete logical plan.
  */
-public abstract class AbstractLogicalPlan<OP_TYPE extends LogicalOperator>
-        extends AbstractPlan<OP_TYPE> implements LogicalPlan {
-
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, operator, operator.computeLogicalProperties(children), children);
+public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
+    protected AbstractLogicalPlan(PlanType type, List<Plan> children) {
+        this(type, Optional.empty(), Optional.empty(), children);
     }
 
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator,
-                               Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, operator, logicalProperties.orElseGet(() -> operator.computeLogicalProperties(children)), children);
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children));
     }
 
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Optional<GroupExpression> groupExpression,
-                               Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, operator, groupExpression,
-                logicalProperties.orElseGet(() -> operator.computeLogicalProperties(children)), children);
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        super(type, groupExpression, logicalProperties, null, children);
+    }
+
+    // Don't generate ObjectId for LogicalPlan
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Supplier<LogicalProperties> logicalPropertiesSupplier, List<Plan> children, boolean useZeroId) {
+        super(type, groupExpression, logicalPropertiesSupplier, null, children, useZeroId);
     }
 
     @Override
-    public LogicalProperties getLogicalProperties() {
-        return logicalProperties;
-    }
-
-    @Override
-    public List<Slot> getOutput() {
-        return logicalProperties.getOutput();
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return this;
     }
 }

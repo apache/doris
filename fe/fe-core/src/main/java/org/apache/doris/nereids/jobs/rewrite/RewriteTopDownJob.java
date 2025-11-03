@@ -17,33 +17,51 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Top down job for rewrite, use pattern match.
  */
-public class RewriteTopDownJob extends Job<Plan> {
-    private final Group group;
-    private final List<Rule<Plan>> rules;
+public class RewriteTopDownJob extends Job {
 
-    public RewriteTopDownJob(Group group, JobContext context, List<RuleFactory<Plan>> factories) {
-        this(group, factories.stream()
+    private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
+            TransformEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, NereidsPlanner.LOG)));
+
+    private final Group group;
+    private final Rules rules;
+
+    public RewriteTopDownJob(Group group, JobContext context, List<RuleFactory> factories) {
+        this(group, new FilteredRules(factories.stream()
                 .flatMap(factory -> factory.buildRules().stream())
-                .collect(Collectors.toList()), context);
+                .collect(Collectors.toList())), context, true);
+    }
+
+    public RewriteTopDownJob(Group group, Rules rules, JobContext context) {
+        this(group, rules, context, true);
     }
 
     /**
@@ -53,36 +71,52 @@ public class RewriteTopDownJob extends Job<Plan> {
      * @param rules rewrite rules
      * @param context planner context
      */
-    public RewriteTopDownJob(Group group, List<Rule<Plan>> rules, JobContext context) {
-        super(JobType.TOP_DOWN_REWRITE, context);
+    public RewriteTopDownJob(Group group, Rules rules, JobContext context, boolean once) {
+        super(JobType.TOP_DOWN_REWRITE, context, once);
         this.group = Objects.requireNonNull(group, "group cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
     }
 
     @Override
+    public EventProducer getEventTracer() {
+        return RULE_TRANSFORM_TRACER;
+    }
+
+    @Override
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
-
-        List<Rule<Plan>> validRules = getValidRules(logicalExpression, rules);
-        for (Rule<Plan> rule : validRules) {
+        countJobExecutionTimesOfGroupExpressions(logicalExpression);
+        for (Rule rule : rules.getCurrentAndChildrenRules()) {
+            if (rule.isInvalid(disableRules, logicalExpression)) {
+                continue;
+            }
+            Preconditions.checkArgument(rule.isRewrite(),
+                    "rules must be rewritable in top down job");
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
+            // In topdown job, there must be only one matching plan.
+            // This `for` loop runs at most once.
             for (Plan before : groupExpressionMatching) {
-                List<Plan> afters = rule.transform(before, context.getPlannerContext());
-                Preconditions.checkArgument(afters.size() == 1);
-                Plan after = afters.get(0);
-                if (after != before) {
-                    GroupExpression expression = context.getPlannerContext()
-                            .getMemo().copyIn(after, group, rule.isRewrite());
-                    expression.setApplied(rule);
-                    pushTask(new RewriteTopDownJob(group, rules, context));
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                Group correspondingGroup = copyInResult.get().correspondingExpression.getOwnerGroup();
+                if (copyInResult.get().generateNewExpression
+                        || correspondingGroup != group
+                        || logicalExpression.getOwnerGroup() == null) {
+                    // new group-expr replaced the origin group-expr in `group`,
+                    // run this rule against this `group` again.
+                    context.setRewritten(true);
+                    pushJob(new RewriteTopDownJob(correspondingGroup, rules, context));
                     return;
                 }
             }
         }
 
-        for (Group childGroup : group.getLogicalExpression().children()) {
-            pushTask(new RewriteTopDownJob(childGroup, rules, context));
+        List<Group> children = group.getLogicalExpression().children();
+        for (int i = children.size() - 1; i >= 0; i--) {
+            pushJob(new RewriteTopDownJob(children.get(i), rules, context));
         }
     }
 }

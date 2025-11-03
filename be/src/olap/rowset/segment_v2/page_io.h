@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/rowset/segment_v2/page_handle.h"
+#include "io/cache/block_file_cache.h"
+#include "io/io_common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/slice.h"
 
@@ -33,45 +33,83 @@ namespace doris {
 class BlockCompressionCodec;
 struct OlapReaderStatistics;
 
-namespace fs {
-class ReadableBlock;
-class WritableBlock;
-} // namespace fs
-
 namespace io {
 class FileWriter;
+class FileReader;
 } // namespace io
 
 namespace segment_v2 {
+class EncodingInfo;
+class PageHandle;
+
+io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path);
+std::string file_cache_key_str(const std::string& seg_path);
 
 struct PageReadOptions {
-    // block to read page
-    doris::io::FileReader* file_reader = nullptr;
-    // location of the page
-    PagePointer page_pointer;
-    // decompressor for page body (null means page body is not compressed)
-    const BlockCompressionCodec* codec = nullptr;
-    // used to collect IO metrics
-    OlapReaderStatistics* stats = nullptr;
     // whether to verify page checksum
     bool verify_checksum = true;
     // whether to use page cache in read path
-    bool use_page_cache = true;
+    bool use_page_cache = false;
     // if true, use DURABLE CachePriority in page cache
     // currently used for in memory olap table
     bool kept_in_memory = false;
+    // index_page should not be pre-decoded
+    bool pre_decode = true;
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    // block to read page
+    io::FileReader* file_reader = nullptr;
+    // location of the page
+    PagePointer page_pointer;
+    // decompressor for page body (null means page body is not compressed)
+    BlockCompressionCodec* codec = nullptr;
+    // used to collect IO metrics
+    OlapReaderStatistics* stats = nullptr;
 
     const EncodingInfo* encoding_info = nullptr;
+
+    const io::IOContext io_ctx;
+
+    // for dict page, we need to use encoding_info based on footer->dict_page_footer().encoding()
+    // to get its pre_decoder
+    bool is_dict_page {false};
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
     }
+    PageReadOptions(const io::IOContext& ioctx) : io_ctx(ioctx) {}
+
+    PageReadOptions(const PageReadOptions& old) : io_ctx(old.io_ctx) {
+        file_reader = old.file_reader;
+        page_pointer = old.page_pointer;
+        codec = old.codec;
+        stats = old.stats;
+        verify_checksum = old.verify_checksum;
+        use_page_cache = old.use_page_cache;
+        kept_in_memory = old.kept_in_memory;
+        type = old.type;
+        encoding_info = old.encoding_info;
+        pre_decode = old.pre_decode;
+        is_dict_page = old.is_dict_page;
+    }
 };
+
+struct InjectionContext {
+    uint32_t* crc;
+    PageReadOptions* opts;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const PageReadOptions& opt) {
+    return os << "PageReadOptions { verify_checksum=" << opt.verify_checksum
+              << " use_page_cache=" << opt.use_page_cache
+              << " kept_in_memory=" << opt.kept_in_memory << " pre_decode=" << opt.pre_decode
+              << " type=" << opt.type << " page_pointer=" << opt.page_pointer
+              << " has_codec=" << (opt.codec != nullptr)
+              << " has_encoding_info=" << (opt.encoding_info != nullptr) << " }";
+}
 
 // Utility class for read and write page. All types of page share the same general layout:
 //     Page := PageBody, PageFooter, FooterSize(4), Checksum(4)
@@ -86,7 +124,7 @@ public:
     // Compress `body' using `codec' into `compressed_body'.
     // The size of returned `compressed_body' is 0 when the body is not compressed, this
     // could happen when `codec' is null or space saving is less than `min_space_saving'.
-    static Status compress_page_body(const BlockCompressionCodec* codec, double min_space_saving,
+    static Status compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                      const std::vector<Slice>& body, OwnedSlice* compressed_body);
 
     // Encode page from `body' and `footer' and write to `file'.
@@ -96,9 +134,8 @@ public:
                              const PageFooterPB& footer, PagePointer* result);
 
     // Convenient function to compress page body and write page in one go.
-    static Status compress_and_write_page(const BlockCompressionCodec* codec,
-                                          double min_space_saving, io::FileWriter* writer,
-                                          const std::vector<Slice>& body,
+    static Status compress_and_write_page(BlockCompressionCodec* codec, double min_space_saving,
+                                          io::FileWriter* writer, const std::vector<Slice>& body,
                                           const PageFooterPB& footer, PagePointer* result) {
         DCHECK_EQ(footer.uncompressed_size(), Slice::compute_total_size(body));
         OwnedSlice compressed_body;
@@ -114,8 +151,20 @@ public:
     //     `handle' holds the memory of page data,
     //     `body' points to page body,
     //     `footer' stores the page footer.
+    // This method is exception safe, it will failed when allocate memory failed.
+    // deal with CORRUPTION when using file cache, retry from remote
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
                                            Slice* body, PageFooterPB* footer);
+
+private:
+    static Status do_read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
+                                              Slice* body, PageFooterPB* footer) {
+        RETURN_IF_CATCH_EXCEPTION(
+                { return read_and_decompress_page_(opts, handle, body, footer); });
+    }
+    // An internal method that not deal with exception.
+    static Status read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
+                                            Slice* body, PageFooterPB* footer);
 };
 
 } // namespace segment_v2

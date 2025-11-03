@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -60,5 +60,23 @@ public class ProfileAction extends RestBaseController {
         Map<String, String> result = Maps.newHashMap();
         result.put("profile", queryProfileStr);
         return ResponseEntityBuilder.ok(result);
+    }
+
+    @RequestMapping(path = "/api/profile/text", method = RequestMethod.GET)
+    protected Object profileText(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        String queryId = request.getParameter("query_id");
+        if (Strings.isNullOrEmpty(queryId)) {
+            queryId = ProfileManager.getInstance().getLastProfileId();
+        }
+
+        String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
+        if (queryProfileStr == null) {
+            return "query id " + queryId + " not found";
+        }
+
+        return queryProfileStr;
     }
 }

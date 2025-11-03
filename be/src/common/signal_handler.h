@@ -34,11 +34,12 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <gutil/macros.h>
 
 #include <boost/stacktrace.hpp>
 #include <csignal>
 #include <ctime>
+
+#include "common/version_internal.h"
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif
@@ -49,6 +50,11 @@
 
 namespace doris::signal {
 
+inline thread_local uint64_t query_id_hi;
+inline thread_local uint64_t query_id_lo;
+inline thread_local int64_t tablet_id = 0;
+inline thread_local bool is_nereids = false;
+
 namespace {
 
 // We'll install the failure signal handler for these signals.  We could
@@ -58,7 +64,7 @@ namespace {
 // The list should be synced with the comment in signalhandler.h.
 const struct {
     int number;
-    const char* name;
+    const char* name = nullptr;
 } kFailureSignals[] = {
         {SIGSEGV, "SIGSEGV"}, {SIGILL, "SIGILL"}, {SIGFPE, "SIGFPE"},
         {SIGABRT, "SIGABRT"}, {SIGBUS, "SIGBUS"}, {SIGTERM, "SIGTERM"},
@@ -195,10 +201,10 @@ public:
 
     // Formats "number" in "radix" and updates the internal cursor.
     // Lowercase letters are used for 'a' - 'z'.
-    void AppendUint64(uint64 number, unsigned radix) {
+    void AppendUint64(uint64_t number, unsigned radix) {
         unsigned i = 0;
         while (cursor_ + i < end_) {
-            const uint64 tmp = number % radix;
+            const uint64_t tmp = number % radix;
             number /= radix;
             cursor_[i] = static_cast<char>(tmp < 10 ? '0' + tmp : 'a' + tmp - 10);
             ++i;
@@ -211,24 +217,9 @@ public:
         cursor_ += i;
     }
 
-    // Formats "number" as hexadecimal number, and updates the internal
-    // cursor.  Padding will be added in front if needed.
-    void AppendHexWithPadding(uint64 number, int width) {
-        char* start = cursor_;
-        AppendString("0x");
-        AppendUint64(number, 16);
-        // Move to right and add padding in front if needed.
-        if (cursor_ < start + width) {
-            const int64 delta = start + width - cursor_;
-            std::copy(start, cursor_, start + delta);
-            std::fill(start, start + delta, ' ');
-            cursor_ = start + width;
-        }
-    }
-
 private:
-    char* buffer_;
-    char* cursor_;
+    char* buffer_ = nullptr;
+    char* cursor_ = nullptr;
     const char* const end_;
 };
 
@@ -245,23 +236,37 @@ void (*g_failure_writer)(const char* data, size_t size) = WriteToStderr;
 // Dumps time information.  We don't dump human-readable time information
 // as localtime() is not guaranteed to be async signal safe.
 void DumpTimeInfo() {
-    time_t time_in_sec = time(NULL);
+    time_t time_in_sec = time(nullptr);
     char buf[256]; // Big enough for time info.
     MinimalFormatter formatter(buf, sizeof(buf));
+    formatter.AppendString("*** Query id: ");
+    formatter.AppendUint64(query_id_hi, 16);
+    formatter.AppendString("-");
+    formatter.AppendUint64(query_id_lo, 16);
+    formatter.AppendString(" ***\n");
+    formatter.AppendString("*** is nereids: ");
+    formatter.AppendUint64(is_nereids, 10);
+    formatter.AppendString(" ***\n");
+    formatter.AppendString("*** tablet id: ");
+    formatter.AppendUint64(tablet_id, 10);
+    formatter.AppendString(" ***\n");
     formatter.AppendString("*** Aborted at ");
-    formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(time_in_sec), 10);
     formatter.AppendString(" (unix time)");
     formatter.AppendString(" try \"date -d @");
-    formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(time_in_sec), 10);
     formatter.AppendString("\" if you are using GNU date ***\n");
+    formatter.AppendString("*** Current BE git commitID: ");
+    formatter.AppendString(version::doris_build_short_hash());
+    formatter.AppendString(" ***\n");
     g_failure_writer(buf, formatter.num_bytes_written());
 }
 
 // Dumps information about the signal to STDERR.
 void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     // Get the signal name.
-    const char* signal_name = NULL;
-    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
+    const char* signal_name = nullptr;
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
         if (signal_number == kFailureSignals[i].number) {
             signal_name = kFailureSignals[i].name;
         }
@@ -277,7 +282,7 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
         // Use the signal number if the name is unknown.  The signal name
         // should be known, but just in case.
         formatter.AppendString("Signal ");
-        formatter.AppendUint64(static_cast<uint64>(signal_number), 10);
+        formatter.AppendUint64(static_cast<uint64_t>(signal_number), 10);
     }
     formatter.AppendString(" ");
     // Detail reason explain
@@ -287,24 +292,32 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     if (reason != nullptr) {
         formatter.AppendString(reason);
     } else {
-        formatter.AppendString("unkown detail explain");
+        formatter.AppendString("unknown detail explain");
     }
     formatter.AppendString(" (@0x");
     formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);
     formatter.AppendString(")");
     formatter.AppendString(" received by PID ");
-    formatter.AppendUint64(static_cast<uint64>(getpid()), 10);
-    formatter.AppendString(" (TID 0x");
+    formatter.AppendUint64(static_cast<uint64_t>(getpid()), 10);
+    formatter.AppendString(" (TID ");
+    uint64_t tid;
+#ifdef __APPLE__
+    pthread_threadid_np(nullptr, &tid);
+#else
+    tid = syscall(SYS_gettid);
+#endif
+    formatter.AppendUint64(tid, 10);
+    formatter.AppendString(" OR 0x");
     // We assume pthread_t is an integral number or a pointer, rather
     // than a complex struct.  In some environments, pthread_self()
     // returns an uint64 but in some other environments pthread_self()
     // returns a pointer.
     pthread_t id = pthread_self();
-    formatter.AppendUint64(reinterpret_cast<uint64>(reinterpret_cast<const char*>(id)), 16);
+    formatter.AppendUint64(reinterpret_cast<uint64_t>(reinterpret_cast<const char*>(id)), 16);
     formatter.AppendString(") ");
     // Only linux has the PID of the signal sender in si_pid.
     formatter.AppendString("from PID ");
-    formatter.AppendUint64(static_cast<uint64>(siginfo->si_pid), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(siginfo->si_pid), 10);
     formatter.AppendString("; ");
     formatter.AppendString("stack trace: ***\n");
     g_failure_writer(buf, formatter.num_bytes_written());
@@ -316,7 +329,7 @@ void InvokeDefaultSignalHandler(int signal_number) {
     memset(&sig_action, 0, sizeof(sig_action));
     sigemptyset(&sig_action.sa_mask);
     sig_action.sa_handler = SIG_DFL;
-    sigaction(signal_number, &sig_action, NULL);
+    sigaction(signal_number, &sig_action, nullptr);
     kill(getpid(), signal_number);
 }
 
@@ -324,14 +337,14 @@ void InvokeDefaultSignalHandler(int signal_number) {
 // dumping stuff while another thread is doing it.  Our policy is to let
 // the first thread dump stuff and let other threads wait.
 // See also comments in FailureSignalHandler().
-static pthread_t* g_entered_thread_id_pointer = NULL;
+static pthread_t* g_entered_thread_id_pointer = nullptr;
 
 // Wrapper of __sync_val_compare_and_swap. If the GCC extension isn't
 // defined, we try the CPU specific logics (we only support x86 and
 // x86_64 for now) first, then use a naive implementation, which has a
 // race condition.
 template <typename T>
-inline T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
+T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
 #if defined(HAVE___SYNC_VAL_COMPARE_AND_SWAP)
     return __sync_val_compare_and_swap(ptr, oldval, newval);
 #elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
@@ -370,8 +383,8 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
     // old value (value returned from __sync_val_compare_and_swap) is
     // different from the original value (in this case NULL).
     pthread_t* old_thread_id_pointer = sync_val_compare_and_swap(
-            &g_entered_thread_id_pointer, static_cast<pthread_t*>(NULL), &my_thread_id);
-    if (old_thread_id_pointer != NULL) {
+            &g_entered_thread_id_pointer, static_cast<pthread_t*>(nullptr), &my_thread_id);
+    if (old_thread_id_pointer != nullptr) {
         // We've already entered the signal handler.  What should we do?
         if (pthread_equal(my_thread_id, *g_entered_thread_id_pointer)) {
             // It looks the current thread is reentering the signal handler.
@@ -416,7 +429,31 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
 
 } // namespace
 
-void InstallFailureSignalHandler() {
+inline void set_signal_task_id(PUniqueId tid) {
+    query_id_hi = tid.hi();
+    query_id_lo = tid.lo();
+}
+
+inline void set_signal_task_id(TUniqueId tid) {
+    query_id_hi = tid.hi;
+    query_id_lo = tid.lo;
+}
+
+// this struct is used to set signal task id in the constructor and reset it in the destructor
+// thread pool will reuse pthread, so we need to clean thread local data
+struct SignalTaskIdKeeper {
+    template <typename T>
+    SignalTaskIdKeeper(const T& id) {
+        set_signal_task_id(id);
+    }
+    ~SignalTaskIdKeeper() { set_signal_task_id(PUniqueId {}); }
+};
+
+inline void set_signal_is_nereids(bool is_nereids_arg) {
+    is_nereids = is_nereids_arg;
+}
+
+inline void InstallFailureSignalHandler() {
     // Build the sigaction struct.
     struct sigaction sig_action;
     memset(&sig_action, 0, sizeof(sig_action));
@@ -424,8 +461,8 @@ void InstallFailureSignalHandler() {
     sig_action.sa_flags |= SA_SIGINFO;
     sig_action.sa_sigaction = &FailureSignalHandler;
 
-    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
-        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, NULL));
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
+        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, nullptr));
     }
     kFailureSignalHandlerInstalled = true;
 }

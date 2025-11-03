@@ -15,72 +15,93 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
+#pragma once
 
-#include "agent/utils.h"
+#include <gen_cpp/Types_types.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/MasterService_types.h"
-#include "olap/olap_define.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class DataDir;
+class TCloneReq;
+class TTabletInfo;
+class Tablet;
+struct Version;
+class StorageEngine;
+class ClusterInfo;
+
+const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
+const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
+const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
+const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
+const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
+const uint32_t GET_LENGTH_TIMEOUT = 10;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineCloneTask : public EngineTask {
+class EngineCloneTask final : public EngineTask {
 public:
-    virtual Status execute();
+    Status execute() override;
 
-public:
-    EngineCloneTask(const TCloneReq& _clone_req, const TMasterInfo& _master_info,
-                    int64_t _signature, vector<string>* error_msgs,
-                    vector<TTabletInfo>* tablet_infos, Status* _res_status);
-    ~EngineCloneTask() {}
+    EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_req,
+                    const ClusterInfo* cluster_info, int64_t signature,
+                    std::vector<TTabletInfo>* tablet_infos);
+    ~EngineCloneTask() override = default;
+
+    bool is_new_tablet() const { return _is_new_tablet; }
+
+    int64_t get_copy_size() const { return _copy_size; }
+    int64_t get_copy_time_ms() const { return _copy_time_ms; }
 
 private:
     Status _do_clone();
 
-    virtual Status _finish_clone(Tablet* tablet, const std::string& clone_dir,
-                                 int64_t committed_version, bool is_incremental_clone);
+    virtual Status _finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
+                                 bool is_incremental_clone);
 
-    Status _finish_incremental_clone(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
-                                     int64_t committed_version);
+    Status _finish_incremental_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta,
+                                     int64_t version);
 
-    Status _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
+    Status _finish_full_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta);
 
     Status _make_and_download_snapshots(DataDir& data_dir, const std::string& local_data_path,
-                                        TBackend* src_host, string* src_file_path,
-                                        vector<string>* error_msgs,
-                                        const vector<Version>* missing_versions,
+                                        TBackend* src_host, std::string* src_file_path,
+                                        const std::vector<Version>& missing_versions,
                                         bool* allow_incremental_clone);
 
-    void _set_tablet_info(Status status, bool is_new_tablet);
+    Status _set_tablet_info();
 
     // Download tablet files from
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
 
+    Status _batch_download_files(DataDir* data_dir, const std::string& endpoint,
+                                 const std::string& remote_dir, const std::string& local_dir);
+
     Status _make_snapshot(const std::string& ip, int port, TTableId tablet_id,
                           TSchemaHash schema_hash, int timeout_s,
-                          const std::vector<Version>* missed_versions, std::string* snapshot_path,
+                          const std::vector<Version>& missing_versions, std::string* snapshot_path,
                           bool* allow_incremental_clone);
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
 
 private:
+    StorageEngine& _engine;
     const TCloneReq& _clone_req;
-    vector<string>* _error_msgs;
-    vector<TTabletInfo>* _tablet_infos;
-    Status* _res_status;
+    std::vector<TTabletInfo>* _tablet_infos = nullptr;
     int64_t _signature;
-    const TMasterInfo& _master_info;
+    const ClusterInfo* _cluster_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::vector<PendingRowsetGuard> _pending_rs_guards;
+    bool _is_new_tablet = false;
 }; // EngineTask
 
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H

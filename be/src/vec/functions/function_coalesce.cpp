@@ -15,10 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/udf.h"
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 class FunctionCoalesce : public IFunction {
@@ -30,8 +61,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionCoalesce>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_constants() const override { return false; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
@@ -58,7 +87,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;
         ColumnNumbers filtered_args;
@@ -68,9 +97,10 @@ public:
             const auto& arg_type = block.get_by_position(arguments[i]).type;
             filtered_args.push_back(arguments[i]);
             if (!arg_type->is_nullable()) {
-                if (i == 0) { //if the first column not null, return it's directly
+                if (i == 0) {
                     block.get_by_position(result).column =
-                            block.get_by_position(arguments[0]).column;
+                            block.get_by_position(arguments[0])
+                                    .column->clone_resized(input_rows_count);
                     return Status::OK();
                 } else {
                     break;
@@ -94,27 +124,32 @@ public:
             result_column = remove_nullable(result_type)->create_column();
         }
 
-        // because now the string types does not support random position writing,
-        // so insert into result data have two methods, one is for string types, one is for others type remaining
-        bool is_string_result = result_column->is_column_string();
-        if (is_string_result) {
+        // because now follow below types does not support random position writing,
+        // so insert into result data have two methods, one is for these types, one is for others type remaining
+        bool cannot_random_write =
+                result_column->is_column_string() ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
+        if (cannot_random_write) {
             result_column->reserve(input_rows_count);
-        } else {
-            result_column->insert_many_defaults(input_rows_count);
         }
 
         auto return_type = std::make_shared<DataTypeUInt8>();
         auto null_map = ColumnUInt8::create(
                 input_rows_count, 1); //if null_map_data==1, the current row should be null
         auto* __restrict null_map_data = null_map->get_data().data();
-        ColumnPtr argument_columns[argument_size]; //use to save nested_column if is nullable column
+        std::vector<ColumnPtr> argument_columns(
+                argument_size); //use to save nested_column if is nullable column
 
         for (size_t i = 0; i < argument_size; ++i) {
             block.get_by_position(filtered_args[i]).column =
                     block.get_by_position(filtered_args[i])
                             .column->convert_to_full_column_if_const();
             argument_columns[i] = block.get_by_position(filtered_args[i]).column;
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
@@ -126,12 +161,14 @@ public:
         for (size_t i = 0; i < argument_size && remaining_rows; ++i) {
             temporary_block.get_by_position(0).column =
                     block.get_by_position(filtered_args[i]).column;
-            func_is_not_null->execute(context, temporary_block, {0}, 1, input_rows_count);
+            RETURN_IF_ERROR(
+                    func_is_not_null->execute(context, temporary_block, {0}, 1, input_rows_count));
 
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
                             .mutate();
-            auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
+            auto& res_map = assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(res_column.get())
+                                    ->get_data();
             auto* __restrict res = res_map.data();
 
             // Here it's SIMD thought the compiler automatically
@@ -162,16 +199,17 @@ public:
                 }
             }
 
-            if (!is_string_result) {
+            if (!cannot_random_write) {
                 //if not string type, could check one column firstly,
                 //and then fill the not null value in result column,
                 //this method may result in higher CPU cache
-                filled_result_column(result_type, result_column, argument_columns[i], null_map_data,
-                                     filled_flags.data(), input_rows_count);
+                RETURN_IF_ERROR(filled_result_column(result_type, result_column,
+                                                     argument_columns[i], null_map_data,
+                                                     filled_flags.data(), input_rows_count));
             }
         }
 
-        if (is_string_result) {
+        if (cannot_random_write) {
             //if string type,  should according to the record results, fill in result one by one,
             for (size_t row = 0; row < input_rows_count; ++row) {
                 if (null_map_data[row]) { //should be null
@@ -193,41 +231,81 @@ public:
     }
 
     template <typename ColumnType>
-    Status insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
-                              const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
-                              const size_t input_rows_count) {
+    void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                            const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
+                            const size_t input_rows_count) const {
+        if (result_column->size() == 0 && input_rows_count) {
+            result_column->resize(input_rows_count);
+            auto* __restrict result_raw_data =
+                    assert_cast<ColumnType*>(result_column.get())->get_data().data();
+            for (int i = 0; i < input_rows_count; i++) {
+                result_raw_data[i] = {};
+            }
+        }
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
-                reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
+                assert_cast<const ColumnType*>(argument_column.get())->get_data().data();
 
         // Here it's SIMD thought the compiler automatically also
         // true: null_map_data[row]==0 && filled_idx[row]==0
         // if true, could filled current row data into result column
         for (size_t row = 0; row < input_rows_count; ++row) {
             result_raw_data[row] +=
-                    (!(null_map_data[row] | filled_flag[row])) * column_raw_data[row];
+                    column_raw_data[row] *
+                    typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+            filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
+        }
+    }
+
+    Status insert_result_data_bitmap(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                                     const UInt8* __restrict null_map_data,
+                                     UInt8* __restrict filled_flag,
+                                     const size_t input_rows_count) const {
+        if (result_column->size() == 0 && input_rows_count) {
+            result_column->resize(input_rows_count);
+        }
+
+        auto* __restrict result_raw_data =
+                reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
+        auto* __restrict column_raw_data =
+                reinterpret_cast<const ColumnBitmap*>(argument_column.get())->get_data().data();
+
+        // Here it's SIMD thought the compiler automatically also
+        // true: null_map_data[row]==0 && filled_idx[row]==0
+        // if true, could filled current row data into result column
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (!(null_map_data[row] | filled_flag[row])) {
+                result_raw_data[row] = column_raw_data[row];
+            }
             filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
         }
         return Status::OK();
     }
 
-    Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& result_column,
-                                ColumnPtr& argument_column, UInt8* __restrict null_map_data,
-                                UInt8* __restrict filled_flag, const size_t input_rows_count) {
-        WhichDataType which(data_type->is_nullable()
-                                    ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
-                                              ->get_nested_type()
-                                    : data_type);
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                           \
-    if (which.idx == TypeIndex::TYPE)                                                         \
-        return insert_result_data<COLUMN_TYPE>(result_column, argument_column, null_map_data, \
-                                               filled_flag, input_rows_count);
-        NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
-        DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
-        TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-        return Status::NotSupported("argument_type {} not supported", data_type->get_name());
+    [[nodiscard]] Status filled_result_column(const DataTypePtr& data_type,
+                                              MutableColumnPtr& result_column,
+                                              ColumnPtr& argument_column,
+                                              UInt8* __restrict null_map_data,
+                                              UInt8* __restrict filled_flag,
+                                              const size_t input_rows_count) const {
+        if (data_type->get_primitive_type() == TYPE_BITMAP) {
+            return insert_result_data_bitmap(result_column, argument_column, null_map_data,
+                                             filled_flag, input_rows_count);
+        }
+
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            insert_result_data<typename DispatchType::ColumnType>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+            return true;
+        };
+
+        if (!dispatch_switch_scalar(data_type->get_primitive_type(), call)) {
+            return Status::InternalError("not support type {} in function {}",
+                                         data_type->get_name(), get_name());
+        }
+        return Status::OK();
     }
 };
 

@@ -17,12 +17,11 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -56,7 +55,7 @@ public class StorageTypeCheckAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -64,7 +63,7 @@ public class StorageTypeCheckAction extends RestBaseController {
         Map<String, Map<String, String>> result = Maps.newHashMap();
         List<Table> tbls = db.getTables();
         for (Table tbl : tbls) {
-            if (tbl.getType() != TableType.OLAP) {
+            if (!tbl.isManagedTable()) {
                 continue;
             }
 

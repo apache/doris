@@ -18,38 +18,37 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Compound predicate expression.
- * Such as &&,||,AND,OR.
+ * Such as AND,OR.
  */
-public class CompoundPredicate extends Expression implements BinaryExpression {
+public abstract class CompoundPredicate extends Expression implements ExpectsInputTypes {
+    protected final List<Expression> flattenChildren = new ArrayList<>();
+    private String symbol;
 
-    /**
-     * Desc: Constructor for CompoundPredicate.
-     *
-     * @param type  type of expression
-     * @param left  left child of comparison predicate
-     * @param right right child of comparison predicate
-     */
-    public CompoundPredicate(NodeType type, Expression left, Expression right) {
-        super(type, left, right);
-    }
-
-    @Override
-    public String toSql() {
-        String nodeType = getType().toString();
-        return "(" + left().toSql() + " " + nodeType + " " + right().toSql() + ")";
+    public CompoundPredicate(List<Expression> children, String symbol) {
+        super(children);
+        this.symbol = symbol;
     }
 
     @Override
     public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
+        return children.stream().anyMatch(ExpressionTrait::nullable);
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return BooleanType.INSTANCE;
     }
 
     @Override
@@ -58,34 +57,99 @@ public class CompoundPredicate extends Expression implements BinaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
-        return new CompoundPredicate(getType(), children.get(0), children.get(1));
+    public List<DataType> expectedInputTypes() {
+        return children.stream().map(c -> BooleanType.INSTANCE).collect(Collectors.toList());
     }
+
+    /**
+     * Flip logical `and` and `or` operator with original children.
+     */
+    public abstract CompoundPredicate flip();
+
+    /**
+     * Flip logical `and` and `or` operator with new children.
+     */
+    public abstract CompoundPredicate flip(List<Expression> children);
+
+    public abstract Class<? extends CompoundPredicate> flipType();
+
+    protected abstract List<Expression> extract();
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
+        if (compareWidthAndDepth) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            List<Expression> thisChildren = this.children();
+            List<Expression> thatChildren = ((CompoundPredicate) o).children();
+            if (thisChildren.size() != thatChildren.size()) {
+                return false;
+            }
+            for (int i = 0; i < thisChildren.size(); i++) {
+                if (!thisChildren.get(i).equals(thatChildren.get(i))) {
+                    return false;
+                }
+            }
             return true;
+        } else {
+            return super.equals(o);
         }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        CompoundPredicate other = (CompoundPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
-                && Objects.equals(right(), other.right());
+    }
+
+    @Override
+    public String computeToSql() {
+        StringBuilder sb = new StringBuilder();
+        children().forEach(c -> sb.append(c.toSql()).append(","));
+        sb.deleteCharAt(sb.length() - 1);
+        return symbol + "[" + sb + "]";
     }
 
     @Override
     public String toString() {
-        String nodeType = getType().toString();
-        return nodeType + "(" + left() + ", " + right() + ")";
+        StringBuilder sb = new StringBuilder();
+        children().forEach(c -> sb.append(c.toString()).append(","));
+        sb.deleteCharAt(sb.length() - 1);
+        return symbol + "[" + sb + "]";
     }
 
-    public NodeType flip() {
-        if (getType() == NodeType.AND) {
-            return NodeType.OR;
-        }
-        return NodeType.AND;
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        sb.append(children().stream().map(c -> c.toDigest())
+                .collect(Collectors.joining(" " + symbol + " ")));
+        sb.append(")");
+        return sb.toString();
+    }
+
+    @Override
+    public String getFingerprint() {
+        StringBuilder sb = new StringBuilder();
+        children().forEach(c -> sb.append(c.getFingerprint()).append(","));
+        sb.deleteCharAt(sb.length() - 1);
+        return symbol + "[" + sb + "]";
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder sb = new StringBuilder();
+        children().forEach(c -> sb.append(c.shapeInfo()).append(","));
+        sb.deleteCharAt(sb.length() - 1);
+        return symbol + "[" + sb + "]";
+    }
+
+    @Override
+    public int arity() {
+        // get flattern children
+        return children().size();
+    }
+
+    @Override
+    public Expression child(int index) {
+        return children().get(index);
     }
 }
-

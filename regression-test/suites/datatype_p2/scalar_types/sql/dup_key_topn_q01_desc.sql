@@ -1,0 +1,1 @@
+SELECT * FROM tbl_scalar_types_dup_3keys ORDER BY c_datetimev2 DESC LIMIT 10;

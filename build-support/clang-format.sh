@@ -23,11 +23,37 @@
 
 set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME=`cd "${ROOT}/.."; pwd`
+DORIS_HOME=$(
+    cd "${ROOT}/.."
+    pwd
+)
+export DORIS_HOME
 
-CLANG_FORMAT=${CLANG_FORMAT_BINARY:=$(which clang-format)}
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if ! command -v brew &>/dev/null; then
+        echo "Error: Homebrew is missing. Please install it first due to we use Homebrew to manage the tools which are needed to build the project."
+        exit 1
+    fi
+    if ! brew list llvm@16 > /dev/null 2>&1; then
+        echo "Error: Please install llvm@16 firt due to we use it to format code."
+        exit 1
+    fi
+    export PATH=$(brew --prefix llvm@16)/bin:$PATH
+fi
 
-python ${DORIS_HOME}/build-support/run_clang_format.py "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "true" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test"
+if [[ -z $(command -v clang-format) ]]; then
+    echo "clang-format not found, please install clang-format"
+    exit 1
+fi
+
+CLANG_FORMAT_VERSION=$(clang-format --version | perl -nle 'print $& if m{version \K[0-9]+}')
+if [[ ${CLANG_FORMAT_VERSION} -ne 16 ]]; then
+    echo "clang-format version is not 16, please install clang-format version 16 or upgrade your clang-format version to 16"
+    exit 1
+fi
+
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format)}"
+
+python "${DORIS_HOME}/build-support/run_clang_format.py" "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "true" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test cloud/src cloud/test"

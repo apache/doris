@@ -17,14 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.io.Text;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * ResourcePrivTable saves all resources privs
@@ -32,42 +26,15 @@ import java.io.IOException;
 public class ResourcePrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(ResourcePrivTable.class);
 
-    /*
-     * Return first priv which match the user@host on resourceName The returned priv will be
-     * saved in 'savedPrivs'.
-     */
-    public void getPrivs(UserIdentity currentUser, String resourceName, PrivBitSet savedPrivs) {
-        ResourcePrivEntry matchedEntry = null;
+    public void getPrivs(String resourceName, PrivBitSet savedPrivs) {
+        // need check all entries, because may have 2 entries match resourceName,
+        // For example, if the resourceName is g1, there are two entry `%` and `g1` compound requirements
         for (PrivEntry entry : entries) {
             ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) entry;
-
-            if (!resourcePrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
             // check resource
-            if (!resourcePrivEntry.getResourcePattern().match(resourceName)) {
-                continue;
+            if (resourcePrivEntry.getResourcePattern().match(resourceName)) {
+                savedPrivs.or(resourcePrivEntry.getPrivSet());
             }
-
-            matchedEntry = resourcePrivEntry;
-            break;
         }
-        if (matchedEntry == null) {
-            return;
-        }
-
-        savedPrivs.or(matchedEntry.getPrivSet());
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = ResourcePrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 }

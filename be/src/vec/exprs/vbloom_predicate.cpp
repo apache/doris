@@ -17,80 +17,96 @@
 
 #include "vec/exprs/vbloom_predicate.h"
 
-#include <string_view>
+#include <cstddef>
+#include <utility>
+
+#include "common/status.h"
+#include "exprs/bloom_filter_func.h"
+#include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+
+namespace doris {
+class RowDescriptor;
+class TExprNode;
+
+} // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-VBloomPredicate::VBloomPredicate(const TExprNode& node)
-        : VExpr(node), _filter(nullptr), _expr_name("bloom_predicate") {}
+class VExprContext;
+
+VBloomPredicate::VBloomPredicate(const TExprNode& node) : VExpr(node), _filter(nullptr) {}
 
 Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
-    if (_prepared) {
-        return Status::OK();
-    }
     if (_children.size() != 1) {
         return Status::InternalError("Invalid argument for VBloomPredicate.");
     }
 
-    _prepared = true;
-
-    ColumnsWithTypeAndName argument_template;
-    argument_template.reserve(_children.size());
-    for (auto child : _children) {
-        auto column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
-    }
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VBloomPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    _open_finished = true;
     return Status::OK();
 }
 
-void VBloomPredicate::close(RuntimeState* state, VExprContext* context,
-                            FunctionContext::FunctionStateScope scope) {
-    VExpr::close(state, context, scope);
+void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+    VExpr::close(context, scope);
 }
 
 Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
     }
     // call function
-    size_t num_columns_without_result = block->columns();
-    auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+    auto num_columns_without_result = block->columns();
+    auto res_data_column = ColumnUInt8::create(block->rows());
 
     ColumnPtr argument_column =
             block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
-    auto ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
-    for (size_t i = 0; i < sz; i++) {
-        ptr[i] = _filter->find(reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
-    }
-    if (_data_type->is_nullable()) {
-        auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
-        block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
-                       _data_type, _expr_name});
-    } else {
-        block->insert({std::move(res_data_column), _data_type, _expr_name});
-    }
+    auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
+    _filter->find_fixed_len(argument_column, ptr);
+    block->insert({std::move(res_data_column), _data_type, EXPR_NAME});
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }
 
 const std::string& VBloomPredicate::expr_name() const {
-    return _expr_name;
+    return EXPR_NAME;
 }
-void VBloomPredicate::set_filter(std::unique_ptr<IBloomFilterFuncBase>& filter) {
-    _filter.reset(filter.release());
+
+void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {
+    _filter = filter;
 }
+
+uint64_t VBloomPredicate::get_digest(uint64_t seed) const {
+    char* data;
+    int len;
+    _filter->get_data(&data, &len);
+    return HashUtil::hash64(data, len, seed);
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

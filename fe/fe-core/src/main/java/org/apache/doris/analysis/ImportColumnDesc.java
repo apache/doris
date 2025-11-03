@@ -17,10 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 
+import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
+
 public class ImportColumnDesc {
+    @SerializedName("cn")
     private String columnName;
+    @SerializedName("expr")
     private Expr expr;
 
     public ImportColumnDesc(ImportColumnDesc other) {
@@ -47,6 +53,10 @@ public class ImportColumnDesc {
         return columnName;
     }
 
+    public void setColumnName(String columnName) {
+        this.columnName = columnName;
+    }
+
     public Expr getExpr() {
         return expr;
     }
@@ -59,13 +69,20 @@ public class ImportColumnDesc {
         return expr == null;
     }
 
+    public Expr toBinaryPredicate() {
+        Preconditions.checkState(!isColumn());
+        BinaryPredicate pred = new BinaryPredicate(Operator.EQ, new SlotRef(null, columnName), expr);
+        return pred;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(columnName);
         if (expr != null) {
-            sb.append("=").append(expr.toSql());
+            sb.append("=").append(expr.toSqlWithoutTbl());
         }
         return sb.toString();
     }
+
 }

@@ -17,9 +17,10 @@
 
 package org.apache.doris.httpv2.meta;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -40,7 +41,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -49,29 +49,36 @@ import javax.servlet.http.HttpServletResponse;
 public class MetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(MetaService.class);
 
-    private static final int TIMEOUT_SECOND = 10;
-
     private static final String VERSION = "version";
     private static final String HOST = "host";
     private static final String PORT = "port";
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
-    private boolean isFromValidFe(HttpServletRequest request) {
-        String clientHost = request.getRemoteHost();
-        Frontend fe = Catalog.getCurrentCatalog().getFeByHost(clientHost);
+    private boolean isFromValidFe(String clientHost, String clientPortStr) {
+        Integer clientPort;
+        try {
+            clientPort = Integer.valueOf(clientPortStr);
+        } catch (Exception e) {
+            LOG.warn("get clientPort error. clientPortStr: {}", clientPortStr, e.getMessage());
+            return false;
+        }
+
+        Frontend fe = Env.getCurrentEnv().checkFeExist(clientHost, clientPort);
         if (fe == null) {
-            LOG.warn("request is not from valid FE. client: {}", clientHost);
+            LOG.warn("request is not from valid FE. client: {}, {}", clientHost, clientPortStr);
             return false;
         }
         return true;
     }
 
-
     private void checkFromValidFe(HttpServletRequest request)
             throws InvalidClientException {
-        if (!isFromValidFe(request)) {
-            throw new InvalidClientException("invalid client host: " + request.getRemoteHost());
+        String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
+        String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
+        if (!isFromValidFe(clientHost, clientPort)) {
+            throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort
+                + ", request from " + request.getRemoteHost());
         }
     }
 
@@ -128,6 +135,9 @@ public class MetaService extends RestBaseController {
     public Object put(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         checkFromValidFe(request);
 
+        String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
+        String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
+
         String portStr = request.getParameter(PORT);
 
         // check port to avoid SSRF(Server-Side Request Forgery)
@@ -146,14 +156,20 @@ public class MetaService extends RestBaseController {
         }
 
         checkLongParam(versionStr);
-
+        // request.getRemoteHost() may return proxy address
         String machine = request.getRemoteHost();
-        String url = "http://" + machine + ":" + port + "/image?version=" + versionStr;
+
+        LOG.info("put image. clientHost: {}, clientPort: {}, machine: {}, portStr: {}",
+                clientHost, clientPort, machine, portStr);
+
+        clientHost = Strings.isNullOrEmpty(clientHost) ? machine : clientHost;
+        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(clientHost, Integer.valueOf(portStr))
+                + "/image?version=" + versionStr;
+
         String filename = Storage.IMAGE + "." + versionStr;
-        File dir = new File(Catalog.getCurrentCatalog().getImageDir());
+        File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
-            OutputStream out = MetaHelper.getOutputStream(filename, dir);
-            MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
+            MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000, MetaHelper.getFile(filename, dir));
             MetaHelper.complete(filename, dir);
         } catch (FileNotFoundException e) {
             return ResponseEntityBuilder.notFound("file not found.");
@@ -175,7 +191,7 @@ public class MetaService extends RestBaseController {
     @RequestMapping(path = "/journal_id", method = RequestMethod.GET)
     public Object journal_id(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         checkFromValidFe(request);
-        long id = Catalog.getCurrentCatalog().getReplayedJournalId();
+        long id = Env.getCurrentEnv().getReplayedJournalId();
         response.setHeader("id", Long.toString(id));
         return ResponseEntityBuilder.ok();
     }
@@ -183,12 +199,14 @@ public class MetaService extends RestBaseController {
     @RequestMapping(path = "/role", method = RequestMethod.GET)
     public Object role(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         checkFromValidFe(request);
-
+        // For upgrade compatibility, the host parameter name remains the same
+        // and the new hostname parameter is added.
+        // host = ip
         String host = request.getParameter(HOST);
         String portString = request.getParameter(PORT);
         if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
             int port = Integer.parseInt(portString);
-            Frontend fe = Catalog.getCurrentCatalog().checkFeExist(host, port);
+            Frontend fe = Env.getCurrentEnv().checkFeExist(host, port);
             if (fe == null) {
                 response.setHeader("role", FrontendNodeType.UNKNOWN.name());
             } else {
@@ -224,6 +242,10 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all
          * the jobs' read lock. This will guarantee the consistency of database and job queues.
@@ -231,7 +253,7 @@ public class MetaService extends RestBaseController {
          *
          * TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
          */
-        String dumpFilePath = Catalog.getCurrentCatalog().dumpImage();
+        String dumpFilePath = Env.getCurrentEnv().dumpImage();
 
         if (dumpFilePath == null) {
             return ResponseEntityBuilder.okWithCommonError("dump failed.");

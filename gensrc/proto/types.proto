@@ -39,6 +39,7 @@ message PScalarType {
 message PStructField {
     required string name = 1;
     optional string comment = 2;
+    optional bool contains_null = 3;
 };
 
 message PTypeNode {
@@ -50,6 +51,11 @@ message PTypeNode {
     repeated PStructField struct_fields = 3;
     // only used for complex types, such as array, map and etc.
     optional bool contains_null = 4;
+    // update for map/struct type
+    repeated bool contains_nulls = 5;
+
+    // only used for VARIANT
+    optional int32 variant_max_subcolumns_count = 6 [default = 0];
 };
 
 // A flattened representation of a tree of column types obtained by depth-first
@@ -101,6 +107,18 @@ message PGenericType {
         NOTHING = 27;
         DATEV2 = 28;
         DATETIMEV2 = 29;
+        FIXEDLENGTHOBJECT = 30;
+        JSONB = 31;
+        DECIMAL128I = 32;
+        VARIANT = 33;
+        QUANTILE_STATE = 34;
+        TIME = 35;
+        AGG_STATE = 36;
+        TIMEV2 = 37;
+        DECIMAL256 = 38;
+        IPV4 = 39;
+        IPV6 = 40;
+        VARBINARY = 41;
         UNKNOWN = 999;
     }
     required TypeId id = 2;
@@ -174,6 +192,8 @@ message PValues {
     repeated string string_value = 11;
     repeated bytes bytes_value = 12;
     repeated PDateTime datetime_value = 13;
+    repeated PValues child_element = 14;
+    repeated int64 child_offset = 15;
 }
 
 // this mesage may not used for now
@@ -198,6 +218,8 @@ message PFunction {
 
 message PFunctionContext {
     optional bytes data = 1;
+    //use to impl vectorization udaf 
+    repeated PValues args_data = 2;
 }
 
 message PHandShakeRequest {
@@ -217,4 +239,9 @@ enum PPlanFragmentCancelReason {
     TIMEOUT = 4;
     CALL_RPC_ERROR = 5;
     MEMORY_LIMIT_EXCEED = 6;
+}
+
+message PNetworkAddress {
+    required string hostname = 1;
+    required int32 port = 2;
 }

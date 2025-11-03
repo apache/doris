@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -28,6 +29,8 @@ import java.util.List;
 // Describe the partition key values in create table or add partition clause
 public class PartitionKeyDesc {
     public static final PartitionKeyDesc MAX_VALUE = new PartitionKeyDesc();
+    // UNPARTITIONED table not have real keyDesc,therefore, provide this DUMMY_KEY_DESC
+    public static final PartitionKeyDesc DUMMY_KEY_DESC = new PartitionKeyDesc();
 
     public enum PartitionKeyValueType {
         INVALID,
@@ -40,6 +43,9 @@ public class PartitionKeyDesc {
     private List<PartitionValue> upperValues;
     private List<List<PartitionValue>> inValues;
     private PartitionKeyValueType partitionKeyValueType;
+
+    private Long timeInterval;
+    private String timeType;
 
     public static PartitionKeyDesc createMaxKeyDesc() {
         return MAX_VALUE;
@@ -71,6 +77,41 @@ public class PartitionKeyDesc {
         return desc;
     }
 
+    public static PartitionKeyDesc createMultiFixed(
+            List<PartitionValue> lowerValues,
+            List<PartitionValue> upperValues,
+            Long timeInterval,
+            String timeType) {
+        PartitionKeyDesc desc = new PartitionKeyDesc();
+        desc.lowerValues = lowerValues;
+        desc.upperValues = upperValues;
+        desc.timeInterval = timeInterval;
+        desc.timeType = timeType;
+        desc.partitionKeyValueType = PartitionKeyValueType.FIXED;
+        return desc;
+    }
+
+    public static PartitionKeyDesc createMultiFixed(
+            List<PartitionValue> lowerValues,
+            List<PartitionValue> upperValues,
+            Long interval) {
+        PartitionKeyDesc desc = new PartitionKeyDesc();
+        desc.lowerValues = lowerValues;
+        desc.upperValues = upperValues;
+        desc.timeInterval = interval;
+        desc.timeType = "";
+        desc.partitionKeyValueType = PartitionKeyValueType.FIXED;
+        return desc;
+    }
+
+    public Long getTimeInterval() {
+        return timeInterval;
+    }
+
+    public String getTimeType() {
+        return timeType;
+    }
+
     public List<PartitionValue> getLowerValues() {
         return lowerValues;
     }
@@ -87,6 +128,10 @@ public class PartitionKeyDesc {
         return this == MAX_VALUE;
     }
 
+    public boolean isDummy() {
+        return this == DUMMY_KEY_DESC;
+    }
+
     public boolean hasLowerValues() {
         return lowerValues != null;
     }
@@ -99,7 +144,14 @@ public class PartitionKeyDesc {
         return partitionKeyValueType;
     }
 
+    public boolean hasInValues() {
+        return inValues != null;
+    }
+
     public void analyze(int partColNum) throws AnalysisException {
+        if (isDummy()) {
+            return;
+        }
         if (!isMax()) {
             if ((upperValues != null && (upperValues.isEmpty() || upperValues.size() > partColNum))) {
                 throw new AnalysisException("Partition values number is more than partition column number: " + toSql());
@@ -175,5 +227,27 @@ public class PartitionKeyDesc {
             }
         })).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PartitionKeyDesc that = (PartitionKeyDesc) o;
+        return Objects.equal(lowerValues, that.lowerValues)
+                && Objects.equal(upperValues, that.upperValues)
+                && Objects.equal(inValues, that.inValues)
+                && partitionKeyValueType == that.partitionKeyValueType
+                && Objects.equal(timeInterval, that.timeInterval)
+                && Objects.equal(timeType, that.timeType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(lowerValues, upperValues, inValues, partitionKeyValueType, timeInterval, timeType);
     }
 }

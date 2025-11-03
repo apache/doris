@@ -22,7 +22,7 @@
 
 #include <memory>
 
-#include "common/compiler_util.h"
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 
 namespace doris {

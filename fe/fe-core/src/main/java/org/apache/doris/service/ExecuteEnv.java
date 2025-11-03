@@ -18,18 +18,36 @@
 package org.apache.doris.service;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.qe.MultiLoadMgr;
+
+import com.google.common.base.Strings;
+
+import java.util.ArrayList;
+import java.util.List;
 
 // Execute environment, used to save other module, need to singleton
 public class ExecuteEnv {
     private static volatile ExecuteEnv INSTANCE;
-    private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
+    private long startupTime;
+    private long processUUID;
+
+    private List<FeDiskInfo> diskInfos;
 
     private ExecuteEnv() {
-        multiLoadMgr = new MultiLoadMgr();
-        scheduler = new ConnectScheduler(Config.qe_max_connection);
+        scheduler = new ConnectScheduler(Config.qe_max_connection, Config.arrow_flight_max_connections);
+        startupTime = System.currentTimeMillis();
+        processUUID = System.currentTimeMillis();
+        String logDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :
+                Config.sys_log_dir;
+        diskInfos = new ArrayList<FeDiskInfo>() {{
+                add(new FeDiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
+                add(new FeDiskInfo("log", logDir, DiskUtils.df(logDir)));
+                add(new FeDiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
+                add(new FeDiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
+                add(new FeDiskInfo("deploy", System.getenv("DORIS_HOME"), DiskUtils.df(System.getenv("DORIS_HOME"))));
+            }};
     }
 
     public static ExecuteEnv getInstance() {
@@ -47,7 +65,25 @@ public class ExecuteEnv {
         return scheduler;
     }
 
-    public MultiLoadMgr getMultiLoadMgr() {
-        return multiLoadMgr;
+    public long getStartupTime() {
+        return startupTime;
+    }
+
+    public long getProcessUUID() {
+        return processUUID;
+    }
+
+    public List<FeDiskInfo> getDiskInfos() {
+        return this.diskInfos;
+    }
+
+    public List<FeDiskInfo> refreshAndGetDiskInfo(boolean refresh) {
+        for (FeDiskInfo disk : diskInfos) {
+            DiskUtils.Df df = DiskUtils.df(disk.getDir());
+            if (df != null) {
+                disk.setSpaceInfo(df);
+            }
+        }
+        return diskInfos;
     }
 }

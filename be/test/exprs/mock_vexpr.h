@@ -27,7 +27,7 @@ namespace vectorized {
 
 class MockVExpr : public VExpr {
 public:
-    MOCK_CONST_METHOD1(clone, VExpr*(ObjectPool* pool));
+    MOCK_CONST_METHOD0(clone, VExprSPtr());
     MOCK_CONST_METHOD0(expr_name, const std::string&());
     MOCK_METHOD3(execute,
                  Status(VExprContext* context, vectorized::Block* block, int* result_column_id));

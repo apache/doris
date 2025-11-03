@@ -18,17 +18,16 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -54,12 +53,11 @@ public class RoutineLoadSchedulerTest {
     TResourceInfo tResourceInfo;
 
     @Test
-    public void testNormalRunOneCycle(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void testNormalRunOneCycle(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable RoutineLoadManager routineLoadManager, @Injectable SystemInfoService systemInfoService,
             @Injectable Database database, @Injectable RoutineLoadDesc routineLoadDesc,
-            @Mocked StreamLoadPlanner planner, @Injectable OlapTable olapTable)
+            @Injectable OlapTable olapTable)
             throws LoadException, MetaNotFoundException {
-        String clusterName = "default";
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
@@ -70,9 +68,9 @@ public class RoutineLoadSchedulerTest {
         partitions.add(300);
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+        Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L,
                 "xxx", "test", UserIdentity.ADMIN);
         Deencapsulation.setField(kafkaRoutineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
@@ -83,22 +81,22 @@ public class RoutineLoadSchedulerTest {
 
         new Expectations() {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
                 routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
                 minTimes = 0;
                 result = routineLoadJobList;
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(1L);
                 minTimes = 0;
                 result = olapTable;
-                systemInfoService.getClusterBackendIds(clusterName, true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
                 routineLoadManager.getSizeOfIdToRoutineLoadTask();
@@ -127,37 +125,36 @@ public class RoutineLoadSchedulerTest {
         }
     }
 
-    public void functionTest(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void functionTest(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Mocked SystemInfoService systemInfoService, @Injectable Database database)
-            throws DdlException, InterruptedException {
+            throws UserException, InterruptedException {
         new Expectations() {
             {
-                connectContext.toResourceCtx();
                 minTimes = 0;
                 result = tResourceInfo;
             }
         };
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L,
                 "10.74.167.16:8092", "test", UserIdentity.ADMIN);
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
 
         List<Long> backendIds = new ArrayList<>();
         backendIds.add(1L);
 
         new Expectations() {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = backendIds;
             }
@@ -173,11 +170,11 @@ public class RoutineLoadSchedulerTest {
         executorService.submit(routineLoadTaskScheduler);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
-                "default_cluster", 1L, 1L, "xxx", "test_1", UserIdentity.ADMIN);
+                1L, 1L, "xxx", "test_1", UserIdentity.ADMIN);
         List<Integer> customKafkaPartitions = new ArrayList<>();
         customKafkaPartitions.add(2);
         Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1, "db");
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1, "db", "table");
 
         Thread.sleep(10000);
     }

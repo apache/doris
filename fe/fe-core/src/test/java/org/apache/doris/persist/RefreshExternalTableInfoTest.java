@@ -18,9 +18,9 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
@@ -39,17 +39,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class RefreshExternalTableInfoTest {
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        catalog = Deencapsulation.newInstance(Catalog.class);
+        fakeEnv = new FakeEnv();
+        env = Deencapsulation.newInstance(Env.class);
 
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
@@ -88,9 +88,9 @@ public class RefreshExternalTableInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         RefreshExternalTableInfo rInfo1 = RefreshExternalTableInfo.read(dis);
-        Assert.assertTrue(rInfo1.getDbName().equals(info.getDbName()));
-        Assert.assertTrue(rInfo1.getTableName().equals(info.getTableName()));
-        Assert.assertTrue(rInfo1.getNewSchema().equals(info.getNewSchema()));
+        Assert.assertEquals(rInfo1.getDbName(), info.getDbName());
+        Assert.assertEquals(rInfo1.getTableName(), info.getTableName());
+        Assert.assertEquals(rInfo1.getNewSchema(), info.getNewSchema());
 
         // 3. delete files
         dis.close();

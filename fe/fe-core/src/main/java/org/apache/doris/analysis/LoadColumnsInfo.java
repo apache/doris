@@ -54,7 +54,7 @@ public class LoadColumnsInfo implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         checkColumnNames();
         checkColumnMapping();
     }
@@ -66,10 +66,10 @@ public class LoadColumnsInfo implements ParseNode {
         sb.append(Joiner.on(",").join(columnNames));
         sb.append(")");
 
-        if (columnMappingList != null || columnMappingList.size() != 0) {
+        if (columnMappingList != null && !columnMappingList.isEmpty()) {
             sb.append(" SET (");
-            sb.append(Joiner.on(",").join(columnMappingList.parallelStream()
-                                                  .map(entity -> entity.toSql()).collect(Collectors.toList())));
+            sb.append(Joiner.on(",").join(columnMappingList.stream()
+                                                  .map(Expr::toSql).collect(Collectors.toList())));
             sb.append(")");
         }
         return sb.toString();
@@ -144,7 +144,7 @@ public class LoadColumnsInfo implements ParseNode {
                 }
             }
 
-            Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
+            Pair<String, List<String>> functionPair = Pair.of(functionName, args);
             columnToFunction.put(column, functionPair);
         }
     }

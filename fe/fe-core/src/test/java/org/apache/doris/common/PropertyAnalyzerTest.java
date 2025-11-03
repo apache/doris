@@ -27,6 +27,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -36,9 +38,12 @@ import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.junit.rules.ExpectedException;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -119,7 +124,7 @@ public class PropertyAnalyzerTest {
         try {
             PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Bloom filter index only used in"));
+            Assert.assertTrue(e.getMessage().contains("Bloom filter index should only be used"));
         }
 
         // reduplicated column
@@ -141,7 +146,8 @@ public class PropertyAnalyzerTest {
     @Test
     public void testStorageMedium() throws AnalysisException {
         long tomorrowTs = System.currentTimeMillis() / 1000 + 86400;
-        String tomorrowTimeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(tomorrowTs * 1000);
+        String tomorrowTimeStr = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
+                .format(Instant.ofEpochMilli(tomorrowTs * 1000));
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
@@ -155,8 +161,8 @@ public class PropertyAnalyzerTest {
     @Test
     public void testStorageFormat() throws AnalysisException {
         HashMap<String, String> propertiesV1 = Maps.newHashMap();
-        HashMap<String, String>  propertiesV2 = Maps.newHashMap();
-        HashMap<String, String>  propertiesDefault = Maps.newHashMap();
+        HashMap<String, String> propertiesV2 = Maps.newHashMap();
+        HashMap<String, String> propertiesDefault = Maps.newHashMap();
         propertiesV1.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v1");
         propertiesV2.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v2");
         propertiesDefault.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "default");
@@ -164,8 +170,202 @@ public class PropertyAnalyzerTest {
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14,"
-                + " please use V2 instead");
+        expectedEx.expectMessage(
+                "Storage format V1 has been deprecated since version 0.14," + " please use V2 instead");
         PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
+    }
+
+    @Test
+    public void testTag() throws AnalysisException {
+        HashMap<String, String> properties = Maps.newHashMap();
+        properties.put("tag.location", "l1");
+        properties.put("other", "prop");
+        Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
+        Assert.assertEquals("l1", tagMap.get("location"));
+        Assert.assertEquals(1, tagMap.size());
+        Assert.assertEquals(1, properties.size());
+
+        properties.clear();
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+        Assert.assertEquals(1, tagMap.size());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG.value, tagMap.get(Tag.TYPE_LOCATION));
+    }
+
+    @Test
+    public void testStorageDictPageSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+
+        // Test default value
+        Assert.assertEquals(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE,
+                PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test valid value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "8192"); // 8KB
+        Assert.assertEquals(8192, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test lower boundary value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "4096"); // 4KB
+        Assert.assertEquals(4096, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test upper boundary value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "10485760"); // 10MB
+        Assert.assertEquals(10485760, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test invalid number format
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeStorageDictPageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid storage dict page size"));
+        }
+
+        // Test value below minimum limit
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "-1024"); // 1KB
+        try {
+            PropertyAnalyzer.analyzeStorageDictPageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
+        }
+
+        // Test value above maximum limit
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "209715200"); // 200MB
+        try {
+            PropertyAnalyzer.analyzeStorageDictPageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
+        }
+    }
+
+    @Test
+    public void testStoragePageSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+
+        // Test default value
+        Assert.assertEquals(PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE,
+                PropertyAnalyzer.analyzeStoragePageSize(properties));
+
+        // Test valid value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "8192"); // 8KB
+        Assert.assertEquals(8192, PropertyAnalyzer.analyzeStoragePageSize(properties));
+
+        // Test lower boundary value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "4096"); // 4KB
+        Assert.assertEquals(4096, PropertyAnalyzer.analyzeStoragePageSize(properties));
+
+        // Test upper boundary value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "10485760"); // 10MB
+        Assert.assertEquals(10485760, PropertyAnalyzer.analyzeStoragePageSize(properties));
+
+        // Test invalid number format
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeStoragePageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid storage page size"));
+        }
+
+        // Test value below minimum limit
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "1024"); // 1KB
+        try {
+            PropertyAnalyzer.analyzeStoragePageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
+        }
+
+        // Test value above maximum limit
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE, "20971520"); // 20MB
+        try {
+            PropertyAnalyzer.analyzeStoragePageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Storage page size must be between 4KB and 10MB"));
+        }
+    }
+
+    @Test
+    public void testAnalyzeInvertedIndexFileStorageFormat() throws AnalysisException {
+        String originFormat = Config.inverted_index_storage_format;
+        try {
+            Config.inverted_index_storage_format = "V3";
+            TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
+
+            Config.inverted_index_storage_format = "V1";
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(new HashMap<>());
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+
+            Map<String, String> propertiesWithV1 = new HashMap<>();
+            propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+
+            Map<String, String> propertiesWithV2 = new HashMap<>();
+            propertiesWithV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v2");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV2);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+
+            Map<String, String> propertiesWithV3 = new HashMap<>();
+            propertiesWithV3.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v3");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV3);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
+
+            Config.inverted_index_storage_format = "V1";
+            Map<String, String> propertiesWithDefaultV1 = new HashMap<>();
+            propertiesWithDefaultV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV1);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+
+            Config.inverted_index_storage_format = "V2";
+            Map<String, String> propertiesWithDefaultV2 = new HashMap<>();
+            propertiesWithDefaultV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV2);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+
+            Map<String, String> propertiesWithUnknown = new HashMap<>();
+            propertiesWithUnknown.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "unknown_format");
+            try {
+                PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithUnknown);
+                Assertions.fail("Expected AnalysisException was not thrown");
+            } catch (AnalysisException e) {
+                Assertions.assertEquals(
+                        "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
+                        e.getMessage());
+            }
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+        }
+    }
+
+    @Test
+    public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "-1");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "50001");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
     }
 }

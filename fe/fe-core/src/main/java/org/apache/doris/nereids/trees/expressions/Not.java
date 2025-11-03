@@ -18,10 +18,15 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -29,15 +34,43 @@ import java.util.Objects;
 /**
  * Not expression: not a.
  */
-public class Not extends Expression implements UnaryExpression {
+public class Not extends Expression implements UnaryExpression, ExpectsInputTypes, PropagateNullable {
+
+    public static final List<DataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
+
+    private final boolean isGeneratedIsNotNull;
 
     public Not(Expression child) {
-        super(NodeType.NOT, child);
+        this(child, false);
+    }
+
+    public Not(List<Expression> child, boolean isGeneratedIsNotNull, boolean inferred) {
+        super(child, inferred);
+        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+    }
+
+    public Not(Expression child, boolean isGeneratedIsNotNull) {
+        super(ImmutableList.of(child));
+        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+    }
+
+    private Not(List<Expression> child, boolean isGeneratedIsNotNull) {
+        super(child);
+        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
+    }
+
+    public boolean isGeneratedIsNotNull() {
+        return isGeneratedIsNotNull;
     }
 
     @Override
     public boolean nullable() throws UnboundException {
         return child().nullable();
+    }
+
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return child().getDataType();
     }
 
     @Override
@@ -54,17 +87,49 @@ public class Not extends Expression implements UnaryExpression {
             return false;
         }
         Not other = (Not) o;
-        return Objects.equals(child(), other.child());
+        return Objects.equals(child(), other.child())
+                && isGeneratedIsNotNull == other.isGeneratedIsNotNull;
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(child().hashCode(), isGeneratedIsNotNull);
     }
 
     @Override
     public String toString() {
-        return "( not " + child() + ")";
+        return "( not " + child().toString() + ")";
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("NOT ").append(child().toDigest());
+        return sb.toString();
+    }
+
+    @Override
+    public String computeToSql() {
+        return "( not " + child().toSql() + ")";
     }
 
     @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Not(children.get(0));
+        return new Not(children, isGeneratedIsNotNull);
+    }
+
+    public Not withGeneratedIsNotNull(boolean isGeneratedIsNotNull) {
+        return new Not(children, isGeneratedIsNotNull);
+    }
+
+    @Override
+    public List<DataType> expectedInputTypes() {
+        return EXPECTS_INPUT_TYPES;
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new Not(this.children, false, inferred);
     }
 }

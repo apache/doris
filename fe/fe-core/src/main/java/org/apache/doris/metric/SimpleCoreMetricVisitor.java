@@ -17,7 +17,8 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -26,6 +27,8 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -38,7 +41,7 @@ import java.util.Map;
  *      query_latency_ms_75 LONG 2
  */
 public class SimpleCoreMetricVisitor extends MetricVisitor {
-
+    private static final Logger LOG = LogManager.getLogger(SimpleCoreMetricVisitor.class);
     private static final String TYPE_LONG = "LONG";
     private static final String TYPE_DOUBLE = "DOUBLE";
 
@@ -56,9 +59,6 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     public static final String MAX_TABLET_COMPACTION_SCORE = "max_tablet_compaction_score";
 
-    private int ordinal = 0;
-    private int metricNumber = 0;
-
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
 
     static {
@@ -71,17 +71,12 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         CORE_METRICS.put(MAX_TABLET_COMPACTION_SCORE, TYPE_LONG);
     }
 
-    public SimpleCoreMetricVisitor(String prefix) {
-        super(prefix);
+    public SimpleCoreMetricVisitor() {
+        super();
     }
 
     @Override
-    public void setMetricNumber(int metricNumber) {
-        this.metricNumber = metricNumber;
-    }
-
-    @Override
-    public void visitJvm(StringBuilder sb, JvmStats jvmStats) {
+    public void visitJvm(JvmStats jvmStats) {
         Iterator<MemoryPool> memIter = jvmStats.getMem().iterator();
         while (memIter.hasNext()) {
             MemoryPool memPool = memIter.next();
@@ -104,46 +99,61 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, Metric metric) {
+    public void visit(String prefix, Metric metric) {
         if (!CORE_METRICS.containsKey(metric.getName())) {
             return;
         }
 
         if (CORE_METRICS.get(metric.getName()).equals(TYPE_DOUBLE)) {
-            sb.append(Joiner.on(" ").join(prefix + "_" + metric.getName(), TYPE_DOUBLE,
+            sb.append(Joiner.on(" ").join(prefix + metric.getName(), TYPE_DOUBLE,
                     String.format("%.2f", Double.valueOf(metric.getValue().toString())))).append("\n");
         } else {
-            sb.append(Joiner.on(" ").join(prefix + "_" + metric.getName(), CORE_METRICS.get(metric.getName()),
-                    metric.getValue().toString())).append("\n");
+            sb.append(Joiner.on(" ")
+                    .join(prefix + metric.getName(), CORE_METRICS.get(metric.getName()), metric.getValue().toString()))
+                    .append("\n");
         }
-        return;
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String name, Histogram histogram) {
+    public void visitHistogram(String prefix, String name, Histogram histogram) {
         if (!CORE_METRICS.containsKey(name)) {
             return;
         }
         Snapshot snapshot = histogram.getSnapshot();
-        sb.append(Joiner.on(" ").join(prefix + "_" + name + "_75", CORE_METRICS.get(name),
+        sb.append(Joiner.on(" ").join(prefix + name + "_75", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get75thPercentile()))).append("\n");
-        sb.append(Joiner.on(" ").join(prefix + "_" + name + "_95", CORE_METRICS.get(name),
+        sb.append(Joiner.on(" ").join(prefix + name + "_95", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get95thPercentile()))).append("\n");
-        sb.append(Joiner.on(" ").join(prefix + "_" + name + "_99", CORE_METRICS.get(name),
+        sb.append(Joiner.on(" ").join(prefix + name + "_99", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get99thPercentile()))).append("\n");
+    }
+
+    @Override
+    public void visitNodeInfo() {
+        long feDeadNum = Env.getCurrentEnv().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
+        long beDeadNum = 0;
+        try {
+            beDeadNum = Env.getCurrentSystemInfo().getAllBackendsByAllCluster()
+                    .values().stream().filter(b -> !b.isAlive())
+                    .count();
+        } catch (AnalysisException e) {
+            LOG.warn("failed get backend, ", e);
+        }
+        long brokerDeadNum = Env.getCurrentEnv().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive)
+                .count();
+        sb.append("doris_fe_frontend_dead_num").append(" ").append(feDeadNum).append("\n");
+        sb.append("doris_fe_backend_dead_num").append(" ").append(beDeadNum).append("\n");
+        sb.append("doris_fe_broker_dead_num").append(" ").append(brokerDeadNum).append("\n");
+    }
+
+    @Override
+    public void visitCloudTableStats() {
         return;
     }
 
     @Override
-    public void getNodeInfo(StringBuilder sb) {
-        long feDeadNum = Catalog.getCurrentCatalog()
-                .getFrontends(null).stream().filter(f -> !f.isAlive()).count();
-        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend()
-                .values().stream().filter(b -> !b.isAlive()).count();
-        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr()
-                .getAllBrokers().stream().filter(b -> !b.isAlive).count();
-        sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
-        sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
-        sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");
+    public void visitWorkloadGroup() {
+        return;
     }
+
 }

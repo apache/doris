@@ -18,9 +18,9 @@
 #pragma once
 #include <utility>
 
+#include "common/status.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/bit_cast.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -37,22 +37,25 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionVariadicArgumentsBase>(); }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
-        if constexpr (IsDataTypeDecimal<ToDataType>) {
-            res = create_decimal(27, 9);
+        if constexpr (IsDataTypeDecimalV2<ToDataType>) {
+            res = create_decimal(27, 9, true);
             if (!res) {
-                LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Something wrong with create_decimal in function {}",
+                                       get_name());
+                __builtin_unreachable();
             }
-        } else
+        } else {
             res = std::make_shared<ToDataType>();
+        }
         return res;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        uint32_t result, size_t input_rows_count) const override {
         ToDataType to_type;
         auto column = to_type.create_column();
         column->reserve(input_rows_count);

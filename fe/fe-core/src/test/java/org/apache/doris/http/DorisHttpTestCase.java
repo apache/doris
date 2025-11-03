@@ -19,10 +19,11 @@ package org.apache.doris.http;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -42,12 +43,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.DataSourceMgr;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
-import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -91,7 +92,6 @@ public abstract class DorisHttpTestCase {
 
     private static HttpServer httpServer;
 
-    public static final String CLUSTER_NAME = "default_cluster";
     public static final String DB_NAME = "testDb";
     public static final String TABLE_NAME = "testTbl";
 
@@ -115,6 +115,7 @@ public abstract class DorisHttpTestCase {
     public static int HTTP_PORT;
 
     protected static String URI;
+    protected static String CloudURI;
 
     protected String rootAuth = Credentials.basic("root", "");
 
@@ -136,18 +137,18 @@ public abstract class DorisHttpTestCase {
     private static EditLog editLog;
 
     public static OlapTable newTable(String name) {
-        Catalog.getCurrentInvertedIndex().clear();
+        Env.getCurrentInvertedIndex().clear();
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         Column k2 = new Column("k2", PrimitiveType.DOUBLE);
         List<Column> columns = new ArrayList<>();
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -155,7 +156,8 @@ public abstract class DorisHttpTestCase {
 
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash,
+                TStorageMedium.HDD);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -170,7 +172,7 @@ public abstract class DorisHttpTestCase {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -188,15 +190,16 @@ public abstract class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId + 100,
+                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId + 100, ReplicaAllocation.DEFAULT_ALLOCATION);
         EsTable table = null;
         Map<String, String> props = new HashMap<>();
-        props.put(EsTable.HOSTS, "http://node-1:8080");
-        props.put(EsTable.USER, "root");
-        props.put(EsTable.PASSWORD, "root");
-        props.put(EsTable.INDEX, "test");
-        props.put(EsTable.TYPE, "doc");
+        props.put(EsResource.HOSTS, "http://node-1:8080");
+        props.put(EsResource.USER, "root");
+        props.put(EsResource.PASSWORD, "root");
+        props.put(EsResource.INDEX, "test");
+        props.put(EsResource.TYPE, "doc");
         try {
             table = new EsTable(testTableId + 1, name, columns, props, partitionInfo);
         } catch (DdlException e) {
@@ -205,106 +208,96 @@ public abstract class DorisHttpTestCase {
         return table;
     }
 
-    private static Catalog newDelegateCatalog() {
+    private static Env newDelegateCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
-            PaloAuth paloAuth = new PaloAuth();
+            Env env = Deencapsulation.newInstance(Env.class);
+            Auth auth = new Auth();
+            AccessControllerManager accessManager = new AccessControllerManager(auth);
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
-            Database db = new Database(testDbId, "default_cluster:testDb");
+            Database db = new Database(testDbId, "testDb");
             OlapTable table = newTable(TABLE_NAME);
-            db.createTable(table);
+            db.registerTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
-            db.createTable(table1);
+            db.registerTable(table1);
             EsTable esTable = newEsTable("es_table");
-            db.createTable(esTable);
+            db.registerTable(esTable);
 
-            InternalDataSource internalDataSource = Deencapsulation.newInstance(InternalDataSource.class);
-            new Expectations(internalDataSource) {
+            InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
+            new Expectations(internalCatalog) {
                 {
-                    internalDataSource.getDbNullable(db.getId());
+                    internalCatalog.getDbNullable(db.getId());
                     minTimes = 0;
                     result = db;
 
-                    internalDataSource.getDbNullable("default_cluster:" + DB_NAME);
+                    internalCatalog.getDbNullable("" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    internalDataSource.getDbNullable("default_cluster:emptyDb");
+                    internalCatalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    internalDataSource.getDbNullable(anyString);
+                    internalCatalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    internalDataSource.getDbNames();
+                    internalCatalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
-
-                    internalDataSource.getClusterDbNames("default_cluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
+                    result = Lists.newArrayList("testDb");
                 }
             };
 
-            DataSourceMgr dsMgr = new DataSourceMgr();
+            CatalogMgr dsMgr = new CatalogMgr();
             new Expectations(dsMgr) {
                 {
                     dsMgr.getCatalog((String) any);
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
                     dsMgr.getCatalogOrException((String) any, (Function) any);
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
                     dsMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
                 }
             };
 
-            new Expectations(catalog) {
+            new Expectations(env) {
                 {
-                    catalog.getAuth();
+                    env.getAccessManager();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = accessManager;
 
-                    catalog.isMaster();
+                    env.isMaster();
                     minTimes = 0;
                     result = true;
 
-                    catalog.getLoadInstance();
-                    minTimes = 0;
-                    result = new Load();
-
-                    catalog.getEditLog();
+                    env.getEditLog();
                     minTimes = 0;
                     result = editLog;
 
-                    catalog.getInternalDataSource();
+                    env.getInternalCatalog();
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentCatalog();
                     minTimes = 0;
-                    result = internalDataSource;
+                    result = internalCatalog;
 
-                    catalog.changeDb((ConnectContext) any, "blockDb");
-                    minTimes = 0;
-
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
 
-                    catalog.initDefaultCluster();
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
 
-                    catalog.getDataSourceMgr();
+                    env.getCatalogMgr();
                     minTimes = 0;
                     result = dsMgr;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -322,9 +315,9 @@ public abstract class DorisHttpTestCase {
         Backend backend3 = new Backend(testBackendId3, "node-3", 9308);
         backend3.setBePort(9300);
         backend3.setAlive(true);
-        Catalog.getCurrentSystemInfo().addBackend(backend1);
-        Catalog.getCurrentSystemInfo().addBackend(backend2);
-        Catalog.getCurrentSystemInfo().addBackend(backend3);
+        Env.getCurrentSystemInfo().addBackend(backend1);
+        Env.getCurrentSystemInfo().addBackend(backend2);
+        Env.getCurrentSystemInfo().addBackend(backend3);
     }
 
     @BeforeClass
@@ -335,6 +328,7 @@ public abstract class DorisHttpTestCase {
             socket.setReuseAddress(true);
             HTTP_PORT = socket.getLocalPort();
             URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+            CloudURI = "http://localhost:" + HTTP_PORT;
         } catch (Exception e) {
             throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
         } finally {
@@ -366,10 +360,10 @@ public abstract class DorisHttpTestCase {
 
     @Before
     public void setUp() {
-        Catalog catalog = newDelegateCatalog();
+        Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
         TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
             SchemaChangeHandler getSchemaChangeHandler() {
                 return new SchemaChangeHandler();
@@ -381,8 +375,8 @@ public abstract class DorisHttpTestCase {
             }
 
             @Mock
-            Catalog getCurrentCatalog() {
-                return catalog;
+            Env getCurrentEnv() {
+                return env;
             }
 
             @Mock

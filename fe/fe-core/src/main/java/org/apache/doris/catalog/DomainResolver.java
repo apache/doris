@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -44,9 +44,9 @@ public class DomainResolver extends MasterDaemon {
     // this is only available in BAIDU, for resolving BNS
     private static final String BNS_RESOLVER_TOOLS_PATH = "/usr/bin/get_instance_by_service";
 
-    private PaloAuth auth;
+    private Auth auth;
 
-    public DomainResolver(PaloAuth auth) {
+    public DomainResolver(Auth auth) {
         super("domain resolver", 10 * 1000);
         this.auth = auth;
     }
@@ -61,12 +61,16 @@ public class DomainResolver extends MasterDaemon {
         // resolve domain name
         Map<String, Set<String>> resolvedIPsMap = Maps.newHashMap();
         for (String domain : allDomains) {
-            LOG.debug("begin to resolve domain: {}", domain);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to resolve domain: {}", domain);
+            }
             Set<String> resolvedIPs = Sets.newHashSet();
             if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithDNS(domain, resolvedIPs)) {
                 continue;
             }
-            LOG.debug("get resolved ip of domain {}: {}", domain, resolvedIPs);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get resolved ip of domain {}: {}", domain, resolvedIPs);
+            }
 
             resolvedIPsMap.put(domain, resolvedIPs);
         }

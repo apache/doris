@@ -17,18 +17,20 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -47,6 +49,7 @@ public class RecoverTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        FeConstants.runningUnitTest = true;
         UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
@@ -60,66 +63,162 @@ public class RecoverTest {
     }
 
     private static void createDb(String db) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "create database " + db, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        String createDbStmtStr = "create database " + db;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropDb(String db) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        String sql = "drop database " + db;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropTable(String db, String tbl) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "drop table " + db + "." + tbl, connectContext);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        String sql = "drop table " + db + "." + tbl;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropPartition(String db, String tbl, String part) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "alter table " + db + "." + tbl + " drop partition " + part, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        String sql = "alter table " + db + "." + tbl + " drop partition " + part;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
-    private static void recoverDb(String db) throws Exception {
-        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "recover database " + db, connectContext);
-        Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
+    private static void recoverDb(String db, long dbId) throws Exception {
+        String sql;
+        if (dbId != -1) {
+            sql = "recover database " + db + " " + String.valueOf(dbId);
+        } else {
+            sql = "recover database " + db;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverDatabaseCommand) {
+            ((RecoverDatabaseCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
-    private static void recoverTable(String db, String tbl) throws Exception {
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "recover table " + db + "." + tbl, connectContext);
-        Catalog.getCurrentCatalog().recoverTable(recoverTableStmt);
+    private static void recoverTable(String db, String tbl, long tableId) throws Exception {
+        String sql;
+        if (tableId != -1) {
+            sql = "recover table " + db + "." + tbl + " " + String.valueOf(tableId);
+        } else {
+            sql = "recover table " + db + "." + tbl;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverTableCommand) {
+            ((RecoverTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
-    private static void recoverPartition(String db, String tbl, String part) throws Exception {
-        RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "recover partition " + part + " from " + db + "." + tbl, connectContext);
-        Catalog.getCurrentCatalog().recoverPartition(recoverPartitionStmt);
+    private static void recoverPartition(String db, String tbl, String part, long partId) throws Exception {
+        String sql;
+        if (partId != -1) {
+            sql = "recover partition " + part + " " + String.valueOf(partId) + " from " + db + "." + tbl;
+        } else {
+            sql = "recover partition " + part + " from " + db + "." + tbl;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverPartitionCommand) {
+            ((RecoverPartitionCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static boolean checkDbExist(String dbName) {
-        return Catalog.getCurrentInternalCatalog()
-                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName)).isPresent();
+        return Env.getCurrentInternalCatalog().getDb(dbName).isPresent();
     }
 
     private static boolean checkTableExist(String dbName, String tblName) {
-        return Catalog.getCurrentInternalCatalog()
-                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+        return Env.getCurrentInternalCatalog()
+                .getDb(dbName)
                 .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
+    private static boolean checkTableInDynamicScheduler(Long dbId, Long tableId) {
+        return Env.getCurrentEnv().getDynamicPartitionScheduler().containsDynamicPartitionTable(dbId, tableId);
+    }
+
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
-        return Catalog.getCurrentInternalCatalog()
-                .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
+        return Env.getCurrentInternalCatalog()
+                .getDb(dbName)
                 .flatMap(db -> db.getTable(tblName)).map(table -> table.getPartition(partName)).isPresent();
+    }
+
+    private static long getDbId(String dbName) throws DdlException {
+        Database db = (Database) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException(dbName);
+        if (db != null) {
+            return db.getId();
+        } else {
+            return -1;
+        }
+    }
+
+    private static long getTableId(String dbName, String tblName) throws DdlException {
+        Database db = (Database) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException(dbName);
+        if (db != null) {
+            OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+            if (olapTable != null) {
+                return olapTable.getId();
+            } else {
+                return -1;
+            }
+        } else {
+            return -1;
+        }
+    }
+
+    private static long getPartId(String dbName, String tblName, String partName) throws DdlException {
+        Database db = (Database) Env.getCurrentInternalCatalog()
+                .getDbOrDdlException(dbName);
+        if (db != null) {
+            OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+            if (olapTable != null) {
+                Partition partition = olapTable.getPartition(partName);
+                if (partition != null) {
+                    return partition.getId();
+                } else {
+                    return -1;
+                }
+            } else {
+                return -1;
+            }
+        } else {
+            return -1;
+        }
     }
 
     @Test
@@ -157,7 +256,16 @@ public class RecoverTest {
         Assert.assertFalse(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
-        recoverDb("test");
+        recoverDb("test", -1);
+        Assert.assertTrue(checkDbExist("test"));
+        Assert.assertTrue(checkTableExist("test", "table1"));
+
+        long dbId = getDbId("test");
+        dropDb("test");
+        Assert.assertFalse(checkDbExist("test"));
+        Assert.assertFalse(checkTableExist("test", "table1"));
+
+        recoverDb("test", dbId);
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
@@ -165,7 +273,7 @@ public class RecoverTest {
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
-        recoverTable("test", "table1");
+        recoverTable("test", "table1", -1);
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
@@ -201,7 +309,7 @@ public class RecoverTest {
         Assert.assertTrue(checkTableExist("test", "table1"));
 
         try {
-            recoverTable("test", "table1");
+            recoverTable("test", "table1", -1);
             Assert.fail("should not recover succeed");
         } catch (DdlException e) {
             e.printStackTrace();
@@ -211,7 +319,7 @@ public class RecoverTest {
         dropPartition("test", "table1", "p1");
         Assert.assertFalse(checkPartitionExist("test", "table1", "p1"));
 
-        recoverPartition("test", "table1", "p1");
+        recoverPartition("test", "table1", "p1", -1);
         Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
     }
 
@@ -250,7 +358,16 @@ public class RecoverTest {
         Assert.assertFalse(checkDbExist("test2"));
         Assert.assertFalse(checkTableExist("test2", "table2"));
 
-        recoverDb("test2");
+        recoverDb("test2", -1);
+        Assert.assertTrue(checkDbExist("test2"));
+        Assert.assertTrue(checkTableExist("test2", "table2"));
+
+        long dbId = getDbId("test2");
+        dropDb("test2");
+        Assert.assertFalse(checkDbExist("test2"));
+        Assert.assertFalse(checkTableExist("test2", "table2"));
+
+        recoverDb("test2", dbId);
         Assert.assertTrue(checkDbExist("test2"));
         Assert.assertTrue(checkTableExist("test2", "table2"));
 
@@ -258,7 +375,7 @@ public class RecoverTest {
         Assert.assertTrue(checkDbExist("test2"));
         Assert.assertFalse(checkTableExist("test2", "table2"));
 
-        recoverTable("test2", "table2");
+        recoverTable("test2", "table2", -1);
         Assert.assertTrue(checkDbExist("test2"));
         Assert.assertTrue(checkTableExist("test2", "table2"));
 
@@ -294,7 +411,7 @@ public class RecoverTest {
         Assert.assertTrue(checkTableExist("test2", "table2"));
 
         try {
-            recoverTable("test2", "table2");
+            recoverTable("test2", "table2", -1);
             Assert.fail("should not recover succeed");
         } catch (DdlException e) {
             e.printStackTrace();
@@ -304,7 +421,50 @@ public class RecoverTest {
         dropPartition("test2", "table2", "p1");
         Assert.assertFalse(checkPartitionExist("test2", "table2", "p1"));
 
-        recoverPartition("test2", "table2", "p1");
+        recoverPartition("test2", "table2", "p1", -1);
         Assert.assertTrue(checkPartitionExist("test2", "table2", "p1"));
+    }
+
+
+    @Test
+    public void testDynamicTableRecover() throws Exception {
+        createDb("test3");
+        createTable("CREATE TABLE test3.`table3` (\n"
+                + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + "  `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p1 VALUES [('2020-02-27 00:00:00'), ('2020-03-02 00:00:00')),\n"
+                + "PARTITION p2 VALUES [('2020-03-02 00:00:00'), ('2020-03-07 00:00:00')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");\n");
+        Long dbId = getDbId("test3");
+        Long tableId = getTableId("test3", "table3");
+        dropTable("test3", "table3");
+        recoverTable("test3", "table3", -1);
+        Assert.assertTrue(checkTableInDynamicScheduler(dbId, tableId));
     }
 }

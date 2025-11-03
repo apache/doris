@@ -17,14 +17,21 @@
 
 #include "http/ev_http_server.h"
 
-#include <event2/buffer.h>
-#include <event2/bufferevent.h>
+#include <arpa/inet.h>
+#include <butil/endpoint.h>
+#include <butil/fd_utility.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
-#include <event2/keyvalq_struct.h>
 #include <event2/thread.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
+#include <algorithm>
 #include <memory>
 #include <sstream>
 
@@ -33,9 +40,12 @@
 #include "http/http_handler.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "service/brpc.h"
-#include "util/debug_util.h"
+#include "http/http_status.h"
+#include "service/backend_options.h"
 #include "util/threadpool.h"
+
+struct event_base;
+struct evhttp;
 
 namespace doris {
 
@@ -72,8 +82,19 @@ static int on_connection(struct evhttp_request* req, void* param) {
 }
 
 EvHttpServer::EvHttpServer(int port, int num_workers)
-        : _host("0.0.0.0"), _port(port), _num_workers(num_workers), _real_port(0) {
+        : _port(port), _num_workers(num_workers), _real_port(0) {
+    _host = BackendOptions::get_service_bind_address();
+
+    evthread_use_pthreads();
     DCHECK_GT(_num_workers, 0);
+    _event_bases.resize(_num_workers);
+    for (int i = 0; i < _num_workers; ++i) {
+        std::shared_ptr<event_base> base(event_base_new(),
+                                         [](event_base* base) { event_base_free(base); });
+        CHECK(base != nullptr) << "Couldn't create an event_base.";
+        std::lock_guard lock(_event_bases_lock);
+        _event_bases[i] = base;
+    }
 }
 
 EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
@@ -82,45 +103,42 @@ EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
 }
 
 EvHttpServer::~EvHttpServer() {
-    stop();
+    if (_started) {
+        stop();
+    }
 }
 
 void EvHttpServer::start() {
+    _started = true;
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
-    ThreadPoolBuilder("EvHttpServer")
-            .set_min_threads(_num_workers)
-            .set_max_threads(_num_workers)
-            .build(&_workers);
-
-    evthread_use_pthreads();
-    _event_bases.resize(_num_workers);
+    static_cast<void>(ThreadPoolBuilder("EvHttpServer")
+                              .set_min_threads(_num_workers)
+                              .set_max_threads(_num_workers)
+                              .build(&_workers));
     for (int i = 0; i < _num_workers; ++i) {
-        CHECK(_workers->submit_func([this, i]() {
-                          std::shared_ptr<event_base> base(event_base_new(), [](event_base* base) {
-                              event_base_free(base);
-                          });
-                          CHECK(base != nullptr) << "Couldn't create an event_base.";
-                          {
-                              std::lock_guard<std::mutex> lock(_event_bases_lock);
-                              _event_bases[i] = base;
-                          }
+        auto status = _workers->submit_func([this, i]() {
+            std::shared_ptr<event_base> base;
+            {
+                std::lock_guard lock(_event_bases_lock);
+                base = _event_bases[i];
+            }
 
-                          /* Create a new evhttp object to handle requests. */
-                          std::shared_ptr<evhttp> http(evhttp_new(base.get()),
-                                                       [](evhttp* http) { evhttp_free(http); });
-                          CHECK(http != nullptr) << "Couldn't create an evhttp.";
+            /* Create a new evhttp object to handle requests. */
+            std::shared_ptr<evhttp> http(evhttp_new(base.get()),
+                                         [](evhttp* http) { evhttp_free(http); });
+            CHECK(http != nullptr) << "Couldn't create an evhttp.";
 
-                          auto res = evhttp_accept_socket(http.get(), _server_fd);
-                          CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
+            auto res = evhttp_accept_socket(http.get(), _server_fd);
+            CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
 
-                          evhttp_set_newreqcb(http.get(), on_connection, this);
-                          evhttp_set_gencb(http.get(), on_request, this);
+            evhttp_set_newreqcb(http.get(), on_connection, this);
+            evhttp_set_gencb(http.get(), on_request, this);
 
-                          event_base_dispatch(base.get());
-                      })
-                      .ok());
+            event_base_dispatch(base.get());
+        });
+        CHECK(status.ok());
     }
 }
 
@@ -128,20 +146,20 @@ void EvHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(_event_bases_lock);
         for (int i = 0; i < _num_workers; ++i) {
-            LOG(WARNING) << "event_base_loopbreak ret: "
-                         << event_base_loopbreak(_event_bases[i].get());
+            event_base_loopbreak(_event_bases[i].get());
         }
-        _event_bases.clear();
     }
     _workers->shutdown();
+    _event_bases.clear();
     close(_server_fd);
+    _started = false;
 }
 
 void EvHttpServer::join() {}
 
 Status EvHttpServer::_bind() {
     butil::EndPoint point;
-    auto res = butil::hostname2endpoint(_host.c_str(), _port, &point);
+    auto res = butil::str2endpoint(_host.c_str(), _port, &point);
     if (res < 0) {
         return Status::InternalError("convert address failed, host={}, port={}", _host, _port);
     }

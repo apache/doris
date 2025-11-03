@@ -17,14 +17,16 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.meta.MetaContext;
 
 import org.junit.BeforeClass;
@@ -47,8 +49,8 @@ import java.util.Random;
 public class EsTestCase {
 
     protected static FakeEditLog fakeEditLog;
-    protected static FakeCatalog fakeCatalog;
-    protected static Catalog masterCatalog;
+    protected static FakeEnv fakeEnv;
+    protected static Env masterEnv;
 
     /**
      * Init
@@ -56,12 +58,12 @@ public class EsTestCase {
     @BeforeClass
     public static void init() throws Exception {
         fakeEditLog = new FakeEditLog();
-        fakeCatalog = new FakeCatalog();
-        masterCatalog = CatalogTestUtil.createTestCatalog();
+        fakeEnv = new FakeEnv();
+        masterEnv = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        FakeCatalog.setCatalog(masterCatalog);
+        FakeEnv.setEnv(masterEnv);
     }
 
     protected String loadJsonFromFile(String fileName) throws IOException, URISyntaxException {
@@ -80,10 +82,10 @@ public class EsTestCase {
 
     protected EsTable fakeEsTable(String table, String index, String type, List<Column> columns) throws DdlException {
         Map<String, String> props = new HashMap<>();
-        props.put(EsTable.HOSTS, "127.0.0.1:8200");
-        props.put(EsTable.INDEX, index);
-        props.put(EsTable.TYPE, type);
-        props.put(EsTable.VERSION, "6.5.3");
+        props.put(EsResource.HOSTS, "127.0.0.1:8200");
+        props.put(EsResource.INDEX, index);
+        props.put(EsResource.TYPE, type);
+        props.put(EsResource.VERSION, "6.5.3");
         return new EsTable(new Random().nextLong(), table, columns, props, null);
 
     }

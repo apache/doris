@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TOdbcTable;
@@ -29,14 +28,11 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -71,30 +67,27 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
-    // For different databases, special characters need to be escaped
-    private static String mysqlProperName(String name) {
-        return "`" + name + "`";
-    }
-
-    public static String databaseProperName(TOdbcTableType tableType, String name) {
-        switch (tableType) {
-            case MYSQL:
-                return mysqlProperName(name);
-            default:
-                return name;
-        }
-    }
-
+    @SerializedName("ocrn")
     private String odbcCatalogResourceName;
+    @SerializedName("h")
     private String host;
+    @SerializedName("p")
     private String port;
+    @SerializedName("un")
     private String userName;
+    @SerializedName("pwd")
     private String passwd;
+    @SerializedName("odn")
     private String odbcDatabaseName;
+    @SerializedName("otn")
     private String odbcTableName;
+    @SerializedName("d")
     private String driver;
+    @SerializedName("ottn")
     private String odbcTableTypeName;
+    @SerializedName("c")
     private String charset;
+    @SerializedName("ep")
     private String extraParam;
     private Map<String, String> resourceProperties;
 
@@ -118,13 +111,13 @@ public class OdbcTable extends Table {
             odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
             // 1. check whether resource exist
-            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName);
+            Resource oriResource = Env.getCurrentEnv().getResourceMgr().getResource(odbcCatalogResourceName);
             if (oriResource == null) {
                 throw new DdlException("Resource does not exist. name: " + odbcCatalogResourceName);
             }
 
             // 2. check resource usage privilege
-            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                     odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
@@ -225,7 +218,7 @@ public class OdbcTable extends Table {
 
     private String getPropertyFromResource(String propertyName) {
         OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
-                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+                (Env.getCurrentEnv().getResourceMgr().getResource(odbcCatalogResourceName));
         if (odbcCatalogResource == null) {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
@@ -380,16 +373,16 @@ public class OdbcTable extends Table {
 
     @Override
     public OdbcTable clone() {
-        OdbcTable copied = new OdbcTable();
-        if (!DeepCopy.copy(this, copied, OdbcTable.class, FeConstants.meta_version)) {
+        OdbcTable copied = DeepCopy.copy(this, OdbcTable.class, FeConstants.meta_version);
+        if (copied == null) {
             LOG.warn("failed to copy odbc table: " + getName());
             return null;
         }
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog) {
-        id = catalog.getNextId();
+    public void resetIdsForRestore(Env env) {
+        id = env.getNextId();
     }
 
     public TTableDescriptor toThrift() {
@@ -430,64 +423,10 @@ public class OdbcTable extends Table {
             sb.append(extraParam);
         }
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of odbc table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Map<String, String> serializeMap = Maps.newHashMap();
-
-        serializeMap.put(ODBC_CATALOG_RESOURCE, odbcCatalogResourceName);
-        serializeMap.put(ODBC_HOST, host);
-        serializeMap.put(ODBC_PORT, port);
-        serializeMap.put(ODBC_USER, userName);
-        serializeMap.put(ODBC_PASSWORD, passwd);
-        serializeMap.put(ODBC_DATABASE, odbcDatabaseName);
-        serializeMap.put(ODBC_TABLE, odbcTableName);
-        serializeMap.put(ODBC_DRIVER, driver);
-        serializeMap.put(ODBC_TYPE, odbcTableTypeName);
-        serializeMap.put(ODBC_CHARSET, charset);
-        serializeMap.put(ODBC_EXTRA_PARAM, extraParam);
-
-        int size = (int) serializeMap.values().stream().filter(v -> {
-            return v != null;
-        }).count();
-        out.writeInt(size);
-
-        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
-            if (kv.getValue() != null) {
-                Text.writeString(out, kv.getKey());
-                Text.writeString(out, kv.getValue());
-            }
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        // Read Odbc meta
-        int size = in.readInt();
-        Map<String, String> serializeMap = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            serializeMap.put(key, value);
-        }
-
-        odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
-        host = serializeMap.get(ODBC_HOST);
-        port = serializeMap.get(ODBC_PORT);
-        userName = serializeMap.get(ODBC_USER);
-        passwd = serializeMap.get(ODBC_PASSWORD);
-        odbcDatabaseName = serializeMap.get(ODBC_DATABASE);
-        odbcTableName = serializeMap.get(ODBC_TABLE);
-        driver = serializeMap.get(ODBC_DRIVER);
-        odbcTableTypeName = serializeMap.get(ODBC_TYPE);
-        charset = serializeMap.get(ODBC_CHARSET);
-        extraParam = serializeMap.get(ODBC_EXTRA_PARAM);
     }
 
     public static String supportTableType() {

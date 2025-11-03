@@ -25,12 +25,15 @@ struct TCounter {
   1: required string name
   2: required Metrics.TUnit type
   3: required i64 value 
+  4: optional i64 level
+  5: optional string description
 }
 
 // A single runtime profile
 struct TRuntimeProfileNode {
   1: required string name
   2: required i32 num_children 
+  // Counters is a list of flattened counters for this node and all its children
   3: required list<TCounter> counters
   // TODO: should we make metadata a serializable struct?  We only use it to
   // store the node id right now so this is sufficient.
@@ -49,6 +52,11 @@ struct TRuntimeProfileNode {
   
   // map from parent counter name to child counter name
   8: required map<string, set<string>> child_counters_map
+
+  9: required i64 timestamp
+
+  // Deprecated.
+  10: optional bool deprecated_is_sink 
 }
 
 // A flattened tree of runtime profiles, obtained by an

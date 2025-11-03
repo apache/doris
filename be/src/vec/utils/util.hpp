@@ -22,9 +22,12 @@
 #include <boost/shared_ptr.hpp>
 
 #include "runtime/descriptors.h"
+#include "util/simd/bits.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 class VectorizedUtils {
@@ -33,11 +36,45 @@ public:
         // Block block;
         return create_columns_with_type_and_name(row_desc);
     }
+    static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
+        if (!block->mem_reuse()) {
+            MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
+            block->swap(tmp.to_block());
+        }
+        return MutableBlock::build_mutable_block(block);
+    }
+    static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
+        if (!block->mem_reuse()) {
+            MutableBlock tmp(other.clone_empty());
+            block->swap(tmp.to_block());
+        }
+        return MutableBlock::build_mutable_block(block);
+    }
+    static MutableBlock build_mutable_mem_reuse_block(Block* block,
+                                                      const std::vector<SlotDescriptor*>& slots) {
+        if (!block->mem_reuse()) {
+            size_t column_size = slots.size();
+            MutableColumns columns(column_size);
+            for (size_t i = 0; i < column_size; i++) {
+                columns[i] = slots[i]->get_empty_mutable_column();
+            }
+            int n_columns = 0;
+            for (const auto slot_desc : slots) {
+                block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                    slot_desc->get_data_type_ptr(),
+                                                    slot_desc->col_name()));
+            }
+        }
+        return MutableBlock(block);
+    }
 
     static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
+                if (!slot_desc->is_materialized()) {
+                    continue;
+                }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name());
             }
@@ -45,12 +82,64 @@ public:
         return columns_with_type_and_name;
     }
 
-    static void update_null_map(NullMap& dst, const NullMap& src) {
+    static NameAndTypePairs create_name_and_data_types(const RowDescriptor& row_desc) {
+        NameAndTypePairs name_with_types;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                if (!slot_desc->is_materialized()) {
+                    continue;
+                }
+                name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
+            }
+        }
+        return name_with_types;
+    }
+
+    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
+                                                     bool ignore_trivial_slot = true) {
+        ColumnsWithTypeAndName columns_with_type_and_name;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                if (ignore_trivial_slot && !slot_desc->is_materialized()) {
+                    continue;
+                }
+                columns_with_type_and_name.emplace_back(
+                        slot_desc->get_data_type_ptr()->create_column(),
+                        slot_desc->get_data_type_ptr(), slot_desc->col_name());
+            }
+        }
+        return columns_with_type_and_name;
+    }
+
+    // Helper function to extract null map from column (including ColumnConst cases)
+    static const NullMap* get_null_map(const ColumnPtr& col) {
+        if (col->is_nullable()) {
+            return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
+        }
+        // Handle Const(Nullable) case
+        if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
+            const_col != nullptr && const_col->is_concrete_nullable()) {
+            return &static_cast<const ColumnNullable&>(const_col->get_data_column())
+                            .get_null_map_data();
+        }
+        return nullptr;
+    };
+
+    // is_single: whether src is null map of a ColumnConst
+    static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
-        for (size_t i = 0; i < size; ++i) {
-            l[i] |= r[i];
+        if (is_single) {
+            if (r[0]) {
+                for (size_t i = 0; i < size; ++i) {
+                    l[i] = 1;
+                }
+            }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                l[i] |= r[i];
+            }
         }
     }
 
@@ -64,36 +153,158 @@ public:
         return data_types;
     }
 
-    static VExpr* dfs_peel_conjunct(RuntimeState* state, VExprContext* context, VExpr* expr,
-                                    int& leaf_index, std::function<bool(int)> checker) {
-        static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
-
-        if (is_leaf(expr)) {
-            if (checker(leaf_index++)) {
-                expr->close(state, context, context->get_function_state_scope());
-                return nullptr;
+    static std::vector<std::string> get_column_names(const RowDescriptor& row_desc) {
+        std::vector<std::string> column_names;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                column_names.push_back(slot_desc->col_name());
             }
-            return expr;
-        } else {
-            VExpr* left_child =
-                    dfs_peel_conjunct(state, context, expr->children()[0], leaf_index, checker);
-            VExpr* right_child =
-                    dfs_peel_conjunct(state, context, expr->children()[1], leaf_index, checker);
-
-            if (left_child != nullptr && right_child != nullptr) {
-                expr->set_children({left_child, right_child});
-                return expr;
-            } else {
-                // here only close the and expr self, do not close the child
-                expr->set_children({});
-                expr->close(state, context, context->get_function_state_scope());
-            }
-
-            // here do not close Expr* now
-            return left_child != nullptr ? left_child : right_child;
         }
+        return column_names;
+    }
+
+    static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
+        for (const auto& arg : args) {
+            if (!is_column_const(*block.get_by_position(arg).column)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // SIMD helper: find the first not null in the null map
+    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+#ifdef __AVX2__
+        // search by simd
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i null_vec = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map[pos]));
+            __m256i zero_vec = _mm256_setzero_si256();
+            __m256i cmp_result = _mm256_cmpeq_epi8(null_vec, zero_vec);
+
+            int mask = _mm256_movemask_epi8(cmp_result);
+            if (mask != 0) {
+                // find the first not null
+                return pos + __builtin_ctz(mask);
+            }
+        }
+
+        // handle the rest elements
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#endif
+        return end_pos;
+    }
+
+    // SIMD helper: batch set non-null value with [start, end) to 1
+    static void range_set_nullmap_to_true_simd(NullMap& null_map, size_t start_pos,
+                                               size_t end_pos) {
+#ifdef __AVX2__
+        // batch set null map to 1 using SIMD (32 bytes at a time)
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i ones_vec = _mm256_set1_epi8(1);
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&null_map[pos]), ones_vec);
+        }
+
+        // handle the rest elements (less than 32 bytes)
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#endif
     }
 };
+
+inline bool match_suffix(const std::string& name, const std::string& suffix) {
+    if (name.length() < suffix.length()) {
+        return false;
+    }
+    return name.substr(name.length() - suffix.length()) == suffix;
+}
+
+inline std::string remove_suffix(const std::string& name, const std::string& suffix) {
+    CHECK(match_suffix(name, suffix))
+            << ", suffix not match, name=" << name << ", suffix=" << suffix;
+    return name.substr(0, name.length() - suffix.length());
+};
+
+inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
+    ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
+    if (is_nullable) {
+        auto null_map = ColumnUInt8::create(1, 0);
+        res_data_column = ColumnNullable::create(res_data_column, std::move(null_map));
+    }
+    return ColumnConst::create(std::move(res_data_column), size);
+}
+
+// change null element to true element
+inline void change_null_to_true(MutableColumnPtr column, ColumnPtr argument = nullptr) {
+    size_t rows = column->size();
+    if (is_column_const(*column)) {
+        change_null_to_true(
+                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assume_mutable());
+    } else if (column->has_null()) {
+        auto* nullable = assert_cast<ColumnNullable*>(column.get());
+        auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
+                                        ->get_data()
+                                        .data();
+        const NullMap& null_map = nullable->get_null_map_data();
+        for (size_t i = 0; i < rows; ++i) {
+            data[i] |= null_map[i];
+        }
+        nullable->fill_false_to_nullmap(rows);
+    } else if (argument && argument->has_null()) {
+        const auto* __restrict null_map =
+                assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
+        auto* __restrict data = assert_cast<ColumnUInt8*>(column.get())->get_data().data();
+        for (size_t i = 0; i < rows; ++i) {
+            data[i] |= null_map[i];
+        }
+    }
+}
+
+inline size_t calculate_false_number(ColumnPtr column) {
+    size_t rows = column->size();
+    if (is_column_const(*column)) {
+        return calculate_false_number(
+                       assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr()) *
+               rows;
+    } else if (column->is_nullable()) {
+        const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+        const auto* data = assert_cast<const ColumnUInt8*>(nullable->get_nested_column_ptr().get())
+                                   ->get_data()
+                                   .data();
+        const auto* __restrict null_map = nullable->get_null_map_data().data();
+        return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), null_map,
+                                    rows);
+    } else {
+        const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
+        return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
+    }
+}
+
+template <typename T>
+T read_from_json(std::string& json_str) {
+    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
+            reinterpret_cast<uint8_t*>(json_str.data()), static_cast<uint32_t>(json_str.size()));
+    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
+    T params;
+    params.read(jsonProtocolIn.get());
+    return params;
+}
 
 } // namespace doris::vectorized
 
@@ -103,9 +314,8 @@ ThriftStruct from_json_string(const std::string& json_val) {
     using namespace apache::thrift::transport;
     using namespace apache::thrift::protocol;
     ThriftStruct ts;
-    TMemoryBuffer* buffer =
-            new TMemoryBuffer((uint8_t*)json_val.c_str(), (uint32_t)json_val.size());
-    std::shared_ptr<TTransport> trans(buffer);
+    std::shared_ptr<TTransport> trans =
+            std::make_shared<TMemoryBuffer>((uint8_t*)json_val.c_str(), (uint32_t)json_val.size());
     TJSONProtocol protocol(trans);
     ts.read(&protocol);
     return ts;

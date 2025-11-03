@@ -17,9 +17,12 @@
 
 #include "util/histogram.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <cmath>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

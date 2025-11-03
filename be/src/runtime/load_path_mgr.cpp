@@ -17,21 +17,37 @@
 
 #include "runtime/load_path_mgr.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
+#include <algorithm>
 #include <boost/algorithm/string/join.hpp>
+
+#include "common/cast_set.h"      // IWYU pragma: keep
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <ostream>
 #include <string>
 
-#include "env/env.h"
-#include "gen_cpp/Types_types.h"
+#include "common/config.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/options.h"
 #include "runtime/exec_env.h"
-#include "util/file_utils.h"
+#include "util/thread.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
+using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
@@ -43,7 +59,7 @@ LoadPathMgr::LoadPathMgr(ExecEnv* exec_env)
           _error_path_next_shard(0),
           _stop_background_threads_latch(1) {}
 
-LoadPathMgr::~LoadPathMgr() {
+void LoadPathMgr::stop() {
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();
@@ -52,18 +68,15 @@ LoadPathMgr::~LoadPathMgr() {
 
 Status LoadPathMgr::init() {
     _path_vec.clear();
-    for (auto& path : _exec_env->store_paths()) {
-        _path_vec.push_back(path.path + "/" + MINI_PREFIX);
-    }
     LOG(INFO) << "Load path configured to [" << boost::join(_path_vec, ",") << "]";
 
     // error log is saved in first root path
     _error_log_dir = _exec_env->store_paths()[0].path + "/" + ERROR_LOG_PREFIX;
     // check and make dir
-    RETURN_IF_ERROR(FileUtils::create_dir(_error_log_dir));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(_error_log_dir));
 
     _idx = 0;
-    _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
+    _reserved_hours = std::max<int64_t>(config::load_data_reserve_hours, 1L);
     RETURN_IF_ERROR(Thread::create(
             "LoadPathMgr", "clean_expired_temp_path",
             [this]() {
@@ -77,33 +90,61 @@ Status LoadPathMgr::init() {
 }
 
 Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label,
-                                 std::string* prefix) {
-    if (_path_vec.empty()) {
-        return Status::InternalError("No load path configured.");
-    }
+                                 std::string* prefix, int64_t file_bytes) {
+    Status status = _init_once.call([this] {
+        for (auto& store_path : _exec_env->store_paths()) {
+            _path_vec.push_back(store_path.path + "/" + MINI_PREFIX);
+        }
+        return Status::OK();
+    });
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
-    Status status = Status::OK();
+    auto exceed_capacity_path_num = 0;
+    size_t disk_capacity_bytes = 0;
+    size_t available_bytes = 0;
     while (retry--) {
-        {
-            // add SHARD_PREFIX for compatible purpose
-            std::lock_guard<std::mutex> l(_lock);
-            std::string shard = SHARD_PREFIX + std::to_string(_next_shard++ % MAX_SHARD_NUM);
-            path = _path_vec[_idx] + "/" + db + "/" + shard + "/" + label;
-            _idx = (_idx + 1) % size;
+        // Call get_space_info to get disk space information.
+        // If the call fails or the disk space is insufficient,
+        // increment the count of paths exceeding capacity and proceed to the next loop iteration.
+        std::string base_path = _path_vec[_idx].substr(0, _path_vec[_idx].find("/" + MINI_PREFIX));
+        if (!io::global_local_filesystem()
+                     ->get_space_info(base_path, &disk_capacity_bytes, &available_bytes)
+                     .ok() ||
+            !check_disk_space(disk_capacity_bytes, available_bytes, file_bytes)) {
+            ++exceed_capacity_path_num;
+            continue;
         }
-        status = FileUtils::create_dir(path);
+        // add SHARD_PREFIX for compatible purpose
+        std::lock_guard<std::mutex> l(_lock);
+        std::string shard = SHARD_PREFIX + std::to_string(_next_shard++ % MAX_SHARD_NUM);
+        path = _path_vec[_idx] + "/" + db + "/" + shard + "/" + label;
+        _idx = (_idx + 1) % size;
+        status = io::global_local_filesystem()->create_directory(path);
         if (LIKELY(status.ok())) {
             *prefix = path;
             return Status::OK();
-        } else {
-            LOG(WARNING) << "create dir failed:" << path
-                         << ", error msg:" << status.get_error_msg();
         }
     }
-
+    if (exceed_capacity_path_num == size) {
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>("exceed capacity limit.");
+    }
     return status;
+}
+
+bool LoadPathMgr::check_disk_space(size_t disk_capacity_bytes, size_t available_bytes,
+                                   int64_t file_bytes) {
+    bool is_available = false;
+    int64_t remaining_bytes = available_bytes - file_bytes;
+    double used_ratio =
+            1.0 - cast_set<double>(remaining_bytes) / cast_set<double>(disk_capacity_bytes);
+    is_available = !(used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
+                     remaining_bytes <= config::storage_flood_stage_left_capacity_bytes);
+    if (!is_available) {
+        LOG(WARNING) << "Exceed capacity limit. disk_capacity: " << disk_capacity_bytes
+                     << ", available: " << available_bytes << ", file_bytes: " << file_bytes;
+    }
+    return is_available;
 }
 
 bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours) {
@@ -141,10 +182,7 @@ Status LoadPathMgr::get_load_error_file_name(const std::string& db, const std::s
     }
     std::string shard_path = _error_log_dir + "/" + shard;
     // check and create shard path
-    Status status = FileUtils::create_dir(shard_path);
-    if (!status.ok()) {
-        LOG(WARNING) << "create error sub path failed. path=" << shard_path;
-    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(shard_path));
     // add shard sub dir to file path
     ss << shard << "/" << ERROR_FILE_NAME << "_" << db << "_" << label << "_" << std::hex
        << fragment_instance_id.hi << "_" << fragment_instance_id.lo;
@@ -165,49 +203,77 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
         return;
     }
     LOG(INFO) << "Going to remove path. path=" << path;
-    Status status = FileUtils::remove_all(path);
+    Status status = io::global_local_filesystem()->delete_directory_or_file(path);
     if (status.ok()) {
         LOG(INFO) << "Remove path success. path=" << path;
     } else {
-        LOG(WARNING) << "Remove path failed. path=" << path;
+        LOG(WARNING) << "Remove path failed. path=" << path << ", error=" << status;
+    }
+}
+
+void LoadPathMgr::clean_files_in_path_vec(const std::string& path) {
+    // Check if the path contains "/"+MINI_PREFIX. If not, return directly.
+    if (path.find("/" + MINI_PREFIX) == std::string::npos) {
+        return;
+    }
+
+    bool exists = false;
+    // Check if the path exists
+    Status status = io::global_local_filesystem()->exists(path, &exists);
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
+        return;
+    }
+    if (exists) {
+        // If the path exists, delete the file or directory corresponding to that path
+        status = io::global_local_filesystem()->delete_directory_or_file(path);
+        if (status.ok()) {
+            LOG(INFO) << "Delete path success: " << path;
+        } else {
+            LOG(WARNING) << "Delete path failed: " << path << ", error: " << status;
+        }
     }
 }
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
-    Env* env = Env::Default();
-
-    std::vector<std::string> dbs;
-    Status status = FileUtils::list_files(env, path, &dbs);
-    // path may not exist
-    if (!status.ok() && !status.is_not_found()) {
-        LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
+    bool exists = true;
+    std::vector<io::FileInfo> dbs;
+    Status st = io::global_local_filesystem()->list(path, false, &dbs, &exists);
+    if (!st) {
         return;
     }
 
+    Status status;
     time_t now = time(nullptr);
     for (auto& db : dbs) {
-        std::string db_dir = path + "/" + db;
-        std::vector<std::string> sub_dirs;
-        status = FileUtils::list_files(env, db_dir, &sub_dirs);
+        if (db.is_file) {
+            continue;
+        }
+        std::string db_dir = path + "/" + db.file_name;
+        std::vector<io::FileInfo> sub_dirs;
+        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs, &exists);
         if (!status.ok()) {
-            LOG(WARNING) << "scan db of trash dir failed, continue. dir=" << db_dir;
+            LOG(WARNING) << "scan db of trash dir failed: " << status;
             continue;
         }
         // delete this file
         for (auto& sub_dir : sub_dirs) {
-            std::string sub_path = db_dir + "/" + sub_dir;
+            if (sub_dir.is_file) {
+                continue;
+            }
+            std::string sub_path = db_dir + "/" + sub_dir.file_name;
             // for compatible
-            if (sub_dir.find(SHARD_PREFIX) == 0) {
+            if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
                 // sub_dir starts with SHARD_PREFIX
                 // process shard sub dir
-                std::vector<std::string> labels;
-                Status status = FileUtils::list_files(env, sub_path, &labels);
+                std::vector<io::FileInfo> labels;
+                status = io::global_local_filesystem()->list(sub_path, false, &labels, &exists);
                 if (!status.ok()) {
-                    LOG(WARNING) << "scan one path to delete directory failed. path=" << sub_path;
+                    LOG(WARNING) << "scan one path to delete directory failed: " << status;
                     continue;
                 }
                 for (auto& label : labels) {
-                    std::string label_dir = sub_path + "/" + label;
+                    std::string label_dir = sub_path + "/" + label.file_name;
                     process_path(now, label_dir, config::load_data_reserve_hours);
                 }
             } else {
@@ -226,30 +292,36 @@ void LoadPathMgr::clean() {
 }
 
 void LoadPathMgr::clean_error_log() {
-    Env* env = Env::Default();
-
     time_t now = time(nullptr);
-    std::vector<std::string> sub_dirs;
-    Status status = FileUtils::list_files(env, _error_log_dir, &sub_dirs);
-    if (!status.ok()) {
-        LOG(WARNING) << "scan error_log dir failed. dir=" << _error_log_dir;
-        return;
+    bool exists = true;
+    std::vector<io::FileInfo> sub_dirs;
+    {
+        Status status =
+                io::global_local_filesystem()->list(_error_log_dir, false, &sub_dirs, &exists);
+        if (!status.ok()) {
+            LOG(WARNING) << "scan error_log dir failed: " << status;
+            return;
+        }
     }
 
     for (auto& sub_dir : sub_dirs) {
-        std::string sub_path = _error_log_dir + "/" + sub_dir;
+        if (sub_dir.is_file) {
+            continue;
+        }
+        std::string sub_path = _error_log_dir + "/" + sub_dir.file_name;
         // for compatible
-        if (sub_dir.find(SHARD_PREFIX) == 0) {
+        if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
             // sub_dir starts with SHARD_PREFIX
             // process shard sub dir
-            std::vector<std::string> error_log_files;
-            Status status = FileUtils::list_files(env, sub_path, &error_log_files);
+            std::vector<io::FileInfo> error_log_files;
+            Status status =
+                    io::global_local_filesystem()->list(sub_path, false, &error_log_files, &exists);
             if (!status.ok()) {
-                LOG(WARNING) << "scan one path to delete directory failed. path=" << sub_path;
+                LOG(WARNING) << "scan one path to delete directory failed: " << status;
                 continue;
             }
             for (auto& error_log : error_log_files) {
-                std::string error_log_path = sub_path + "/" + error_log;
+                std::string error_log_path = sub_path + "/" + error_log.file_name;
                 process_path(now, error_log_path, config::load_error_log_reserve_hours);
             }
         } else {
@@ -258,5 +330,7 @@ void LoadPathMgr::clean_error_log() {
         }
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -34,7 +34,14 @@ class GroovyFileSource implements ScriptSource {
 
     @Override
     SuiteScript toScript(ScriptContext scriptContext, GroovyShell shell) {
-        SuiteScript suiteScript = shell.parse(file) as SuiteScript
+        def setPropertyFunction = '''
+\nvoid setProperty(String key, value) {
+    throw new IllegalArgumentException("defined global variables in script are not allowed: ${key}")
+}
+'''
+        def scriptContent = file.text
+        scriptContent = scriptContent + setPropertyFunction
+        SuiteScript suiteScript = shell.parse(scriptContent, file.getName()) as SuiteScript
         suiteScript.init(scriptContext)
         return suiteScript
     }
@@ -76,14 +83,24 @@ class SqlFileSource implements ScriptSource {
         SuiteScript script = new SuiteScript() {
             @Override
             Object run() {
+                List<String> sqls = getSqls(file.text)
                 suite(suiteName, groupName) {
                     String tag = suiteName
+                    String exceptionStr = ""
                     boolean order = suiteName.endsWith("_order")
-                    List<String> sqls = getSqls(file.text)
+                    log.info("Try to execute group: ${groupName} suite: ${suiteName} with ${sqls.size()} stmts")
                     for (int i = 0; i < sqls.size(); ++i) {
                         String singleSql = sqls.get(i)
                         String tagName = (i == 0) ? tag : "${tag}_${i + 1}"
-                        quickTest(tagName, singleSql, order)
+                        try {
+                            quickTest(tagName, singleSql, order)
+                        } catch (Throwable e) {
+                            String curException = "exception : ${e.getMessage()}\n" + "sql is :" + "${singleSql}\n"
+                            exceptionStr += curException
+                        }
+                    }
+                    if (exceptionStr.size() != 0) {
+                        throw new IllegalStateException("exceptions : ${exceptionStr}")
                     }
                 }
             }

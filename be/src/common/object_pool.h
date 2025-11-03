@@ -18,9 +18,8 @@
 #pragma once
 
 #include <mutex>
+#include <ranges>
 #include <vector>
-
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -30,27 +29,33 @@ namespace doris {
 class ObjectPool {
 public:
     ObjectPool() = default;
-
+    ObjectPool(const ObjectPool&) = delete;
+    void operator=(const ObjectPool&) = delete;
     ~ObjectPool() { clear(); }
 
     template <class T>
     T* add(T* t) {
         // TODO: Consider using a lock-free structure.
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _objects.emplace_back(Element {t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
         return t;
     }
 
     template <class T>
     T* add_array(T* t) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _objects.emplace_back(Element {t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
         return t;
     }
 
     void clear() {
-        std::lock_guard<SpinLock> l(_lock);
-        for (Element& elem : _objects) elem.delete_fn(elem.obj);
+        std::lock_guard<std::mutex> l(_lock);
+        // reverse delete object to make sure the obj can
+        // safe access the member object construt early by
+        // object pool
+        for (auto& _object : std::ranges::reverse_view(_objects)) {
+            _object.delete_fn(_object.obj);
+        }
         _objects.clear();
     }
 
@@ -60,25 +65,22 @@ public:
     }
 
     uint64_t size() {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         return _objects.size();
     }
 
 private:
-    ObjectPool(const ObjectPool&) = delete;
-    void operator=(const ObjectPool&) = delete;
-
     /// A generic deletion function pointer. Deletes its first argument.
     using DeleteFn = void (*)(void*);
 
     /// For each object, a pointer to the object and a function that deletes it.
     struct Element {
-        void* obj;
+        void* obj = nullptr;
         DeleteFn delete_fn;
     };
 
     std::vector<Element> _objects;
-    SpinLock _lock;
+    std::mutex _lock;
 };
 
 } // namespace doris

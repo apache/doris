@@ -1,0 +1,76 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Open after implementing the where in mv function
+suite ("nereids_k123p") {
+    sql "SET experimental_enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql """ DROP TABLE IF EXISTS d_table; """
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO;"
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
+    sql """
+            create table d_table(
+                k1 int null,
+                k2 int not null,
+                k3 bigint null,
+                k4 varchar(100) null
+            )
+            duplicate key (k1,k2,k3)
+            distributed BY hash(k1) buckets 3
+            properties("replication_num" = "1");
+        """
+
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
+    sql "insert into d_table select 3,-3,null,'c';"
+
+    create_sync_mv(db, "d_table", "k123p1w","""select k1 as a1,k2+k3 as sum_1 from d_table where k1 = 1;""")
+    create_sync_mv (db, "d_table", "k123p4w","""select k1 as a2,k2+k3 as sum_2 from d_table where k4 = "b";""")
+
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
+    sql "insert into d_table select 3,-3,null,'c';"
+
+    qt_select_star "select * from d_table order by k1;"
+
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w"])
+    qt_select_mv "select k1,k2+k3 from d_table order by k1;"
+
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
+    qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
+
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w"])
+    qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
+
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
+    qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
+
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
+    qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
+
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;", ["k123p1w", "k123p4w"])
+    qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
+
+    mv_rewrite_success_without_check_chosen("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
+    qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
+
+    qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
+}

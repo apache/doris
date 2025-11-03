@@ -17,23 +17,31 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <limits.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <ostream>
 #include <string>
 #include <type_traits>
 
+#include "absl/strings/substitute.h"
 #include "common/status.h"
-#include "gutil/endian.h"
-#include "gutil/strings/substitute.h"
+#include "olap/decimal12.h"
+#include "olap/olap_common.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
+#include "util/slice.h"
+#include "vec/common/endian.h"
+#include "vec/core/extended_types.h"
+#include "vec/core/types.h"
 
 namespace doris {
 
-using strings::Substitute;
-
 using FullEncodeAscendingFunc = void (*)(const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
-using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                       MemPool* pool);
+using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr);
 
 // Order-preserving binary encoding for values of a particular type so that
 // those values can be compared by memcpy their encoded bytes.
@@ -55,9 +63,9 @@ public:
         _encode_ascending(value, index_size, buf);
     }
 
-    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                            MemPool* pool) const {
-        return _decode_ascending(encoded_key, index_size, cell_ptr, pool);
+    // Only used for test, should delete it in the future
+    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) const {
+        return _decode_ascending(encoded_key, index_size, cell_ptr);
     }
 
 private:
@@ -72,43 +80,25 @@ template <FieldType field_type, typename Enable = void>
 class KeyCoderTraits {};
 
 template <FieldType field_type>
-class KeyCoderTraits<field_type, typename std::enable_if<std::is_integral<typename CppTypeTraits<
-                                         field_type>::CppType>::value>::type> {
+class KeyCoderTraits<
+        field_type,
+        typename std::enable_if<
+                IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
+                vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
-private:
-    // Swap value's endian from/to big endian
-    static UnsignedCppType swap_big_endian(UnsignedCppType val) {
-        switch (sizeof(UnsignedCppType)) {
-        case 1:
-            return val;
-        case 2:
-            return BigEndian::FromHost16(val);
-        case 4:
-            return BigEndian::FromHost32(val);
-        case 8:
-            return BigEndian::FromHost64(val);
-        case 16:
-            return BigEndian::FromHost128(val);
-        default:
-            LOG(FATAL) << "Invalid type to big endian, type=" << field_type
-                       << ", size=" << sizeof(UnsignedCppType);
-        }
-    }
-
-public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // swap MSB to encode integer
-        if (std::is_signed<CppType>::value) {
+        if (IsSigned<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
         // make it bigendian
-        unsigned_val = swap_big_endian(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
 
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
@@ -117,16 +107,17 @@ public:
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        // decode_ascending only used in orinal index page, maybe should remove it in the future.
+        // currently, we reduce the usage of this method.
         if (encoded_key->size < sizeof(UnsignedCppType)) {
             return Status::InvalidArgument("Key too short, need={} vs real={}",
                                            sizeof(UnsignedCppType), encoded_key->size);
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = swap_big_endian(unsigned_val);
-        if (std::is_signed<CppType>::value) {
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
+        if (IsSigned<CppType>::value) {
             unsigned_val ^=
                     (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
@@ -137,17 +128,18 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DATE> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
 public:
-    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    using UnsignedCppType =
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -155,15 +147,14 @@ public:
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
             return Status::InvalidArgument("Key too short, need={} vs real={}",
                                            sizeof(UnsignedCppType), encoded_key->size);
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -171,17 +162,18 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DATEV2> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
 public:
-    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::UnsignedCppType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType;
+    using UnsignedCppType =
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // make it bigendian
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         buf->append((char*)&unsigned_val, sizeof(unsigned_val));
     }
 
@@ -189,15 +181,15 @@ public:
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
@@ -205,40 +197,77 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DECIMAL> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
+public:
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
+    using UnsignedCppType =
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedCppType;
+
+public:
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, value, sizeof(unsigned_val));
+        // make it bigendian
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
+        buf->append((char*)&unsigned_val, sizeof(unsigned_val));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
+        }
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        unsigned_val = to_endian<std::endian::big>(unsigned_val);
+        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
+        return Status::OK();
+    }
+};
+
+template <>
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         decimal12_t decimal_val;
         memcpy(&decimal_val, value, sizeof(decimal12_t));
-        KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::full_encode_ascending(&decimal_val.integer, buf);
-        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(&decimal_val.fraction, buf);
-    }
+        KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_BIGINT>::full_encode_ascending(
+                &decimal_val.integer, buf);
+        KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_INT>::full_encode_ascending(&decimal_val.fraction,
+                                                                              buf);
+    } // namespace doris
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         decimal12_t decimal_val = {0, 0};
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction, pool));
+        RETURN_IF_ERROR(KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
+                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer));
+        RETURN_IF_ERROR(KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_INT>::decode_ascending(
+                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction));
         memcpy(cell_ptr, &decimal_val, sizeof(decimal12_t));
         return Status::OK();
     }
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_CHAR> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
 public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);
         buf->append(slice->get_data(), slice->get_size());
     }
 
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void encode_ascending(const void* value, size_t index_size,
+                                                       std::string* buf) {
         const Slice* slice = (const Slice*)value;
         CHECK(index_size <= slice->size)
                 << "index size is larger than char size, index=" << index_size
@@ -246,77 +275,141 @@ public:
         buf->append(slice->data, index_size);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        if (encoded_key->size < index_size) {
-            return Status::InvalidArgument("Key too short, need={} vs real={}", index_size,
-                                           encoded_key->size);
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
+    }
+};
+
+template <>
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
+public:
+    NO_SANITIZE_UNDEFINED static void full_encode_ascending(const void* value, std::string* buf) {
+        auto slice = reinterpret_cast<const Slice*>(value);
+        buf->append(slice->get_data(), slice->get_size());
+    }
+
+    NO_SANITIZE_UNDEFINED static void encode_ascending(const void* value, size_t index_size,
+                                                       std::string* buf) {
+        const Slice* slice = (const Slice*)value;
+        size_t copy_size = std::min(index_size, slice->size);
+        buf->append(slice->data, copy_size);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
+    }
+};
+
+template <>
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
+public:
+    NO_SANITIZE_UNDEFINED static void full_encode_ascending(const void* value, std::string* buf) {
+        auto slice = reinterpret_cast<const Slice*>(value);
+        buf->append(slice->get_data(), slice->get_size());
+    }
+
+    NO_SANITIZE_UNDEFINED static void encode_ascending(const void* value, size_t index_size,
+                                                       std::string* buf) {
+        const Slice* slice = (const Slice*)value;
+        size_t copy_size = std::min(index_size, slice->size);
+        buf->append(slice->data, copy_size);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
+    }
+};
+
+template <FieldType field_type>
+class KeyCoderTraitsForFloat {
+public:
+    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
+
+    static UnsignedCppType encode_float(CppType value) {
+        return sortable_float_bits(float_to_int_bits(value));
+    }
+
+    static CppType decode_float(UnsignedCppType sortable_bits) {
+        return int_bits_to_float(unsortable_float_bits(sortable_bits));
+    }
+
+    // -infinity < -100.0 < -1.0 < -0.0 < 0.0 < 1.0 < 100.0 < infinity < NaN
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        CppType val;
+        std::memcpy(&val, value, sizeof(CppType));
+        UnsignedCppType sortable_val = encode_float(val);
+        constexpr UnsignedCppType sign_bit = UnsignedCppType(1)
+                                             << (sizeof(UnsignedCppType) * 8 - 1);
+        sortable_val ^= sign_bit;
+        sortable_val = to_endian<std::endian::big>(sortable_val);
+        buf->append(reinterpret_cast<const char*>(&sortable_val), sizeof(UnsignedCppType));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
-        Slice* slice = (Slice*)cell_ptr;
-        slice->data = (char*)pool->allocate(index_size);
-        slice->size = index_size;
-        memcpy(slice->data, encoded_key->data, index_size);
-        encoded_key->remove_prefix(index_size);
+        UnsignedCppType sortable_val;
+        std::memcpy(&sortable_val, encoded_key->data, sizeof(UnsignedCppType));
+        sortable_val = to_endian<std::endian::big>(sortable_val);
+        constexpr UnsignedCppType sign_bit = UnsignedCppType(1)
+                                             << (sizeof(UnsignedCppType) * 8 - 1);
+        sortable_val ^= sign_bit;
+        CppType val = decode_float(sortable_val);
+        std::memcpy(cell_ptr, &val, sizeof(CppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
+    }
+
+private:
+    static UnsignedCppType float_to_int_bits(CppType value) {
+        if (std::isnan(value)) {
+            if constexpr (std::is_same_v<CppType, float>) {
+                return 0x7FC00000U;
+            } else {
+                return 0x7FF8000000000000ULL;
+            }
+        }
+
+        UnsignedCppType result;
+        std::memcpy(&result, &value, sizeof(CppType));
+        return result;
+    }
+
+    static UnsignedCppType sortable_float_bits(UnsignedCppType bits) {
+        constexpr int32_t shift = sizeof(UnsignedCppType) * 8 - 1;
+        constexpr UnsignedCppType sign_bit = static_cast<UnsignedCppType>(1) << shift;
+        if ((bits & sign_bit) != 0) {
+            return bits ^ (sign_bit - 1);
+        } else {
+            return bits;
+        }
+    }
+
+    static CppType int_bits_to_float(UnsignedCppType bits) {
+        CppType result;
+        std::memcpy(&result, &bits, sizeof(CppType));
+        return result;
+    }
+
+    static UnsignedCppType unsortable_float_bits(UnsignedCppType sortable_bits) {
+        return sortable_float_bits(sortable_bits);
     }
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_VARCHAR> {
-public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
-        auto slice = reinterpret_cast<const Slice*>(value);
-        buf->append(slice->get_data(), slice->get_size());
-    }
-
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
-        const Slice* slice = (const Slice*)value;
-        size_t copy_size = std::min(index_size, slice->size);
-        buf->append(slice->data, copy_size);
-    }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        CHECK(encoded_key->size <= index_size)
-                << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
-                << ", index_size=" << index_size;
-        auto copy_size = encoded_key->size;
-        Slice* slice = (Slice*)cell_ptr;
-        slice->data = (char*)pool->allocate(copy_size);
-        slice->size = copy_size;
-        memcpy(slice->data, encoded_key->data, copy_size);
-        encoded_key->remove_prefix(copy_size);
-        return Status::OK();
-    }
-};
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
+        : public KeyCoderTraitsForFloat<FieldType::OLAP_FIELD_TYPE_FLOAT> {};
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_STRING> {
-public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
-        auto slice = reinterpret_cast<const Slice*>(value);
-        buf->append(slice->get_data(), slice->get_size());
-    }
-
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
-        const Slice* slice = (const Slice*)value;
-        size_t copy_size = std::min(index_size, slice->size);
-        buf->append(slice->data, copy_size);
-    }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        CHECK(encoded_key->size <= index_size)
-                << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
-                << ", index_size=" << index_size;
-        auto copy_size = encoded_key->size;
-        Slice* slice = (Slice*)cell_ptr;
-        slice->data = (char*)pool->allocate(copy_size);
-        slice->size = copy_size;
-        memcpy(slice->data, encoded_key->data, copy_size);
-        encoded_key->remove_prefix(copy_size);
-        return Status::OK();
-    }
-};
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
+        : public KeyCoderTraitsForFloat<FieldType::OLAP_FIELD_TYPE_DOUBLE> {};
 
 } // namespace doris

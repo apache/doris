@@ -22,10 +22,6 @@ package org.apache.doris.statistics;
  */
 public class EmptySetStatsDerive extends BaseStatsDerive {
     // Current REPEAT_NODE also uses this derivation method
-    @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
 
     @Override
     protected long deriveRowCount() {

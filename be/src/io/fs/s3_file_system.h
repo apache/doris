@@ -17,8 +17,16 @@
 
 #pragma once
 
-#include <mutex>
+#include <filesystem>
+#include <memory>
+#include <shared_mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "util/s3_util.h"
 
@@ -29,67 +37,106 @@ namespace Aws::Utils::Threading {
 class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
-namespace doris {
-namespace io {
-
-// This class is thread-safe.(Except `set_xxx` method)
-class S3FileSystem final : public RemoteFileSystem {
+namespace doris::io {
+class ObjStorageClient;
+// In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
+// The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
+// access S3 data with latest AK SK.
+class ObjClientHolder {
 public:
-    S3FileSystem(const std::map<std::string, std::string>& properties, std::string bucket,
-                 std::string prefix, ResourceId resource_id);
-    ~S3FileSystem() override;
+    explicit ObjClientHolder(S3ClientConf conf);
+    ~ObjClientHolder();
 
-    Status create_file(const Path& path, std::unique_ptr<FileWriter>* writer) override;
+    Status init();
 
-    Status open_file(const Path& path, std::unique_ptr<FileReader>* reader) override;
+    // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
+    Status reset(const S3ClientConf& conf);
 
-    Status delete_file(const Path& path) override;
-
-    Status create_directory(const Path& path) override;
-
-    Status delete_directory(const Path& path) override;
-
-    Status link_file(const Path& src, const Path& dest) override;
-
-    Status exists(const Path& path, bool* res) const override;
-
-    Status file_size(const Path& path, size_t* file_size) const override;
-
-    Status list(const Path& path, std::vector<Path>* files) override;
-
-    Status upload(const Path& local_path, const Path& dest_path) override;
-
-    Status batch_upload(const std::vector<Path>& local_paths,
-                        const std::vector<Path>& dest_paths) override;
-
-    Status connect() override;
-
-    std::shared_ptr<Aws::S3::S3Client> get_client() const {
-        std::lock_guard lock(_client_mu);
+    std::shared_ptr<ObjStorageClient> get() const {
+        std::shared_lock lock(_mtx);
         return _client;
-    };
+    }
 
-    // Guarded by external lock.
-    void set_ak(std::string ak) { _properties[S3_AK] = std::move(ak); }
+    Result<int64_t> object_file_size(const std::string& bucket, const std::string& key) const;
 
-    // Guarded by external lock.
-    void set_sk(std::string sk) { _properties[S3_SK] = std::move(sk); }
+    // For error msg
+    std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
-private:
-    std::string get_key(const Path& path) const;
+    const S3ClientConf& s3_client_conf() { return _conf; }
 
 private:
-    std::map<std::string, std::string> _properties;
-    std::string _endpoint;
-    std::string _bucket;
-    std::string _prefix;
-
-    // FIXME(cyx): We can use std::atomic<std::shared_ptr> since c++20.
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    mutable std::mutex _client_mu;
-
-    std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor> _executor;
+    mutable std::shared_mutex _mtx;
+    std::shared_ptr<ObjStorageClient> _client;
+    S3ClientConf _conf;
 };
 
-} // namespace io
-} // namespace doris
+// File system for S3 compatible object storage
+// When creating S3FileSystem, all required info should be set in S3Conf,
+// such as ak, sk, region, endpoint, bucket.
+// And the root_path of S3FileSystem is s3_conf.prefix.
+// When using S3FileSystem, it accepts 2 kinds of path:
+//  1. Full path: s3://bucket/path/to/file.txt
+//      In this case, the root_path is not used.
+//  2. only key: path/to/file.txt
+//      In this case, the final key will be "prefix + path/to/file.txt"
+class S3FileSystem final : public RemoteFileSystem {
+public:
+    static Result<std::shared_ptr<S3FileSystem>> create(S3Conf s3_conf, std::string id);
+
+    ~S3FileSystem() override;
+
+    const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }
+
+    const std::string& bucket() const { return _bucket; }
+    const std::string& prefix() const { return _prefix; }
+
+    std::string generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                       bool is_public_endpoint) const;
+
+protected:
+    Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                            const FileWriterOptions* opts) override;
+    Status open_file_internal(const Path& file, FileReaderSPtr* reader,
+                              const FileReaderOptions& opts) override;
+    Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
+    Status delete_file_impl(const Path& file) override;
+    Status delete_directory_impl(const Path& dir) override;
+    Status batch_delete_impl(const std::vector<Path>& files) override;
+    Status exists_impl(const Path& path, bool* res) const override;
+    Status file_size_impl(const Path& file, int64_t* file_size) const override;
+    Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
+                     bool* exists) override;
+    Status rename_impl(const Path& orig_name, const Path& new_name) override;
+
+    Status upload_impl(const Path& local_file, const Path& remote_file) override;
+    Status batch_upload_impl(const std::vector<Path>& local_files,
+                             const std::vector<Path>& remote_files) override;
+    Status download_impl(const Path& remote_file, const Path& local_file) override;
+
+    Status absolute_path(const Path& path, Path& abs_path) const override {
+        if (path.string().find("://") != std::string::npos) {
+            // the path is with schema, which means this is a full path like:
+            // s3://bucket/path/to/file.txt
+            // so no need to concat with prefix
+            abs_path = path;
+        } else {
+            // path with no schema
+            abs_path = _prefix / path;
+        }
+        return Status::OK();
+    }
+
+private:
+    S3FileSystem(S3Conf s3_conf, std::string id);
+
+    Status init();
+
+    // For error msg
+    std::string full_s3_path(std::string_view key) const;
+
+    std::string _bucket;
+    std::string _prefix;
+    std::shared_ptr<ObjClientHolder> _client;
+};
+
+} // namespace doris::io

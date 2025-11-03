@@ -17,46 +17,58 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.FailMsg.CancelType;
-import org.apache.doris.load.Load;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -65,6 +77,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -77,99 +90,81 @@ import java.util.stream.Collectors;
 public class LoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
-    private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
-    private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
-    private LoadJobScheduler loadJobScheduler;
+    protected Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
+    protected Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
+    protected LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MysqlLoadManager mysqlLoadManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
+        this.mysqlLoadManager = new MysqlLoadManager();
     }
 
-    /**
-     * This method will be invoked by the broker load(v2) now.
-     */
-    public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
-        Database database = checkDb(stmt.getLabel().getDbName());
+    public void start() {
+        mysqlLoadManager.start();
+    }
+
+    public long createLoadJobFromCommand(LoadCommand command, StmtExecutor executor, ConnectContext ctx)
+            throws Exception {
+        List<TPipelineWorkloadGroup> twgList = null;
+        if (Config.enable_workload_group) {
+            try {
+                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when create load job,", t);
+                throw t;
+            }
+        }
+
+        Database database = checkDb(command.getLabel().getDbName());
         long dbId = database.getId();
-        LoadJob loadJob = null;
+        LoadJob loadJob;
         writeLock();
         try {
-            if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
-                if (!Catalog.getCurrentCatalog().getLoadInstance()
-                        .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
-                    throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!");
-                }
-            } else {
-                checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-                if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
-                    throw new DdlException("LoadManager only support the broker and spark load.");
-                }
-                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
-                    throw new DdlException(
-                            "There are more than " + Config.desired_max_waiting_jobs
-                                    + " unfinished load jobs, please retry later. "
-                                    + "You can use `SHOW LOAD` to view submitted jobs");
-                }
+            checkLabelUsed(dbId, command.getLabel().getLabelName());
+            if (command.getBrokerDesc() == null && command.getResourceDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
+            }
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException(
+                    "There are more than " + Config.desired_max_waiting_jobs
+                        + " unfinished load jobs, please retry later. "
+                        + "You can use `SHOW LOAD` to view submitted jobs");
             }
 
-            loadJob = BulkLoadJob.fromLoadStmt(stmt);
+            loadJob = BulkLoadJob.fromLoadCommand(command, executor, ctx);
+
+            if (twgList != null) {
+                loadJob.settWorkloadGroups(twgList);
+            }
+
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
         }
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
 
         // The job must be submitted after edit log.
-        // It guarantee that load job has not been changed before edit log.
+        // It guarantees that load job has not been changed before edit log.
         loadJobScheduler.submitJob(loadJob);
         return loadJob.getId();
     }
 
     private long unprotectedGetUnfinishedJobNum() {
-        return idToLoadJob.values().parallelStream()
-                .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED)).count();
+        return idToLoadJob.values().stream()
+                .filter(j -> (j.getJobType() != EtlJobType.INSERT
+                                && j.getState() != JobState.FINISHED
+                                && j.getState() != JobState.CANCELLED)).count();
     }
 
-    /**
-     * This method will be invoked by version1 of broker or hadoop load.
-     * It is used to check the label of v1 and v2 at the same time.
-     * Finally, the v1 of broker or hadoop load will belongs to load class.
-     * Step1: lock the load manager
-     * Step2: check the label in load manager
-     * Step3: call the addLoadJob of load class
-     * Step3.1: lock the load
-     * Step3.2: check the label in load
-     * Step3.3: add the loadJob in load rather than load manager
-     * Step3.4: unlock the load
-     * Step4: unlock the load manager
-     *
-     */
-    public void createLoadJobV1FromStmt(LoadStmt stmt, EtlJobType jobType, long timestamp) throws DdlException {
-        Database database = checkDb(stmt.getLabel().getDbName());
-        writeLock();
-        try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
-            Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /**
-     * MultiLoadMgr use.
-     **/
-    public void createLoadJobV1FromMultiStart(String fullDbName, String label) throws DdlException {
-        Database database = checkDb(fullDbName);
-        writeLock();
-        try {
-            checkLabelUsed(database.getId(), label);
-            Catalog.getCurrentCatalog().getLoadInstance()
-                    .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
-        } finally {
-            writeUnlock();
-        }
+    public MysqlLoadManager getMysqlLoadManager() {
+        return mysqlLoadManager;
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
@@ -177,8 +172,8 @@ public class LoadManager implements Writable {
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId()).add("msg", "replay create load job").build());
     }
 
-    // add load job and also add to to callback factory
-    private void createLoadJob(LoadJob loadJob) {
+    // add load job and also add to callback factory
+    protected void createLoadJob(LoadJob loadJob) {
         if (loadJob.isExpired(System.currentTimeMillis())) {
             // This can happen in replay logic.
             return;
@@ -188,103 +183,123 @@ public class LoadManager implements Writable {
         // because callback will be performed on replay without txn begin
         // register txn state listener
         if (!loadJob.isCompleted()) {
-            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+            Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
         }
     }
 
-    private void addLoadJob(LoadJob loadJob) {
-        idToLoadJob.put(loadJob.getId(), loadJob);
-        long dbId = loadJob.getDbId();
-        if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
-            dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
+    public void addLoadJob(LoadJob loadJob) {
+        // Insert label may be null in txn mode, we add txn insert job after success.
+        if (loadJob.getLabel() != null) {
+            idToLoadJob.put(loadJob.getId(), loadJob);
+            long dbId = loadJob.getDbId();
+            if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
+            }
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            if (!labelToLoadJobs.containsKey(loadJob.getLabel())) {
+                labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
+            }
+            labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
         }
-        Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
-        if (!labelToLoadJobs.containsKey(loadJob.getLabel())) {
-            labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
-        }
-        labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
     }
 
     /**
      * Record finished load job by editLog.
      **/
     public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
+                                      long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
+                                      UserIdentity userInfo, long jobId) throws MetaNotFoundException {
 
         // get db id
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
 
         LoadJob loadJob;
-        switch (jobType) {
-            case INSERT:
-                loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
-                        trackingUrl);
-                break;
-            default:
-                return;
+        if (idToLoadJob.containsKey(jobId)) {
+            loadJob = idToLoadJob.get(jobId);
+            if (loadJob instanceof InsertLoadJob) {
+                ((InsertLoadJob) loadJob).setJobProperties(transactionId, tableId, createTimestamp,
+                        failMsg, trackingUrl, firstErrorMsg, userInfo);
+            }
+        } else {
+            switch (jobType) {
+                case INSERT:
+                    loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
+                            trackingUrl, firstErrorMsg, userInfo);
+                    break;
+                default:
+                    return;
+            }
         }
         addLoadJob(loadJob);
         // persistent
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
     }
 
     /**
      * Match need cancel loadJob by stmt.
      **/
     @VisibleForTesting
-    public static void addNeedCancelLoadJob(CancelLoadStmt stmt, List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
+    public static void addNeedCancelLoadJob(String label, String state, Expression operator,
+                                            List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
             throws AnalysisException {
-        String label = stmt.getLabel();
-        String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
-        matchLoadJobs.addAll(loadJobs.stream().filter(job -> {
-            if (stmt.getOperator() != null) {
-                // compound
-                boolean labelFilter =
-                        label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-                boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
-                        labelFilter || stateFilter;
-            }
-            if (StringUtils.isNotEmpty(label)) {
-                return label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-            }
-            if (StringUtils.isNotEmpty(state)) {
-                return job.getState().name().equalsIgnoreCase(state);
-            }
-            return false;
-        }).collect(Collectors.toList()));
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
+        matchLoadJobs.addAll(
+                loadJobs.stream()
+                        .filter(job -> job.getState() != JobState.CANCELLED)
+                        .filter(job -> {
+                            if (operator != null) {
+                                // compound
+                                boolean labelFilter =
+                                        label.contains("%") ? matcher.match(job.getLabel())
+                                                : job.getLabel().equalsIgnoreCase(label);
+                                boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
+                                return operator instanceof And ? labelFilter && stateFilter :
+                                        labelFilter || stateFilter;
+                            }
+                            if (StringUtils.isNotEmpty(label)) {
+                                return label.contains("%") ? matcher.match(job.getLabel())
+                                        : job.getLabel().equalsIgnoreCase(label);
+                            }
+                            if (StringUtils.isNotEmpty(state)) {
+                                return job.getState().name().equalsIgnoreCase(state);
+                            }
+                            return false;
+                        }).collect(Collectors.toList())
+        );
     }
 
     /**
      * Cancel load job by stmt.
      **/
-    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
+    public void cancelLoadJob(String dbName, String label, String state, Expression operator)
+            throws DdlException, AnalysisException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // List of load jobs waiting to be cancelled
-        List<LoadJob> matchLoadJobs = Lists.newArrayList();
+        List<LoadJob> unfinishedLoadJob;
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
             if (labelToLoadJobs == null) {
                 throw new DdlException("Load job does not exist");
             }
-            addNeedCancelLoadJob(stmt,
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            addNeedCancelLoadJob(label, state, operator,
                     labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
                     matchLoadJobs);
             if (matchLoadJobs.isEmpty()) {
                 throw new DdlException("Load job does not exist");
             }
             // check state here
-            List<LoadJob> uncompletedLoadJob =
+            unfinishedLoadJob =
                     matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
-            if (uncompletedLoadJob.isEmpty()) {
+            if (unfinishedLoadJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job");
             }
         } finally {
             readUnlock();
         }
-        for (LoadJob loadJob : matchLoadJobs) {
+        for (LoadJob loadJob : unfinishedLoadJob) {
             try {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {
@@ -313,6 +328,12 @@ public class LoadManager implements Writable {
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId()).add("operation", operation)
                 .add("msg", "replay end load job").build());
+
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(operation.getId());
+        // When idToLoadJob size increase 10000 roughly, we run removeOldLoadJob to reduce mem used
+        if ((idToLoadJob.size() > 0) && (idToLoadJob.size() % 10000 == 0)) {
+            removeOldLoadJob();
+        }
     }
 
     /**
@@ -347,18 +368,39 @@ public class LoadManager implements Writable {
         }
     }
 
+    /**
+     * Get load job num, used by proc.
+     **/
+    public int getLoadJobNum(JobState jobState) {
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
+            for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
+            }
+
+            List<LoadJob> loadJobList =
+                    labelToLoadJobs.values().stream().flatMap(entity -> entity.stream()).collect(Collectors.toList());
+            return (int) loadJobList.stream().filter(entity -> entity.getState() == jobState).count();
+        } finally {
+            readUnlock();
+        }
+    }
 
     /**
      * Get load job num, used by metric.
      **/
-    public long getLoadJobNum(JobState jobState, EtlJobType jobType) {
-        readLock();
-        try {
-            return idToLoadJob.values().stream().filter(j -> j.getState() == jobState && j.getJobType() == jobType)
-                    .count();
-        } finally {
-            readUnlock();
-        }
+    public Map<Pair<EtlJobType, JobState>, Long> getLoadJobNum() {
+        return idToLoadJob.values().stream().collect(Collectors.groupingBy(
+                loadJob -> Pair.of(loadJob.getJobType(), loadJob.getState()),
+                Collectors.counting()));
     }
 
     /**
@@ -366,69 +408,112 @@ public class LoadManager implements Writable {
      **/
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
+        removeLoadJobIf(job -> job.isExpired(currentTimeMs));
+    }
 
+    /**
+     * Remove completed jobs if total job num exceed Config.label_num_threshold
+     */
+    public void removeOverLimitLoadJob() {
+        if (Config.label_num_threshold < 0 || idToLoadJob.size() <= Config.label_num_threshold) {
+            return;
+        }
         writeLock();
         try {
-            Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
-            while (iter.hasNext()) {
-                LoadJob job = iter.next().getValue();
-                if (job.isExpired(currentTimeMs)) {
-                    iter.remove();
-                    Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
-                    List<LoadJob> list = map.get(job.getLabel());
-                    list.remove(job);
-                    if (job instanceof SparkLoadJob) {
-                        ((SparkLoadJob) job).clearSparkLauncherLog();
-                    }
-                    if (list.isEmpty()) {
-                        map.remove(job.getLabel());
-                    }
-                    if (map.isEmpty()) {
-                        dbIdToLabelToLoadJobs.remove(job.getDbId());
-                    }
-                }
+            Deque<LoadJob> finishedJobs = idToLoadJob
+                    .values()
+                    .stream()
+                    .filter(LoadJob::isCompleted)
+                    .sorted(Comparator.comparingLong(o -> o.finishTimestamp))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty()
+                    && idToLoadJob.size() > Config.label_num_threshold) {
+                LoadJob loadJob = finishedJobs.pollFirst();
+                idToLoadJob.remove(loadJob.getId());
+                jobRemovedTrigger(loadJob);
             }
         } finally {
             writeUnlock();
         }
     }
 
-    /**
-     * Only for those jobs which have etl state, like SparkLoadJob.
-     **/
-    public void processEtlStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
-                .forEach(job -> {
-                    try {
-                        ((SparkLoadJob) job).updateEtlStatus();
-                    } catch (DataQualityException e) {
-                        LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
-                        job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
-                                DataQualityException.QUALITY_FAIL_MSG), true, true);
-                    } catch (UserException e) {
-                        LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
-                        job.cancelJobWithoutCheck(new FailMsg(CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
-                    } catch (Exception e) {
-                        LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
-                    }
-                });
+    private void jobRemovedTrigger(LoadJob job) {
+        if (job instanceof BulkLoadJob) {
+            ((BulkLoadJob) job).recycleProgress();
+        }
+        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+        if (map == null) {
+            return;
+        }
+        List<LoadJob> list = map.get(job.getLabel());
+        if (list == null) {
+            return;
+        }
+        list.remove(job);
+        if (list.isEmpty()) {
+            map.remove(job.getLabel());
+        }
+        if (map.isEmpty()) {
+            dbIdToLabelToLoadJobs.remove(job.getDbId());
+        }
     }
 
-    /**
-     * Only for those jobs which load by PushTask.
-     **/
-    public void processLoadingStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
-                .forEach(job -> {
-                    try {
-                        ((SparkLoadJob) job).updateLoadingStatus();
-                    } catch (UserException e) {
-                        LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
-                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-                    } catch (Exception e) {
-                        LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
+    private void removeLoadJobIf(Predicate<LoadJob> pred) {
+        long removeJobNum = 0;
+        StopWatch stopWatch = StopWatch.createStarted();
+        writeLock();
+        try {
+            Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
+            while (iter.hasNext()) {
+                LoadJob job = iter.next().getValue();
+                if (pred.test(job)) {
+                    iter.remove();
+                    jobRemovedTrigger(job);
+                    removeJobNum++;
+                }
+            }
+        } finally {
+            writeUnlock();
+            stopWatch.stop();
+            LOG.info("end to removeOldLoadJob, removeJobNum:{} cost:{} ms",
+                    removeJobNum, stopWatch.getTime());
+        }
+    }
+
+    public List<Pair<Long, String>> getCreateLoadStmt(long dbId, String label) throws DdlException {
+        List<Pair<Long, String>> result = new ArrayList<>();
+        readLock();
+        try {
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+                if (labelToLoadJobs.containsKey(label)) {
+                    List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
+                    for (LoadJob job : labelLoadJobs) {
+                        try {
+                            Method getOriginStmt = job.getClass().getMethod("getOriginStmt");
+                            if (getOriginStmt != null) {
+                                result.add(
+                                        Pair.of(job.getId(), ((OriginStatement) getOriginStmt.invoke(job)).originStmt));
+                            } else {
+                                throw new DdlException("Not support load job type: " + job.getClass().getName());
+                            }
+                        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                            throw new DdlException("Not support load job type: " + job.getClass().getName());
+                        }
                     }
-                });
+                } else {
+                    throw new DdlException("Label does not exist: " + label);
+                }
+            } else {
+                // If dbId is not found in dbIdToLabelToLoadJobs,
+                // it means the database has no label records,
+                // so throw a "Label does not exist" error.
+                throw new DdlException("Label does not exist: " + label);
+            }
+            return result;
+        } finally {
+            readUnlock();
+        }
     }
 
     /**
@@ -439,11 +524,11 @@ public class LoadManager implements Writable {
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
      * @param statesValue   used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     *         The result is unordered.
+     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     * The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
-            Set<String> statesValue) throws AnalysisException {
+                                                      Set<String> statesValue) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             return loadJobInfos;
@@ -479,7 +564,8 @@ public class LoadManager implements Writable {
                 } else {
                     // non-accurate match
                     PatternMatcher matcher =
-                            PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                            PatternMatcherWrapper.createMysqlPattern(labelValue,
+                                    CaseSensibility.LABEL.getCaseSensibility());
                     for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                         if (matcher.match(entry.getKey())) {
                             loadJobList.addAll(entry.getValue());
@@ -494,6 +580,48 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    // check auth
+                    try {
+                        loadJob.checkAuth("show load");
+                    } catch (DdlException e) {
+                        continue;
+                    }
+                    // add load job info
+                    loadJobInfos.add(loadJob.getShowInfo());
+                } catch (RuntimeException | DdlException e) {
+                    // ignore this load job
+                    LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
+                }
+            }
+            return loadJobInfos;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<List<Comparable>> getAllLoadJobInfos() {
+        LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
+
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
+            for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
+            }
+            List<LoadJob> loadJobList = Lists.newArrayList();
+            loadJobList.addAll(
+                    labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()));
+
+            // check state
+            for (LoadJob loadJob : loadJobList) {
+                try {
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
                 } catch (DdlException e) {
@@ -506,34 +634,21 @@ public class LoadManager implements Writable {
         }
     }
 
-    /**
-     * Get load job info.
-     **/
-    public void getLoadJobInfo(Load.JobInfo info) throws DdlException {
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
-        info.dbName = fullDbName;
-        Database database = checkDb(info.dbName);
-        readLock();
-        try {
-            // find the latest load job by info
-            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(database.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("No jobs belong to database(" + info.dbName + ")");
-            }
-            List<LoadJob> loadJobList = labelToLoadJobs.get(info.label);
-            if (loadJobList == null || loadJobList.isEmpty()) {
-                throw new DdlException("Unknown job(" + info.label + ")");
-            }
-
-            LoadJob loadJob = loadJobList.get(loadJobList.size() - 1);
-            loadJob.getJobInfo(info);
-        } finally {
-            readUnlock();
-        }
-    }
-
     public LoadJob getLoadJob(long jobId) {
         return idToLoadJob.get(jobId);
+    }
+
+    public List<LoadJob> queryLoadJobsByJobIds(List<Long> jobIds) {
+        if (CollectionUtils.isEmpty(jobIds)) {
+            return new ArrayList<>();
+        }
+        List<LoadJob> jobs = new ArrayList<>();
+        jobIds.forEach(id -> {
+            if (null != idToLoadJob.get(id)) {
+                jobs.add(idToLoadJob.get(id));
+            }
+        });
+        return jobs;
     }
 
     public void prepareJobs() {
@@ -554,27 +669,23 @@ public class LoadManager implements Writable {
         }
     }
 
-    private Database checkDb(String dbName) throws DdlException {
-        return Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+    protected Database checkDb(String dbName) throws DdlException {
+        return Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
     }
 
     /**
-     * step1: if label has been used in old load jobs which belong to load class.
-     * step2: if label has been used in v2 load jobs.
-     * step2.1: if label has been user in v2 load jobs, the create timestamp will be checked.
+     * step1: if label has been used in load jobs.
+     * step2: if label has been user in load jobs, the create_timestamp will be checked.
      *
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
     private void checkLabelUsed(long dbId, String label) throws DdlException {
-        // if label has been used in old load jobs
-        Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
-        // if label has been used in v2 of load jobs
         if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
             if (labelToLoadJobs.containsKey(label)) {
                 List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
-                Optional<LoadJob> loadJobOptional =
-                        labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
+                Optional<LoadJob> loadJobOptional = labelLoadJobs.stream()
+                        .filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
                 if (loadJobOptional.isPresent()) {
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
@@ -583,19 +694,105 @@ public class LoadManager implements Writable {
         }
     }
 
-    private void readLock() {
+    public void cleanLabel(String dbName, String label) throws DdlException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        cleanLabelInternal(db.getId(), label, false);
+    }
+
+    public void replayCleanLabel(CleanLabelOperationLog log) {
+        cleanLabelInternal(log.getDbId(), log.getLabel(), true);
+    }
+
+    /**
+     * Clean the label with given database and label
+     * It will only remove the load jobs which are already done.
+     * 1. Remove from LoadManager
+     * 2. Remove from DatabaseTransactionMgr
+     *
+     * @param dbId
+     * @param label
+     * @param isReplay
+     */
+    private void cleanLabelInternal(long dbId, String label, boolean isReplay) {
+        // 1. Remove from LoadManager
+        int counter = 0;
+        writeLock();
+        try {
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
+                if (Strings.isNullOrEmpty(label)) {
+                    // clean all labels in this db
+                    Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
+                    while (iter.hasNext()) {
+                        List<LoadJob> jobs = iter.next().getValue();
+                        Iterator<LoadJob> innerIter = jobs.iterator();
+                        while (innerIter.hasNext()) {
+                            LoadJob job = innerIter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
+                            innerIter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
+                        }
+                        if (jobs.isEmpty()) {
+                            iter.remove();
+                        }
+                    }
+                } else {
+                    List<LoadJob> jobs = labelToJob.get(label);
+                    if (jobs != null) {
+                        // stream load labelToJob is null
+                        Iterator<LoadJob> iter = jobs.iterator();
+                        while (iter.hasNext()) {
+                            LoadJob job = iter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
+                            iter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
+                        }
+                        if (jobs.isEmpty()) {
+                            labelToJob.remove(label);
+                        }
+                    }
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+        // 2. Remove from DatabaseTransactionMgr
+        try {
+            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label, isReplay);
+        } catch (Exception e) {
+            // just ignore, because we don't want to throw any exception here.
+            LOG.warn("Exception:", e);
+        }
+
+        LOG.info("finished to clean {} labels on db {} with label '{}' in load mgr. is replay: {}",
+                counter, dbId, label, isReplay);
+    }
+
+    protected void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    protected void readUnlock() {
         lock.readLock().unlock();
     }
 
-    private void writeLock() {
+    protected void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    protected void writeUnlock() {
         lock.writeLock().unlock();
     }
 
@@ -603,7 +800,7 @@ public class LoadManager implements Writable {
      * Init.
      **/
     public void initJobProgress(Long jobId, TUniqueId loadId, Set<TUniqueId> fragmentIds,
-            List<Long> relatedBackendIds) {
+                                List<Long> relatedBackendIds) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
             job.initLoadProgress(loadId, fragmentIds, relatedBackendIds);
@@ -614,7 +811,7 @@ public class LoadManager implements Writable {
      * Update.
      **/
     public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
-            long scannedBytes, boolean isDone) {
+                                  long scannedBytes, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
             job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
@@ -625,10 +822,13 @@ public class LoadManager implements Writable {
     public void write(DataOutput out) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         List<LoadJob> loadJobs =
-                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs)).collect(Collectors.toList());
+                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
+                        .collect(Collectors.toList());
 
+        LOG.info("write load job size: {}", loadJobs.size());
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {
+            LOG.info("write load job: {}", loadJob.getId());
             loadJob.write(out);
         }
     }
@@ -639,32 +839,11 @@ public class LoadManager implements Writable {
     public void readFields(DataInput in) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         int size = in.readInt();
+        LOG.info("load job num {} ", size);
         for (int i = 0; i < size; i++) {
             LoadJob loadJob = LoadJob.read(in);
             if (loadJob.isExpired(currentTimeMs)) {
                 continue;
-            }
-
-            if (loadJob.getJobType() == EtlJobType.MINI) {
-                // This is a bug fix. the mini load job should not with state LOADING.
-                if (loadJob.getState() == JobState.LOADING) {
-                    LOG.warn("skip mini load job {} in db {} with LOADING state", loadJob.getId(), loadJob.getDbId());
-                    continue;
-                }
-
-                if (loadJob.getState() == JobState.PENDING) {
-                    // bad case. When a mini load job is created and then FE restart.
-                    // the job will be in PENDING state forever.
-                    // This is a temp solution to remove these jobs.
-                    // And the mini load job should be deprecated in Doris v1.1
-                    TransactionState state = Catalog.getCurrentCatalog().getGlobalTransactionMgr()
-                            .getTransactionState(loadJob.getDbId(), loadJob.getTransactionId());
-                    if (state == null) {
-                        LOG.warn("skip mini load job {} in db {} with PENDING state and with txn: {}", loadJob.getId(),
-                                loadJob.getDbId(), loadJob.getTransactionId());
-                        continue;
-                    }
-                }
             }
             idToLoadJob.put(loadJob.getId(), loadJob);
             Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(loadJob.getDbId());
@@ -683,7 +862,7 @@ public class LoadManager implements Writable {
             // The commit and visible txn will callback the unfinished load job.
             // Otherwise, the load job always does not be completed while the txn is visible.
             if (!loadJob.isCompleted()) {
-                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }
         }
     }

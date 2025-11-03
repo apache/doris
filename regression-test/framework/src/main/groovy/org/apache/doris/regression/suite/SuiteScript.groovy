@@ -20,7 +20,9 @@ package org.apache.doris.regression.suite
 import groovy.transform.CompileStatic
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import groovy.util.logging.Slf4j
 
+@Slf4j
 @CompileStatic
 abstract class SuiteScript extends Script {
     public ScriptContext context
@@ -31,31 +33,54 @@ abstract class SuiteScript extends Script {
     }
 
     void suite(String suiteName, String group = getDefaultGroups(new File(context.config.suitePath), context.file), Closure suiteBody) {
+        if (!group.split(',').any {
+            def match = it =~ /^p\d+$/
+            if (match.find())
+                return true
+            }) {
+            group +=",p0"
+        }
+
         if (!context.suiteFilter.call(suiteName, group)) {
             return
         }
 
+        log.info("run ${context.file.absolutePath}")
         try {
             context.createAndRunSuite(suiteName, group, suiteBody)
         } catch (Throwable t) {
-            logger.warn("Unexcept exception when run ${suiteName} in ${context.file.absolutePath} failed", t)
+            log.warn("Unexcept exception when run ${suiteName} in ${context.file.absolutePath} failed", t)
         }
     }
 
     static String getDefaultGroups(File suiteRoot, File scriptFile) {
         String path = suiteRoot.relativePath(scriptFile.parentFile)
+        String groupPath = path;
+        if (path.indexOf(File.separator + "sql") > 0) {
+            groupPath = path.substring(0, path.indexOf(File.separator + "sql"))
+        }
         List<String> groups = ["default"]
 
-        String parentGroup = ""
+        if (groupPath.contains("nonConcurrent")) {
+            groups.add("nonConcurrent")
+        }
 
-        path.split(File.separator)
+        def grouped_p = groupPath.split(File.separator)
             .collect {it.trim()}
             .findAll {it != "." && it != ".." && !it.isEmpty()}
-            .each {
-                String currentGroup = parentGroup + it
-                groups.add(currentGroup)
-                parentGroup = currentGroup + "/"
+            .reverse()
+            .any {
+                def match = it =~ /_p\d+$/
+                if (match.find()) {
+                    groups.add(match.group(0).substring(1))
+                    return true
+                }
             }
+
+        if (!grouped_p) {
+             // There is no specified group, mark it as p0
+             groups.add("p0")
+        }
         return groups.join(",")
     }
 }

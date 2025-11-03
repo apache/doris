@@ -17,23 +17,21 @@
 
 #include "http/action/checksum_action.h"
 
+#include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
 #include "common/logging.h"
+#include "common/status.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
-#include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/task/engine_checksum_task.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const std::string TABLET_ID = "tablet_id";
 // do not use name "VERSION",
@@ -41,13 +39,12 @@ const std::string TABLET_ID = "tablet_id";
 const std::string TABLET_VERSION = "version";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ChecksumAction::ChecksumAction() {}
+ChecksumAction::ChecksumAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                               TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {}
 
 void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
-
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
     // Get tablet id
     const std::string& tablet_id_str = req->param(TABLET_ID);
     if (tablet_id_str.empty()) {
@@ -81,7 +78,7 @@ void ChecksumAction::handle(HttpRequest* req) {
     try {
         tablet_id = boost::lexical_cast<int64_t>(tablet_id_str);
         version = boost::lexical_cast<int64_t>(version_str);
-        schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
+        schema_hash = boost::lexical_cast<int32_t>(schema_hash_str);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
@@ -109,7 +106,8 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t 
                                     HttpRequest* req) {
     Status res = Status::OK();
     uint32_t checksum;
-    EngineChecksumTask engine_task(tablet_id, schema_hash, version, &checksum);
+    EngineChecksumTask engine_task(_engine, tablet_id, schema_hash, version, &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "checksum failed. status: " << res << ", signature: " << tablet_id;
@@ -122,4 +120,5 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int32_t 
     return static_cast<int64_t>(checksum);
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

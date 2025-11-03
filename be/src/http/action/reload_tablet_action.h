@@ -17,26 +17,29 @@
 
 #pragma once
 
-#include "gen_cpp/AgentService_types.h"
-#include "http/http_handler.h"
+#include <string>
+
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class ExecEnv;
+class StorageEngine;
+class HttpRequest;
 
-class ReloadTabletAction : public HttpHandler {
+class ReloadTabletAction : public HttpHandlerWithAuth {
 public:
-    ReloadTabletAction(ExecEnv* exec_env);
+    ReloadTabletAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                       TPrivilegeType::type type);
 
-    virtual ~ReloadTabletAction() {}
+    ~ReloadTabletAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
     void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest* req);
 
-    ExecEnv* _exec_env;
-
+    StorageEngine& _engine;
 }; // end class ReloadTabletAction
 
 } // end namespace doris

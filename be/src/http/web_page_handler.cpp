@@ -17,33 +17,35 @@
 
 #include "http/web_page_handler.h"
 
-#include <functional>
+#include <stdlib.h>
 
-#include "common/config.h"
-#include "env/env.h"
-#include "gutil/stl_util.h"
-#include "gutil/strings/substitute.h"
+#include <functional>
+#include <memory>
+
+#include "absl/strings/substitute.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
+#include "http/http_method.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
 #include "http/utils.h"
-#include "olap/file_helper.h"
+#include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/easy_json.h"
 #include "util/mem_info.h"
 #include "util/mustache/mustache.h"
-
-using strings::Substitute;
 
 namespace doris {
 
 static std::string s_html_content_type = "text/html";
 
-WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
+WebPageHandler::WebPageHandler(EvHttpServer* server, ExecEnv* exec_env)
+        : HttpHandlerWithAuth(exec_env), _http_server(server) {
     _www_path = std::string(getenv("DORIS_HOME")) + "/www/";
 
     // Make WebPageHandler to be static file handler, static files, e.g. css, png, will be handled by WebPageHandler.
@@ -56,15 +58,18 @@ WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
 }
 
 WebPageHandler::~WebPageHandler() {
-    STLDeleteValues(&_page_map);
+    for (auto& handler : _page_map) {
+        delete handler.second;
+    }
 }
 
-void WebPageHandler::register_template_page(const std::string& path, const string& alias,
+void WebPageHandler::register_template_page(const std::string& path, const std::string& alias,
                                             const TemplatePageHandlerCallback& callback,
                                             bool is_on_nav_bar) {
     // Relative path which will be used to find .mustache file in _www_path
     std::string render_path = (path == "/") ? "/home" : path;
-    auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
+    auto wrapped_cb = [callback, render_path, this](const ArgumentMap& args,
+                                                    std::stringstream* output) {
         EasyJson ej;
         callback(args, &ej);
         render(render_path, ej, true /* is_styled */, output);
@@ -72,7 +77,7 @@ void WebPageHandler::register_template_page(const std::string& path, const strin
     register_page(path, alias, wrapped_cb, is_on_nav_bar);
 }
 
-void WebPageHandler::register_page(const std::string& path, const string& alias,
+void WebPageHandler::register_page(const std::string& path, const std::string& alias,
                                    const PageHandlerCallback& callback, bool is_on_nav_bar) {
     std::unique_lock lock(_map_lock);
     CHECK(_page_map.find(path) == _page_map.end());
@@ -128,7 +133,7 @@ static const std::string kMainTemplate = R"(
     <meta charset='utf-8'/>
     <link href='/Bootstrap-3.3.7/css/bootstrap.min.css' rel='stylesheet' media='screen' />
     <link href='/Bootstrap-3.3.7/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
-    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js'></script>
+    <script src='/jQuery-3.6.0/jquery-3.6.0.min.js'></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap.min.js' defer></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap-table.min.js' defer></script>
     <script src='/doris.js' defer></script>
@@ -168,19 +173,23 @@ static const std::string kMainTemplate = R"(
 )";
 
 std::string WebPageHandler::mustache_partial_tag(const std::string& path) const {
-    return strings::Substitute("{{> $0.mustache}}", path);
+    return absl::Substitute("{{> $0.mustache}}", path);
 }
 
 bool WebPageHandler::static_pages_available() const {
     bool is_dir = false;
-    return Env::Default()->is_directory(_www_path, &is_dir).ok() && is_dir;
+    return io::global_local_filesystem()->is_directory(_www_path, &is_dir).ok() && is_dir;
 }
 
 bool WebPageHandler::mustache_template_available(const std::string& path) const {
     if (!static_pages_available()) {
         return false;
     }
-    return Env::Default()->path_exists(strings::Substitute("$0/$1.mustache", _www_path, path)).ok();
+    bool exists;
+    return io::global_local_filesystem()
+                   ->exists(absl::Substitute("$0/$1.mustache", _www_path, path), &exists)
+                   .ok() &&
+           exists;
 }
 
 void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {
@@ -202,7 +211,7 @@ void WebPageHandler::render_main_template(const std::string& content, std::strin
     mustache::RenderTemplate(kMainTemplate, _www_path, ej.value(), output);
 }
 
-void WebPageHandler::render(const string& path, const EasyJson& ej, bool use_style,
+void WebPageHandler::render(const std::string& path, const EasyJson& ej, bool use_style,
                             std::stringstream* output) {
     if (mustache_template_available(path)) {
         mustache::RenderTemplate(mustache_partial_tag(path), _www_path, ej.value(), output);

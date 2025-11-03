@@ -17,9 +17,8 @@
 
 #include "util/thread.h"
 
-#include <gtest/gtest.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <ostream>
 #include <string>
@@ -27,14 +26,13 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/basictypes.h"
-#include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
+#include "gtest/gtest_pred_impl.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 
 using std::string;
 namespace doris {
+using namespace ErrorCode;
 
 class ThreadTest : public ::testing::Test {
 public:
@@ -45,7 +43,7 @@ public:
 // Join with a thread and emit warnings while waiting to join.
 // This has to be manually verified.
 TEST_F(ThreadTest, TestJoinAndWarn) {
-    scoped_refptr<Thread> holder;
+    std::shared_ptr<Thread> holder;
     Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
     EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).warn_after_ms(10).warn_every_ms(100).join();
@@ -53,29 +51,29 @@ TEST_F(ThreadTest, TestJoinAndWarn) {
 }
 
 TEST_F(ThreadTest, TestFailedJoin) {
-    scoped_refptr<Thread> holder;
+    std::shared_ptr<Thread> holder;
     Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
     EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).give_up_after_ms(50).join();
-    EXPECT_TRUE(status.is_aborted());
+    EXPECT_TRUE(status.is<ABORTED>());
 }
 
 static void TryJoinOnSelf() {
     Status s = ThreadJoiner(Thread::current_thread()).join();
     // Use CHECK instead of ASSERT because gtest isn't thread-safe.
-    CHECK(s.is_invalid_argument());
+    CHECK(s.is<INVALID_ARGUMENT>());
 }
 
 // Try to join on the thread that is currently running.
 TEST_F(ThreadTest, TestJoinOnSelf) {
-    scoped_refptr<Thread> holder;
+    std::shared_ptr<Thread> holder;
     EXPECT_TRUE(Thread::create("test", "test", TryJoinOnSelf, &holder).ok());
     holder->join();
     // Actual assertion is done by the thread spawned above.
 }
 
 TEST_F(ThreadTest, TestDoubleJoinIsNoOp) {
-    scoped_refptr<Thread> holder;
+    std::shared_ptr<Thread> holder;
     Status status = Thread::create("test", "sleeper thread", SleepForMs, 0, &holder);
     EXPECT_TRUE(status.ok());
     ThreadJoiner joiner(holder.get());
@@ -86,7 +84,7 @@ TEST_F(ThreadTest, TestDoubleJoinIsNoOp) {
 }
 
 TEST_F(ThreadTest, ThreadStartBenchmark) {
-    std::vector<scoped_refptr<Thread>> threads(1000);
+    std::vector<std::shared_ptr<Thread>> threads(1000);
     {
         int64_t thread_creation_ns = 0;
         {

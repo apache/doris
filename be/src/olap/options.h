@@ -17,10 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "io/cache/file_cache_common.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -42,9 +47,39 @@ Status parse_root_path(const std::string& root_path, StorePath* path);
 
 Status parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
 
+void parse_conf_broken_store_paths(const std::string& config_path, std::set<std::string>* paths);
+
+struct CachePath {
+    io::FileCacheSettings init_settings() const;
+
+    CachePath(std::string path, int64_t total_bytes, int64_t query_limit_bytes,
+              size_t normal_percent, size_t disposable_percent, size_t index_percent,
+              size_t ttl_percent, std::string storage)
+            : path(std::move(path)),
+              total_bytes(total_bytes),
+              query_limit_bytes(query_limit_bytes),
+              normal_percent(normal_percent),
+              disposable_percent(disposable_percent),
+              index_percent(index_percent),
+              ttl_percent(ttl_percent),
+              storage(storage) {}
+
+    std::string path;
+    int64_t total_bytes = 0;
+    int64_t query_limit_bytes = 0;
+    size_t normal_percent = io::DEFAULT_NORMAL_PERCENT;
+    size_t disposable_percent = io::DEFAULT_DISPOSABLE_PERCENT;
+    size_t index_percent = io::DEFAULT_INDEX_PERCENT;
+    size_t ttl_percent = io::DEFAULT_TTL_PERCENT;
+    std::string storage = "disk";
+};
+
+Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& path);
+
 struct EngineOptions {
     // list paths that tablet will be put into.
     std::vector<StorePath> store_paths;
+    std::set<std::string> broken_paths;
     // BE's UUID. It will be reset every time BE restarts.
     UniqueId backend_uid {0, 0};
 };

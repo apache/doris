@@ -17,16 +17,19 @@
 
 #pragma once
 
+#include <rapidjson/rapidjson.h>
+
+#include <map>
 #include <string>
+#include <vector>
 
 #include "rapidjson/document.h"
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
-#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class Status;
+class TupleDescriptor;
 
 class ScrollParser {
 public:
@@ -34,29 +37,18 @@ public:
     ~ScrollParser();
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
-    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, MemPool* mem_pool,
-                      bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
+    // Add time_zone info to convert time field of ES to local time zone of Doris
     Status fill_columns(const TupleDescriptor* _tuple_desc,
-                        std::vector<vectorized::MutableColumnPtr>& columns, MemPool* mem_pool,
-                        bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
+                        std::vector<vectorized::MutableColumnPtr>& columns, bool* line_eof,
+                        const std::map<std::string, std::string>& docvalue_context,
+                        const cctz::time_zone& time_zone);
 
     const std::string& get_scroll_id();
-    int get_size();
+    int get_size() const;
 
 private:
-    // helper method for processing date/datetime cols with rapidjson::Value
-    // type is used for distinguish date and datetime
-    // fill date slot with string format date
-    Status fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type);
-    Status fill_date_col_with_strval(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                                     PrimitiveType type);
-    // fill date slot with timestamp
-    Status fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col,
-                                         PrimitiveType type);
-    Status fill_date_col_with_timestamp(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                                        PrimitiveType type);
-
-private:
+    Status parse_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
+                        vectorized::Array& array, const cctz::time_zone& time_zone);
     std::string _scroll_id;
     int _size;
     rapidjson::SizeType _line_index;

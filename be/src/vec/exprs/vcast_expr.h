@@ -16,39 +16,85 @@
 // under the License.
 
 #pragma once
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
-namespace doris::vectorized {
-class VCastExpr final : public VExpr {
-public:
-    VCastExpr(const TExprNode& node) : VExpr(node) {}
-    ~VCastExpr() = default;
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VCastExpr(*this));
-    }
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
-private:
+namespace doris::vectorized {
+class VCastExpr : public VExpr {
+    ENABLE_FACTORY_CREATOR(VCastExpr);
+
+public:
+#ifdef BE_TEST
+    VCastExpr() = default;
+#endif
+    VCastExpr(const TExprNode& node) : VExpr(node) {}
+    ~VCastExpr() override = default;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    const std::string& expr_name() const override;
+    std::string debug_string() const override;
+    const DataTypePtr& get_target_type() const;
+
+    virtual std::string cast_name() const { return "CAST"; }
+
+protected:
     FunctionBasePtr _function;
     std::string _expr_name;
 
+private:
     DataTypePtr _target_data_type;
     std::string _target_data_type_name;
 
     DataTypePtr _cast_param_data_type;
-    ColumnPtr _cast_param;
 
-private:
     static const constexpr char* function_name = "CAST";
 };
+
+class TryCastExpr final : public VCastExpr {
+    ENABLE_FACTORY_CREATOR(TryCastExpr);
+
+public:
+#ifdef BE_TEST
+    TryCastExpr() = default;
+#endif
+
+    TryCastExpr(const TExprNode& node)
+            : VCastExpr(node), _original_cast_return_is_nullable(node.is_cast_nullable) {}
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    ~TryCastExpr() override = default;
+    std::string cast_name() const override { return "TRY CAST"; }
+
+private:
+    DataTypePtr original_cast_return_type();
+    template <bool original_cast_reutrn_is_nullable>
+    Status single_row_execute(VExprContext* context, const ColumnWithTypeAndName& input_info,
+                              ColumnPtr& return_column);
+
+    //Try_cast always returns nullable,
+    // but we also need the information of whether the return value of the original cast is nullable.
+    bool _original_cast_return_is_nullable = false;
+};
+
 } // namespace doris::vectorized

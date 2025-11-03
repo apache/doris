@@ -20,39 +20,55 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import java.io.IOException;
+
 /**
  * This def used for column which defaultValue is an expression.
  */
-public class DefaultValueExprDef {
+public class DefaultValueExprDef implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(DefaultValueExprDef.class);
     @SerializedName("exprName")
     private String exprName;
+    @SerializedName("precision")
+    private Long precision;
+
 
     public DefaultValueExprDef(String exprName) {
         this.exprName = exprName;
     }
 
-    /**
-     * generate a FunctionCallExpr
-     * @return FunctionCallExpr of exprName
-     */
-    public FunctionCallExpr getExpr() {
-        FunctionCallExpr expr = new FunctionCallExpr(exprName, new FunctionParams(null));
-        try {
-            expr.analyzeImplForDefaultValue();
-        } catch (AnalysisException e) {
-            LOG.warn("analyzeImplForDefaultValue fail: {}", e);
+    public DefaultValueExprDef(String exprName, Long precision) {
+        this.exprName = exprName;
+        this.precision = precision;
+    }
+
+    public String getSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(exprName);
+        sb.append("(");
+        if (precision != null && precision != 0) {
+            sb.append(precision);
         }
-        return expr;
+        sb.append(")");
+        return sb.toString();
     }
 
     public String getExprName() {
         return exprName;
+    }
+
+    public Long getPrecision() {
+        return precision;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // nothing to do
     }
 }

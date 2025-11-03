@@ -19,31 +19,38 @@
 
 #include <stdint.h>
 
+#include <vector>
+
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 class SchemaCollationsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaCollationsScanner);
+
 public:
     SchemaCollationsScanner();
-    virtual ~SchemaCollationsScanner();
+    ~SchemaCollationsScanner() override;
 
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
     struct CollationStruct {
-        const char* name;
-        const char* charset;
+        const char* name = nullptr;
+        const char* charset = nullptr;
         int64_t id;
-        const char* is_default;
-        const char* is_compile;
+        const char* is_default = nullptr;
+        const char* is_compile = nullptr;
         int64_t sortlen;
     };
 
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fill_block_impl(vectorized::Block* block);
 
-    int _index;
-    static SchemaScanner::ColumnDesc _s_cols_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_cols_columns;
     static CollationStruct _s_collations[];
 };
 

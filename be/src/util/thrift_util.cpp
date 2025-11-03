@@ -17,27 +17,43 @@
 
 #include "util/thrift_util.h"
 
-#include <thrift/Thrift.h>
-#include <thrift/concurrency/ThreadFactory.h>
-#include <thrift/concurrency/ThreadManager.h>
-#include <thrift/server/TNonblockingServer.h>
-#include <thrift/transport/TServerSocket.h>
+#include <gen_cpp/Types_types.h>
+#include <thrift/TOutput.h>
+#include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <string>
 
-#include "gen_cpp/Data_types.h"
-#include "gen_cpp/Types_types.h"
-#include "util/hash_util.hpp"
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "exec/tablet_info.h"
+#include "olap/tablet_schema.h"
 #include "util/thrift_server.h"
 
-// TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
+namespace apache::thrift::protocol {
+class TProtocol;
+} // namespace apache::thrift::protocol
+
+// TCompactProtocol requires some #defines to work right.  They also define UNLIKELY
 // so we need to undef this.
 // TODO: is there a better include to use?
 #ifdef UNLIKELY
 #undef UNLIKELY
 #endif
+#ifndef SIGNED_RIGHT_SHIFT_IS
 #define SIGNED_RIGHT_SHIFT_IS 1
+#endif
+
+#ifndef ARITHMETIC_RIGHT_SHIFT
 #define ARITHMETIC_RIGHT_SHIFT 1
+#endif
+
 #include <thrift/protocol/TCompactProtocol.h>
+
+#include <sstream>
+#include <thread>
 
 namespace doris {
 
@@ -135,4 +151,32 @@ bool t_network_address_comparator(const TNetworkAddress& a, const TNetworkAddres
 
     return false;
 }
+
+std::string to_string(const TUniqueId& id) {
+    return std::to_string(id.hi).append(std::to_string(id.lo));
+}
+
+bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                if (sink.schema.inverted_index_file_storage_format ==
+                    TInvertedIndexFileStorageFormat::V1) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace doris

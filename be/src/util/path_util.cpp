@@ -17,25 +17,15 @@
 
 #include "util/path_util.h"
 
-#include <cstring>
-#include <memory>
 // Use the POSIX version of dirname(3). See `man 3 dirname`
+#include <absl/strings/strip.h>
 #include <libgen.h>
-
-#include "common/logging.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
-#include "gutil/strings/strip.h"
 
 using std::string;
 using std::vector;
-using strings::SkipEmpty;
-using strings::Split;
 
 namespace doris {
 namespace path_util {
-
-const string kTmpInfix = ".doristmp";
 
 std::string join_path_segments(const string& a, const string& b) {
     if (a.empty()) {
@@ -43,38 +33,9 @@ std::string join_path_segments(const string& a, const string& b) {
     } else if (b.empty()) {
         return a;
     } else {
-        return StripSuffixString(a, "/") + "/" + StripPrefixString(b, "/");
+        return std::string(absl::StripSuffix(a, "/")) + "/" +
+               std::string(absl::StripPrefix(b, "/"));
     }
-}
-
-FilePathDesc join_path_desc_segments(const FilePathDesc& path_desc, const string& b) {
-    FilePathDesc seg_path_desc = path_desc;
-    seg_path_desc.filepath = join_path_segments(path_desc.filepath, b);
-    seg_path_desc.remote_path = join_path_segments(path_desc.remote_path, b);
-    return seg_path_desc;
-}
-
-std::vector<string> join_path_segments_v(const std::vector<string>& v, const string& s) {
-    std::vector<string> out;
-    for (const string& path : v) {
-        out.emplace_back(join_path_segments(path, s));
-    }
-    return out;
-}
-
-std::vector<string> split_path(const string& path) {
-    if (path.empty()) {
-        return {};
-    }
-    std::vector<string> segments;
-    if (path[0] == '/') {
-        segments.emplace_back("/");
-    }
-    std::vector<StringPiece> pieces = Split(path, "/", SkipEmpty());
-    for (const StringPiece& piece : pieces) {
-        segments.emplace_back(piece.data(), piece.size());
-    }
-    return segments;
 }
 
 // strdup use malloc to obtain memory for the new string, it should be freed with free.

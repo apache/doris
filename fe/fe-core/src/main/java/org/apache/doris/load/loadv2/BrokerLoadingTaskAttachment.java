@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
 
@@ -27,17 +28,21 @@ public class BrokerLoadingTaskAttachment extends TaskAttachment {
 
     private Map<String, String> counters;
     private String trackingUrl;
+    private String firstErrorMsg;
     private List<TabletCommitInfo> commitInfoList;
     List<ErrorTabletInfo> errorTabletInfos;
+    private Status status = new Status();
 
     public BrokerLoadingTaskAttachment(long taskId, Map<String, String> counters, String trackingUrl,
-                                       List<TabletCommitInfo> commitInfoList,
-                                       List<ErrorTabletInfo> errorTabletInfos) {
+                                       String firstErrorMsg, List<TabletCommitInfo> commitInfoList,
+                                       List<ErrorTabletInfo> errorTabletInfos, Status status) {
         super(taskId);
         this.trackingUrl = trackingUrl;
+        this.firstErrorMsg = firstErrorMsg;
         this.counters = counters;
         this.commitInfoList = commitInfoList;
         this.errorTabletInfos = errorTabletInfos;
+        this.status = status;
     }
 
     public String getCounter(String key) {
@@ -48,11 +53,19 @@ public class BrokerLoadingTaskAttachment extends TaskAttachment {
         return trackingUrl;
     }
 
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
+    }
+
     public List<TabletCommitInfo> getCommitInfoList() {
         return commitInfoList;
     }
 
     public List<ErrorTabletInfo> getErrorTabletInfos() {
         return errorTabletInfos;
+    }
+
+    public Status getStatus() {
+        return status;
     }
 }

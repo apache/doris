@@ -17,11 +17,13 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TConfiguration;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.server.TServer;
@@ -29,11 +31,15 @@ import org.apache.thrift.server.TSimpleServer;
 import org.apache.thrift.server.TThreadPoolServer;
 import org.apache.thrift.server.TThreadedSelectorServer;
 import org.apache.thrift.transport.TNonblockingServerSocket;
+import org.apache.thrift.transport.TNonblockingSocket;
 import org.apache.thrift.transport.TServerSocket;
+import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -90,15 +96,44 @@ public class ThriftServer {
     }
 
     private void createSimpleServer() throws TTransportException {
-        TServer.Args args = new TServer.Args(new TServerSocket(port)).protocolFactory(
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
+
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                    .bindAddr(new InetSocketAddress("::0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        }
+
+        TServer.Args args = new TServer.Args(new ImprovedTServerSocket(socketTransportArgs)).protocolFactory(
                 new TBinaryProtocol.Factory()).processor(processor);
         server = new TSimpleServer(args);
     }
 
     private void createThreadedServer() throws TTransportException {
+        TNonblockingServerSocket.NonblockingAbstractServerSocketArgs socketTransportArgs;
+
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TNonblockingServerSocket.NonblockingAbstractServerSocketArgs()
+                    .bindAddr(new InetSocketAddress("::0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TNonblockingServerSocket.NonblockingAbstractServerSocketArgs()
+                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        }
+
         TThreadedSelectorServer.Args args = new TThreadedSelectorServer.Args(
-                new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
-                        new TBinaryProtocol.Factory()).processor(processor);
+                new ImprovedTNonblockingServerSocket(socketTransportArgs))
+                .protocolFactory(new TBinaryProtocol.Factory())
+                .processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
                 Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         args.executorService(threadPoolExecutor);
@@ -106,15 +141,23 @@ public class ThriftServer {
     }
 
     private void createThreadPoolServer() throws TTransportException {
-        TServerSocket.ServerSocketTransportArgs socketTransportArgs =
-                new TServerSocket.ServerSocketTransportArgs()
-                        .bindAddr(new InetSocketAddress(port))
-                        .clientTimeout(Config.thrift_client_timeout_ms)
-                        .backlog(Config.thrift_backlog_num);
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
 
-        TThreadPoolServer.Args serverArgs =
-                new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
-                        new TBinaryProtocol.Factory()).processor(processor);
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                    .bindAddr(new InetSocketAddress("::0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        }
+
+        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(new ImprovedTServerSocket(socketTransportArgs))
+                .protocolFactory(new TBinaryProtocol.Factory())
+                .processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
                 Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         serverArgs.executorService(threadPoolExecutor);
@@ -141,12 +184,7 @@ public class ThriftServer {
         ThriftServerEventProcessor eventProcessor = new ThriftServerEventProcessor(this);
         server.setServerEventHandler(eventProcessor);
 
-        serverThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                server.serve();
-            }
-        });
+        serverThread = new Thread(() -> server.serve());
         serverThread.setDaemon(true);
         serverThread.start();
     }
@@ -170,5 +208,57 @@ public class ThriftServer {
 
     public void removeConnect(TNetworkAddress clientAddress) {
         connects.remove(clientAddress);
+    }
+
+    static class ImprovedTServerSocket extends TServerSocket {
+        public ImprovedTServerSocket(ServerSocketTransportArgs args) throws TTransportException {
+            super(args);
+        }
+
+        public TSocket accept() throws TTransportException {
+            ServerSocket serverSocket = getServerSocket();
+            if (serverSocket == null) {
+                throw new TTransportException(TTransportException.NOT_OPEN, "No underlying server socket.");
+            }
+
+            Socket result;
+            try {
+                result = serverSocket.accept();
+            } catch (Exception e) {
+                throw new TTransportException(e);
+            }
+            if (result == null) {
+                throw new TTransportException("Blocking server's accept() may not return NULL");
+            }
+
+            TSocket socket = new TSocket(result);
+
+            TConfiguration cfg = socket.getConfiguration();
+            cfg.setMaxMessageSize(Config.thrift_max_message_size);
+            cfg.setMaxFrameSize(Config.thrift_max_frame_size);
+
+            socket.updateKnownMessageSize(0); // Since we update the configuration, reset consumed message size.
+            socket.setTimeout(Config.thrift_client_timeout_ms);
+
+            return socket;
+        }
+    }
+
+    static class ImprovedTNonblockingServerSocket extends TNonblockingServerSocket {
+        public ImprovedTNonblockingServerSocket(NonblockingAbstractServerSocketArgs args) throws TTransportException {
+            super(args);
+        }
+
+        @Override
+        public TNonblockingSocket accept() throws TTransportException {
+            TNonblockingSocket socket = super.accept();
+
+            TConfiguration cfg = socket.getConfiguration();
+            cfg.setMaxMessageSize(Config.thrift_max_message_size);
+            cfg.setMaxFrameSize(Config.thrift_max_frame_size);
+
+            socket.updateKnownMessageSize(0); // Since we update the configuration, reset consumed message size.
+            return socket;
+        }
     }
 }

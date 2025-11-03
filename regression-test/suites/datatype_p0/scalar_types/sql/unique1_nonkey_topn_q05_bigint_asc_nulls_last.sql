@@ -1,0 +1,1 @@
+SELECT * FROM tbl_scalar_types_unique1 ORDER BY c_bigint ASC NULLS LAST, c_largeint ASC NULLS LAST LIMIT 20;

@@ -18,6 +18,8 @@
 package org.apache.doris.clone;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -31,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * A simple statistic of tablet checker and scheduler
  */
 public class TabletSchedulerStat {
+    private static final Logger LOG = LogManager.getLogger(TabletSchedulerStat.class);
 
     @Target({ ElementType.FIELD })
     @Retention(RetentionPolicy.RUNTIME)
@@ -132,7 +135,7 @@ public class TabletSchedulerStat {
                 ((AtomicLong) field.get(lastSnapshot)).set(((AtomicLong) field.get(this)).get());
             }
         } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             lastSnapshot = null;
         }
     }
@@ -157,7 +160,7 @@ public class TabletSchedulerStat {
                 result.add(info);
             }
         } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             return Lists.newArrayList();
         }
         return result;
@@ -183,7 +186,7 @@ public class TabletSchedulerStat {
                 sb.append(current).append(" (+").append(current - last).append(")\n");
             }
         } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             return "";
         }
 

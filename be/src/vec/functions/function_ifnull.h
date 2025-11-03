@@ -20,12 +20,31 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/data_types/get_least_supertype.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/functions/function_string.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 class FunctionIfNull : public IFunction {
@@ -38,28 +57,41 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!arguments[0]->is_nullable() && arguments[1]->is_nullable()) {
-            return reinterpret_cast<const DataTypeNullable*>(arguments[1].get())->get_nested_type();
+    // be compatible with fe code
+    /* 
+        if (fn.functionName().equalsIgnoreCase("ifnull") || fn.functionName().equalsIgnoreCase("nvl")) {
+            Preconditions.checkState(children.size() == 2);
+            if (children.get(0).isNullable()) {
+                return children.get(1).isNullable();
+            }
+            return false;
         }
-        return arguments[1];
+    */
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments[0]->is_nullable()) {
+            return arguments[1];
+        }
+        return arguments[0];
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
     // ifnull(col_left, col_right) == if(isnull(col_left), col_right, col_left)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
+                        uint32_t result, size_t input_rows_count) const override {
+        ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         if (col_left.column->only_null()) {
-            block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
+            // Here we need to use convert_to_full_column_if_const because only_null() is a runtime function.
+            // If the second parameter is constant, it will cause the execution to rely on runtime information to determine whether it is constant.
+            block.get_by_position(result).column =
+                    block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
             return Status::OK();
         }
 
         ColumnWithTypeAndName null_column_arg0 {nullptr, std::make_shared<DataTypeUInt8>(), ""};
         ColumnWithTypeAndName nested_column_arg0 {nullptr, col_left.type, ""};
+
+        col_left.column = col_left.column->convert_to_full_column_if_const();
 
         /// implement isnull(col_left) logic
         if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {
@@ -75,16 +107,23 @@ public:
         const ColumnsWithTypeAndName if_columns {
                 null_column_arg0, block.get_by_position(arguments[1]), nested_column_arg0};
 
+        // see get_return_type_impl
+        // if result is nullable, means both then and else column are nullable, we use original col_left to keep nullable info
+        // if result is not nullable, means both then and else column are not nullable, we use nested_column_arg0 to remove nullable info
+        bool result_nullable = block.get_by_position(result).type->is_nullable();
         Block temporary_block({
                 null_column_arg0,
                 block.get_by_position(arguments[1]),
-                nested_column_arg0,
+                result_nullable
+                        ? col_left
+                        : nested_column_arg0, // if result is nullable, we need pass the original col_left else pass nested_column_arg0
                 block.get_by_position(result),
         });
 
         auto func_if = SimpleFunctionFactory::instance().get_function(
-                "if", if_columns, block.get_by_position(result).type);
-        func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count);
+                "if", if_columns, block.get_by_position(result).type,
+                {.enable_decimal256 = context->state()->enable_decimal256()});
+        RETURN_IF_ERROR(func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count));
         block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         return Status::OK();
     }

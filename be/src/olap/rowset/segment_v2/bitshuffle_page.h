@@ -18,14 +18,17 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <sys/types.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <ostream>
+#include <type_traits>
 
-#include "gutil/port.h"
+#include "common/cast_set.h"
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -33,15 +36,17 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "util/alignment.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
 
@@ -83,12 +88,12 @@ void warn_with_bitshuffle_error(int64_t val);
 //    The header is followed by the bitshuffle-compressed element data.
 //
 template <FieldType Type>
-class BitshufflePageBuilder : public PageBuilder {
+class BitshufflePageBuilder : public PageBuilderHelper<BitshufflePageBuilder<Type>> {
 public:
-    BitshufflePageBuilder(const PageBuilderOptions& options)
-            : _options(options), _count(0), _remain_element_capacity(0), _finished(false) {
-        reset();
-    }
+    using Self = BitshufflePageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override { return reset(); }
 
     bool is_page_full() override { return _remain_element_capacity == 0; }
 
@@ -101,20 +106,36 @@ public:
     }
 
     template <bool single>
-    inline Status add_internal(const uint8_t* vals, size_t* count) {
+    inline Status add_internal(const uint8_t* vals, size_t* num_written) {
         DCHECK(!_finished);
-        if (_remain_element_capacity <= 0) {
-            *count = 0;
+        if (_remain_element_capacity == 0) {
+            *num_written = 0;
             return Status::OK();
         }
-        int to_add = std::min<int>(_remain_element_capacity, *count);
+
+        // When increasing the size of the memtabl flush threshold to a very large value, for example 15GB.
+        // the row count of a single men tbl could be very large.
+        // a real log:
+        /*
+        I20250823 19:01:16.153575 2982018 memtable_flush_executor.cpp:185] begin to flush memtable for tablet: 1755915952737, memsize: 15.11 GB, rows: 3751968
+        */
+        // This is not a very wide table, actually it just has two columns, int and array<float>
+        // The write process of column array has two steps: write nested column(column float here), and write offsets column.
+        // The row count of column array is 3751968, which is not that big, but each row of column array has 768 float numbers (this is a common case in vector search scenario).
+        // so the row num of nested column float will be 3751968 * 768 = 2,881,511,424, which is bigger than INT32_MAX.
+        uint32_t to_add = cast_set<vectorized::UInt32>(
+                std::min(cast_set<size_t>(_remain_element_capacity), *num_written));
+        // Max value of to_add_size is less than STORAGE_PAGE_SIZE_DEFAULT_VALUE
         int to_add_size = to_add * SIZE_OF_TYPE;
         size_t orig_size = _data.size();
-        _data.resize(orig_size + to_add_size);
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION(_data.resize(orig_size + to_add_size));
         _count += to_add;
         _remain_element_capacity -= to_add;
+        _raw_data_size += to_add_size;
         // return added number through count
-        *count = to_add;
+        *num_written = to_add;
         if constexpr (single) {
             if constexpr (SIZE_OF_TYPE == 1) {
                 *reinterpret_cast<uint8_t*>(&_data[orig_size]) = *vals;
@@ -138,35 +159,42 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         if (_count > 0) {
             _first_value = cell(0);
             _last_value = cell(_count - 1);
         }
-        return _finish(SIZE_OF_TYPE);
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _finish(SIZE_OF_TYPE); });
+        return Status::OK();
     }
 
-    void reset() override {
-        auto block_size = _options.data_page_size;
-        _count = 0;
-        _data.clear();
-        _data.reserve(block_size);
-        DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
-                << "buffer must be naturally-aligned";
-        _buffer.clear();
-        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
-        _finished = false;
-        _remain_element_capacity = block_size / SIZE_OF_TYPE;
+    Status reset() override {
+        RETURN_IF_CATCH_EXCEPTION({
+            size_t block_size = _options.data_page_size;
+            _count = 0;
+            _raw_data_size = 0;
+            _data.clear();
+            _data.reserve(block_size);
+            DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
+                    << "buffer must be naturally-aligned";
+            _buffer.clear();
+            _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
+            _finished = false;
+            _remain_element_capacity = cast_set<vectorized::UInt32>(block_size / SIZE_OF_TYPE);
+        });
+        return Status::OK();
     }
 
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
+
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_first_value, SIZE_OF_TYPE);
         return Status::OK();
@@ -174,13 +202,16 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_last_value, SIZE_OF_TYPE);
         return Status::OK();
     }
 
 private:
+    BitshufflePageBuilder(const PageBuilderOptions& options)
+            : _options(options), _count(0), _remain_element_capacity(0), _finished(false) {}
+
     OwnedSlice _finish(int final_size_of_type) {
         _data.resize(final_size_of_type * _count);
 
@@ -200,7 +231,7 @@ private:
         int64_t bytes =
                 bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                                          num_elems_after_padding, final_size_of_type, 0);
-        if (PREDICT_FALSE(bytes < 0)) {
+        if (bytes < 0) [[unlikely]] {
             // This means the bitshuffle function fails.
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
@@ -210,7 +241,7 @@ private:
         }
         // update header
         encode_fixed32_le(&_buffer[0], _count);
-        encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
+        encode_fixed32_le(&_buffer[4], cast_set<uint32_t>(BITSHUFFLE_PAGE_HEADER_SIZE + bytes));
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
@@ -231,12 +262,13 @@ private:
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
     PageBuilderOptions _options;
     uint32_t _count;
-    int _remain_element_capacity;
+    uint32_t _remain_element_capacity;
     bool _finished;
     faststring _data;
     faststring _buffer;
     CppType _first_value;
     CppType _last_value;
+    uint64_t _raw_data_size = 0;
 };
 
 inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
@@ -265,6 +297,7 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
     case 8:
     case 12:
     case 16:
+    case 32:
         break;
     default:
         return Status::InternalError("invalid size_of_elem:{}", size_of_element);
@@ -300,7 +333,8 @@ public:
         }
 
         // Currently, only the UINT32 block encoder supports expanding size:
-        if (UNLIKELY(Type != OLAP_FIELD_TYPE_UNSIGNED_INT && _size_of_element != SIZE_OF_TYPE)) {
+        if (UNLIKELY(Type != FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT &&
+                     _size_of_element != SIZE_OF_TYPE)) {
             return Status::InternalError(
                     "invalid size info. size of element:{}, SIZE_OF_TYPE:{}, type:{}",
                     _size_of_element, SIZE_OF_TYPE, Type);
@@ -313,11 +347,19 @@ public:
         return Status::OK();
     }
 
+    // If the page only contains null, then _num_elements == 0, and the nullmap has
+    // some value. But in _seek_columns --> seek_to_ordinal --> _seek_to_pos_in_page
+    // in this call stack it will pass pos == 0 to this method. Although we can add some
+    // code such as check if the count == 0, then skip seek, but there are other method such
+    // as init will also call seek with pos == 0. And the seek is useless when _num_elements
+    // == 0, because next batch will return empty in this method.
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
-        if (PREDICT_FALSE(_num_elements == 0)) {
-            DCHECK_EQ(0, pos);
-            return Status::InvalidArgument("invalid pos");
+        if (_num_elements == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            }
         }
 
         DCHECK_LE(pos, _num_elements);
@@ -329,7 +371,7 @@ public:
         DCHECK(_parsed) << "Must call init() firstly";
 
         if (_num_elements == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
 
         size_t left = 0;
@@ -350,7 +392,7 @@ public:
             }
         }
         if (left >= _num_elements) {
-            return Status::NotFound("all value small than the value");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
         }
         void* find_value = get_data(left);
         if (TypeTraits<Type>::cmp(find_value, value) == 0) {
@@ -363,29 +405,10 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
-
-    template <bool forward_index>
-    Status next_batch(size_t* n, ColumnBlockView* dst) {
+    template <bool forward_index = true>
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
-            *n = 0;
-            return Status::OK();
-        }
-
-        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        _copy_next_values(max_fetch, dst->data());
-        *n = max_fetch;
-        if (forward_index) {
-            _cur_index += max_fetch;
-        }
-
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -393,40 +416,47 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
 
         dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
-
         *n = max_fetch;
-        _cur_index += max_fetch;
+        if constexpr (forward_index) {
+            _cur_index += max_fetch;
+        }
 
         return Status::OK();
-    };
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return next_batch<>(n, dst);
+    }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0)) {
+        if (*n == 0) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
 
         auto total = *n;
         auto read_count = 0;
-        CppType data[total];
+        _buffer.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elements)) {
                 break;
             }
 
-            data[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+            _buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
         }
 
-        if (LIKELY(read_count > 0)) dst->insert_many_fix_len_data((const char*)data, read_count);
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+        }
 
         *n = read_count;
         return Status::OK();
     }
 
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
+    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return next_batch<false>(n, dst);
     }
 
@@ -456,8 +486,11 @@ private:
     int _size_of_element;
     size_t _cur_index;
 
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
+
     friend class BinaryDictPageDecoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

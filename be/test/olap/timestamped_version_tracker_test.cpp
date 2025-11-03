@@ -16,15 +16,29 @@
 // under the License.
 
 #include <cctz/time_zone.h>
-#include <gtest/gtest.h>
+#include <fmt/format.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+#include <stdint.h>
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <list>
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
+#include "gtest/gtest_pred_impl.h"
 #include "json2pb/json_to_pb.h"
-#include "olap/olap_meta.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/version_graph.h"
 
@@ -34,8 +48,7 @@ using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaShare
 
 class TestTimestampedVersionTracker : public testing::Test {
 public:
-    TestTimestampedVersionTracker() {}
-    void SetUp() {
+    void SetUp() override {
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -54,70 +67,19 @@ public:
                 "hi": -5350970832824939812,
                 "lo": -6717994719194512122
             },
-            "creation_time": 1553765670,
-            "alpha_rowset_extra_meta_pb": {
-                "segment_groups": [
-                {
-                    "segment_group_id": 0,
-                    "num_segments": 1,
-                    "index_size": 132,
-                    "data_size": 576,
-                    "num_rows": 5,
-                    "zone_maps": [
-                    {
-                        "min": "MQ==",
-                        "max": "NQ==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MQ==",
-                        "max": "Mw==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "J2J1c2gn",
-                        "max": "J3RvbSc=",
-                        "null_flag": false
-                    }
-                    ],
-                    "empty": false
-                },
-                {
-                    "segment_group_id": 1,
-                    "num_segments": 1,
-                    "index_size": 132,
-                    "data_size": 576,
-                    "num_rows": 5,
-                    "zone_maps": [
-                    {
-                        "min": "MQ==",
-                        "max": "NQ==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MQ==",
-                        "max": "Mw==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "J2J1c2gn",
-                        "max": "J3RvbSc=",
-                        "null_flag": false
-                    }
-                    ],
-                    "empty": false
-                }
-                ]
-            }
+            "creation_time": 1553765670
         })";
     }
-    void TearDown() {}
+    void TearDown() override {}
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
-        pb1->init_from_json(_json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
-        pb1->set_creation_time(10000);
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+
+        pb1->init_from_pb(rowset_meta_pb);
     }
 
     void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -344,7 +306,7 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph) {
     Version version0(0, 0);
 
     version_graph.add_version_to_graph(version0);
-    version_graph.delete_version_from_graph(version0);
+    static_cast<void>(version_graph.delete_version_from_graph(version0));
 
     EXPECT_EQ(2, version_graph._version_graph.size());
     EXPECT_EQ(0, version_graph._version_graph[0].edges.size());
@@ -359,7 +321,7 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph_with_same_versio
     version_graph.add_version_to_graph(version0);
     version_graph.add_version_to_graph(version1);
 
-    version_graph.delete_version_from_graph(version0);
+    static_cast<void>(version_graph.delete_version_from_graph(version0));
 
     EXPECT_EQ(2, version_graph._version_graph.size());
     EXPECT_EQ(1, version_graph._version_graph[0].edges.size());
@@ -407,7 +369,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
     version_graph.construct_version_graph(rs_metas, &max_version);
 
     Version spec_version(0, 8);
-    version_graph.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(version_graph.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -431,7 +393,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_with_same_rows
     version_graph.construct_version_graph(rs_metas, &max_version);
 
     Version spec_version(0, 8);
-    version_graph.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(version_graph.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -588,7 +550,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
     }
 
     Version spec_version(0, 8);
-    tracker.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(tracker.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -615,7 +577,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_s
     }
 
     Version spec_version(0, 8);
-    tracker.capture_consistent_versions(spec_version, &version_path);
+    static_cast<void>(tracker.capture_consistent_versions(spec_version, &version_path));
 
     EXPECT_EQ(4, version_path.size());
     EXPECT_EQ(Version(0, 0), version_path[0]);
@@ -768,34 +730,38 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
     path_arr.Accept(writer);
     std::string json_result = std::string(strbuf.GetString());
 
-    auto time_zone = cctz::local_time_zone();
-    auto tp = std::chrono::system_clock::now();
-    auto time_zone_str = cctz::format("%z", tp, time_zone);
+    std::string datetime_format = "%Y-%m-%d %H:%M:%S";
+    cctz::time_zone time_zone;
+    cctz::load_time_zone("Asia/Shanghai", &time_zone);
+    std::chrono::system_clock::time_point tp;
+    cctz::parse(datetime_format, "1970-01-01 10:46:40", time_zone, &tp);
+    auto time_zone_str =
+            cctz::format(fmt::format("{} %z", datetime_format), tp, cctz::local_time_zone());
 
     std::string expect_result = R"([
     {
         "path id": "1",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "1 -> [2-3] -> [4-5]"
     },
     {
         "path id": "2",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "2 -> [6-6] -> [7-8]"
     },
     {
         "path id": "3",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "3 -> [6-8] -> [9-9]"
     },
     {
         "path id": "4",
-        "last create time": "1970-01-01 10:46:40 $0",
+        "last create time": "$0",
         "path list": "4 -> [10-10]"
     }
 ])";
 
-    expect_result = strings::Substitute(expect_result, time_zone_str);
+    expect_result = absl::Substitute(expect_result, time_zone_str);
     EXPECT_EQ(expect_result, json_result);
 }
 
@@ -837,8 +803,8 @@ TEST_F(TestTimestampedVersionTracker, get_version_graph_orphan_vertex_ratio) {
     version_graph.add_version_to_graph(version1);
     version_graph.add_version_to_graph(version2);
     version_graph.add_version_to_graph(version3);
-    version_graph.delete_version_from_graph(version2);
-    version_graph.delete_version_from_graph(version3);
+    static_cast<void>(version_graph.delete_version_from_graph(version2));
+    static_cast<void>(version_graph.delete_version_from_graph(version3));
 
     EXPECT_EQ(5, version_graph._version_graph.size());
     EXPECT_EQ(0.4, version_graph.get_orphan_vertex_ratio());

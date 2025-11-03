@@ -17,22 +17,22 @@
 
 #pragma once
 
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/extended_types.h"
 
 namespace doris {
 
 template <typename T>
 struct type_limit {
-    static T min() { return std::numeric_limits<T>::lowest(); }
-    static T max() { return std::numeric_limits<T>::max(); }
+    static constexpr T min() { return std::numeric_limits<T>::lowest(); }
+    static constexpr T max() { return std::numeric_limits<T>::max(); }
 };
 
 template <>
-struct type_limit<StringValue> {
-    static StringValue min() { return StringValue::min_string_val(); }
-    static StringValue max() { return StringValue::max_string_val(); }
+struct type_limit<StringRef> {
+    static StringRef min() { return StringRef::min_string_val(); }
+    static StringRef max() { return StringRef::max_string_val(); }
 };
 
 template <>
@@ -42,20 +42,66 @@ struct type_limit<DecimalV2Value> {
 };
 
 template <>
-struct type_limit<DateTimeValue> {
-    static DateTimeValue min() { return DateTimeValue::datetime_min_value(); }
-    static DateTimeValue max() { return DateTimeValue::datetime_max_value(); }
+struct type_limit<vectorized::Decimal32> {
+    static vectorized::Decimal32 max() { return 999999999; }
+    static vectorized::Decimal32 min() { return -max(); }
 };
 
 template <>
-struct type_limit<doris::vectorized::DateV2Value> {
-    static doris::vectorized::DateV2Value min() {
-        uint32_t min = doris::vectorized::MIN_DATE_V2;
-        return binary_cast<uint32_t, doris::vectorized::DateV2Value>(min);
+struct type_limit<vectorized::Decimal64> {
+    static vectorized::Decimal64 max() { return int64_t(999999999999999999ll); }
+    static vectorized::Decimal64 min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::Decimal128V3> {
+    static vectorized::Decimal128V3 max() {
+        return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
-    static doris::vectorized::DateV2Value max() {
-        uint32_t max = doris::vectorized::MAX_DATE_V2;
-        return binary_cast<uint32_t, doris::vectorized::DateV2Value>(max);
+    static vectorized::Decimal128V3 min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::Decimal128V2> {
+    static vectorized::Decimal128V2 max() { return DecimalV2Value::get_max_decimal().value(); }
+    static vectorized::Decimal128V2 min() { return -max(); }
+};
+static wide::Int256 MAX_DECIMAL256_INT({18446744073709551615ul, 8607968719199866879ul,
+                                        532749306367912313ul, 1593091911132452277ul});
+template <>
+struct type_limit<vectorized::Decimal256> {
+    static vectorized::Decimal256 max() { return vectorized::Decimal256(MAX_DECIMAL256_INT); }
+    static vectorized::Decimal256 min() { return vectorized::Decimal256(-MAX_DECIMAL256_INT); }
+};
+
+template <>
+struct type_limit<VecDateTimeValue> {
+    static VecDateTimeValue min() { return VecDateTimeValue::datetime_min_value(); }
+    static VecDateTimeValue max() { return VecDateTimeValue::datetime_max_value(); }
+};
+
+template <>
+struct type_limit<DateV2Value<DateV2ValueType>> {
+    static DateV2Value<DateV2ValueType> min() {
+        uint32_t min = MIN_DATE_V2;
+        return binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(min);
+    }
+    static DateV2Value<DateV2ValueType> max() {
+        uint32_t max = MAX_DATE_V2;
+        return binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(max);
+    }
+};
+
+template <>
+struct type_limit<DateV2Value<DateTimeV2ValueType>> {
+    static DateV2Value<DateTimeV2ValueType> min() {
+        uint64_t min = MIN_DATETIME_V2;
+        return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(min);
+    }
+    static DateV2Value<DateTimeV2ValueType> max() {
+        uint64_t max = MAX_DATETIME_V2;
+        return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(max);
     }
 };
 

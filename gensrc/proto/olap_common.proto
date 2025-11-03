@@ -28,7 +28,7 @@ message ColumnMessage {
     required uint32 length = 4; // ColumnPB.length
     required bool is_key = 5;   // ColumnPB.is_key
     optional string default_value = 6;  // ColumnPB.default_value
-    optional string referenced_column = 7;  // ColumnPB.
+    optional string referenced_column = 7;  // deprecated
     optional uint32 index_length = 8;   // ColumnPB.index_length
     optional uint32 precision = 9 [default = 27];   // ColumnPB.precision
     optional uint32 frac = 10 [default = 9];    // ColumnPB.frac
@@ -57,4 +57,19 @@ message PTopNCounter {
     required uint32 top_num = 1;
     required uint32 space_expand_rate = 2;
     repeated PCounter counter = 3;
+}
+
+enum FileType {
+  SEGMENT_FILE = 1;
+  INVERTED_INDEX_FILE = 2;
+}
+
+message InvertedIndexFileInfo {
+    message IndexInfo {
+        required int64 index_id = 1;
+        required int64 index_file_size = 2 [default = -1];
+        optional string index_suffix = 3;
+    }
+    repeated IndexInfo index_info = 1; // for inverted index v1
+    optional int64 index_size = 2;     // for inverted index v2
 }

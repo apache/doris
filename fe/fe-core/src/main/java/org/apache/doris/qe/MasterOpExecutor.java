@@ -18,142 +18,114 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
-import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.transport.TTransportException;
 
-import java.nio.ByteBuffer;
-
-public class MasterOpExecutor {
+/**
+ * MasterOpExecutor is used to send request to Master FE.
+ * It is inherited from FEOpExecutor. The difference is that MasterOpExecutor may need to wait the journal being
+ * synced before returning.
+ */
+public class MasterOpExecutor extends FEOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
-
-    private final OriginStatement originStmt;
-    private final ConnectContext ctx;
-    private TMasterOpResult result;
-
-    private int waitTimeoutMs;
-    // the total time of thrift connectTime add readTime and writeTime
-    private int thriftTimeoutMs;
-
-    private boolean shouldNotRetry;
+    private final int journalWaitTimeoutMs;
 
     public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
-        this.originStmt = originStmt;
-        this.ctx = ctx;
+        super(new TNetworkAddress(ctx.getEnv().getMasterHost(), ctx.getEnv().getMasterRpcPort()),
+                originStmt, ctx, isQuery);
         if (status.isNeedToWaitJournalSync()) {
-            this.waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+            this.journalWaitTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         } else {
-            this.waitTimeoutMs = 0;
+            this.journalWaitTimeoutMs = 0;
         }
-        this.thriftTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
-        // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
-        this.shouldNotRetry = !isQuery;
     }
 
+    /**
+     * used for simply syncing journal with master under strong consistency mode
+     */
+    public MasterOpExecutor(ConnectContext ctx) {
+        this(null, ctx, RedirectStatus.FORWARD_WITH_SYNC, true);
+    }
+
+    @Override
     public void execute() throws Exception {
-        forward();
+        super.execute();
+        waitOnReplaying();
+    }
+
+    @Override
+    public void cancel() throws Exception {
+        super.cancel();
+        waitOnReplaying();
+    }
+
+    private void waitOnReplaying() throws DdlException {
         LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
-        ctx.getCatalog().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
+        ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, journalWaitTimeoutMs);
     }
 
-    // Send request to Master
-    private void forward() throws Exception {
-        if (!ctx.getCatalog().isReady()) {
-            throw new Exception("Node catalog is not ready, please wait for a while.");
-        }
-        String masterHost = ctx.getCatalog().getMasterIp();
-        int masterRpcPort = ctx.getCatalog().getMasterRpcPort();
-        TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
+    public void syncJournal() throws Exception {
+        result = forward(buildSyncJournalParams());
+        waitOnReplaying();
+    }
 
-        FrontendService.Client client = null;
-        try {
-            client = ClientPool.frontendPool.borrowObject(thriftAddress, thriftTimeoutMs);
-        } catch (Exception e) {
-            // may throw NullPointerException. add err msg
-            throw new Exception("Failed to get master client.", e);
-        }
-        TMasterOpRequest params = new TMasterOpRequest();
-        params.setCluster(ctx.getClusterName());
-        params.setSql(originStmt.originStmt);
-        params.setStmtIdx(originStmt.idx);
-        params.setUser(ctx.getQualifiedUser());
+    public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
+        result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
+        waitOnReplaying();
+        return result.groupCommitLoadBeId;
+    }
+
+    public void updateLoadData(long tableId, long receiveData) throws Exception {
+        result = forward(buildUpdateLoadDataParams(tableId, receiveData));
+        waitOnReplaying();
+    }
+
+    private TMasterOpRequest buildSyncJournalParams() {
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setSyncJournalOnly(true);
         params.setDb(ctx.getDatabase());
-        params.setResourceInfo(ctx.toResourceCtx());
-        params.setUserIp(ctx.getRemoteIP());
-        params.setStmtId(ctx.getStmtId());
-        params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-
-        // query options
-        params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
-        // session variables
-        params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
-
-        if (null != ctx.queryId()) {
-            params.setQueryId(ctx.queryId());
-        }
-
-        LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
-
-        boolean isReturnToPool = false;
-        try {
-            result = client.forward(params);
-            isReturnToPool = true;
-        } catch (TTransportException e) {
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
-            if (!ok) {
-                throw e;
-            }
-            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
-                throw e;
-            } else {
-                LOG.warn("Forward statement " + ctx.getStmtId() + " to Master " + thriftAddress + " twice", e);
-                result = client.forward(params);
-                isReturnToPool = true;
-            }
-        } finally {
-            if (isReturnToPool) {
-                ClientPool.frontendPool.returnObject(thriftAddress, client);
-            } else {
-                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
-            }
-        }
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
     }
 
-    public ByteBuffer getOutputPacket() {
-        if (result == null) {
-            return null;
-        }
-        return result.packet;
+    private TMasterOpRequest buildGetGroupCommitLoadBeIdParmas(long tableId, String cluster) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setGetGroupCommitLoadBeId(true);
+        groupCommitParams.setGroupCommitLoadTableId(tableId);
+        groupCommitParams.setCluster(cluster);
+        return getMasterOpRequestForGroupCommit(groupCommitParams);
     }
 
-    public TUniqueId getQueryId() {
-        if (result != null && result.isSetQueryId()) {
-            return result.getQueryId();
-        } else {
-            return null;
-        }
+    private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {
+        final TGroupCommitInfo groupCommitParams = new TGroupCommitInfo();
+        groupCommitParams.setUpdateLoadData(true);
+        groupCommitParams.setTableId(tableId);
+        groupCommitParams.setReceiveData(receiveData);
+        return getMasterOpRequestForGroupCommit(groupCommitParams);
     }
 
-
-    public ShowResultSet getProxyResultSet() {
-        if (result == null) {
-            return null;
-        }
-        if (result.isSetResultSet()) {
-            return new ShowResultSet(result.resultSet);
-        } else {
-            return null;
-        }
+    private TMasterOpRequest getMasterOpRequestForGroupCommit(TGroupCommitInfo groupCommitParams) {
+        final TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setGroupCommitInfo(groupCommitParams);
+        params.setDb(ctx.getDatabase());
+        params.setUser(ctx.getQualifiedUser());
+        // just make the protocol happy
+        params.setSql("");
+        return params;
     }
 
-    public void setResult(TMasterOpResult result) {
-        this.result = result;
-    }
 }

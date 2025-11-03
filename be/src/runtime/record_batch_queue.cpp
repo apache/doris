@@ -17,14 +17,32 @@
 
 #include "runtime/record_batch_queue.h"
 
+#include <mutex>
+
+#include "pipeline/dependency.h"
+
 namespace doris {
+
+bool RecordBatchQueue::blocking_get(std::shared_ptr<arrow::RecordBatch>* result) {
+    if (_dep && size() <= config::max_memory_sink_batch_count) {
+        _dep->set_ready();
+    }
+    // Before each get queue, will set sink task dependency ready.
+    // so if the sink task put queue faster than the fetch result get queue,
+    // the queue size will always be 10.
+    // be sure to set sink dependency ready before getting queue.
+    // otherwise, if queue is emptied after sink task put queue and before block dependency,
+    // get queue will stuck and will never set sink dependency ready.
+    auto res = _queue.blocking_get(result);
+    return res;
+}
 
 void RecordBatchQueue::update_status(const Status& status) {
     if (status.ok()) {
         return;
     }
     {
-        std::lock_guard<SpinLock> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         if (_status.ok()) {
             _status = status;
         }

@@ -17,42 +17,62 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
 /**
  * Used in
  */
-public class CommonUserProperties implements Writable {
+public class CommonUserProperties implements GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(CommonUserProperties.class);
+
     // The max connections allowed for a user on one FE
-    @SerializedName("maxConn")
+    @SerializedName(value = "mc", alternate = {"maxConn"})
     private long maxConn = 100;
     // The maximum total number of query instances that the user is allowed to send from this FE
-    @SerializedName("maxQueryInstances")
+    @SerializedName(value = "mqi", alternate = {"maxQueryInstances"})
     private long maxQueryInstances = -1;
-    @SerializedName("sqlBlockRules")
+    @SerializedName(value = "pfei", alternate = {"parallelFragmentExecInstanceNum"})
+    private int parallelFragmentExecInstanceNum = -1;
+    @SerializedName(value = "sbr", alternate = {"sqlBlockRule"})
     private String sqlBlockRules = "";
-    @SerializedName("cpuResourceLimit")
+    @SerializedName(value = "crl", alternate = {"cpuResourceLimit"})
     private int cpuResourceLimit = -1;
     // The tag of the resource that the user is allowed to use
-    @SerializedName("resourceTags")
+    @SerializedName(value = "rt", alternate = {"resourceTag"})
     private Set<Tag> resourceTags = Sets.newHashSet();
     // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
-    @SerializedName("execMemLimit")
+    @SerializedName(value = "eml", alternate = {"execMemLimit"})
     private long execMemLimit = -1;
-    // user level load_mem_limit, if > 0, will overwrite the load_mem_limit in session variable
-    @SerializedName("loadMemLimit")
-    private long loadMemLimit = -1;
+
+    @SerializedName(value = "qt", alternate = {"queryTimeout"})
+    private int queryTimeout = -1;
+
+    @SerializedName(value = "it", alternate = {"insertTimeout"})
+    private int insertTimeout = -1;
+
+    @SerializedName(value = "ic")
+    private String initCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
+
+    @SerializedName(value = "wg", alternate = {"workloadGroup"})
+    private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
+
+    @SerializedName(value = "epcr", alternate = {"enablePreferCachedRowset"})
+    private boolean enablePreferCachedRowset = false;
+
+    @SerializedName(value = "qft", alternate = {"queryFreshnessTolerance"})
+    private long queryFreshnessToleranceMs = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -62,6 +82,10 @@ public class CommonUserProperties implements Writable {
 
     long getMaxQueryInstances() {
         return maxQueryInstances;
+    }
+
+    int getParallelFragmentExecInstanceNum() {
+        return parallelFragmentExecInstanceNum;
     }
 
     String getSqlBlockRules() {
@@ -78,6 +102,10 @@ public class CommonUserProperties implements Writable {
 
     void setMaxQueryInstances(long maxQueryInstances) {
         this.maxQueryInstances = maxQueryInstances;
+    }
+
+    void setParallelFragmentExecInstanceNum(int parallelFragmentExecInstanceNum) {
+        this.parallelFragmentExecInstanceNum = parallelFragmentExecInstanceNum;
     }
 
     void setSqlBlockRules(String sqlBlockRules) {
@@ -114,25 +142,58 @@ public class CommonUserProperties implements Writable {
         this.execMemLimit = execMemLimit;
     }
 
-    public long getLoadMemLimit() {
-        return loadMemLimit;
+    public int getQueryTimeout() {
+        return queryTimeout;
     }
 
-    public void setLoadMemLimit(long loadMemLimit) {
-        this.loadMemLimit = loadMemLimit;
+    public void setQueryTimeout(int timeout) {
+        this.queryTimeout = timeout;
     }
 
-    public static CommonUserProperties read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        CommonUserProperties commonUserProperties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
-        // trigger split
-        commonUserProperties.setSqlBlockRulesSplit(commonUserProperties.getSqlBlockRules());
-        return commonUserProperties;
+    public int getInsertTimeout() {
+        return insertTimeout;
+    }
+
+    public void setInsertTimeout(int insertTimeout) {
+        this.insertTimeout = insertTimeout;
+    }
+
+    public String getInitCatalog() {
+        return initCatalog;
+    }
+
+    public void setInitCatalog(String initCatalog) {
+        this.initCatalog = initCatalog;
+    }
+
+    public String getWorkloadGroup() {
+        return workloadGroup;
+    }
+
+    public void setWorkloadGroup(String workloadGroup) {
+        this.workloadGroup = workloadGroup;
+    }
+
+    public long getQueryFreshnessToleranceMs() {
+        return queryFreshnessToleranceMs;
+    }
+
+    public void setQueryFreshnessToleranceMs(long queryFreshnessToleranceMs) {
+        this.queryFreshnessToleranceMs = queryFreshnessToleranceMs;
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        return enablePreferCachedRowset;
+    }
+
+    public void setEnablePreferCachedRowset(boolean enablePreferCachedRowset) {
+        this.enablePreferCachedRowset = enablePreferCachedRowset;
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+    public void gsonPostProcess() throws IOException {
+        if (!Strings.isNullOrEmpty(sqlBlockRules)) {
+            setSqlBlockRulesSplit(sqlBlockRules);
+        }
     }
 }

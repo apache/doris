@@ -17,71 +17,23 @@
 
 #pragma once
 
+#include <fmt/core.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <glog/logging.h>
 #include <math.h>
 
 #include "common/logging.h"
-#include "gen_cpp/Opcodes_types.h"
-#include "olap/tuple.h"
-#include "runtime/datetime_value.h"
+#include "olap/olap_tuple.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {
 
-typedef bool (*CompareLargeFunc)(const void*, const void*);
-
-template <class T>
-inline bool compare_large(const void* lhs, const void* rhs) {
-    return *reinterpret_cast<const T*>(lhs) > *reinterpret_cast<const T*>(rhs);
-}
-
-inline CompareLargeFunc get_compare_func(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-        return compare_large<bool>;
-
-    case TYPE_TINYINT:
-        return compare_large<int8_t>;
-
-    case TYPE_SMALLINT:
-        return compare_large<int16_t>;
-
-    case TYPE_INT:
-        return compare_large<int32_t>;
-
-    case TYPE_BIGINT:
-        return compare_large<int64_t>;
-
-    case TYPE_LARGEINT:
-        return compare_large<__int128>;
-
-    case TYPE_FLOAT:
-        return compare_large<float>;
-
-    case TYPE_DOUBLE:
-        return compare_large<double>;
-
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        return compare_large<DateTimeValue>;
-
-    case TYPE_DECIMALV2:
-        return compare_large<DecimalV2Value>;
-
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-        return compare_large<StringValue>;
-
-    default:
-        DCHECK(false) << "Unsupported Compare type";
-    }
-    __builtin_unreachable();
-}
+using CompareLargeFunc = bool (*)(const void*, const void*);
 
 static const char* NEGATIVE_INFINITY = "-oo";
 static const char* POSITIVE_INFINITY = "+oo";
 
-typedef struct OlapScanRange {
+struct OlapScanRange {
 public:
     OlapScanRange() : begin_include(true), end_include(true) {
         begin_scan_range.add_value(NEGATIVE_INFINITY);
@@ -98,43 +50,16 @@ public:
     bool end_include;
     OlapTuple begin_scan_range;
     OlapTuple end_scan_range;
-} OlapScanRange;
 
-static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-                                'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-                                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-                                'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-                                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'};
-
-static int mod_table[] = {0, 2, 1};
-static const char base64_pad = '=';
-
-inline size_t base64_encode(const char* data, size_t length, char* encoded_data) {
-    size_t output_length = (size_t)(4.0 * ceil((double)length / 3.0));
-
-    if (encoded_data == nullptr) {
-        return 0;
+    std::string debug_string() const {
+        fmt::memory_buffer buf;
+        DCHECK_EQ(begin_scan_range.size(), end_scan_range.size());
+        for (int i = 0; i < begin_scan_range.size(); i++) {
+            fmt::format_to(buf, "({}, {})\n", begin_scan_range[i], end_scan_range[i]);
+        }
+        return fmt::to_string(buf);
     }
-
-    for (uint32_t i = 0, j = 0; i < length;) {
-        uint32_t octet_a = i < length ? (unsigned char)data[i++] : 0;
-        uint32_t octet_b = i < length ? (unsigned char)data[i++] : 0;
-        uint32_t octet_c = i < length ? (unsigned char)data[i++] : 0;
-
-        uint32_t triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
-
-        encoded_data[j++] = encoding_table[(triple >> 3 * 6) & 0x3F];
-        encoded_data[j++] = encoding_table[(triple >> 2 * 6) & 0x3F];
-        encoded_data[j++] = encoding_table[(triple >> 1 * 6) & 0x3F];
-        encoded_data[j++] = encoding_table[(triple >> 0 * 6) & 0x3F];
-    }
-
-    for (int i = 0; i < mod_table[length % 3]; i++) {
-        encoded_data[output_length - 1 - i] = base64_pad;
-    }
-
-    return output_length;
-}
+};
 
 enum SQLFilterOp {
     FILTER_LARGER = 0,
@@ -145,44 +70,8 @@ enum SQLFilterOp {
     FILTER_NOT_IN = 5
 };
 
-inline int get_olap_size(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT: {
-        return 1;
-    }
-
-    case TYPE_SMALLINT: {
-        return 2;
-    }
-
-    case TYPE_DATE: {
-        return 3;
-    }
-
-    case TYPE_INT:
-    case TYPE_FLOAT: {
-        return 4;
-    }
-
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_DOUBLE:
-    case TYPE_DATETIME: {
-        return 8;
-    }
-
-    case TYPE_DECIMALV2: {
-        return 12;
-    }
-
-    default: {
-        DCHECK(false);
-    }
-    }
-
-    return 0;
-}
+template <PrimitiveType>
+constexpr bool always_false_v = false;
 
 inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     switch (type) {
@@ -213,6 +102,100 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     }
 
     return FILTER_IN;
+}
+
+inline SQLFilterOp to_olap_filter_type(const std::string& function_name, bool opposite) {
+    if (function_name == "lt") {
+        return opposite ? FILTER_LARGER : FILTER_LESS;
+    } else if (function_name == "gt") {
+        return opposite ? FILTER_LESS : FILTER_LARGER;
+    } else if (function_name == "le") {
+        return opposite ? FILTER_LARGER_OR_EQUAL : FILTER_LESS_OR_EQUAL;
+    } else if (function_name == "ge") {
+        return opposite ? FILTER_LESS_OR_EQUAL : FILTER_LARGER_OR_EQUAL;
+    } else if (function_name == "eq") {
+        return opposite ? FILTER_NOT_IN : FILTER_IN;
+    } else if (function_name == "ne") {
+        return opposite ? FILTER_IN : FILTER_NOT_IN;
+    } else if (function_name == "in") {
+        return opposite ? FILTER_NOT_IN : FILTER_IN;
+    } else if (function_name == "not_in") {
+        return opposite ? FILTER_IN : FILTER_NOT_IN;
+    } else {
+        DCHECK(false) << "Function Name: " << function_name;
+        return FILTER_IN;
+    }
+}
+
+enum class MatchType {
+    UNKNOWN = -1,
+    MATCH_ANY = 0,
+    MATCH_ALL = 1,
+    MATCH_PHRASE = 2,
+    MATCH_PHRASE_PREFIX = 8,
+    MATCH_REGEXP = 9,
+    MATCH_PHRASE_EDGE = 10,
+};
+
+inline MatchType to_match_type(TExprOpcode::type type) {
+    switch (type) {
+    case TExprOpcode::type::MATCH_ANY:
+        return MatchType::MATCH_ANY;
+        break;
+    case TExprOpcode::type::MATCH_ALL:
+        return MatchType::MATCH_ALL;
+        break;
+    case TExprOpcode::type::MATCH_PHRASE:
+        return MatchType::MATCH_PHRASE;
+        break;
+    case TExprOpcode::type::MATCH_PHRASE_PREFIX:
+        return MatchType::MATCH_PHRASE_PREFIX;
+        break;
+    case TExprOpcode::type::MATCH_REGEXP:
+        return MatchType::MATCH_REGEXP;
+        break;
+    case TExprOpcode::type::MATCH_PHRASE_EDGE:
+        return MatchType::MATCH_PHRASE_EDGE;
+        break;
+    default:
+        VLOG_CRITICAL << "TExprOpcode: " << type;
+        DCHECK(false);
+    }
+    return MatchType::MATCH_ANY;
+}
+
+inline MatchType to_match_type(const std::string& condition_op) {
+    if (condition_op.compare("match_any") == 0) {
+        return MatchType::MATCH_ANY;
+    } else if (condition_op.compare("match_all") == 0) {
+        return MatchType::MATCH_ALL;
+    } else if (condition_op.compare("match_phrase") == 0) {
+        return MatchType::MATCH_PHRASE;
+    } else if (condition_op.compare("match_phrase_prefix") == 0) {
+        return MatchType::MATCH_PHRASE_PREFIX;
+    } else if (condition_op.compare("match_regexp") == 0) {
+        return MatchType::MATCH_REGEXP;
+    } else if (condition_op.compare("match_phrase_edge") == 0) {
+        return MatchType::MATCH_PHRASE_EDGE;
+    }
+    return MatchType::UNKNOWN;
+}
+
+inline bool is_match_condition(const std::string& op) {
+    if (0 == strcasecmp(op.c_str(), "match_any") || 0 == strcasecmp(op.c_str(), "match_all") ||
+        0 == strcasecmp(op.c_str(), "match_phrase") ||
+        0 == strcasecmp(op.c_str(), "match_phrase_prefix") ||
+        0 == strcasecmp(op.c_str(), "match_regexp") ||
+        0 == strcasecmp(op.c_str(), "match_phrase_edge")) {
+        return true;
+    }
+    return false;
+}
+
+inline bool is_match_operator(const TExprOpcode::type& op_type) {
+    return TExprOpcode::MATCH_ANY == op_type || TExprOpcode::MATCH_ALL == op_type ||
+           TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_PHRASE_PREFIX == op_type ||
+           TExprOpcode::MATCH_REGEXP == op_type || TExprOpcode::MATCH_PHRASE_EDGE == op_type;
 }
 
 } // namespace doris

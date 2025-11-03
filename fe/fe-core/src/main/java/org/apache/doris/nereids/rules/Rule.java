@@ -17,20 +17,21 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.exceptions.TransformException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType.RuleTypeClass;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.BitSet;
 import java.util.List;
 
 /**
  * Abstract class for all rules.
  */
-public abstract class Rule<TYPE extends TreeNode<TYPE>> {
+public abstract class Rule {
     private final RuleType ruleType;
-    private final Pattern<? extends TYPE, TYPE> pattern;
+    private final Pattern<? extends Plan> pattern;
     private final RulePromise rulePromise;
 
     /**
@@ -40,7 +41,7 @@ public abstract class Rule<TYPE extends TreeNode<TYPE>> {
      * @param pattern target pattern of rule
      * @param rulePromise rule promise
      */
-    public Rule(RuleType ruleType, Pattern<? extends TYPE, TYPE> pattern, RulePromise rulePromise) {
+    public Rule(RuleType ruleType, Pattern<? extends Plan> pattern, RulePromise rulePromise) {
         this.ruleType = ruleType;
         this.pattern = pattern;
         this.rulePromise = rulePromise;
@@ -54,7 +55,7 @@ public abstract class Rule<TYPE extends TreeNode<TYPE>> {
         return rulePromise;
     }
 
-    public Pattern<? extends TYPE, TYPE> getPattern() {
+    public Pattern<? extends Plan> getPattern() {
         return pattern;
     }
 
@@ -62,5 +63,30 @@ public abstract class Rule<TYPE extends TreeNode<TYPE>> {
         return ruleType.getRuleTypeClass() == RuleTypeClass.REWRITE;
     }
 
-    public abstract List<TYPE> transform(TYPE node, PlannerContext context) throws TransformException;
+    public boolean isExploration() {
+        return ruleType.getRuleTypeClass() == RuleTypeClass.EXPLORATION;
+    }
+
+    @Override
+    public String toString() {
+        return getRuleType().toString();
+    }
+
+    public abstract List<Plan> transform(Plan node, CascadesContext context);
+
+    /** callback this function when the traverse framework accept a new plan which produce by this rule */
+    public void acceptPlan(Plan plan) {
+
+    }
+
+    /**
+     * Filter out already applied rules and rules that are not matched on root node.
+     */
+    public boolean isInvalid(BitSet disableRules, GroupExpression groupExpression) {
+        return disableRules.get(this.getRuleType().type())
+                || !groupExpression.notApplied(this)
+                || !this.getPattern().matchRoot(groupExpression.getPlan());
+    }
+
+    public abstract String ruleName();
 }

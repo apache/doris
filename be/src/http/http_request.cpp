@@ -18,19 +18,16 @@
 #include "http/http_request.h"
 
 #include <event2/buffer.h>
-#include <event2/bufferevent.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
 
-#include <boost/algorithm/string.hpp>
 #include <sstream>
 #include <string>
-#include <vector>
+#include <unordered_map>
+#include <utility>
 
-#include "common/logging.h"
 #include "http/http_handler.h"
-#include "util/url_coding.h"
 
 namespace doris {
 
@@ -111,6 +108,14 @@ const std::string& HttpRequest::param(const std::string& key) const {
         return s_empty;
     }
     return iter->second;
+}
+
+std::string HttpRequest::get_all_headers() const {
+    std::stringstream headers;
+    for (const auto& header : _headers) {
+        headers << header.first << ":" << header.second + ", ";
+    }
+    return headers.str();
 }
 
 void HttpRequest::add_output_header(const char* key, const char* value) {

@@ -17,525 +17,305 @@
 
 #include "vec/sink/vmysql_result_writer.h"
 
-#include "runtime/buffer_control_block.h"
-#include "runtime/large_int_value.h"
+#include <fmt/core.h>
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
+
+#include <ostream>
+#include <string>
+
+#include "common/cast_set.h"
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/assert_cast.h"
+#include "runtime/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 
-namespace doris {
-namespace vectorized {
-VMysqlResultWriter::VMysqlResultWriter(BufferControlBlock* sinker,
-                                       const std::vector<VExprContext*>& output_vexpr_ctxs,
-                                       RuntimeProfile* parent_profile)
-        : VResultWriter(),
-          _sinker(sinker),
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+void GetResultBatchCtx::on_failure(const Status& status) {
+    DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
+    status.to_protobuf(_result->mutable_status());
+    _done->Run();
+}
+
+void GetResultBatchCtx::on_close(int64_t packet_seq, int64_t returned_rows) {
+    Status status;
+    status.to_protobuf(_result->mutable_status());
+    PQueryStatistics* statistics = _result->mutable_query_statistics();
+    statistics->set_returned_rows(returned_rows);
+    _result->set_packet_seq(packet_seq);
+    _result->set_eos(true);
+    _done->Run();
+}
+
+Status GetResultBatchCtx::on_data(const std::shared_ptr<TFetchDataResult>& t_result,
+                                  int64_t packet_seq, ResultBlockBufferBase* buffer) {
+    Status st = Status::OK();
+    if (t_result != nullptr) {
+        uint8_t* buf = nullptr;
+        uint32_t len = 0;
+        ThriftSerializer ser(false, 4096);
+        RETURN_IF_ERROR(ser.serialize(&t_result->result_batch, &len, &buf));
+        _result->set_row_batch(std::string((const char*)buf, len));
+    } else {
+        _result->clear_row_batch();
+        _result->set_empty_batch(true);
+    }
+    _result->set_packet_seq(packet_seq);
+    _result->set_eos(false);
+
+    /// The size limit of proto buffer message is 2G
+    if (_result->ByteSizeLong() > _max_msg_size) {
+        st = Status::InternalError("Message size exceeds 2GB: {}", _result->ByteSizeLong());
+        _result->clear_row_batch();
+        _result->set_empty_batch(true);
+    }
+    st.to_protobuf(_result->mutable_status());
+    _done->Run();
+    return Status::OK();
+}
+
+template <bool is_binary_format>
+VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
+        std::shared_ptr<ResultBlockBufferBase> sinker, const VExprContextSPtrs& output_vexpr_ctxs,
+        RuntimeProfile* parent_profile)
+        : ResultWriter(),
+          _sinker(std::dynamic_pointer_cast<MySQLResultBlockBuffer>(sinker)),
           _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile) {}
 
-Status VMysqlResultWriter::init(RuntimeState* state) {
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     _init_profile();
-    if (nullptr == _sinker) {
-        return Status::InternalError("sinker is NULL pointer.");
-    }
+    set_output_object_data(state->return_object_data_as_binary());
+    _is_dry_run = state->query_options().dry_run_query;
 
+    RETURN_IF_ERROR(_set_options(state->query_options().serde_dialect));
     return Status::OK();
 }
 
-void VMysqlResultWriter::_init_profile() {
-    _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
-    _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultRendTime", "AppendBatchTime");
-    _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
+template <bool is_binary_format>
+void VMysqlResultWriter<is_binary_format>::_init_profile() {
+    if (_parent_profile != nullptr) {
+        // for PointQueryExecutor, _parent_profile is null
+        _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
+        _convert_tuple_timer =
+                ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
+        _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
+        _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
+        _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
+    }
 }
 
-template <PrimitiveType type, bool is_nullable>
-Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
-                                           std::unique_ptr<TFetchDataResult>& result,
-                                           const DataTypePtr& nested_type_ptr) {
-    SCOPED_TIMER(_convert_tuple_timer);
-
-    const auto row_size = column_ptr->size();
-
-    doris::vectorized::ColumnPtr column;
-    if constexpr (is_nullable) {
-        column = assert_cast<const ColumnNullable&>(*column_ptr).get_nested_column_ptr();
-    } else {
-        column = column_ptr;
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::_set_options(
+        const TSerdeDialect::type& serde_dialect) {
+    switch (serde_dialect) {
+    case TSerdeDialect::DORIS:
+        // eg:
+        //  array: ["abc", "def", "", null]
+        //  map: {"k1":null, "k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
+        break;
+    case TSerdeDialect::PRESTO:
+        // eg:
+        //  array: [abc, def, , NULL]
+        //  map: {k1=NULL, k2=v3}
+        _options.nested_string_wrapper = "";
+        _options.wrapper_len = 0;
+        _options.map_key_delim = '=';
+        _options.null_format = "NULL";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
+        break;
+    case TSerdeDialect::HIVE:
+        // eg:
+        //  array: ["abc","def","",null]
+        //  map: {"k1":null,"k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ",";
+        _options.is_bool_value_num = false;
+        break;
+    default:
+        return Status::InternalError("unknown serde dialect: {}", serde_dialect);
     }
-
-    MysqlRowBuffer _buffer;
-    int buf_ret = 0;
-
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR) {
-        for (int i = 0; i < row_size; ++i) {
-            if (0 != buf_ret) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-            _buffer.reset();
-
-            if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(i)) {
-                    buf_ret = _buffer.push_null();
-                    result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
-                    continue;
-                }
-            }
-
-            if constexpr (type == TYPE_OBJECT) {
-                buf_ret = _buffer.push_null();
-            }
-            if constexpr (type == TYPE_VARCHAR) {
-                const auto string_val = column->get_data_at(i);
-
-                if (string_val.data == nullptr) {
-                    if (string_val.size == 0) {
-                        // 0x01 is a magic num, not useful actually, just for present ""
-                        char* tmp_val = reinterpret_cast<char*>(0x01);
-                        buf_ret = _buffer.push_string(tmp_val, string_val.size);
-                    } else {
-                        buf_ret = _buffer.push_null();
-                    }
-                } else {
-                    buf_ret = _buffer.push_string(string_val.data, string_val.size);
-                }
-            }
-
-            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
-        }
-    } else if constexpr (type == TYPE_ARRAY) {
-        auto& column_array = assert_cast<const ColumnArray&>(*column);
-        auto& offsets = column_array.get_offsets();
-        for (ssize_t i = 0; i < row_size; ++i) {
-            if (0 != buf_ret) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-            _buffer.reset();
-
-            if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(i)) {
-                    buf_ret = _buffer.push_null();
-                    result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
-                    continue;
-                }
-            }
-
-            _buffer.open_dynamic_mode();
-            buf_ret = _buffer.push_string("[", 1);
-            bool begin = true;
-            for (auto j = offsets[i - 1]; j < offsets[i]; ++j) {
-                if (!begin) {
-                    buf_ret = _buffer.push_string(", ", 2);
-                }
-                const auto& data = column_array.get_data_ptr();
-                if (data->is_null_at(j)) {
-                    buf_ret = _buffer.push_string("NULL", strlen("NULL"));
-                } else {
-                    if (WhichDataType(remove_nullable(nested_type_ptr)).is_string()) {
-                        buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
-                        buf_ret = _buffer.push_string("'", 1);
-                    } else {
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
-                    }
-                }
-                begin = false;
-            }
-            buf_ret = _buffer.push_string("]", 1);
-            _buffer.close_dynamic_mode();
-            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
-        }
-    } else {
-        using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
-        auto& data = assert_cast<const ColumnType&>(*column).get_data();
-
-        for (int i = 0; i < row_size; ++i) {
-            if (0 != buf_ret) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-            _buffer.reset();
-
-            if constexpr (is_nullable) {
-                if (column_ptr->is_null_at(i)) {
-                    buf_ret = _buffer.push_null();
-                    result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
-                    continue;
-                }
-            }
-
-            if constexpr (type == TYPE_BOOLEAN) {
-                //todo here need to using uint after MysqlRowBuffer support it
-                buf_ret = _buffer.push_tinyint(data[i]);
-            }
-            if constexpr (type == TYPE_TINYINT) {
-                buf_ret = _buffer.push_tinyint(data[i]);
-            }
-            if constexpr (type == TYPE_SMALLINT) {
-                buf_ret = _buffer.push_smallint(data[i]);
-            }
-            if constexpr (type == TYPE_INT) {
-                buf_ret = _buffer.push_int(data[i]);
-            }
-            if constexpr (type == TYPE_BIGINT) {
-                buf_ret = _buffer.push_bigint(data[i]);
-            }
-            if constexpr (type == TYPE_LARGEINT) {
-                auto v = LargeIntValue::to_string(data[i]);
-                buf_ret = _buffer.push_string(v.c_str(), v.size());
-            }
-            if constexpr (type == TYPE_FLOAT) {
-                buf_ret = _buffer.push_float(data[i]);
-            }
-            if constexpr (type == TYPE_DOUBLE) {
-                buf_ret = _buffer.push_double(data[i]);
-            }
-            if constexpr (type == TYPE_TIME) {
-                buf_ret = _buffer.push_time(data[i]);
-            }
-            if constexpr (type == TYPE_DATETIME) {
-                char buf[64];
-                auto time_num = data[i];
-                VecDateTimeValue time_val;
-                memcpy(static_cast<void*>(&time_val), &time_num, sizeof(Int64));
-                // TODO(zhaochun), this function has core risk
-                char* pos = time_val.to_string(buf);
-                buf_ret = _buffer.push_string(buf, pos - buf - 1);
-            }
-            if constexpr (type == TYPE_DATEV2) {
-                char buf[64];
-                auto time_num = data[i];
-                doris::vectorized::DateV2Value date_val;
-                memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt32));
-                char* pos = date_val.to_string(buf);
-                buf_ret = _buffer.push_string(buf, pos - buf - 1);
-            }
-            if constexpr (type == TYPE_DECIMALV2) {
-                DecimalV2Value decimal_val(data[i]);
-                auto decimal_str = decimal_val.to_string();
-                buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
-            }
-
-            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
-        }
-    }
-    if (0 != buf_ret) {
-        return Status::InternalError("pack mysql buffer failed.");
-    }
-
     return Status::OK();
 }
 
-int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_idx,
-                                      const DataTypePtr& type, MysqlRowBuffer& buffer) {
-    WhichDataType which(type->get_type_id());
-    if (which.is_nullable() && column_ptr->is_null_at(row_idx)) {
-        return buffer.push_null();
-    }
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
+    Status status = Status::OK();
+    int num_rows = cast_set<int>(block.rows());
+    // convert one batch
+    auto result = std::make_shared<TFetchDataResult>();
+    result->result_batch.rows.resize(num_rows);
+    uint64_t bytes_sent = 0;
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        MysqlRowBuffer<is_binary_format> row_buffer;
+        if constexpr (is_binary_format) {
+            row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+        }
 
-    ColumnPtr column;
-    if (which.is_nullable()) {
-        column = assert_cast<const ColumnNullable&>(*column_ptr).get_nested_column_ptr();
-        which = WhichDataType(assert_cast<const DataTypeNullable&>(*type).get_nested_type());
-    } else {
-        column = column_ptr;
-    }
+        struct Arguments {
+            const IColumn* column;
+            bool is_const;
+            DataTypeSerDeSPtr serde;
+        };
 
-    if (which.is_uint8()) {
-        auto& data = assert_cast<const ColumnUInt8&>(*column).get_data();
-        return buffer.push_tinyint(data[row_idx]);
-    } else if (which.is_int8()) {
-        auto& data = assert_cast<const ColumnInt8&>(*column).get_data();
-        return buffer.push_tinyint(data[row_idx]);
-    } else if (which.is_int16()) {
-        auto& data = assert_cast<const ColumnInt16&>(*column).get_data();
-        return buffer.push_smallint(data[row_idx]);
-    } else if (which.is_int32()) {
-        auto& data = assert_cast<const ColumnInt32&>(*column).get_data();
-        return buffer.push_int(data[row_idx]);
-    } else if (which.is_int64()) {
-        auto& data = assert_cast<const ColumnInt64&>(*column).get_data();
-        return buffer.push_bigint(data[row_idx]);
-    } else if (which.is_int128()) {
-        auto& data = assert_cast<const ColumnInt128&>(*column).get_data();
-        auto v = LargeIntValue::to_string(data[row_idx]);
-        return buffer.push_string(v.c_str(), v.size());
-    } else if (which.is_float32()) {
-        auto& data = assert_cast<const ColumnFloat32&>(*column).get_data();
-        return buffer.push_float(data[row_idx]);
-    } else if (which.is_float64()) {
-        auto& data = assert_cast<const ColumnFloat64&>(*column).get_data();
-        return buffer.push_double(data[row_idx]);
-    } else if (which.is_string()) {
-        int buf_ret = 0;
-        const auto string_val = column->get_data_at(row_idx);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                buf_ret = buffer.push_string(tmp_val, string_val.size);
+        const size_t num_cols = _output_vexpr_ctxs.size();
+        std::vector<Arguments> arguments;
+        arguments.reserve(num_cols);
+
+        for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+            const auto& [column_ptr, col_const] =
+                    unpack_if_const(block.get_by_position(col_idx).column);
+            int scale = _output_vexpr_ctxs[col_idx]->root()->data_type()->get_scale();
+            // decimalv2 scale and precision is hard code, so we should get real scale and precision
+            // from expr
+            DataTypeSerDeSPtr serde;
+            if (_output_vexpr_ctxs[col_idx]->root()->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_DECIMALV2) {
+                if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
+                    auto nested_serde =
+                            std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, scale);
+                    serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
+                } else {
+                    serde = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, scale);
+                }
             } else {
-                buf_ret = buffer.push_null();
+                serde = block.get_by_position(col_idx).type->get_serde();
+            }
+            serde->set_return_object_as_string(output_object_data());
+            arguments.emplace_back(column_ptr.get(), col_const, serde);
+        }
+
+        for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+            const auto& argument = arguments[col_idx];
+            // const column will only have 1 row, see unpack_if_const
+            if (argument.column->size() < num_rows && !argument.is_const) {
+                return Status::InternalError(
+                        "Required row size is out of range, need {} rows, column {} has {} "
+                        "rows in fact.",
+                        num_rows, argument.column->get_name(), argument.column->size());
+            }
+        }
+
+        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
+                        *(arguments[col_idx].column), row_buffer, row_idx,
+                        arguments[col_idx].is_const, _options));
+            }
+
+            // copy MysqlRowBuffer to Thrift
+            result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
+            bytes_sent += row_buffer.length();
+            row_buffer.reset();
+            if constexpr (is_binary_format) {
+                row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+            }
+        }
+    }
+    {
+        SCOPED_TIMER(_result_send_timer);
+        // If this is a dry run task, no need to send data block
+        if (!_is_dry_run) {
+            status = _sinker->add_batch(state, result);
+        }
+        if (status.ok()) {
+            _written_rows += num_rows;
+            if (!_is_dry_run) {
+                _bytes_sent += bytes_sent;
             }
         } else {
-            buf_ret = buffer.push_string(string_val.data, string_val.size);
+            LOG(WARNING) << "append result batch to sink failed.";
         }
-        return buf_ret;
-    } else if (which.is_date_or_datetime()) {
-        auto& column_vector = assert_cast<const ColumnVector<Int64>&>(*column);
-        auto value = column_vector[row_idx].get<Int64>();
-        VecDateTimeValue datetime;
-        memcpy(static_cast<void*>(&datetime), static_cast<void*>(&value), sizeof(value));
-        if (which.is_date()) {
-            datetime.cast_to_date();
-        }
-        char buf[64];
-        char* pos = datetime.to_string(buf);
-        return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_decimal128()) {
-        auto& column_data =
-                static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
-        DecimalV2Value decimal_val(column_data[row_idx]);
-        auto decimal_str = decimal_val.to_string();
-        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-    } else if (which.is_date_v2()) {
-        auto& column_vector = assert_cast<const ColumnVector<UInt32>&>(*column);
-        auto value = column_vector[row_idx].get<UInt32>();
-        DateV2Value datev2;
-        memcpy(static_cast<void*>(&datev2), static_cast<void*>(&value), sizeof(value));
-        char buf[64];
-        char* pos = datev2.to_string(buf);
-        return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_array()) {
-        auto& column_array = assert_cast<const ColumnArray&>(*column);
-        auto& offsets = column_array.get_offsets();
-        DataTypePtr sub_type;
-        if (type->is_nullable()) {
-            auto& nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-            sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
-        } else {
-            sub_type = assert_cast<const DataTypeArray&>(*type).get_nested_type();
-        }
-
-        int start = offsets[row_idx - 1];
-        int length = offsets[row_idx] - start;
-        const auto& data = column_array.get_data_ptr();
-
-        int buf_ret = buffer.push_string("[", strlen("["));
-        bool begin = true;
-        for (int i = 0; i < length; ++i) {
-            int position = start + i;
-            if (begin) {
-                begin = false;
-            } else {
-                buf_ret = buffer.push_string(", ", strlen(", "));
-            }
-            if (data->is_null_at(position)) {
-                buf_ret = buffer.push_string("NULL", strlen("NULL"));
-            } else {
-                buf_ret = _add_one_cell(data, position, sub_type, buffer);
-            }
-        }
-        buf_ret = buffer.push_string("]", strlen("]"));
-        return buf_ret;
-    } else {
-        LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
-        return -1;
     }
+    return status;
 }
 
-Status VMysqlResultWriter::append_row_batch(const RowBatch* batch) {
-    return Status::RuntimeError("Not Implemented MysqlResultWriter::append_row_batch scalar");
-}
-
-Status VMysqlResultWriter::append_block(Block& input_block) {
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
         return status;
     }
 
+    DCHECK(_output_vexpr_ctxs.empty() != true);
+
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto block = VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, input_block,
-                                                                    status);
-    auto num_rows = block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       input_block, &block));
+    const auto total_bytes = block.bytes();
+
+    if (total_bytes > config::thrift_max_message_size) [[unlikely]] {
+        const auto total_rows = block.rows();
+        const auto sub_block_count = (total_bytes + config::thrift_max_message_size - 1) /
+                                     config::thrift_max_message_size;
+        const auto sub_block_rows = (total_rows + sub_block_count - 1) / sub_block_count;
+
+        size_t offset = 0;
+        while (offset < total_rows) {
+            size_t rows = std::min(static_cast<size_t>(sub_block_rows), total_rows - offset);
+            auto sub_block = block.clone_empty();
+            for (size_t i = 0; i != block.columns(); ++i) {
+                sub_block.get_by_position(i).column =
+                        block.get_by_position(i).column->cut(offset, rows);
+            }
+            offset += rows;
+
+            RETURN_IF_ERROR(_write_one_block(state, sub_block));
+        }
+        return Status::OK();
     }
 
-    // convert one batch
-    auto result = std::make_unique<TFetchDataResult>();
-    result->result_batch.rows.resize(num_rows);
-    for (int i = 0; status.ok() && i < _output_vexpr_ctxs.size(); ++i) {
-        auto column_ptr = block.get_by_position(i).column->convert_to_full_column_if_const();
-        auto type_ptr = block.get_by_position(i).type;
-
-        switch (_output_vexpr_ctxs[i]->root()->result_type()) {
-        case TYPE_BOOLEAN:
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_BOOLEAN, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_BOOLEAN, false>(column_ptr, result);
-            }
-            break;
-        case TYPE_TINYINT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_TINYINT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_TINYINT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_SMALLINT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_SMALLINT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_SMALLINT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_INT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_INT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_INT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_BIGINT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_BIGINT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_BIGINT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_LARGEINT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_LARGEINT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_LARGEINT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_FLOAT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_FLOAT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_FLOAT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_DOUBLE: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DOUBLE, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_DOUBLE, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_TIME: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_TIME, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_TIME, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_VARCHAR, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_VARCHAR, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_DECIMALV2: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DATETIME, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_DATETIME, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_DATEV2: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DATEV2, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_DATEV2, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_HLL:
-        case TYPE_OBJECT: {
-            if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_OBJECT, true>(column_ptr, result);
-            } else {
-                status = _add_one_column<PrimitiveType::TYPE_OBJECT, false>(column_ptr, result);
-            }
-            break;
-        }
-        case TYPE_ARRAY: {
-            if (type_ptr->is_nullable()) {
-                auto& nested_type =
-                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
-                auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result,
-                                                                          sub_type);
-            } else {
-                auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
-                                                                           sub_type);
-            }
-            break;
-        }
-        default: {
-            LOG(WARNING) << "can't convert this type to mysql type. type = "
-                         << _output_vexpr_ctxs[i]->root()->type();
-            return Status::InternalError("vec block pack mysql buffer failed.");
-        }
-        }
-
-        if (!status) {
-            LOG(WARNING) << "convert row to mysql result failed.";
-            break;
-        }
-    }
-    if (status) {
-        SCOPED_TIMER(_result_send_timer);
-        // push this batch to back
-        status = _sinker->add_batch(result);
-
-        if (status.ok()) {
-            _written_rows += num_rows;
-        } else {
-            LOG(WARNING) << "append result batch to sink failed.";
-        }
-    }
-
-    return status;
+    return _write_one_block(state, block);
 }
 
-Status VMysqlResultWriter::close() {
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::close(Status) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
+    COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+template class VMysqlResultWriter<true>;
+template class VMysqlResultWriter<false>;
+
+} // namespace doris::vectorized

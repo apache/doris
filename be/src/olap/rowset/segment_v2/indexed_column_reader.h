@@ -17,47 +17,53 @@
 
 #pragma once
 
-#include <memory>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
+#include <utility>
 
 #include "common/status.h"
-#include "env/env.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_system_map.h"
-#include "olap/column_block.h"
-#include "olap/fs/fs_util.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/parsed_page.h"
-#include "util/block_compression.h"
 #include "util/slice.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class KeyCoder;
 class TypeInfo;
+class BlockCompressionCodec;
 
 namespace segment_v2 {
 
 class EncodingInfo;
-class IndexedColumnIterator;
 
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
-class IndexedColumnReader {
+class IndexedColumnReader : public MetadataAdder<IndexedColumnReader> {
 public:
-    explicit IndexedColumnReader(io::FileSystem* fs, const std::string& path,
-                                 const IndexedColumnMetaPB& meta)
-            : _fs(fs), _path(path), _meta(meta) {};
+    explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
+            : _file_reader(std::move(file_reader)), _meta(meta) {
+        _ordinal_index_reader = std::make_unique<IndexPageReader>();
+        _value_index_reader = std::make_unique<IndexPageReader>();
+    }
 
-    Status load(bool use_page_cache, bool kept_in_memory);
+    ~IndexedColumnReader() override;
+
+    Status load(bool use_page_cache, bool kept_in_memory,
+                OlapReaderStatistics* index_load_stats = nullptr);
 
     // read a page specified by `pp' from `file' into `handle'
-    Status read_page(io::FileReader* file_reader, const PagePointer& pp, PageHandle* handle,
-                     Slice* body, PageFooterPB* footer, PageTypePB type,
-                     BlockCompressionCodec* codec) const;
+    Status read_page(const PagePointer& pp, PageHandle* handle, Slice* body, PageFooterPB* footer,
+                     PageTypePB type, BlockCompressionCodec* codec, bool pre_decode,
+                     OlapReaderStatistics* stats = nullptr) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
@@ -66,15 +72,18 @@ public:
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
+    uint64_t get_memory_size() const { return _mem_size; }
+    void set_is_pk_index(bool is_pk) { _is_pk_index = is_pk; }
 
 private:
-    Status load_index_page(io::FileReader* file_reader, const PagePointerPB& pp, PageHandle* handle,
-                           IndexPageReader* reader);
+    Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader,
+                           OlapReaderStatistics* index_load_stats);
+
+    int64_t get_metadata_size() const override;
 
     friend class IndexedColumnIterator;
 
-    io::FileSystem* _fs;
-    std::string _path;
+    io::FileReaderSPtr _file_reader;
     IndexedColumnMetaPB _meta;
 
     bool _use_page_cache;
@@ -85,31 +94,29 @@ private:
     bool _has_index_page = false;
     // valid only when the column contains only one data page
     PagePointer _sole_data_page;
-    IndexPageReader _ordinal_index_reader;
-    IndexPageReader _value_index_reader;
+    std::unique_ptr<IndexPageReader> _ordinal_index_reader;
+    std::unique_ptr<IndexPageReader> _value_index_reader;
     PageHandle _ordinal_index_page_handle;
     PageHandle _value_index_page_handle;
 
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
+    uint64_t _mem_size = 0;
+    bool _is_pk_index = false;
 };
 
 class IndexedColumnIterator {
 public:
-    explicit IndexedColumnIterator(const IndexedColumnReader* reader)
+    explicit IndexedColumnIterator(const IndexedColumnReader* reader,
+                                   OlapReaderStatistics* stats = nullptr)
             : _reader(reader),
-              _ordinal_iter(&reader->_ordinal_index_reader),
-              _value_iter(&reader->_value_index_reader) {
-        io::FileSystem* fs = _reader->_fs;
-        auto st = fs->open_file(_reader->_path, &_file_reader);
-
-        DCHECK(st.ok());
-        WARN_IF_ERROR(st, "open file failed:" + _reader->_path);
-    }
+              _ordinal_iter(reader->_ordinal_index_reader.get()),
+              _value_iter(reader->_value_index_reader.get()),
+              _stats(stats) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
-    // Return NotFound if provided seek point is past the end.
+    // Return Status::Error<ENTRY_NOT_FOUND> if provided seek point is past the end.
     // Return NotSupported for column without ordinal index.
     Status seek_to_ordinal(ordinal_t idx);
 
@@ -120,9 +127,13 @@ public:
     // Sets *exact_match to indicate whether the seek found the exact
     // key requested.
     //
-    // Return NotFound if the given key is greater than all keys in this column.
+    // Return Status::Error<ENTRY_NOT_FOUND> if the given key is greater than all keys in this column.
     // Return NotSupported for column without value index.
     Status seek_at_or_after(const void* key, bool* exact_match);
+    Status seek_at_or_after(const std::string* key, bool* exact_match) {
+        Slice slice(key->data(), key->size());
+        return seek_at_or_after(static_cast<const void*>(&slice), exact_match);
+    }
 
     // Get the ordinal index that the iterator is currently pointed to.
     ordinal_t get_current_ordinal() const {
@@ -131,14 +142,12 @@ public:
     }
 
     // After one seek, we can only call this function once to read data
-    // into ColumnBlock. when read string type data, memory will allocated
-    // from Arena
-    Status next_batch(size_t* n, ColumnBlockView* column_view);
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
 
 private:
     Status _read_data_page(const PagePointer& pp);
 
-    const IndexedColumnReader* _reader;
+    const IndexedColumnReader* _reader = nullptr;
     // iterator for ordinal index page
     IndexPageIterator _ordinal_iter;
     // iterator for value index page
@@ -151,10 +160,9 @@ private:
     ParsedPage _data_page;
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
-    // open file handle
-    std::unique_ptr<io::FileReader> _file_reader;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
+    OlapReaderStatistics* _stats = nullptr;
 };
 
 } // namespace segment_v2

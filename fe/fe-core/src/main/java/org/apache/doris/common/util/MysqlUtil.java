@@ -60,8 +60,8 @@ public class MysqlUtil {
         try {
             conn = DriverManager.getConnection(url, user, passwd);
         } catch (SQLException e) {
-            LOG.warn("fail to get connection to mysql. url={}, user={}, passwd={}, exception={}",
-                    url, user, passwd, e.getMessage());
+            LOG.warn("fail to get connection to mysql. url={}, user={}, exception={}",
+                    url, user, e.getMessage());
             return null;
         }
         return conn;

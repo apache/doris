@@ -17,33 +17,34 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.alter.DecommissionType;
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 public class DecommissionBackendClause extends BackendClause {
 
-    private DecommissionType type;
-
     public DecommissionBackendClause(List<String> hostPorts) {
         super(hostPorts);
-        type = DecommissionType.SystemDecommission;
+    }
+
+    public DecommissionBackendClause(List<String> ids, List<HostInfo> hostPorts) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DECOMMISSION BACKEND ");
-        for (int i = 0; i < hostPorts.size(); i++) {
-            sb.append("\"").append(hostPorts.get(i)).append("\"");
-            if (i != hostPorts.size() - 1) {
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
                 sb.append(", ");
             }
         }
         return sb.toString();
-    }
-
-    public void setType(DecommissionType type) {
-        this.type = type;
     }
 }

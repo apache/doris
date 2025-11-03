@@ -17,16 +17,9 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.qe.ConnectContext;
-
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * DbPrivTable saves all database level privs
@@ -38,14 +31,10 @@ public class DbPrivTable extends PrivTable {
      * Return first priv which match the user@host on ctl.db.* The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String ctl, String db, PrivBitSet savedPrivs) {
+    public void getPrivs(String ctl, String db, PrivBitSet savedPrivs) {
         DbPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
-
-            if (!dbPrivEntry.match(currentUser, true)) {
-                continue;
-            }
 
             // check catalog
             if (!dbPrivEntry.isAnyCtl() && !dbPrivEntry.getCtlPattern().match(ctl)) {
@@ -53,7 +42,9 @@ public class DbPrivTable extends PrivTable {
             }
 
             // check db
-            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db)) {
+            // dbPrivEntry.getDbPattern() is always constructed by string as of form: 'xxx_db'
+            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db) && !dbPrivEntry.getDbPattern()
+                    .match(db)) {
                 continue;
             }
 
@@ -67,13 +58,9 @@ public class DbPrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
-    public boolean hasPrivsOfCatalog(UserIdentity currentUser, String ctl) {
+    public boolean hasPrivsOfCatalog(String ctl) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
-
-            if (!dbPrivEntry.match(currentUser, true)) {
-                continue;
-            }
 
             // check catalog
             Preconditions.checkState(!dbPrivEntry.isAnyCtl());
@@ -84,7 +71,7 @@ public class DbPrivTable extends PrivTable {
         return false;
     }
 
-    public boolean hasClusterPriv(ConnectContext ctx, String clusterName) {
+    public boolean hasClusterPriv(String clusterName) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
             if (dbPrivEntry.getOrigDb().startsWith(clusterName)) {
@@ -92,16 +79,5 @@ public class DbPrivTable extends PrivTable {
             }
         }
         return false;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = DbPrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 }

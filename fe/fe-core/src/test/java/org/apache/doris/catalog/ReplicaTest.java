@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import mockit.Mocked;
 import org.junit.Assert;
@@ -26,9 +28,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,7 +38,7 @@ public class ReplicaTest {
 
     // replica serialize and deserialize test will use catalog so that it should be mocked
     @Mocked
-    Catalog catalog;
+    Env env;
 
     private Replica replica;
     private long replicaId;
@@ -52,25 +54,20 @@ public class ReplicaTest {
         version = 2;
         dataSize = 9999;
         rowCount = 1024;
-        replica = new Replica(replicaId, backendId, version, 0, dataSize, rowCount, ReplicaState.NORMAL, 0, version);
+        replica = new Replica(replicaId, backendId, version, 0, dataSize, 0, rowCount, ReplicaState.NORMAL, 0, version);
     }
 
     @Test
     public void getMethodTest() {
         Assert.assertEquals(replicaId, replica.getId());
-        Assert.assertEquals(backendId, replica.getBackendId());
+        Assert.assertEquals(backendId, replica.getBackendIdWithoutException());
         Assert.assertEquals(version, replica.getVersion());
         Assert.assertEquals(dataSize, replica.getDataSize());
         Assert.assertEquals(rowCount, replica.getRowCount());
 
         // update new version
         long newVersion = version + 1;
-        long newDataSize = dataSize + 100;
-        long newRowCount = rowCount + 10;
-        replica.updateVersionInfo(newVersion, newDataSize, newRowCount);
-        Assert.assertEquals(newVersion, replica.getVersion());
-        Assert.assertEquals(newDataSize, replica.getDataSize());
-        Assert.assertEquals(newRowCount, replica.getRowCount());
+        replica.updateVersion(newVersion);
 
         // check version catch up
         Assert.assertFalse(replica.checkVersionCatchUp(5, false));
@@ -81,30 +78,28 @@ public class ReplicaTest {
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./olapReplicaTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./olapReplicaTest"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         List<Replica> list1 = new ArrayList<Replica>();
         List<Replica> list2 = new ArrayList<Replica>();
         for (int count = 0; count < 10; ++count) {
             Replica olapReplica = new Replica(100L * count, 100L * count, 100L * count, 0,
-                                              100L * count, 100 * count, ReplicaState.NORMAL, 0, 100L * count);
+                                              100L * count, 0,  100 * count, ReplicaState.NORMAL, 0, 100L * count);
             list1.add(olapReplica);
-            olapReplica.write(dos);
+            Text.writeString(dos, GsonUtils.GSON.toJson(olapReplica));
         }
 
         Replica replica = new Replica(10L, 20L, 0, null);
         list1.add(replica);
-        replica.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(replica));
         dos.flush();
         dos.close();
 
         // 2. Read a object from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 10; ++count) {
-            Replica olapReplica = new Replica();
-            olapReplica.readFields(dis);
+            Replica olapReplica = GsonUtils.GSON.fromJson(Text.readString(dis), Replica.class);
             Assert.assertEquals(100 * count, olapReplica.getId());
             Assert.assertEquals(100 * count, olapReplica.getBackendId());
             Assert.assertEquals(100 * count, olapReplica.getVersion());
@@ -113,34 +108,33 @@ public class ReplicaTest {
             Assert.assertEquals(Replica.ReplicaState.NORMAL, olapReplica.getState());
             list2.add(olapReplica);
         }
-        Replica olapReplica = new Replica();
-        olapReplica.readFields(dis);
+        Replica olapReplica = GsonUtils.GSON.fromJson(Text.readString(dis), Replica.class);
         list2.add(olapReplica);
 
         // 3. Check equal
         for (int i = 0; i < 11; i++) {
-            Assert.assertTrue(list1.get(i).equals(list2.get(i)));
+            Assert.assertEquals(list1.get(i), list2.get(i));
         }
 
-        Assert.assertTrue(list1.get(1).equals(list1.get(1)));
-        Assert.assertFalse(list1.get(1).equals(list1));
+        Assert.assertEquals(list1.get(1), list1.get(1));
+        Assert.assertNotEquals(list1.get(1), list1);
 
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
     @Test
     public void testUpdateVersion1() {
-        Replica originalReplica = new Replica(10000, 20000, 3, 0, 100, 78, ReplicaState.NORMAL, 0, 3);
+        Replica originalReplica = new Replica(10000, 20000, 3, 0, 100, 0, 78, ReplicaState.NORMAL, 0, 3);
         // new version is little than original version, it is invalid the version will not update
-        originalReplica.updateVersionInfo(2, 100, 78);
+        originalReplica.updateVersion(2);
         Assert.assertEquals(3, originalReplica.getVersion());
     }
 
     @Test
     public void testUpdateVersion2() {
-        Replica originalReplica = new Replica(10000, 20000, 3, 0, 100, 78, ReplicaState.NORMAL, 0, 0);
-        originalReplica.updateVersionInfo(3, 100, 78);
+        Replica originalReplica = new Replica(10000, 20000, 3, 0, 100, 0, 78, ReplicaState.NORMAL, 0, 0);
+        originalReplica.updateVersion(3);
         // if new version >= current version and last success version <= new version, then last success version should be updated
         Assert.assertEquals(3, originalReplica.getLastSuccessVersion());
         Assert.assertEquals(3, originalReplica.getVersion());
@@ -149,14 +143,14 @@ public class ReplicaTest {
     @Test
     public void testUpdateVersion3() {
         // version(3) ---> last failed version (8) ---> last success version(10)
-        Replica originalReplica = new Replica(10000, 20000, 3, 111, 0, 78, ReplicaState.NORMAL, 0, 0);
+        Replica originalReplica = new Replica(10000, 20000, 3, 111, 0, 0, 78, ReplicaState.NORMAL, 0, 0);
         originalReplica.updateLastFailedVersion(8);
         Assert.assertEquals(3, originalReplica.getLastSuccessVersion());
         Assert.assertEquals(3, originalReplica.getVersion());
         Assert.assertEquals(8, originalReplica.getLastFailedVersion());
 
         // update last success version 10
-        originalReplica.updateVersionWithFailedInfo(originalReplica.getVersion(),
+        originalReplica.updateVersionWithFailed(originalReplica.getVersion(),
                 originalReplica.getLastFailedVersion(),
                 10);
         Assert.assertEquals(10, originalReplica.getLastSuccessVersion());
@@ -164,7 +158,7 @@ public class ReplicaTest {
         Assert.assertEquals(8, originalReplica.getLastFailedVersion());
 
         // update version to 8, the last success version and version should be 10
-        originalReplica.updateVersionInfo(8, 100, 78);
+        originalReplica.updateVersion(8);
         Assert.assertEquals(10, originalReplica.getLastSuccessVersion());
         Assert.assertEquals(10, originalReplica.getVersion());
         Assert.assertEquals(-1, originalReplica.getLastFailedVersion());
@@ -176,7 +170,7 @@ public class ReplicaTest {
         Assert.assertEquals(12, originalReplica.getLastFailedVersion());
 
         // update last success version to 15
-        originalReplica.updateVersionWithFailedInfo(originalReplica.getVersion(),
+        originalReplica.updateVersionWithFailed(originalReplica.getVersion(),
                 originalReplica.getLastFailedVersion(),
                 15);
         Assert.assertEquals(15, originalReplica.getLastSuccessVersion());
@@ -190,13 +184,13 @@ public class ReplicaTest {
         Assert.assertEquals(18, originalReplica.getLastFailedVersion());
 
         // update version to 17 then version and success version is 17
-        originalReplica.updateVersionInfo(17, 100, 78);
+        originalReplica.updateVersion(17);
         Assert.assertEquals(17, originalReplica.getLastSuccessVersion());
         Assert.assertEquals(17, originalReplica.getVersion());
         Assert.assertEquals(18, originalReplica.getLastFailedVersion());
 
         // update version to 18, then version and last success version should be 18 and failed version should be -1
-        originalReplica.updateVersionInfo(18, 100, 78);
+        originalReplica.updateVersion(18);
         Assert.assertEquals(18, originalReplica.getLastSuccessVersion());
         Assert.assertEquals(18, originalReplica.getVersion());
         Assert.assertEquals(-1, originalReplica.getLastFailedVersion());

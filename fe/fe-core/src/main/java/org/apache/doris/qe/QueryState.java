@@ -25,15 +25,18 @@ import org.apache.doris.mysql.MysqlPacket;
 
 // query state used to record state of query, maybe query status is better
 public class QueryState {
+    // Reused by arrow flight protocol
     public enum MysqlStateType {
         NOOP,   // send nothing to remote
         OK,     // send OK packet to remote
         EOF,    // send EOF packet to remote
-        ERR     // send ERROR packet to remote
+        ERR,     // send ERROR packet to remote
+        UNKNOWN  // send UNKNOWN packet to remote
     }
 
     public enum ErrType {
         ANALYSIS_ERR,
+        SYNTAX_PARSE_ERR,
         OTHER_ERR
     }
 
@@ -47,6 +50,9 @@ public class QueryState {
     private int warningRows = 0;
     // make it public for easy to use
     public int serverStatus = 0;
+    private boolean isNereids = true;
+    private boolean isInternal = false;
+    private ShowResultSet rs = null;
 
     public QueryState() {
     }
@@ -54,15 +60,23 @@ public class QueryState {
     public void reset() {
         stateType = MysqlStateType.OK;
         errorCode = null;
+        errType = ErrType.OTHER_ERR;
         infoMessage = null;
+        errorMessage = "";
         serverStatus = 0;
         isQuery = false;
         affectedRows = 0;
         warningRows = 0;
+        isNereids = false;
+        rs = null;
     }
 
     public MysqlStateType getStateType() {
         return stateType;
+    }
+
+    public void setNoop() {
+        stateType = MysqlStateType.NOOP;
     }
 
     public void setEof() {
@@ -84,8 +98,7 @@ public class QueryState {
     }
 
     public void setError(String errorMsg) {
-        this.stateType = MysqlStateType.ERR;
-        this.errorMessage = errorMsg;
+        this.setError(ErrorCode.ERR_UNKNOWN_ERROR, errorMsg);
     }
 
     public void setError(ErrorCode code, String msg) {
@@ -132,6 +145,31 @@ public class QueryState {
 
     public int getWarningRows() {
         return warningRows;
+    }
+
+    public void setNereids(boolean nereids) {
+        isNereids = nereids;
+    }
+
+    public boolean isNereids() {
+        return isNereids;
+    }
+
+    public boolean isInternal() {
+
+        return isInternal;
+    }
+
+    public void setInternal(boolean internal) {
+        isInternal = internal;
+    }
+
+    public void setResultSet(ShowResultSet rs) {
+        this.rs = rs;
+    }
+
+    public ShowResultSet getResultSet() {
+        return this.rs;
     }
 
     public MysqlPacket toResponsePacket() {

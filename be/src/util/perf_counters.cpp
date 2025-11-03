@@ -21,23 +21,35 @@
 #include "util/perf_counters.h"
 
 #include <linux/perf_event.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 
-#include <fstream>
+#include <boost/algorithm/string/trim.hpp>
+#include <fstream> // IWYU pragma: keep
 #include <iomanip>
 #include <iostream>
-#include <sstream>
+#include <unordered_map>
+#include <utility>
 
-#include "util/debug_util.h"
+#include "absl/strings/substitute.h"
+#include "util/pretty_printer.h"
+#include "util/string_parser.hpp"
+#include "util/string_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 #define COUNTER_SIZE (sizeof(void*))
-#define BUFFER_SIZE 256
 #define PRETTY_PRINT_WIDTH 13
+
+static std::unordered_map<std::string, std::string> _process_state;
+
+int64_t PerfCounters::_vm_rss = 0;
+std::string PerfCounters::_vm_rss_str = "";
+int64_t PerfCounters::_vm_hwm = 0;
+int64_t PerfCounters::_vm_size = 0;
+int64_t PerfCounters::_vm_peak = 0;
 
 // This is the order of the counters in /proc/self/io
 enum PERF_IO_IDX {
@@ -53,8 +65,8 @@ enum PERF_IO_IDX {
 
 // Wrapper around sys call.  This syscall is hard to use and this is how it is recommended
 // to be used.
-static inline int sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
-                                      int group_fd, unsigned long flags) {
+static inline auto sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
+                                       int64_t group_fd, unsigned long flags) {
     attr->size = sizeof(*attr);
     return syscall(__NR_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
@@ -126,7 +138,7 @@ static bool init_event_attr(perf_event_attr* attr, PerfCounters::Counter counter
     return true;
 }
 
-static string get_counter_name(PerfCounters::Counter counter) {
+static std::string get_counter_name(PerfCounters::Counter counter) {
     switch (counter) {
     case PerfCounters::PERF_COUNTER_SW_CPU_CLOCK:
         return "CPUTime";
@@ -198,7 +210,7 @@ bool PerfCounters::init_sys_counter(Counter counter) {
         return false;
     }
 
-    int fd = sys_perf_event_open(&attr, getpid(), -1, _group_fd, 0);
+    auto fd = sys_perf_event_open(&attr, getpid(), -1, _group_fd, 0);
 
     if (fd < 0) {
         return false;
@@ -252,7 +264,7 @@ bool PerfCounters::init_proc_self_io_counter(Counter counter) {
 }
 
 bool PerfCounters::init_proc_self_status_counter(Counter counter) {
-    CounterData data;
+    CounterData data {};
     data.counter = counter;
     data.source = PerfCounters::PROC_SELF_STATUS;
     data.type = TUnit::BYTES;
@@ -278,10 +290,10 @@ bool PerfCounters::init_proc_self_status_counter(Counter counter) {
     return true;
 }
 
-bool PerfCounters::get_sys_counters(vector<int64_t>& buffer) {
+bool PerfCounters::get_sys_counters(std::vector<int64_t>& buffer) {
     for (int i = 0; i < _counters.size(); i++) {
         if (_counters[i].source == SYS_PERF_COUNTER) {
-            int num_bytes = read(_counters[i].fd, &buffer[i], COUNTER_SIZE);
+            auto num_bytes = read((int)_counters[i].fd, &buffer[i], COUNTER_SIZE);
 
             if (num_bytes != COUNTER_SIZE) {
                 return false;
@@ -306,7 +318,7 @@ bool PerfCounters::get_sys_counters(vector<int64_t>& buffer) {
 //    read_bytes: 0
 //    write_bytes: 0
 //    cancelled_write_bytes: 0
-bool PerfCounters::get_proc_self_io_counters(vector<int64_t>& buffer) {
+bool PerfCounters::get_proc_self_io_counters(std::vector<int64_t>& buffer) {
     std::ifstream file("/proc/self/io", std::ios::in);
     std::string buf;
     int64_t values[PROC_IO_LAST_COUNTER];
@@ -346,9 +358,9 @@ bool PerfCounters::get_proc_self_io_counters(vector<int64_t>& buffer) {
     return true;
 }
 
-bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
+bool PerfCounters::get_proc_self_status_counters(std::vector<int64_t>& buffer) {
     std::ifstream file("/proc/self/status", std::ios::in);
-    string buf;
+    std::string buf;
 
     while (file) {
         getline(file, buf);
@@ -357,13 +369,13 @@ bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
             if (_counters[i].source == PROC_SELF_STATUS) {
                 size_t field = buf.find(_counters[i].proc_status_field);
 
-                if (field == string::npos) {
+                if (field == std::string::npos) {
                     continue;
                 }
 
                 size_t colon = field + _counters[i].proc_status_field.size() + 1;
                 buf = buf.substr(colon + 1);
-                istringstream stream(buf);
+                std::istringstream stream(buf);
                 int64_t value;
                 stream >> value;
                 buffer[i] = value * 1024; // values in file are in kb
@@ -384,7 +396,7 @@ PerfCounters::PerfCounters() : _group_fd(-1) {}
 PerfCounters::~PerfCounters() {
     for (int i = 0; i < _counters.size(); ++i) {
         if (_counters[i].source == SYS_PERF_COUNTER) {
-            close(_counters[i].fd);
+            close((int)_counters[i].fd);
         }
     }
 }
@@ -458,12 +470,12 @@ bool PerfCounters::add_counter(Counter counter) {
 }
 
 // Query all the counters right now and store the values in results
-void PerfCounters::snapshot(const string& name) {
+void PerfCounters::snapshot(const std::string& name) {
     if (_counters.size() == 0) {
         return;
     }
 
-    string fixed_name = name;
+    std::string fixed_name = name;
 
     if (fixed_name.size() == 0) {
         std::stringstream ss;
@@ -489,22 +501,22 @@ const std::vector<int64_t>* PerfCounters::counters(int snapshot) const {
     return &_snapshots[snapshot];
 }
 
-void PerfCounters::pretty_print(ostream* s) const {
+void PerfCounters::pretty_print(std::ostream* s) const {
     std::ostream& stream = *s;
-    std::stream << setw(8) << "snapshot";
+    stream << std::setw(8) << "snapshot";
 
     for (int i = 0; i < _counter_names.size(); ++i) {
-        stream << setw(PRETTY_PRINT_WIDTH) << _counter_names[i];
+        stream << std::setw(PRETTY_PRINT_WIDTH) << _counter_names[i];
     }
 
     stream << std::endl;
 
-    for (int s = 0; s < _snapshots.size(); s++) {
-        stream << setw(8) << _snapshot_names[s];
-        const std::vector<int64_t>& snapshot = _snapshots[s];
+    for (int ss = 0; ss < _snapshots.size(); s++) {
+        stream << std::setw(8) << _snapshot_names[ss];
+        const std::vector<int64_t>& snapshot = _snapshots[ss];
 
         for (int i = 0; i < snapshot.size(); ++i) {
-            stream << setw(PRETTY_PRINT_WIDTH)
+            stream << std::setw(PRETTY_PRINT_WIDTH)
                    << PrettyPrinter::print(snapshot[i], _counters[i].type);
         }
 
@@ -512,6 +524,79 @@ void PerfCounters::pretty_print(ostream* s) const {
     }
 
     stream << std::endl;
+}
+
+// Refactor below
+
+int PerfCounters::parse_int(const std::string& state_key) {
+    auto it = _process_state.find(state_key);
+    if (it != _process_state.end()) return atoi(it->second.c_str());
+    return -1;
+}
+
+int64_t PerfCounters::parse_int64(const std::string& state_key) {
+    auto it = _process_state.find(state_key);
+    if (it != _process_state.end()) {
+        StringParser::ParseResult result;
+        int64_t state_value =
+                StringParser::string_to_int<int64_t>(it->second.data(), it->second.size(), &result);
+        if (result == StringParser::PARSE_SUCCESS) return state_value;
+    }
+    return -1;
+}
+
+std::string PerfCounters::parse_string(const std::string& state_key) {
+    auto it = _process_state.find(state_key);
+    if (it != _process_state.end()) return it->second;
+    return "";
+}
+
+int64_t PerfCounters::parse_bytes(const std::string& state_key) {
+    auto it = _process_state.find(state_key);
+    if (it != _process_state.end()) {
+        std::vector<std::string> fields = split(it->second, " ");
+        // We expect state_value such as, e.g., '16129508', '16129508 kB', '16129508 mB'
+        StringParser::ParseResult result;
+        int64_t state_value =
+                StringParser::string_to_int<int64_t>(fields[0].data(), fields[0].size(), &result);
+        if (result == StringParser::PARSE_SUCCESS) {
+            if (fields.size() < 2) return state_value;
+            if (fields[1].compare("kB") == 0) return state_value * 1024L;
+        }
+    }
+    return -1;
+}
+
+void PerfCounters::refresh_proc_status() {
+    std::ifstream statusinfo("/proc/self/status", std::ios::in);
+    std::string line;
+    while (statusinfo.good() && !statusinfo.eof()) {
+        getline(statusinfo, line);
+        std::vector<std::string> fields = split(line, "\t");
+        if (fields.size() < 2) continue;
+        boost::algorithm::trim(fields[1]);
+        std::string key = fields[0].substr(0, fields[0].size() - 1);
+        _process_state[absl::Substitute("status/$0", key)] = fields[1];
+    }
+
+    if (statusinfo.is_open()) statusinfo.close();
+
+    _vm_size = parse_bytes("status/VmSize");
+    _vm_peak = parse_bytes("status/VmPeak");
+    _vm_rss = parse_bytes("status/VmRSS");
+#ifdef ADDRESS_SANITIZER
+    _vm_rss_str = "[ASAN]" + PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+#else
+    _vm_rss_str = PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+#endif
+    _vm_hwm = parse_bytes("status/VmHWM");
+}
+
+void PerfCounters::get_proc_status(ProcStatus* out) {
+    out->vm_size = parse_bytes("status/VmSize");
+    out->vm_peak = parse_bytes("status/VmPeak");
+    out->vm_rss = parse_bytes("status/VmRSS");
+    out->vm_hwm = parse_bytes("status/VmHWM");
 }
 
 } // namespace doris

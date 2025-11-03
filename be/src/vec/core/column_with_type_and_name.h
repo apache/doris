@@ -20,8 +20,19 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
+#include <stddef.h>
+
+#include <iosfwd>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+
+namespace doris {
+class PColumnMeta;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -37,13 +48,13 @@ struct ColumnWithTypeAndName {
     DataTypePtr type;
     String name;
 
-    ColumnWithTypeAndName() {}
-    ColumnWithTypeAndName(const ColumnPtr& column_, const DataTypePtr& type_, const String& name_)
-            : column(column_), type(type_), name(name_) {}
+    ColumnWithTypeAndName() = default;
+    ColumnWithTypeAndName(ColumnPtr column_, DataTypePtr type_, String name_)
+            : column(std::move(column_)), type(std::move(type_)), name(std::move(name_)) {}
 
     /// Uses type->create_column() to create column
-    ColumnWithTypeAndName(const DataTypePtr& type_, const String& name_)
-            : column(type_->create_column()), type(type_), name(name_) {}
+    ColumnWithTypeAndName(const DataTypePtr& type_, String name_)
+            : column(type_->create_column()), type(type_), name(std::move(name_)) {}
 
     ColumnWithTypeAndName clone_empty() const;
     bool operator==(const ColumnWithTypeAndName& other) const;
@@ -53,6 +64,10 @@ struct ColumnWithTypeAndName {
     std::string to_string(size_t row_num) const;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const;
+
+    ColumnWithTypeAndName unnest_nullable(bool replace_null_data_to_default = false) const;
+
+    Status check_type_and_column_match() const;
 };
 
 } // namespace doris::vectorized

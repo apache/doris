@@ -17,12 +17,15 @@
 
 #include "olap/rowset/unique_rowset_id_generator.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
+#include <memory>
+#include <string>
 
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
-#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
 
@@ -80,17 +83,10 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     EXPECT_EQ(backend_uid.lo, rowset_id.lo);
     EXPECT_EQ(backend_uid.hi, rowset_id.mi);
     EXPECT_NE(rowset_id.hi, 0);
-    bool in_use = id_generator.id_in_use(rowset_id);
-    EXPECT_TRUE(in_use);
-    id_generator.release_id(rowset_id);
-    in_use = id_generator.id_in_use(rowset_id);
-    EXPECT_FALSE(in_use);
 
     int64_t high = rowset_id.hi + 1;
     rowset_id = id_generator.next_id(); // hi == 3
     EXPECT_EQ(rowset_id.hi, high);
-    in_use = id_generator.id_in_use(rowset_id);
-    EXPECT_TRUE(in_use);
 
     std::string rowset_mid_str = rowset_id.to_string().substr(16, 16);
     std::string backend_mid_str = backend_uid.to_string().substr(0, 16);
@@ -127,6 +123,7 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {
     hi <<= 56;
     RowsetId last_id = id_generator.next_id();
     EXPECT_EQ(last_id.hi, hi + kNumThreads * kIdPerThread + 1);
+    pool.reset();
 }
 
 } // namespace doris

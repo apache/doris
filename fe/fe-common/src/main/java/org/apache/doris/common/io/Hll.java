@@ -46,7 +46,7 @@ public class Hll {
 
     public static final int HLL_COLUMN_PRECISION = 14;
     public static final int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
-    public static final int HLL_EXPLICLIT_INT64_NUM = 160;
+    public static final int HLL_EXPLICIT_INT64_NUM = 160;
     public static final int HLL_SPARSE_THRESHOLD = 4096;
     public static final int HLL_REGISTERS_COUNT = 16 * 1024;
 
@@ -122,7 +122,7 @@ public class Hll {
                 type = HLL_DATA_EXPLICIT;
                 break;
             case HLL_DATA_EXPLICIT:
-                if (hashSet.size() < HLL_EXPLICLIT_INT64_NUM) {
+                if (hashSet.size() < HLL_EXPLICIT_INT64_NUM) {
                     hashSet.add(hashValue);
                     break;
                 }
@@ -157,7 +157,7 @@ public class Hll {
                 switch (other.type) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                     case HLL_DATA_EXPLICIT:
                         this.hashSet.addAll(other.hashSet);
-                        if (this.hashSet.size() > HLL_EXPLICLIT_INT64_NUM) {
+                        if (this.hashSet.size() > HLL_EXPLICIT_INT64_NUM) {
                             convertExplicitToRegister();
                             this.type = HLL_DATA_FULL;
                         }
@@ -393,4 +393,13 @@ public class Hll {
         return type;
     }
 
+    // For convert to statistics used Hll128
+    public byte[] getRegisters() {
+        return registers;
+    }
+
+    // For convert to statistics used Hll128
+    public Set<Long> getHashSet() {
+        return hashSet;
+    }
 }

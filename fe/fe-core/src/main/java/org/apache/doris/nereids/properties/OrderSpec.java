@@ -19,17 +19,25 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.plans.physical.PhysicalHeapSort;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Spec of sort order.
  */
 public class OrderSpec {
+    // TODO: use a OrderKey with ExprId list to instead of current orderKeys for easy to use.
     private final List<OrderKey> orderKeys;
+
+    public OrderSpec() {
+        this.orderKeys = Lists.newArrayList();
+    }
 
     public OrderSpec(List<OrderKey> orderKeys) {
         this.orderKeys = orderKeys;
@@ -40,10 +48,11 @@ public class OrderSpec {
      *
      * @param other another OrderSpec.
      */
-    public boolean meet(OrderSpec other) {
+    public boolean satisfy(OrderSpec other) {
         if (this.orderKeys.size() < other.getOrderKeys().size()) {
             return false;
         }
+
         for (int i = 0; i < other.getOrderKeys().size(); ++i) {
             if (!this.orderKeys.get(i).matches(other.getOrderKeys().get(i))) {
                 return false;
@@ -52,9 +61,24 @@ public class OrderSpec {
         return true;
     }
 
-    public GroupExpression addEnforcer(Group child) {
+    /**
+     * add a local quick sort as order enforcer on child group.
+     */
+    public GroupExpression addLocalQuickSortEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalHeapSort(orderKeys, -1, 0),
+                new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, child.getLogicalProperties(),
+                        new GroupPlan(child)),
+                Lists.newArrayList(child)
+        );
+    }
+
+    /**
+     * add a global quick sort as order enforcer on child group.
+     */
+    public GroupExpression addGlobalQuickSortEnforcer(Group child) {
+        return new GroupExpression(
+                new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, child.getLogicalProperties(),
+                        new GroupPlan(child)),
                 Lists.newArrayList(child)
         );
     }
@@ -62,4 +86,27 @@ public class OrderSpec {
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
     }
+
+    @Override
+    public String toString() {
+        return "Order: (" + orderKeys + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        OrderSpec that = (OrderSpec) o;
+        return orderKeys.equals(that.orderKeys);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(orderKeys);
+    }
+
 }

@@ -17,12 +17,15 @@
 
 #include "agent/utils.h"
 
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
 #include <algorithm>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "service/backend_options.h"
-#include "util/logging.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -33,8 +36,13 @@ namespace doris {
 
 TEST(AgentUtilsTest, Test) {
     std::string host_name = BackendOptions::get_localhost();
-    int cnt = std::count(host_name.begin(), host_name.end(), '.');
-    EXPECT_EQ(3, cnt);
+    if (!BackendOptions::is_bind_ipv6()) {
+        int cnt = std::count(host_name.begin(), host_name.end(), '.');
+        EXPECT_EQ(3, cnt);
+    } else {
+        int cnt = std::count(host_name.begin(), host_name.end(), ':');
+        EXPECT_GT(cnt, 0);
+    }
 }
 
 } // namespace doris

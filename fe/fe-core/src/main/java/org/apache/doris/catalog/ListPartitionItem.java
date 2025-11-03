@@ -17,35 +17,56 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.MTMVUtil;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.ArrayList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
+
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ListPartitionItem extends PartitionItem {
-    public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
+    public static final ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
 
-    private List<PartitionKey> partitionKeys;
+    @SerializedName(value = "partitionKeys")
+    private final List<PartitionKey> partitionKeys;
+    @SerializedName(value = "idp")
+    private boolean isDefaultPartition = false;
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
         this.partitionKeys = partitionKeys;
     }
 
-    public static ListPartitionItem read(DataInput input) throws IOException {
-        int counter = input.readInt();
-        List<PartitionKey> partitionKeys = new ArrayList<>();
-        for (int i = 0; i < counter; i++) {
-            PartitionKey partitionKey = PartitionKey.read(input);
-            partitionKeys.add(partitionKey);
-        }
-        return new ListPartitionItem(partitionKeys);
-    }
-
     public List<PartitionKey> getItems() {
         return partitionKeys;
+    }
+
+    public String getItemsString() {
+        // ATTN: DO NOT EDIT unless unless you explicitly guarantee compatibility
+        // between different versions.
+        //
+        // the ccr syncer depends on this string to identify partitions between two
+        // clusters (cluster versions may be different).
+        return getItems().toString();
+    }
+
+    public String getItemsSql() {
+        return toSql();
+    }
+
+    @Override
+    public boolean isDefaultPartition() {
+        return isDefaultPartition;
+    }
+
+    public void setDefaultPartition(boolean isDefaultPartition) {
+        this.isDefaultPartition = isDefaultPartition;
     }
 
     @Override
@@ -60,11 +81,46 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(partitionKeys.size());
-        for (PartitionKey partitionKey : partitionKeys) {
-            partitionKey.write(out);
+    public PartitionKeyDesc toPartitionKeyDesc() {
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                .collect(Collectors.toList());
+        return PartitionKeyDesc.createIn(inValues);
+    }
+
+    @Override
+    public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                .collect(Collectors.toList());
+        Set<List<PartitionValue>> res = Sets.newHashSet();
+        for (List<PartitionValue> values : inValues) {
+            if (values.size() <= pos) {
+                throw new AnalysisException(
+                        String.format("toPartitionKeyDesc IndexOutOfBounds, values: %s, pos: %d", values.toString(),
+                                pos));
+            }
+            res.add(Lists.newArrayList(values.get(pos)));
         }
+        return PartitionKeyDesc.createIn(Lists.newArrayList(res));
+    }
+
+    @Override
+    public boolean isGreaterThanSpecifiedTime(int pos, Optional<String> dateFormatOptional, long nowTruncSubSec)
+            throws AnalysisException {
+        for (PartitionKey partitionKey : partitionKeys) {
+            if (partitionKey.getKeys().size() <= pos) {
+                throw new AnalysisException(
+                        String.format("toPartitionKeyDesc IndexOutOfBounds, partitionKey: %s, pos: %d",
+                                partitionKey.toString(),
+                                pos));
+            }
+            if (!isDefaultPartition()
+                    && MTMVUtil.getExprTimeSec(partitionKey.getKeys().get(pos), dateFormatOptional) >= nowTruncSubSec) {
+                // As long as one of the partitionKeys meets the requirements, this partition
+                // needs to be retained
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -91,20 +147,10 @@ public class ListPartitionItem extends PartitionItem {
             return false;
         }
 
-        ListPartitionItem partitionItem = (ListPartitionItem) obj;
+        ListPartitionItem other = (ListPartitionItem) obj;
         // check keys
-        if (partitionKeys != partitionItem.getItems()) {
-            if (partitionKeys.size() != partitionItem.getItems().size()) {
-                return false;
-            }
-            for (int i = 0; i < partitionKeys.size(); i++) {
-                if (!partitionKeys.get(i).equals(partitionItem.getItems().get(i))) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return partitionKeys.size() == other.partitionKeys.size()
+                && partitionKeys.equals(other.partitionKeys);
     }
 
     @Override
@@ -129,11 +175,11 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        int size = partitionKeys.size();
-        if (size > 1) {
-            sb.append("(");
+        if (isDefaultPartition) {
+            return "";
         }
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
 
         int i = 0;
         for (PartitionKey partitionKey : partitionKeys) {
@@ -144,9 +190,7 @@ public class ListPartitionItem extends PartitionItem {
             i++;
         }
 
-        if (size > 1) {
-            sb.append(")");
-        }
+        sb.append(")");
 
         return sb.toString();
     }

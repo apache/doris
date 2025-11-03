@@ -17,18 +17,36 @@
 
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <roaring/roaring.hh>
+
 #include "olap/types.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 namespace segment_v2 {
-
+#include "common/compile_check_begin.h"
 Status BitmapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    const IndexedColumnMetaPB& dict_meta = _bitmap_index_meta->dict_column();
-    const IndexedColumnMetaPB& bitmap_meta = _bitmap_index_meta->bitmap_column();
-    _has_null = _bitmap_index_meta->has_null();
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_index_meta));
+    });
+}
 
-    _dict_column_reader.reset(new IndexedColumnReader(_fs, _path, dict_meta));
-    _bitmap_column_reader.reset(new IndexedColumnReader(_fs, _path, bitmap_meta));
+Status BitmapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                std::unique_ptr<BitmapIndexPB> index_meta) {
+    const IndexedColumnMetaPB& dict_meta = index_meta->dict_column();
+    const IndexedColumnMetaPB& bitmap_meta = index_meta->bitmap_column();
+    _has_null = index_meta->has_null();
+
+    _dict_column_reader.reset(new IndexedColumnReader(_file_reader, dict_meta));
+    _bitmap_column_reader.reset(new IndexedColumnReader(_file_reader, bitmap_meta));
     RETURN_IF_ERROR(_dict_column_reader->load(use_page_cache, kept_in_memory));
     RETURN_IF_ERROR(_bitmap_column_reader->load(use_page_cache, kept_in_memory));
     return Status::OK();
@@ -41,32 +59,29 @@ Status BitmapIndexReader::new_iterator(BitmapIndexIterator** iterator) {
 
 Status BitmapIndexIterator::seek_dictionary(const void* value, bool* exact_match) {
     RETURN_IF_ERROR(_dict_column_iter.seek_at_or_after(value, exact_match));
-    _current_rowid = _dict_column_iter.get_current_ordinal();
+    _current_rowid = static_cast<rowid_t>(_dict_column_iter.get_current_ordinal());
     return Status::OK();
 }
 
 Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, roaring::Roaring* result) {
-    DCHECK(0 <= ordinal && ordinal < _reader->bitmap_nums());
+    DCHECK(ordinal < _reader->bitmap_nums());
 
     size_t num_to_read = 1;
-    std::unique_ptr<ColumnVectorBatch> cvb;
-    RETURN_IF_ERROR(
-            ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
-    ColumnBlock block(cvb.get(), _pool.get());
-    ColumnBlockView column_block_view(&block);
+    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+            _reader->type_info()->type(), 1, 0);
+    auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));
     size_t num_read = num_to_read;
-    RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, &column_block_view));
+    RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, column));
     DCHECK(num_to_read == num_read);
 
-    *result = roaring::Roaring::read(reinterpret_cast<const Slice*>(block.data())->data, false);
-    _pool->clear();
+    *result = roaring::Roaring::read(column->get_data_at(0).data, false);
     return Status::OK();
 }
 
 Status BitmapIndexIterator::read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result) {
-    DCHECK(0 <= from && from <= to && to <= _reader->bitmap_nums());
+    DCHECK(from <= to && to <= _reader->bitmap_nums());
 
     for (rowid_t pos = from; pos < to; pos++) {
         roaring::Roaring bitmap;
@@ -78,3 +93,4 @@ Status BitmapIndexIterator::read_union_bitmap(rowid_t from, rowid_t to, roaring:
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

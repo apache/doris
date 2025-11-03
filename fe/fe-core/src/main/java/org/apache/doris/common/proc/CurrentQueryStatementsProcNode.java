@@ -33,10 +33,10 @@ import java.util.Map;
  */
 public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("QueryId").add("ConnectionId").add("Database").add("User")
+            .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
             .add("ExecTime").add("SqlHash").add("Statement").build();
 
-    private static final int EXEC_TIME_INDEX = 4;
+    private static final int EXEC_TIME_INDEX = 5;
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
@@ -50,6 +50,7 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
             final List<String> values = Lists.newArrayList();
             values.add(item.getQueryId());
             values.add(item.getConnId());
+            values.add(item.getCatalog());
             values.add(item.getDb());
             values.add(item.getUser());
             values.add(item.getQueryExecTime());
@@ -60,9 +61,9 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
 
         // sort according to ExecTime
         sortedRowData.sort((l1, l2) -> {
-            final int execTime1 = Integer.parseInt(l1.get(EXEC_TIME_INDEX));
-            final int execTime2 = Integer.parseInt(l2.get(EXEC_TIME_INDEX));
-            return execTime2 - execTime1;
+            final long execTime1 = Long.parseLong(l1.get(EXEC_TIME_INDEX));
+            final long execTime2 = Long.parseLong(l2.get(EXEC_TIME_INDEX));
+            return Long.compare(execTime2, execTime1);
         });
         result.setRows(sortedRowData);
         return result;

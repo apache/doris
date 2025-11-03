@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -65,7 +66,6 @@ public class OdbcCatalogResource extends Resource {
     @SerializedName(value = "configs")
     private Map<String, String> configs;
 
-    // only for deep copy
     public OdbcCatalogResource() {
         super();
     }
@@ -100,6 +100,7 @@ public class OdbcCatalogResource extends Resource {
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
         replaceIfEffectiveValue(this.configs, DRIVER, properties.get(DRIVER));
+        super.modifyProperties(properties);
     }
 
     @Override
@@ -139,30 +140,38 @@ public class OdbcCatalogResource extends Resource {
         try {
             // table name
             adler32.update(name.getBytes(charsetName));
-            LOG.debug("signature. view name: {}", name);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. view name: {}", name);
+            }
             // type
             adler32.update(type.name().getBytes(charsetName));
-            LOG.debug("signature. view type: {}", type.name());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. view type: {}", type.name());
+            }
             // configs
             for (Map.Entry<String, String> config : configs.entrySet()) {
                 adler32.update(config.getKey().getBytes(charsetName));
                 adler32.update(config.getValue().getBytes(charsetName));
-                LOG.debug("signature. view config: {}", config);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("signature. view config: {}", config);
+                }
             }
         } catch (UnsupportedEncodingException e) {
             LOG.error("encoding error", e);
             return -1;
         }
 
-        LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
+        }
         return Math.abs((int) adler32.getValue());
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
 
-        configs = properties;
+        configs = Maps.newHashMap(properties);
 
         checkProperties(HOST);
         checkProperties(PORT);

@@ -17,7 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.Expose;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -25,18 +30,28 @@ import java.io.IOException;
 
 public class ConsistencyCheckInfo implements Writable {
 
+    @SerializedName("db")
     private long dbId;
+    @SerializedName("tb")
     private long tableId;
+    @SerializedName("p")
     private long partitionId;
+    @SerializedName("ind")
     private long indexId;
+    @SerializedName("tab")
     private long tabletId;
 
+    @SerializedName("t")
     private long lastCheckTime;
 
+    @SerializedName("v")
     private long checkedVersion;
+
     @Deprecated
+    @Expose(serialize = false, deserialize = false)
     private long checkedVersionHash;
 
+    @SerializedName("isC")
     private boolean isConsistent;
 
     public ConsistencyCheckInfo() {
@@ -91,36 +106,10 @@ public class ConsistencyCheckInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-        out.writeLong(indexId);
-        out.writeLong(tabletId);
-
-        out.writeLong(lastCheckTime);
-        out.writeLong(checkedVersion);
-        out.writeLong(checkedVersionHash);
-
-        out.writeBoolean(isConsistent);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
-        indexId = in.readLong();
-        tabletId = in.readLong();
-
-        lastCheckTime = in.readLong();
-        checkedVersion = in.readLong();
-        checkedVersionHash = in.readLong();
-
-        isConsistent = in.readBoolean();
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static ConsistencyCheckInfo read(DataInput in) throws IOException {
-        ConsistencyCheckInfo info = new ConsistencyCheckInfo();
-        info.readFields(in);
-        return info;
+        return GsonUtils.GSON.fromJson(Text.readString(in), ConsistencyCheckInfo.class);
     }
 }

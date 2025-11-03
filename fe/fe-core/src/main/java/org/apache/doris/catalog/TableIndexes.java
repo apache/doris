@@ -17,17 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +28,7 @@ import java.util.Map;
 /**
  * Internal representation of table index, including indexes and index properties for future features
  */
-public class TableIndexes implements Writable {
+public class TableIndexes {
     @SerializedName(value = "indexes")
     private List<Index> indexes;
     @SerializedName(value = "properties")
@@ -61,6 +54,16 @@ public class TableIndexes implements Writable {
             indexes = Lists.newArrayList();
         }
         return indexes;
+    }
+
+    public List<Long> getIndexIds() {
+        List<Long> indexIds = Lists.newArrayList();
+        if (indexes != null) {
+            for (Index index : indexes) {
+                indexIds.add(index.getIndexId());
+            }
+        }
+        return indexIds;
     }
 
     public List<Index> getCopiedIndexes() {
@@ -92,15 +95,5 @@ public class TableIndexes implements Writable {
 
     public void setProperties(Map<String, String> properties) {
         this.properties = properties;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static TableIndexes read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, TableIndexes.class);
     }
 }

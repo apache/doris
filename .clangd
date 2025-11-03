@@ -18,3 +18,8 @@
 Diagnostics:
   UnusedIncludes: Strict
 
+If:
+  PathMatch: be/test/.*
+
+CompileFlags:
+  CompilationDatabase: be/ut_build_ASAN/

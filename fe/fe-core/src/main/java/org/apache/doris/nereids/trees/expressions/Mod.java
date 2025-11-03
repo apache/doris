@@ -17,30 +17,47 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * Mod Expression.
  */
-public class Mod extends Arithmetic implements BinaryExpression {
+public class Mod extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral {
+
     public Mod(Expression left, Expression right) {
-        super(ArithmeticOperator.MOD, left, right);
+        super(ImmutableList.of(left, right), Operator.MOD);
     }
 
-    @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
+    private Mod(List<Expression> children) {
+        super(children, Operator.MOD);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Mod(children.get(0), children.get(1));
+        return new Mod(children);
+    }
+
+    @Override
+    public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
+        int targetScale = Math.max(t1.getScale(), t2.getScale());
+        int integralPart = Math.max(t1.getRange(), t2.getRange());
+        return processDecimalV3OverFlow(integralPart, targetScale, integralPart);
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return true;
     }
 
     @Override

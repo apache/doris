@@ -31,15 +31,15 @@ public class RestoreFileMappingTest {
 
     @Before
     public void setUp() {
-        src = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L);
-        dest = new IdChain(10004L, 10003L, 10004L, 10007L, -1L);
+        src = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L, -1L);
+        dest = new IdChain(10004L, 10003L, 10004L, 10007L, -1L, -1L);
         fileMapping.putMapping(src, dest, true);
     }
 
     @Test
     public void test() {
-        IdChain key = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L);
-        Assert.assertTrue(key.equals(src));
+        IdChain key = new IdChain(10005L, 10006L, 10005L, 10007L, 10008L, -1L);
+        Assert.assertEquals(key, src);
         Assert.assertEquals(src, key);
         IdChain val = fileMapping.get(key);
         Assert.assertNotNull(val);
@@ -48,12 +48,12 @@ public class RestoreFileMappingTest {
         Long l1 = new Long(10005L);
         Long l2 = new Long(10005L);
         Assert.assertFalse(l1 == l2);
-        Assert.assertTrue(l1.equals(l2));
+        Assert.assertEquals(l1, l2);
 
         Long l3 = new Long(1L);
         Long l4 = new Long(1L);
         Assert.assertFalse(l3 == l4);
-        Assert.assertTrue(l3.equals(l4));
+        Assert.assertEquals(l3, l4);
     }
 
 }

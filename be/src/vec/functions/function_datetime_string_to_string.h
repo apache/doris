@@ -17,14 +17,41 @@
 
 #pragma once
 
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
+#include <fmt/compile.h>
+#include <fmt/core.h>
+#include <glog/logging.h>
+
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
+
+#include "common/cast_set.h"
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/functions/date_time_transforms.h"
+#include "vec/functions/date_format_type.h"
+#include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+#include "common/compile_check_begin.h"
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -34,105 +61,184 @@ public:
     static constexpr auto name = Transform::name;
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+    using ColumnType = typename PrimitiveTypeTraits<Transform::FromPType>::ColumnType;
+    constexpr static bool IsDecimal = is_decimal(Transform::FromPType);
 
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeStringToString>(); }
 
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return true; }
+    bool is_variadic() const override { return true; } // because format string is optional
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Transform::get_variadic_argument_types();
+        }
         return {};
     }
 
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+    struct FormatState {
+        std::string format_str;
+        // Check if the format string is null or exceeds the length limit.
+        bool is_valid = true;
+        time_format_type::FormatImplVariant format_type;
+    };
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        std::shared_ptr<FormatState> state = std::make_shared<FormatState>();
+        DCHECK((context->get_num_args() == 1) || (context->get_num_args() == 2));
+        context->set_function_state(scope, state);
+        if (context->get_num_args() == 1) {
+            // default argument
+            if constexpr (IsDecimal) {
+                state->format_str = time_format_type::DEFAULT_FORMAT_DECIMAL;
+            } else {
+                state->format_str = time_format_type::DEFAULT_FORMAT;
+                state->format_type = time_format_type::DEFAULT_IMPL;
+            }
+            return IFunction::open(context, scope);
+        }
+
+        const auto* column_string = context->get_constant_col(1);
+
+        if (column_string == nullptr) {
+            return Status::InvalidArgument(
+                    "The second parameter of the function {} must be a constant.", get_name());
+        }
+
+        auto string_vale = column_string->column_ptr->get_data_at(0);
+        if (string_vale.data == nullptr) {
+            // func(col , null);
+            state->is_valid = false;
+            return IFunction::open(context, scope);
+        }
+
+        string_vale = string_vale.trim();
+        // no need to rewrite, we choose implement by format_type. format_type's check has compatible logic about
+        // special format string.
+        auto format_str = StringRef(string_vale.data, string_vale.size);
+        if (format_str.size > 128) {
+            // exceeds the length limit.
+            state->is_valid = false;
+            return IFunction::open(context, scope);
+        }
+
+        // Preprocess special format strings.
+        state->format_str = format_str;
+        state->format_type = time_format_type::string_to_impl(state->format_str);
+
+        return IFunction::open(context, scope);
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    // avoid random value of nested for null row which would cause false positive of out of range error.
+    bool need_replace_null_data_to_default() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& sources =
+                assert_cast<const ColumnType&>(*block.get_by_position(arguments[0]).column);
 
-        const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
-        const auto* sources = check_and_get_column<ColumnVector<typename Transform::FromType>>(
-                nullable_column ? nullable_column->get_nested_column_ptr().get()
-                                : source_col.get());
+        auto col_res = ColumnString::create();
 
-        if (sources) {
-            auto col_res = ColumnString::create();
-            ColumnUInt8::MutablePtr col_null_map_to;
-            col_null_map_to = ColumnUInt8::create();
-            auto& vec_null_map_to = col_null_map_to->get_data();
+        // in open we have checked the second argument is constant,
+        RETURN_IF_ERROR(
+                vector_constant(context, sources, col_res->get_chars(), col_res->get_offsets()));
 
-            if (arguments.size() == 2) {
-                const IColumn& source_col1 = *block.get_by_position(arguments[1]).column;
-                if (const auto* delta_const_column =
-                            typeid_cast<const ColumnConst*>(&source_col1)) {
-                    TransformerToStringTwoArgument<Transform>::vector_constant(
-                            sources->get_data(), delta_const_column->get_field().get<String>(),
-                            col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
-                } else {
-                    return Status::InternalError(
-                            "Illegal column {} is not const {}",
-                            block.get_by_position(arguments[1]).column->get_name(), name);
+        block.get_by_position(result).column = std::move(col_res);
+
+        return Status::OK();
+    }
+
+    Status vector_constant(FunctionContext* context, const ColumnType& col,
+                           ColumnString::Chars& res_data,
+                           ColumnString::Offsets& res_offsets) const {
+        auto* format_state = reinterpret_cast<FormatState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (!format_state) {
+            return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
+                                        get_name());
+        }
+
+        StringRef format(format_state->format_str);
+        auto result_row_length = std::visit([](auto type) { return decltype(type)::row_size; },
+                                            format_state->format_type);
+
+        const auto& pod_array = col.get_data();
+        const auto len = pod_array.size();
+
+        if (!format_state->is_valid) {
+            // invalid parameter -> throw
+            throw_invalid_string(name, "invalid or oversized format");
+        }
+        res_offsets.resize(len);
+        res_data.reserve(len * result_row_length);
+
+        if constexpr (IsDecimal) {
+            // FromUnixTimeDecimalImpl. may use UserDefinedImpl or yyyy_MM_dd_HH_mm_ss_SSSSSSImpl.
+            size_t offset = 0;
+            if (format_state->format_str == time_format_type::DEFAULT_FORMAT_DECIMAL) {
+                for (int i = 0; i < len; ++i) {
+                    bool invalid = Transform::template execute_decimal<
+                            time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl>(
+                            col.get_intergral_part(i), col.get_fractional_part(i), format, res_data,
+                            offset, context->state()->timezone_obj());
+                    if (invalid) [[unlikely]] {
+                        throw_invalid_strings(
+                                name,
+                                fmt::format(FMT_COMPILE("{}.{}"), col.get_intergral_part(i),
+                                            col.get_fractional_part(i)),
+                                format_state->format_str);
+                    }
+                    res_offsets[i] = cast_set<uint32_t>(offset);
                 }
             } else {
-                TransformerToStringTwoArgument<Transform>::vector_constant(
-                        sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
-                        col_res->get_offsets(), vec_null_map_to);
-            }
-
-            if (nullable_column) {
-                const auto& origin_null_map = nullable_column->get_null_map_column().get_data();
-                for (int i = 0; i < origin_null_map.size(); ++i) {
-                    vec_null_map_to[i] |= origin_null_map[i];
+                for (int i = 0; i < len; ++i) {
+                    bool invalid =
+                            Transform::template execute_decimal<time_format_type::UserDefinedImpl>(
+                                    col.get_intergral_part(i), col.get_fractional_part(i), format,
+                                    res_data, offset, context->state()->timezone_obj());
+                    if (invalid) [[unlikely]] {
+                        throw_invalid_strings(
+                                name,
+                                fmt::format(FMT_COMPILE("{}.{}"), col.get_intergral_part(i),
+                                            col.get_fractional_part(i)),
+                                format_state->format_str);
+                    }
+                    res_offsets[i] = cast_set<uint32_t>(offset);
                 }
             }
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+            res_data.resize(offset);
         } else {
-            return Status::InternalError("Illegal column {} of first argument of function {}",
-                                         block.get_by_position(arguments[0]).column->get_name(),
-                                         name);
+            std::visit(
+                    [&](auto type) {
+                        using Impl = decltype(type);
+                        size_t offset = 0;
+                        for (int i = 0; i < len; ++i) {
+                            bool invalid = Transform::template execute<Impl>(
+                                    pod_array[i], format, res_data, offset,
+                                    context->state()->timezone_obj());
+                            if (invalid) [[unlikely]] {
+                                throw_invalid_strings(name, std::to_string(pod_array[i]),
+                                                      format_state->format_str);
+                            }
+                            res_offsets[i] = cast_set<uint32_t>(offset);
+                        }
+                        res_data.resize(offset);
+                    },
+                    format_state->format_type);
         }
         return Status::OK();
     }
 };
 
-class FromUnixTimeFunctionBuilder : public FunctionBuilderImpl {
-public:
-    explicit FromUnixTimeFunctionBuilder() = default;
-
-    String get_name() const override { return "from_unixtime"; }
-    bool is_variadic() const override { return true; }
-    size_t get_number_of_arguments() const override { return 0; }
-
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
-protected:
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
-    }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
-    }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
-                               const DataTypePtr& return_type) const override {
-        DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
-        // TODO: we still use VecDateTimeValue to convert unix timestamp to string
-        auto function =
-                FunctionDateTimeStringToString<FromUnixTimeImpl<VecDateTimeValue>>::create();
-        return std::make_shared<DefaultFunction>(function, data_types, return_type);
-    }
-};
-
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -1,0 +1,567 @@
+{
+    "Sql": "select * from t1",
+    "SessionVariable": {
+        "enable_nereids_planner": true,
+        "enable_fallback_to_original_planner": false,
+        "enable_nereids_timeout": false,
+        "enable_minidump": true
+    },
+    "DbName": "db",
+    "Tables": [
+        {
+            "TableType": "OLAP",
+            "TableName": "t1",
+            "TableValue": {
+                "clazz": "OlapTable",
+                "state": "NORMAL",
+                "indexIdToMeta": {
+                    "17009": {
+                        "indexId": 17009,
+                        "schema": [
+                            {
+                                "name": "l1",
+                                "type": {
+                                    "clazz": "ScalarType",
+                                    "type": "INT",
+                                    "len": -1,
+                                    "precision": 0,
+                                    "scale": 0
+                                },
+                                "isAggregationTypeImplicit": false,
+                                "isKey": true,
+                                "isAllowNull": true,
+                                "isAutoInc": false,
+                                "comment": "",
+                                "stats": {
+                                    "avgSerializedSize": -1,
+                                    "maxSize": -1,
+                                    "numDistinctValues": -1,
+                                    "numNulls": -1
+                                },
+                                "children": [],
+                                "visible": true,
+                                "uniqueId": 0
+                            }
+                        ],
+                        "schemaVersion": 0,
+                        "schemaHash": 1397816162,
+                        "shortKeyColumnCount": 1,
+                        "storageType": "COLUMN",
+                        "keysType": "DUP_KEYS",
+                        "maxColUniqueId": 0,
+                        "indexes": []
+                    }
+                },
+                "indexNameToId": {
+                    "t1": 17009
+                },
+                "keysType": "DUP_KEYS",
+                "partitionInfo": {
+                    "clazz": "SinglePartitionInfo",
+                    "Type": "UNPARTITIONED",
+                    "IdToDataProperty": {
+                        "17007": {
+                            "storageMedium": "HDD",
+                            "cooldownTimeMs": 253402271999000,
+                            "storagePolicy": "",
+                            "isMutable": true
+                        }
+                    },
+                    "IdToReplicaAllocation": {
+                        "17007": {
+                            "allocMap": [
+                                [
+                                    {
+                                        "type": "location",
+                                        "value": "default"
+                                    },
+                                    1
+                                ]
+                            ]
+                        }
+                    },
+                    "IdToInMemory": {
+                        "17007": false
+                    }
+                },
+                "idToPartition": {
+                    "17007": {
+                        "id": 17007,
+                        "name": "t1",
+                        "state": "NORMAL",
+                        "baseIndex": {
+                            "id": 17009,
+                            "state": "NORMAL",
+                            "rowCount": 2,
+                            "tablets": [
+                                {
+                                    "id": 17010,
+                                    "replicas": [
+                                        {
+                                            "id": 17011,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 247,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 1,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17012,
+                                    "replicas": [
+                                        {
+                                            "id": 17013,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17014,
+                                    "replicas": [
+                                        {
+                                            "id": 17015,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17016,
+                                    "replicas": [
+                                        {
+                                            "id": 17017,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17018,
+                                    "replicas": [
+                                        {
+                                            "id": 17019,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17020,
+                                    "replicas": [
+                                        {
+                                            "id": 17021,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17022,
+                                    "replicas": [
+                                        {
+                                            "id": 17023,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17024,
+                                    "replicas": [
+                                        {
+                                            "id": 17025,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17026,
+                                    "replicas": [
+                                        {
+                                            "id": 17027,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 0,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 0,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                },
+                                {
+                                    "id": 17028,
+                                    "replicas": [
+                                        {
+                                            "id": 17029,
+                                            "backendId": 11003,
+                                            "version": 3,
+                                            "versionHash": 0,
+                                            "dataSize": 227,
+                                            "remoteDataSize": 0,
+                                            "rowCount": 1,
+                                            "state": "NORMAL",
+                                            "lastFailedVersion": -1,
+                                            "lastFailedVersionHash": 0,
+                                            "lastSuccessVersion": 3,
+                                            "lastSuccessVersionHash": 0
+                                        }
+                                    ],
+                                    "checkedVersion": -1,
+                                    "checkedVersionHash": 0,
+                                    "isConsistent": true,
+                                    "cooldownReplicaId": -1,
+                                    "cooldownTerm": -1,
+                                    "signature": -1,
+                                    "lastCheckTime": -1
+                                }
+                            ],
+                            "rollupIndexId": -1,
+                            "rollupFinishedVersion": -1,
+                            "signature": -1,
+                            "lastCheckTime": -1
+                        },
+                        "idToVisibleRollupIndex": {},
+                        "idToShadowIndex": {},
+                        "committedVersionHash": 0,
+                        "visibleVersion": 3,
+                        "visibleVersionTime": 1689754427918,
+                        "visibleVersionHash": 0,
+                        "nextVersion": 4,
+                        "nextVersionHash": 0,
+                        "distributionInfo": {
+                            "clazz": "HashDistributionInfo",
+                            "distributionColumns": [
+                                {
+                                    "name": "l1",
+                                    "type": {
+                                        "clazz": "ScalarType",
+                                        "type": "INT",
+                                        "len": -1,
+                                        "precision": 0,
+                                        "scale": 0
+                                    },
+                                    "isAggregationTypeImplicit": false,
+                                    "isKey": true,
+                                    "isAllowNull": true,
+                                    "isAutoInc": false,
+                                    "comment": "",
+                                    "stats": {
+                                        "avgSerializedSize": -1,
+                                        "maxSize": -1,
+                                        "numDistinctValues": -1,
+                                        "numNulls": -1
+                                    },
+                                    "children": [],
+                                    "visible": true,
+                                    "uniqueId": 0
+                                }
+                            ],
+                            "type": "HASH",
+                            "bucketNum": 10,
+                            "autoBucket": false
+                        },
+                        "signature": -1,
+                        "lastCheckTime": -1
+                    }
+                },
+                "distributionInfo": {
+                    "clazz": "HashDistributionInfo",
+                    "distributionColumns": [
+                        {
+                            "name": "l1",
+                            "type": {
+                                "clazz": "ScalarType",
+                                "type": "INT",
+                                "len": -1,
+                                "precision": 0,
+                                "scale": 0
+                            },
+                            "isAggregationTypeImplicit": false,
+                            "isKey": true,
+                            "isAllowNull": true,
+                            "isAutoInc": false,
+                            "comment": "",
+                            "stats": {
+                                "avgSerializedSize": -1,
+                                "maxSize": -1,
+                                "numDistinctValues": -1,
+                                "numNulls": -1
+                            },
+                            "children": [],
+                            "visible": true,
+                            "uniqueId": -1
+                        }
+                    ],
+                    "type": "HASH",
+                    "bucketNum": 10,
+                    "autoBucket": false
+                },
+                "tempPartitions": {
+                    "idToPartition": {}
+                },
+                "bfFpp": 0,
+                "indexes": {
+                    "indexes": [],
+                    "properties": {}
+                },
+                "baseIndexId": 17009,
+                "tableProperty": {
+                    "properties": {
+                        "deprecated_dynamic_schema": "false",
+                        "data_sort.col_num": "1",
+                        "_auto_bucket": "false",
+                        "data_sort.sort_type": "LEXICAL",
+                        "skip_write_index_on_load": "false",
+                        "disable_auto_compaction": "false",
+                        "default.replication_allocation": "tag.location.default: 1",
+                        "storage_format": "V2",
+                        "storage_policy": "",
+                        "enable_single_replica_compaction": "false",
+                        "compression": "LZ4F",
+                        "store_row_column": "false",
+                        "light_schema_change": "true",
+                        "enable_unique_key_merge_on_write": "false",
+                        "in_memory": "false"
+                    }
+                },
+                "id": 17008,
+                "name": "t1",
+                "type": "OLAP",
+                "createTime": 1688022864,
+                "fullSchema": [
+                    {
+                        "name": "l1",
+                        "type": {
+                            "clazz": "ScalarType",
+                            "type": "INT",
+                            "len": -1,
+                            "precision": 0,
+                            "scale": 0
+                        },
+                        "isAggregationTypeImplicit": false,
+                        "isKey": true,
+                        "isAllowNull": true,
+                        "isAutoInc": false,
+                        "comment": "",
+                        "stats": {
+                            "avgSerializedSize": -1,
+                            "maxSize": -1,
+                            "numDistinctValues": -1,
+                            "numNulls": -1
+                        },
+                        "children": [],
+                        "visible": true,
+                        "uniqueId": 0
+                    }
+                ],
+                "comment": "",
+                "signature": -1,
+                "lastCheckTime": -1
+            }
+        }
+    ],
+    "ColocateTableIndex": {},
+    "ParsedPlan": {
+        "PlanType": "LOGICAL_PROJECT",
+        "children": [
+            {
+                "PlanType": "LOGICAL_CHECK_POLICY",
+                "children": [
+                    {
+                        "PlanType": "LOGICAL_UNBOUND_RELATION",
+                        "Properties": {
+                            "RelationId": "RelationId#0"
+                        }
+                    }
+                ]
+            }
+        ],
+        "Properties": {
+            "Projects": "[*]",
+            "Excepts": "[]",
+            "CanEliminate": true,
+            "IsDistinct": false
+        }
+    },
+    "ColumnStatistics": [
+        {
+            "l1": {
+                "Ndv": 1,
+                "MinValueType": "Infinite",
+                "MaxValueType": "Infinite",
+                "Selectivity": 1,
+                "Count": 1,
+                "AvgSizeByte": 1,
+                "NumNulls": 1,
+                "DataSize": 1,
+                "IsUnKnown": true,
+                "Histogram": "",
+                "LastUpdatedTime": ""
+            }
+        }
+    ],
+    "Histogram": [],
+    "ResultPlan": {
+        "PlanType": "PHYSICAL_DISTRIBUTION",
+        "children": [
+            {
+                "PlanType": "PHYSICAL_OLAP_SCAN",
+                "Properties": {
+                    "OlapTable": {
+                        "Type": "Doris",
+                        "Id": "17008",
+                        "Name": "t1"
+                    },
+                    "DistributionSpec": "DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=NATURAL, tableId=17008, selectedIndexId=17009, partitionIds=[17007], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} )",
+                    "SelectedIndexId": "17009",
+                    "SelectedTabletIds": "[]",
+                    "SelectedPartitionIds": "[17007]",
+                    "PreAggStatus": "ON"
+                }
+            }
+        ],
+        "Properties": {
+            "DistributionSpec": "DistributionSpecGather"
+        }
+    }
+}

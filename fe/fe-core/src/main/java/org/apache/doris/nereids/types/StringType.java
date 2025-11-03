@@ -18,15 +18,31 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 /**
  * String data type in Nereids.
  */
-public class StringType extends DataType {
-    public static StringType INSTANCE = new StringType();
+public class StringType extends CharacterType {
+
+    public static final StringType INSTANCE = new StringType();
+
+    private StringType() {
+        super(-1);
+    }
 
     @Override
     public Type toCatalogDataType() {
         return Type.STRING;
+    }
+
+    @Override
+    public String simpleString() {
+        return "text";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
     }
 }

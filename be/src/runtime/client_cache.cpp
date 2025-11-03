@@ -17,13 +17,10 @@
 
 #include "runtime/client_cache.h"
 
-#include <thrift/protocol/TBinaryProtocol.h>
-
 #include <memory>
-#include <sstream>
+#include <utility>
 
 #include "common/logging.h"
-#include "gen_cpp/FrontendService.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
 
@@ -117,18 +114,26 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
 
     client_impl->set_conn_timeout(config::thrift_connect_timeout_seconds * 1000);
 
-    Status status = client_impl->open();
+    Status status = client_impl->open_with_retry(config::thrift_client_open_num_tries, 100);
 
     if (!status.ok()) {
         *client_key = nullptr;
         return status;
     }
-    client_impl->set_send_timeout(timeout_ms);
-    client_impl->set_recv_timeout(timeout_ms);
+
+    DCHECK(*client_key != nullptr);
+    // In thrift, timeout == 0, means wait infinitely, so that it should not happen.
+    // See https://github.com/apache/thrift/blob/master/lib/cpp/src/thrift/transport/TSocket.cpp.
+    // There is some code like this:      int ret = THRIFT_POLL(fds, 2, (recvTimeout_ == 0) ? -1 : recvTimeout_);
+    // If the developer missed to set the timeout, we should use default timeout, not infinitely.
+    // See https://linux.die.net/man/2/poll. Specifying a negative value in timeout means an infinite timeout.
+    client_impl->set_send_timeout(timeout_ms == 0 ? config::thrift_rpc_timeout_ms : timeout_ms);
+    client_impl->set_recv_timeout(timeout_ms == 0 ? config::thrift_rpc_timeout_ms : timeout_ms);
 
     {
         std::lock_guard<std::mutex> lock(_lock);
         // Because the client starts life 'checked out', we don't add it to the cache map
+        DCHECK(_client_map.count(*client_key) == 0);
         _client_map[*client_key] = client_impl.release();
     }
 
@@ -177,33 +182,6 @@ void ClientCacheHelper::release_client(void** client_key) {
     *client_key = nullptr;
 }
 
-void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
-    std::vector<ThriftClientImpl*> to_close;
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto cache_entry = _client_cache.find(hostport);
-
-        if (cache_entry == _client_cache.end()) {
-            return;
-        }
-
-        VLOG_RPC << "Invalidating all " << cache_entry->second.size()
-                 << " clients for: " << hostport;
-        for (void* client_key : cache_entry->second) {
-            auto client_map_entry = _client_map.find(client_key);
-            DCHECK(client_map_entry != _client_map.end());
-            ThriftClientImpl* info = client_map_entry->second;
-            _client_map.erase(client_key);
-            to_close.push_back(info);
-        }
-    }
-
-    for (auto* info : to_close) {
-        info->close();
-        delete info;
-    }
-}
-
 std::string ClientCacheHelper::debug_string() {
     std::stringstream out;
     out << "ClientCacheHelper(#hosts=" << _client_cache.size() << " [";
@@ -219,19 +197,6 @@ std::string ClientCacheHelper::debug_string() {
 
     out << "])";
     return out.str();
-}
-
-void ClientCacheHelper::test_shutdown() {
-    std::vector<TNetworkAddress> hostports;
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        for (const auto& [endpoint, _] : _client_cache) {
-            hostports.push_back(endpoint);
-        }
-    }
-    for (const auto& endpoint : hostports) {
-        close_connections(endpoint);
-    }
 }
 
 void ClientCacheHelper::init_metrics(const std::string& name) {

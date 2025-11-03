@@ -21,16 +21,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Preconditions;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class NullLiteral extends LiteralExpr {
@@ -52,6 +51,7 @@ public class NullLiteral extends LiteralExpr {
     public static NullLiteral create(Type type) {
         NullLiteral l = new NullLiteral();
         l.type = type;
+        l.analysisDone();
         return l;
     }
 
@@ -85,6 +85,9 @@ public class NullLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 0;
         }
@@ -97,8 +100,31 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
+    }
+
+    @Override
     public String getStringValue() {
         return "NULL";
+    }
+
+    @Override
+    public String getStringValueForQuery(FormatOptions options) {
+        return null;
+    }
+
+    @Override
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return FeConstants.null_string;
+    }
+
+    // the null value inside an array is represented as "null", for exampe:
+    // [null, null]. Not same as other primitive type to represent as \N.
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNullFormat();
     }
 
     @Override
@@ -121,33 +147,7 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        Preconditions.checkState(targetType.isValid());
-        if (!type.equals(targetType)) {
-            NullLiteral nullLiteral = new NullLiteral(this);
-            nullLiteral.setType(targetType);
-            return nullLiteral;
-        }
-        return this;
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.NULL_LITERAL;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-    }
-
-    public static NullLiteral read(DataInput in) throws IOException {
-        NullLiteral literal = new NullLiteral();
-        literal.readFields(in);
-        return literal;
     }
 }

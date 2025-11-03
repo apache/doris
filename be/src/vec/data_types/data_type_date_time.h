@@ -20,13 +20,27 @@
 
 #pragma once
 
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include <gen_cpp/Types_types.h>
 
-class DateLUTImpl;
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
 
 namespace doris::vectorized {
+class BufferWritable;
+class IColumn;
+class DataTypeDate;
+class DataTypeDateV2;
+
+#include "common/compile_check_begin.h"
 
 /** DateTime stores time as unix timestamp.
 	* The value itself is independent of time zone.
@@ -48,24 +62,46 @@ namespace doris::vectorized {
 	* Server time zone is the time zone specified in 'timezone' parameter in configuration file,
 	*  or system time zone at the moment of server startup.
 	*/
-class DataTypeDateTime final : public DataTypeNumberBase<Int64> {
+class DataTypeDateTime final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIME> {
 public:
-    DataTypeDateTime();
+    DataTypeDateTime() = default;
 
-    const char* get_family_name() const override { return "DateTime"; }
+    const std::string get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }
-    TypeIndex get_type_id() const override { return TypeIndex::DateTime; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIME; }
 
-    bool can_be_used_as_version() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATETIME;
+    }
 
     bool equals(const IDataType& rhs) const override;
+#ifdef BE_TEST
+    /// TODO: remove this in the future
+    using IDataType::to_string;
+    std::string to_string(Int64 int_val) const {
+        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
+        char buf[64];
+        value.to_string(buf);
+        // DateTime to_string the end is /0
+        return buf;
+    }
+#endif
+    using SerDeType = DataTypeDateTimeSerDe;
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<SerDeType>(nesting_level);
+    }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    Field get_field(const TExprNode& node) const override {
+        VecDateTimeValue value;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+            value.to_datetime();
+            return Field::create_field<TYPE_DATETIME>(Int64(*reinterpret_cast<__int64_t*>(&value)));
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type DateTime", node.date_literal.value);
+        }
+    }
 
     static void cast_to_date_time(Int64& x);
 
@@ -89,8 +125,21 @@ inline constexpr bool IsDateV2Type<DataTypeDateV2> = true;
 
 template <typename DataType>
 constexpr bool IsDateTimeV2Type = false;
+template <>
+inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
-constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;
+constexpr bool IsTimeV2Type = false;
+template <>
+inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
 
+template <typename DataType>
+constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+template <typename DataType>
+constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
+template <typename DataType>
+constexpr bool IsDatelikeTypes =
+        IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -17,18 +17,17 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.KafkaUtil;
-import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.persist.EditLog;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -36,7 +35,6 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import java_cup.runtime.Symbol;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -46,22 +44,13 @@ import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobTest {
-
-    @Mocked
-    EditLog editLog;
-    @Mocked
-    SqlParser sqlParser;
-    @Mocked
-    CreateRoutineLoadStmt createRoutineLoadStmt;
-    @Mocked
-    Symbol symbol;
-
     @Test
-    public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Catalog catalog,
+    public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Env env,
                                                        @Injectable TransactionState transactionState,
                                                        @Injectable RoutineLoadTaskInfo routineLoadTaskInfo)
             throws UserException {
@@ -146,7 +135,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testAfterCommittedWhileTaskAborted(@Mocked Catalog catalog,
+    public void testAfterCommittedWhileTaskAborted(@Mocked Env env,
                                                    @Injectable TransactionState transactionState,
                                                    @Injectable KafkaProgress progress) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -172,19 +161,27 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "progress", progress);
         try {
             routineLoadJob.afterCommitted(transactionState, true);
-            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         } catch (TransactionException e) {
             Assert.fail();
         }
     }
 
     @Test
-    public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress) {
+    public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress, @Injectable UserIdentity userIdentity) {
+        new Expectations() {
+            {
+                userIdentity.getQualifiedUser();
+                minTimes = 0;
+                result = "root";
+            }
+        };
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR, TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
+        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
         Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
+        Deencapsulation.setField(routineLoadJob, "userIdentity", userIdentity);
 
         List<String> showInfo = routineLoadJob.getShowInfo();
         Assert.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
@@ -192,18 +189,18 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileDbDeleted(@Mocked Catalog catalog, @Mocked InternalDataSource ds) throws UserException {
+    public void testUpdateWhileDbDeleted(@Mocked Env env, @Mocked InternalCatalog catalog) throws UserException {
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
             }
         };
 
         new Expectations() {
             {
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -216,14 +213,14 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhileTableDeleted(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void testUpdateWhileTableDeleted(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database) throws UserException {
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -238,7 +235,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateWhilePartitionChanged(@Mocked Catalog catalog, @Mocked InternalDataSource ds,
+    public void testUpdateWhilePartitionChanged(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable Database database, @Injectable Table table, @Injectable PartitionInfo partitionInfo,
             @Injectable KafkaProgress kafkaProgress) throws UserException {
         List<PartitionInfo> partitionInfoList = Lists.newArrayList();
@@ -246,10 +243,10 @@ public class RoutineLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -266,8 +263,19 @@ public class RoutineLoadJobTest {
             }
         };
 
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
+                                                             Map<String, String> convertedCustomProperties,
+                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             throws LoadException {
+                List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                pairList.add(Pair.of(1, 0L));
+                return pairList;
+            }
+        };
+
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         routineLoadJob.update();
 
@@ -275,7 +283,7 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testUpdateNumOfDataErrorRowMoreThanMax(@Mocked Catalog catalog) {
+    public void testUpdateNumOfDataErrorRowMoreThanMax(@Mocked Env env) {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 0);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 0);
@@ -328,10 +336,9 @@ public class RoutineLoadJobTest {
 
     @Test
     public void testGetShowCreateInfo() throws UserException {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1,
                 11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
-        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         String showCreateInfo = routineLoadJob.getShowCreateInfo();
         String expect = "CREATE ROUTINE LOAD test_load ON 11\n"
@@ -340,9 +347,10 @@ public class RoutineLoadJobTest {
                 + "(\n"
                 + "\"desired_concurrent_number\" = \"0\",\n"
                 + "\"max_error_number\" = \"10\",\n"
-                + "\"max_batch_interval\" = \"10\",\n"
+                + "\"max_filter_ratio\" = \"1.0\",\n"
+                + "\"max_batch_interval\" = \"60\",\n"
                 + "\"max_batch_rows\" = \"10\",\n"
-                + "\"max_batch_size\" = \"104857600\",\n"
+                + "\"max_batch_size\" = \"1073741824\",\n"
                 + "\"format\" = \"csv\",\n"
                 + "\"strip_outer_array\" = \"false\",\n"
                 + "\"num_as_string\" = \"false\",\n"

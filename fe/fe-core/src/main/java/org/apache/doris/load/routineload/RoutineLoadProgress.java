@@ -17,21 +17,11 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public abstract class RoutineLoadProgress implements Writable {
-
+public abstract class RoutineLoadProgress {
+    @SerializedName(value = "ldst")
     protected LoadDataSourceType loadDataSourceType;
-    protected boolean isTypeRead = false;
-
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
 
     public RoutineLoadProgress(LoadDataSourceType loadDataSourceType) {
         this.loadDataSourceType = loadDataSourceType;
@@ -39,32 +29,5 @@ public abstract class RoutineLoadProgress implements Writable {
 
     abstract void update(RLTaskTxnCommitAttachment attachment);
 
-    abstract String toJsonString();
-
-    public static RoutineLoadProgress read(DataInput in) throws IOException {
-        RoutineLoadProgress progress = null;
-        LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
-        if (type == LoadDataSourceType.KAFKA) {
-            progress = new KafkaProgress();
-        } else {
-            throw new IOException("Unknown load data source type: " + type.name());
-        }
-
-        progress.setTypeRead(true);
-        progress.readFields(in);
-        return progress;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, loadDataSourceType.name());
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            loadDataSourceType = LoadDataSourceType.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
-    }
+    public abstract String toJsonString();
 }

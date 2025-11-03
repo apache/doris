@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <iostream>
-#include <sstream>
+#include <string>
 
 #include "common/status.h"
 

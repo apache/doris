@@ -32,11 +32,16 @@ private:
 
     ColumnNothing(const ColumnNothing&) = default;
 
-public:
-    const char* get_family_name() const override { return "Nothing"; }
-    MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override {
+        return clone_dummy(limit ? std::min(s, limit) : s);
+    }
+    Field operator[](size_t) const override { return {}; }
+    void get(size_t, Field& f) const override { f = {}; }
+    void insert(const Field&) override { ++s; }
 
-    bool can_be_inside_nullable() const override { return true; }
+public:
+    std::string get_name() const override { return "Nothing"; }
+    MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnNothing);

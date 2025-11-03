@@ -18,53 +18,53 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
-import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
 
 public class AddBackendClause extends BackendClause {
-    // be in free state is not owned by any cluster
-    protected boolean isFree;
-    // cluster that backend will be added to
-    protected String destCluster;
     protected Map<String, String> properties = Maps.newHashMap();
-    private Tag tag;
+    @Getter
+    private Map<String, String> tagMap;
 
     public AddBackendClause(List<String> hostPorts) {
         super(hostPorts);
-        this.isFree = true;
-        this.destCluster = "";
     }
 
-    public AddBackendClause(List<String> hostPorts, boolean isFree, Map<String, String> properties) {
+    public AddBackendClause(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.isFree = isFree;
-        this.destCluster = "";
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
     }
 
-    public AddBackendClause(List<String> hostPorts, String destCluster) {
-        super(hostPorts);
-        this.isFree = false;
-        this.destCluster = destCluster;
-    }
-
-    public Tag getTag() {
-        return tag;
+    public AddBackendClause(List<String> ids, List<HostInfo> hostPorts,
+            Map<String, String> tagMap) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
+        this.tagMap = tagMap;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        super.analyze(analyzer);
-        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+    public void analyze() throws AnalysisException {
+        super.analyze();
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+        if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
+            throw new AnalysisException(NEED_LOCATION_TAG_MSG);
+        }
+        if (!Config.enable_multi_tags && tagMap.size() > 1) {
+            throw new AnalysisException(MUTLI_TAG_DISABLED_MSG);
+        }
     }
 
     @Override
@@ -76,30 +76,13 @@ public class AddBackendClause extends BackendClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD ");
-        if (isFree) {
-            sb.append("FREE ");
-        }
         sb.append("BACKEND ");
-
-        if (!Strings.isNullOrEmpty(destCluster)) {
-            sb.append("to").append(destCluster);
-        }
-
-        for (int i = 0; i < hostPorts.size(); i++) {
-            sb.append("\"").append(hostPorts.get(i)).append("\"");
-            if (i != hostPorts.size() - 1) {
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
                 sb.append(", ");
             }
         }
         return sb.toString();
     }
-
-    public boolean isFree() {
-        return this.isFree;
-    }
-
-    public String getDestCluster() {
-        return destCluster;
-    }
-
 }

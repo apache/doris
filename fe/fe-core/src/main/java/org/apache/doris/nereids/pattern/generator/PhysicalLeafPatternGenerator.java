@@ -22,17 +22,17 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for PhysicalLeafOperator. */
-public class PhysicalLeafPatternGenerator extends PatternGenerator {
+/** used to generate pattern for PhysicalLeaf. */
+public class PhysicalLeafPatternGenerator extends PlanPatternGenerator {
 
-    public PhysicalLeafPatternGenerator(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
-        super(analyzer, opType, parentClass);
+    public PhysicalLeafPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
+        super(analyzer, opType, parentClass, isMemoPattern);
     }
 
     @Override
     public String genericType() {
-        return "<PhysicalLeafPlan<" + opType.name + ">, Plan>";
+        return "<" + opType.name + ">";
     }
 
     @Override
@@ -45,7 +45,6 @@ public class PhysicalLeafPatternGenerator extends PatternGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalLeafPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

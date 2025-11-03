@@ -20,7 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.cluster.Cluster;
-import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -91,13 +91,23 @@ public class FakeEditLog extends MockUp<EditLog> {
     }
 
     @Mock
-    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation info) {
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 info) {
 
     }
 
     @Mock
     public void logModifyDistributionType(TableInfo tableInfo) {
 
+    }
+
+    @Mock
+    public void logAddBackend(Backend be) {
+        // do nothing for test
+    }
+
+    @Mock
+    public int getNumEditStreams() {
+        return 1; // fake that we have streams
     }
 
     public TransactionState getTransaction(long transactionId) {

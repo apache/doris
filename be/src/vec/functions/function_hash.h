@@ -20,22 +20,14 @@
 
 #pragma once
 
-#include <utility>
-
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/bit_cast.h"
-#include "vec/common/hash_table/hash.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
-struct IntHash64Impl {
-    using ReturnType = UInt64;
+#ifdef BE_TEST
+const char* murmur_hash3_get_name_type_int_for_test();
+const char* murmur_hash3_get_name_type_bigint_for_test();
+const char* murmur_hash3_get_name_type_bigint_v2_for_test();
+#endif
 
-    static UInt64 apply(UInt64 x) { return int_hash64(x ^ 0x4CF2D2BAAE6DA887ULL); }
-};
 } // namespace doris::vectorized

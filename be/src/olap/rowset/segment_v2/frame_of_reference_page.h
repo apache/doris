@@ -24,14 +24,18 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
-class FrameOfReferencePageBuilder : public PageBuilder {
+class FrameOfReferencePageBuilder : public PageBuilderHelper<FrameOfReferencePageBuilder<Type>> {
 public:
-    explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
-            : _options(options), _count(0), _finished(false) {
+    using Self = FrameOfReferencePageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override {
         _encoder.reset(new ForEncoder<CppType>(&_buf));
+        return Status::OK();
     }
 
     bool is_page_full() override { return _encoder->len() >= _options.data_page_size; }
@@ -47,30 +51,36 @@ public:
         }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
+        _raw_data_size += *count * sizeof(CppType);
         _last_val = new_vals[*count - 1];
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         DCHECK(!_finished);
         _finished = true;
         _encoder->flush();
-        return _buf.build();
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _buf.build(); });
+        return Status::OK();
     }
 
-    void reset() override {
+    Status reset() override {
         _count = 0;
         _finished = false;
+        _raw_data_size = 0;
         _encoder->clear();
+        return Status::OK();
     }
 
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buf.size(); }
 
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
+
     Status get_first_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_first_val, sizeof(CppType));
         return Status::OK();
@@ -78,13 +88,16 @@ public:
 
     Status get_last_value(void* value) const override {
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_last_val, sizeof(CppType));
         return Status::OK();
     }
 
 private:
+    explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
+            : _options(options), _count(0), _finished(false) {}
+
     typedef typename TypeTraits<Type>::CppType CppType;
     PageBuilderOptions _options;
     size_t _count;
@@ -93,6 +106,7 @@ private:
     faststring _buf;
     CppType _first_val;
     CppType _last_val;
+    uint64_t _raw_data_size = 0;
 };
 
 template <FieldType Type>
@@ -121,11 +135,16 @@ public:
                 << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
                 << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
-        if (PREDICT_FALSE(_num_elements == 0)) {
-            return Status::OK();
+        if (_num_elements == 0) [[unlikely]] {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            } else {
+                return Status::OK();
+            }
         }
 
-        int32_t skip_num = pos - _cur_index;
+        auto skip_num = cast_set<int32_t>(pos - _cur_index);
         _decoder->skip(skip_num);
         _cur_index = pos;
         return Status::OK();
@@ -135,38 +154,18 @@ public:
         DCHECK(_parsed) << "Must call init() firstly";
         bool found = _decoder->seek_at_or_after_value(value, exact_match);
         if (!found) {
-            return Status::NotFound("not found");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("not found");
         }
         _cur_index = _decoder->current_index();
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
-
-    template <bool forward_index>
-    inline Status next_batch(size_t* n, ColumnBlockView* dst) {
-        DCHECK(_parsed) << "Must call init() firstly";
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
-            *n = 0;
-            return Status::OK();
-        }
-
-        size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        uint8_t* data_ptr = dst->data();
-        _decoder->get_batch(reinterpret_cast<CppType*>(data_ptr), to_fetch);
-        if (forward_index) {
-            _cur_index += to_fetch;
-        }
-        *n = to_fetch;
-        return Status::OK();
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return Status::NotSupported("frame page not implement vec op now");
-    };
+    }
 
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch<false>(n, dst);
+    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("frame page not implement vec op now");
     }
 
     size_t count() const override { return _num_elements; }
@@ -183,5 +182,6 @@ private:
     std::unique_ptr<ForDecoder<CppType>> _decoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

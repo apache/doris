@@ -17,7 +17,11 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -25,6 +29,7 @@ import java.io.IOException;
 
 // Write this class to bdb periodically
 public class Timestamp implements Writable {
+    @SerializedName("ts")
     private long timestamp;
 
     public Timestamp() {
@@ -37,11 +42,11 @@ public class Timestamp implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(timestamp);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        timestamp = in.readLong();
+    public static Timestamp read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), Timestamp.class);
     }
 
     public String toString() {

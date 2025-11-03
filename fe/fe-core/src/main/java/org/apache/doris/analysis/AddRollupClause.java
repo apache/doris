@@ -70,7 +70,7 @@ public class AddRollupClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         FeNameFormat.checkTableName(rollupName);
 
         if (columnNames == null || columnNames.isEmpty()) {
@@ -79,13 +79,24 @@ public class AddRollupClause extends AlterTableClause {
         Set<String> colSet = Sets.newHashSet();
         for (String col : columnNames) {
             if (Strings.isNullOrEmpty(col)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, col);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                        col, FeNameFormat.getColumnNameRegex());
             }
             if (!colSet.add(col)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col);
             }
         }
         baseRollupName = Strings.emptyToNull(baseRollupName);
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

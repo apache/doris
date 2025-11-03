@@ -35,24 +35,29 @@ import java.util.concurrent.TimeUnit;
 public class MasterTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterTaskExecutor.class);
 
-    private ThreadPoolExecutor executor;
-    private Map<Long, Future<?>> runningTasks;
-    public ScheduledThreadPoolExecutor scheduledThreadPool;
+    protected ThreadPoolExecutor executor;
+    protected Map<Long, Future<?>> runningTasks;
+    protected ScheduledThreadPoolExecutor scheduledThreadPool;
+
+    protected MasterTaskExecutor(String name, boolean needRegisterMetric) {
+        runningTasks = Maps.newHashMap();
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+                name + "_scheduler_thread_pool", needRegisterMetric);
+    }
 
     public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(
-                threadNum, threadNum * 2, name + "_pool", needRegisterMetric);
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "-pool",
+                needRegisterMetric);
         runningTasks = Maps.newHashMap();
-        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(
-                1, name + "_scheduler_thread_pool", needRegisterMetric);
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "-scheduler-thread-pool",
+                needRegisterMetric);
     }
 
     public MasterTaskExecutor(String name, int threadNum, int queueSize, boolean needRegisterMetric) {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(
-                threadNum, queueSize, name + "_pool", needRegisterMetric);
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, queueSize, name + "-pool", needRegisterMetric);
         runningTasks = Maps.newHashMap();
-        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(
-                1, name + "_scheduler_thread_pool", needRegisterMetric);
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "-scheduler-thread-pool",
+                needRegisterMetric);
     }
 
     public boolean hasIdleThread() {

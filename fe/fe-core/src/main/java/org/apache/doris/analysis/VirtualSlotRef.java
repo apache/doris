@@ -17,35 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * It like a SlotRef except that it is not a real column exist in table.
  */
 public class VirtualSlotRef extends SlotRef {
-    private static final Logger LOG = LogManager.getLogger(VirtualSlotRef.class);
     // results of analysis slot
-
     private TupleDescriptor tupleDescriptor;
     private List<Expr> realSlots;
-
-    public VirtualSlotRef(String col, Type type, TupleDescriptor tupleDescriptor, List<Expr> realSlots) {
-        super(null, col);
-        super.type = type;
-        this.tupleDescriptor = tupleDescriptor;
-        this.realSlots = realSlots;
-    }
 
     protected VirtualSlotRef(VirtualSlotRef other) {
         super(other);
@@ -55,50 +37,12 @@ public class VirtualSlotRef extends SlotRef {
         tupleDescriptor = other.tupleDescriptor;
     }
 
-    public static VirtualSlotRef read(DataInput in) throws IOException {
-        VirtualSlotRef virtualSlotRef = new VirtualSlotRef(null, Type.BIGINT, null, new ArrayList<>());
-        virtualSlotRef.readFields(in);
-        return virtualSlotRef;
-    }
-
-    public String getRealColumnName() {
-        if (getColumnName().startsWith(GroupingInfo.GROUPING_PREFIX)) {
-            return getColumnName().substring(GroupingInfo.GROUPING_PREFIX.length());
-        }
-        return getColumnName();
+    public VirtualSlotRef(SlotDescriptor desc) {
+        super(desc);
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        if (CollectionUtils.isEmpty(realSlots)) {
-            out.writeInt(0);
-        } else {
-            out.writeInt(realSlots.size());
-            for (Expr slotRef : realSlots) {
-                slotRef.write(out);
-            }
-        }
-
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int realSlotsSize = in.readInt();
-        if (realSlotsSize > 0) {
-            for (int i = 0; i < realSlotsSize; i++) {
-                realSlots.add(SlotRef.read(in));
-            }
-        }
-    }
-
-    public List<Expr> getRealSlots() {
-        return realSlots;
-    }
-
-    public void setRealSlots(List<Expr> realSlots) {
-        this.realSlots = realSlots;
+    public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
     }
 
     @Override
@@ -107,8 +51,12 @@ public class VirtualSlotRef extends SlotRef {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerVirtualColumnRef(super.getColumnName(), type, tupleDescriptor);
-        numDistinctValues = desc.getStats().getNumDistinctValues();
+    public String getExprName() {
+        return super.getExprName();
+    }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
     }
 }

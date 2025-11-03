@@ -18,7 +18,6 @@
 #pragma once
 
 #include <iostream>
-#include <memory>
 
 #include "common/status.h"
 
@@ -40,10 +39,37 @@ class Status;
 
 namespace doris {
 
+#define RETURN_ARROW_STATUS_IF_ERROR(stmt)                  \
+    do {                                                    \
+        Status _status_ = (stmt);                           \
+        if (UNLIKELY(!_status_.ok())) {                     \
+            ARROW_RETURN_NOT_OK(to_arrow_status(_status_)); \
+        }                                                   \
+    } while (false)
+
+#define RETURN_DORIS_STATUS_IF_ERROR(stmt)    \
+    do {                                      \
+        arrow::Status _status_ = (stmt);      \
+        if (UNLIKELY(!_status_.ok())) {       \
+            return to_doris_status(_status_); \
+        }                                     \
+    } while (false)
+
+#define RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(stmt)                               \
+    do {                                                                           \
+        try {                                                                      \
+            arrow::Status _status_ = (stmt);                                       \
+            return _status_;                                                       \
+        } catch (const doris::Exception& e) {                                      \
+            return to_arrow_status(Status::Error<false>(e.code(), e.to_string())); \
+        }                                                                          \
+    } while (0)
+
 // Pretty print a arrow RecordBatch.
 Status arrow_pretty_print(const arrow::RecordBatch& rb, std::ostream* os);
 Status arrow_pretty_print(const arrow::Array& rb, std::ostream* os);
 
-Status to_status(const arrow::Status& status);
+Status to_doris_status(const arrow::Status& status);
+arrow::Status to_arrow_status(const Status& status);
 
 } // namespace doris

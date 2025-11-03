@@ -34,4 +34,13 @@ public class Origin {
         this.line = line;
         this.startPosition = startPosition;
     }
+
+    @Override
+    public String toString() {
+        if (line.isPresent()) {
+            return "line " + line.get() + ", pos " + startPosition.get();
+        } else {
+            return "unknown position";
+        }
+    }
 }

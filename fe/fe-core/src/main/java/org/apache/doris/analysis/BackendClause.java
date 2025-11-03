@@ -19,47 +19,60 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.NotImplementedException;
+import com.google.common.collect.Lists;
+import lombok.Getter;
+import org.apache.commons.lang3.NotImplementedException;
 
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 public class BackendClause extends AlterClause {
-    protected List<String> hostPorts;
-    protected List<Pair<String, Integer>> hostPortPairs;
+    protected List<String> params;
+    @Getter
+    protected List<HostInfo> hostInfos;
 
-    protected BackendClause(List<String> hostPorts) {
+    @Getter
+    protected List<String> ids;
+
+    public static final String MUTLI_TAG_DISABLED_MSG = "Not support multi tags for Backend now. "
+            + "You can set 'enable_multi_tags=true' in fe.conf to enable this feature.";
+    public static final String NEED_LOCATION_TAG_MSG
+            = "Backend must have location type tag. Eg: 'tag.location' = 'xxx'.";
+
+    protected BackendClause(List<String> params) {
         super(AlterOpType.ALTER_OTHER);
-        this.hostPorts = hostPorts;
-        this.hostPortPairs = new LinkedList<Pair<String, Integer>>();
-    }
-
-    public List<Pair<String, Integer>> getHostPortPairs() {
-        return hostPortPairs;
+        this.params = params;
+        this.ids = Lists.newArrayList();
+        this.hostInfos = Lists.newArrayList();
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        for (String hostPort : hostPorts) {
-            Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
-            hostPortPairs.add(pair);
-        }
+    public void analyze() throws AnalysisException {
 
-        Preconditions.checkState(!hostPortPairs.isEmpty());
+        for (String param : params) {
+            if (!param.contains(":")) {
+                ids.add(param);
+            } else {
+                HostInfo hostInfo = SystemInfoService.getHostAndPort(param);
+                this.hostInfos.add(hostInfo);
+            }
+
+        }
+        Preconditions.checkState(!this.hostInfos.isEmpty() || !this.ids.isEmpty(),
+                "hostInfos or ids can not be empty");
     }
 
     @Override
     public String toSql() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Not support toSql for BackendClause");
     }
 
     @Override
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Not support getProperties for BackendClause");
     }
 }

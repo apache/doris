@@ -17,9 +17,12 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -38,6 +41,11 @@ public class GetSmallFileAction extends RestBaseController {
 
     @RequestMapping(path = "/api/get_small_file", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         String token = request.getParameter("token");
         String fileIdStr = request.getParameter("file_id");
         // check param empty
@@ -46,7 +54,7 @@ public class GetSmallFileAction extends RestBaseController {
         }
 
         // check token
-        if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
+        if (!token.equals(Env.getCurrentEnv().getToken())) {
             return ResponseEntityBuilder.okWithCommonError("Invalid token");
         }
 
@@ -57,7 +65,7 @@ public class GetSmallFileAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Invalid file id format: " + fileIdStr);
         }
 
-        SmallFileMgr fileMgr = Catalog.getCurrentCatalog().getSmallFileMgr();
+        SmallFileMgr fileMgr = Env.getCurrentEnv().getSmallFileMgr();
         SmallFileMgr.SmallFile smallFile = fileMgr.getSmallFile(fileId);
         if (smallFile == null || !smallFile.isContent) {
             return ResponseEntityBuilder.okWithCommonError("File not found or is not content");

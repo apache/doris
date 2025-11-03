@@ -17,19 +17,19 @@
 
 #pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 class ExecEnv;
-class ResetRPCChannelAction : public HttpHandler {
-public:
-    explicit ResetRPCChannelAction(ExecEnv* exec_env);
+class HttpRequest;
 
-    virtual ~ResetRPCChannelAction() {}
+class ResetRPCChannelAction : public HttpHandlerWithAuth {
+public:
+    explicit ResetRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type);
+
+    ~ResetRPCChannelAction() override = default;
 
     void handle(HttpRequest* req) override;
-
-private:
-    ExecEnv* _exec_env;
 };
 } // namespace doris

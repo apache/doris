@@ -17,21 +17,14 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class RoutineLoadStatistic implements Writable {
+public class RoutineLoadStatistic {
     /*
      * The following variables are for statistics
      * currentErrorRows/currentTotalRows: the row statistics of current sampling period
@@ -63,21 +56,11 @@ public class RoutineLoadStatistic implements Writable {
     public long committedTaskNum = 0;
     @SerializedName(value = "abortedTaskNum")
     public long abortedTaskNum = 0;
+    public int currentAbortedTaskNum = 0;
 
     // Save all transactions current running. Including PREPARE, COMMITTED.
     // No need to persist, only for tracing txn of routine load job.
-    public Set<Long> runningTxnIds = Sets.newHashSet();
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static RoutineLoadStatistic read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, RoutineLoadStatistic.class);
-    }
+    public Set<Long> runningTxnIds = ConcurrentHashMap.newKeySet();
 
     public Map<String, Object> summary() {
         Map<String, Object> summary = Maps.newHashMap();
@@ -88,9 +71,9 @@ public class RoutineLoadStatistic implements Writable {
         summary.put("unselectedRows", Long.valueOf(this.unselectedRows));
         summary.put("receivedBytes", Long.valueOf(this.receivedBytes));
         summary.put("taskExecuteTimeMs", Long.valueOf(this.totalTaskExcutionTimeMs));
-        summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes / this.totalTaskExcutionTimeMs * 1000));
-        summary.put("loadRowsRate", Long.valueOf((this.totalRows - this.errorRows - this.unselectedRows)
-                / this.totalTaskExcutionTimeMs * 1000));
+        summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes * 1000 / this.totalTaskExcutionTimeMs));
+        summary.put("loadRowsRate", Long.valueOf((this.totalRows - this.errorRows - this.unselectedRows) * 1000
+                / this.totalTaskExcutionTimeMs));
         summary.put("committedTaskNum", Long.valueOf(this.committedTaskNum));
         summary.put("abortedTaskNum", Long.valueOf(this.abortedTaskNum));
         summary.put("runningTxns", runningTxnIds);

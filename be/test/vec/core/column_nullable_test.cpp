@@ -18,18 +18,19 @@
 
 #include "vec/columns/column_nullable.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <memory>
 #include <string>
 
+#include "gtest/gtest_pred_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
 
 TEST(ColumnNullableTest, HashTest) {
-    MutableColumnPtr tmp_column = ColumnVector<int>::create();
+    MutableColumnPtr tmp_column = ColumnInt32::create();
     auto val1 = 10;
     auto val2 = 20;
     tmp_column->insert_data((const char*)(&val1), 0);

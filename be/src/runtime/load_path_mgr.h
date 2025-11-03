@@ -17,32 +17,37 @@
 
 #pragma once
 
-#include <pthread.h>
+#include <stdint.h>
+#include <time.h>
 
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "util/thread.h"
-#include "util/uid_util.h"
+#include "util/countdown_latch.h"
+#include "util/once.h"
 
 namespace doris {
 
 class TUniqueId;
 class ExecEnv;
+class Thread;
 
 // In every directory, '.trash' directory is used to save data need to delete
 // daemon thread is check no used directory to delete
 class LoadPathMgr {
 public:
     LoadPathMgr(ExecEnv* env);
-    ~LoadPathMgr();
+    ~LoadPathMgr() = default;
 
     Status init();
+    void stop();
 
-    Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix);
+    Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix,
+                        int64_t file_bytes);
+
+    bool check_disk_space(size_t disk_capacity_bytes, size_t available_bytes, int64_t file_bytes);
 
     void get_load_data_path(std::vector<std::string>* data_paths);
 
@@ -51,6 +56,8 @@ public:
     std::string get_load_error_absolute_path(const std::string& file_path);
     const std::string& get_load_error_file_dir() const { return _error_log_dir; }
 
+    void clean_tmp_files(const std::string& file_path) { clean_files_in_path_vec(file_path); }
+
 private:
     bool is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours);
     void clean_one_path(const std::string& path);
@@ -58,16 +65,19 @@ private:
     void clean();
     void process_path(time_t now, const std::string& path, int64_t reserve_hours);
 
-    ExecEnv* _exec_env;
+    void clean_files_in_path_vec(const std::string& path);
+
+    ExecEnv* _exec_env = nullptr;
     std::mutex _lock;
     std::vector<std::string> _path_vec;
     int _idx;
-    int _reserved_hours;
+    int64_t _reserved_hours;
     std::string _error_log_dir;
     uint32_t _next_shard;
     uint32_t _error_path_next_shard;
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _clean_thread;
+    std::shared_ptr<Thread> _clean_thread;
+    DorisCallOnce<Status> _init_once;
 };
 
 } // namespace doris

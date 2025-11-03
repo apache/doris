@@ -60,7 +60,6 @@ public abstract class CacheProxy {
 
     public abstract void clearCache(InternalService.PClearCacheRequest clearRequest);
 
-
     public static Types.PUniqueId getMd5(String str) {
         MessageDigest msgDigest;
         final byte[] digest;

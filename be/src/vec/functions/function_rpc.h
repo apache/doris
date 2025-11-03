@@ -17,12 +17,68 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
 namespace doris {
-class RPCFn;
+class PFunctionCallRequest;
+class PFunctionService_Stub;
+class PValues;
+} // namespace doris
 
-namespace vectorized {
+namespace doris::vectorized {
+
+class RPCFnImpl {
+public:
+    RPCFnImpl(const TFunction& fn);
+    ~RPCFnImpl() = default;
+    Status vec_call(FunctionContext* context, vectorized::Block& block,
+                    const ColumnNumbers& arguments, uint32_t result, size_t input_rows_count);
+    bool available() { return _client != nullptr; }
+
+private:
+    Status _convert_block_to_proto(vectorized::Block& block,
+                                   const vectorized::ColumnNumbers& arguments,
+                                   size_t input_rows_count, PFunctionCallRequest* request);
+    Status _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
+
+    std::shared_ptr<PFunctionService_Stub> _client;
+    std::string _function_name;
+    std::string _server_addr;
+    std::string _signature;
+    TFunction _fn;
+};
+
+class RPCPreparedFunction : public IPreparedFunction {
+public:
+    ~RPCPreparedFunction() override = default;
+
+    /// Get the main function name.
+    String get_name() const override { return "RPCPreparedFunction: "; }
+
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, bool dry_run) const override {
+        auto* fn = reinterpret_cast<RPCFnImpl*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        return fn->vec_call(context, block, arguments, result, input_rows_count);
+    }
+};
+
 class FunctionRPC : public IFunctionBase {
 public:
     FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
@@ -41,31 +97,24 @@ public:
     String get_name() const override {
         return fmt::format("{}: [{}/{}]", _tfn.name.function_name, _tfn.hdfs_location,
                            _tfn.scalar_fn.symbol);
-    };
-
-    const DataTypes& get_argument_types() const override { return _argument_types; };
-    const DataTypePtr& get_return_type() const override { return _return_type; };
-
-    PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
-                                const ColumnNumbers& arguments, size_t result) const override {
-        return nullptr;
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+    const DataTypePtr& get_return_type() const override { return _return_type; }
 
-    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) override;
+    PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
+                                const ColumnNumbers& arguments, uint32_t result) const override {
+        return std::make_shared<RPCPreparedFunction>();
+    }
 
-    bool is_deterministic() const override { return false; }
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
-    bool is_deterministic_in_scope_of_query() const override { return false; }
+    bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     TFunction _tfn;
-    std::unique_ptr<RPCFn> _fn;
 };
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

@@ -19,11 +19,16 @@ package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -32,16 +37,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 
-public class BackupMeta implements Writable {
-
+public class BackupMeta implements Writable, GsonPostProcessable {
     // tbl name -> tbl
+    @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
     // tbl id -> tbl
     private Map<Long, Table> tblIdMap = Maps.newHashMap();
     // resource name -> resource
+    @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
 
     private BackupMeta() {
@@ -77,12 +84,28 @@ public class BackupMeta implements Writable {
         return tblIdMap.get(tblId);
     }
 
+    public boolean removeTable(Long tableId) {
+        Table removedTable = tblIdMap.remove(tableId);
+        if (removedTable != null) {
+            tblNameMap.remove(removedTable.getName());
+            return true;
+        }
+        return false;
+    }
+
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {
-        File file = new File(filePath);
+        return fromInputStream(new FileInputStream(filePath), metaVersion);
+    }
+
+    public static BackupMeta fromBytes(byte[] bytes, int metaVersion) throws IOException {
+        return fromInputStream(new ByteArrayInputStream(bytes), metaVersion);
+    }
+
+    public static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();
-        try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
+        try (DataInputStream dis = new DataInputStream(stream)) {
             BackupMeta backupMeta = BackupMeta.read(dis);
             return backupMeta;
         } finally {
@@ -100,40 +123,29 @@ public class BackupMeta implements Writable {
         }
     }
 
-    public boolean compatibleWith(BackupMeta other) {
-        // TODO
-        return false;
-    }
-
     public static BackupMeta read(DataInput in) throws IOException {
-        BackupMeta backupMeta = new BackupMeta();
-        backupMeta.readFields(in);
-        return backupMeta;
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, BackupMeta.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(tblNameMap.size());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
         for (Table table : tblNameMap.values()) {
-            table.write(out);
-        }
-        out.writeInt(resourceNameMap.size());
-        for (Resource resource : resourceNameMap.values()) {
-            resource.write(out);
+            tblIdMap.put(table.getId(), table);
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Table tbl = Table.read(in);
-            tblNameMap.put(tbl.getName(), tbl);
-            tblIdMap.put(tbl.getId(), tbl);
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Resource resource = Resource.read(in);
-            resourceNameMap.put(resource.getName(), resource);
-        }
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }

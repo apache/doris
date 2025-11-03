@@ -18,12 +18,18 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -31,18 +37,19 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /*
  * A manager to manage all backup repositories
  */
-public class RepositoryMgr extends Daemon implements Writable {
+public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RepositoryMgr.class);
 
     // all key should be in lower case
-    private Map<String, Repository> repoNameMap = Maps.newConcurrentMap();
-    private Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
+    @SerializedName("rn")
+    private ConcurrentMap<String, Repository> repoNameMap = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, Repository> repoIdMap = Maps.newConcurrentMap();
 
     private ReentrantLock lock = new ReentrantLock();
 
@@ -75,7 +82,7 @@ public class RepositoryMgr extends Daemon implements Writable {
 
                 if (!isReplay) {
                     // write log
-                    Catalog.getCurrentCatalog().getEditLog().logCreateRepository(repo);
+                    Env.getCurrentEnv().getEditLog().logCreateRepository(repo);
                 }
 
                 LOG.info("successfully adding repo {} to repository mgr. is replay: {}",
@@ -96,6 +103,35 @@ public class RepositoryMgr extends Daemon implements Writable {
         return repoIdMap.get(repoId);
     }
 
+    /**
+     * todo: why not support alter other file system like hdfs
+     */
+    public Status alterRepo(Repository newRepo, boolean isReplay) {
+        lock.lock();
+        try {
+            Repository repo = repoNameMap.get(newRepo.getName());
+            if (repo != null) {
+                if (repo.getRemoteFileSystem() instanceof S3FileSystem
+                        || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
+                    repoNameMap.put(repo.getName(), newRepo);
+                    repoIdMap.put(repo.getId(), newRepo);
+
+                    if (!isReplay) {
+                        // log
+                        Env.getCurrentEnv().getEditLog().logAlterRepository(newRepo);
+                    }
+                    LOG.info("successfully alter repo {}, isReplay {}", newRepo.getName(), isReplay);
+                    return Status.OK;
+                } else {
+                    return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
+                }
+            }
+            return new Status(ErrCode.NOT_FOUND, "repository does not exist");
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public Status removeRepo(String repoName, boolean isReplay) {
         lock.lock();
         try {
@@ -105,7 +141,7 @@ public class RepositoryMgr extends Daemon implements Writable {
 
                 if (!isReplay) {
                     // log
-                    Catalog.getCurrentCatalog().getEditLog().logDropRepository(repoName);
+                    Env.getCurrentEnv().getEditLog().logDropRepository(repoName);
                 }
                 LOG.info("successfully removing repo {} from repository mgr", repoName);
                 return Status.OK;
@@ -125,25 +161,16 @@ public class RepositoryMgr extends Daemon implements Writable {
     }
 
     public static RepositoryMgr read(DataInput in) throws IOException {
-        RepositoryMgr mgr = new RepositoryMgr();
-        mgr.readFields(in);
-        return mgr;
+        return GsonUtils.GSON.fromJson(Text.readString(in), RepositoryMgr.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(repoNameMap.size());
-        for (Repository repo : repoNameMap.values()) {
-            repo.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Repository repo = Repository.read(in);
-            repoNameMap.put(repo.getName(), repo);
-            repoIdMap.put(repo.getId(), repo);
-        }
+    @Override
+    public void gsonPostProcess() {
+        repoNameMap.forEach((n, repo) -> repoIdMap.put(repo.getId(), repo));
     }
 }

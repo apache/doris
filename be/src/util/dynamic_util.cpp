@@ -22,8 +22,6 @@
 
 #include <dlfcn.h>
 
-#include <sstream>
-
 namespace doris {
 
 Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr) {

@@ -17,25 +17,50 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class RecoverInfo implements Writable {
+public class RecoverInfo implements Writable, GsonPostProcessable {
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "newDbName")
+    private String newDbName;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName;                        /// added for table name.
+    @SerializedName(value = "newTableName")
+    private String newTableName;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "partitionName")
+    private String partitionName;
+    @SerializedName(value = "newPartitionName")
+    private String newPartitionName;
 
-    public RecoverInfo() {
+    private RecoverInfo() {
         // for persist
     }
 
-    public RecoverInfo(long dbId, long tableId, long partitionId) {
+    public RecoverInfo(long dbId, long tableId, long partitionId, String newDbName, String tableName,
+                        String newTableName, String partitionName, String newPartitionName) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.tableName = tableName;
         this.partitionId = partitionId;
+        this.newDbName = newDbName;
+        this.newTableName = newTableName;
+        this.partitionName = partitionName;
+        this.newPartitionName = newPartitionName;
     }
 
     public long getDbId() {
@@ -46,21 +71,45 @@ public class RecoverInfo implements Writable {
         return tableId;
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
     public long getPartitionId() {
         return partitionId;
     }
 
+    public String getNewDbName() {
+        return newDbName;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
+    }
+
+    public String getNewPartitionName() {
+        return newPartitionName;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
+    public static RecoverInfo read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), RecoverInfo.class);
     }
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        newDbName = ClusterNamespace.getNameFromFullName(newDbName);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    public static RecoverInfo fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, RecoverInfo.class);
+    }
 }

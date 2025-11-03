@@ -20,11 +20,12 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+#include <stdint.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
-
-#include "util/debug_util.h"
 
 // This is a utility class that aggregates counters from the kernel.  These counters
 // come from different sources.
@@ -41,6 +42,8 @@
 //  <do your work>
 //  counters.snapshot("After Work");
 //  counters.PrettyPrint(cout);
+//
+// TODO: Expect PerfCounters to be refactored to ProcessState.
 
 namespace doris {
 
@@ -95,6 +98,31 @@ public:
     PerfCounters();
     ~PerfCounters();
 
+    // Refactor
+
+    struct ProcStatus {
+        int64_t vm_size = 0;
+        int64_t vm_peak = 0;
+        int64_t vm_rss = 0;
+        int64_t vm_hwm = 0;
+    };
+
+    static int parse_int(const std::string& state_key);
+    static int64_t parse_int64(const std::string& state_key);
+    static std::string parse_string(const std::string& state_key);
+    // Original data's unit is B or KB.
+    static int64_t parse_bytes(const std::string& state_key);
+
+    // Flush cached process status info from `/proc/self/status`.
+    static void refresh_proc_status();
+    static void get_proc_status(ProcStatus* out);
+    // Return the process actual physical memory in bytes.
+    static inline int64_t get_vm_rss() { return _vm_rss; }
+    static inline std::string get_vm_rss_str() { return _vm_rss_str; }
+    static inline int64_t get_vm_hwm() { return _vm_hwm; }
+    static inline int64_t get_vm_size() { return _vm_size; }
+    static inline int64_t get_vm_peak() { return _vm_peak; }
+
 private:
     // Copy constructor and assignment not allowed
     PerfCounters(const PerfCounters&);
@@ -122,7 +150,7 @@ private:
         // DataSource specific data.  This is used to pull the counter values.
         union {
             // For SYS_PERF_COUNTER. File descriptor where the counter value is stored.
-            int fd;
+            int64_t fd;
             // For PROC_SELF_IO.  Line number from /proc/self/io file with this counter's value
             int proc_io_line_number;
         };
@@ -136,7 +164,13 @@ private:
     std::vector<std::vector<int64_t>> _snapshots;
     // System perf counters can be grouped together.  The OS will update all grouped counters
     // at the same time.  This is useful to better correlate counter values.
-    int _group_fd;
+    int64_t _group_fd;
+
+    static int64_t _vm_rss;
+    static std::string _vm_rss_str;
+    static int64_t _vm_hwm;
+    static int64_t _vm_size;
+    static int64_t _vm_peak;
 };
 
 } // namespace doris

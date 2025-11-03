@@ -19,23 +19,80 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import java.util.Objects;
 
 /**
  * Varchar type in Nereids.
  */
-public class VarcharType extends DataType {
-    private final int len;
+public class VarcharType extends CharacterType {
+
+    public static final int MAX_VARCHAR_LENGTH = ScalarType.MAX_VARCHAR_LENGTH;
+    public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final VarcharType MAX_VARCHAR_TYPE = new VarcharType(MAX_VARCHAR_LENGTH);
 
     public VarcharType(int len) {
-        this.len = len;
+        super(len);
     }
 
+    @Override
+    public int width() {
+        return len;
+    }
+
+    /**
+     * create varchar type from length.
+     */
     public static VarcharType createVarcharType(int len) {
+        if (len == SYSTEM_DEFAULT.len) {
+            return SYSTEM_DEFAULT;
+        } else if (len == MAX_VARCHAR_LENGTH) {
+            return MAX_VARCHAR_TYPE;
+        }
         return new VarcharType(len);
     }
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createVarcharType(len);
+        ScalarType catalogDataType = ScalarType.createVarcharType(len);
+        catalogDataType.setByteSize(len);
+        return catalogDataType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "varchar";
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        return this;
+    }
+
+    @Override
+    public String toSql() {
+        if (len == -1) {
+            return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
+        }
+        return "VARCHAR(" + len + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!super.equals(o)) {
+            return false;
+        }
+        VarcharType that = (VarcharType) o;
+        return len == that.len || (isWildcardVarchar() && that.isWildcardVarchar());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), len == -1 ? MAX_VARCHAR_LENGTH : len);
+    }
+
+    public boolean isWildcardVarchar() {
+        return len == -1 || len == MAX_VARCHAR_LENGTH;
     }
 }

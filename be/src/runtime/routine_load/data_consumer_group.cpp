@@ -16,20 +16,29 @@
 // under the License.
 #include "runtime/routine_load/data_consumer_group.h"
 
-#include "librdkafka/rdkafka.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+
+#include <map>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/routine_load/data_consumer.h"
-#include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
-Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
+Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kafka_info);
     DCHECK(_consumers.size() >= 1);
 
     // divide partitions
-    int consumer_size = _consumers.size();
+    int consumer_size = doris::cast_set<int>(_consumers.size());
     std::vector<std::map<int32_t, int64_t>> divide_parts(consumer_size);
     int i = 0;
     for (auto& kv : ctx->kafka_info->begin_offset) {
@@ -39,10 +48,10 @@ Status KafkaDataConsumerGroup::assign_topic_partitions(StreamLoadContext* ctx) {
     }
 
     // assign partitions to consumers equally
-    for (int i = 0; i < consumer_size; ++i) {
+    for (int j = 0; j < consumer_size; ++j) {
         RETURN_IF_ERROR(
-                std::static_pointer_cast<KafkaDataConsumer>(_consumers[i])
-                        ->assign_topic_partitions(divide_parts[i], ctx->kafka_info->topic, ctx));
+                std::static_pointer_cast<KafkaDataConsumer>(_consumers[j])
+                        ->assign_topic_partitions(divide_parts[j], ctx->kafka_info->topic, ctx));
     }
 
     return Status::OK();
@@ -63,7 +72,8 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
     DCHECK(_queue.get_size() == 0);
 }
 
-Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
+Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
+                                         std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {
@@ -96,9 +106,6 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
 
-    std::shared_ptr<KafkaConsumerPipe> kafka_pipe =
-            std::static_pointer_cast<KafkaConsumerPipe>(ctx->body_sink);
-
     LOG(INFO) << "start consumer group: " << _grp_id << ". max time(ms): " << left_time
               << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
               << ctx->brief();
@@ -107,11 +114,11 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
     std::map<int32_t, int64_t> cmt_offset = ctx->kafka_info->cmt_offset;
 
     //improve performance
-    Status (KafkaConsumerPipe::*append_data)(const char* data, size_t size);
+    Status (io::KafkaConsumerPipe::*append_data)(const char* data, size_t size);
     if (ctx->format == TFileFormatType::FORMAT_JSON) {
-        append_data = &KafkaConsumerPipe::append_json;
+        append_data = &io::KafkaConsumerPipe::append_json;
     } else {
-        append_data = &KafkaConsumerPipe::append_with_line_delimiter;
+        append_data = &io::KafkaConsumerPipe::append_with_line_delimiter;
     }
 
     MonotonicStopWatch watch;
@@ -133,49 +140,56 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             _queue.shutdown();
             // cancel all consumers
             for (auto& consumer : _consumers) {
-                consumer->cancel(ctx);
+                static_cast<void>(consumer->cancel(ctx));
             }
 
             // waiting all threads finished
             _thread_pool.shutdown();
             _thread_pool.join();
             if (!result_st.ok()) {
-                kafka_pipe->cancel(result_st.get_error_msg());
+                kafka_pipe->cancel(result_st.to_string());
                 return result_st;
             }
-            kafka_pipe->finish();
+            static_cast<void>(kafka_pipe->finish());
             ctx->kafka_info->cmt_offset = std::move(cmt_offset);
             ctx->receive_bytes = ctx->max_batch_size - left_bytes;
             return Status::OK();
         }
 
         RdKafka::Message* msg;
-        bool res = _queue.blocking_get(&msg);
+        bool res = _queue.controlled_blocking_get(&msg, config::blocking_queue_cv_wait_timeout_ms);
         if (res) {
+            // conf has to be deleted finally
+            Defer delete_msg {[msg]() { delete msg; }};
             VLOG_NOTICE << "get kafka message"
                         << ", partition: " << msg->partition() << ", offset: " << msg->offset()
                         << ", len: " << msg->len();
 
-            Status st = (kafka_pipe.get()->*append_data)(static_cast<const char*>(msg->payload()),
-                                                         static_cast<size_t>(msg->len()));
-            if (st.ok()) {
-                left_rows--;
-                left_bytes -= msg->len();
-                cmt_offset[msg->partition()] = msg->offset();
-                VLOG_NOTICE << "consume partition[" << msg->partition() << " - " << msg->offset()
-                            << "]";
+            if (msg->err() == RdKafka::ERR__PARTITION_EOF) {
+                if (msg->offset() > 0) {
+                    cmt_offset[msg->partition()] = msg->offset() - 1;
+                }
             } else {
-                // failed to append this msg, we must stop
-                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
-                eos = true;
-                {
-                    std::unique_lock<std::mutex> lock(_mutex);
-                    if (result_st.ok()) {
-                        result_st = st;
+                Status st = (kafka_pipe.get()->*append_data)(
+                        static_cast<const char*>(msg->payload()), static_cast<size_t>(msg->len()));
+                if (st.ok()) {
+                    left_rows--;
+                    left_bytes -= msg->len();
+                    cmt_offset[msg->partition()] = msg->offset();
+                    VLOG_NOTICE << "consume partition[" << msg->partition() << " - "
+                                << msg->offset() << "]";
+                } else {
+                    // failed to append this msg, we must stop
+                    LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
+                    eos = true;
+                    {
+                        std::unique_lock<std::mutex> lock(_mutex);
+                        if (result_st.ok()) {
+                            result_st = st;
+                        }
                     }
                 }
             }
-            delete msg;
         } else {
             // queue is empty and shutdown
             eos = true;
@@ -194,5 +208,6 @@ void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consum
             queue, max_running_time_ms);
     cb(st);
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

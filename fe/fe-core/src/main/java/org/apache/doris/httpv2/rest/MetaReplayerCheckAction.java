@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -43,7 +43,7 @@ public class MetaReplayerCheckAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        Map<String, String> resultMap = Catalog.getCurrentCatalog().getMetaReplayState().getInfo();
+        Map<String, String> resultMap = Env.getCurrentEnv().getMetaReplayState().getInfo();
 
         return ResponseEntityBuilder.ok(resultMap);
     }

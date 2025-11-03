@@ -17,32 +17,48 @@
 
 #include "vec/utils/arrow_column_to_doris_column.h"
 
-#include <arrow/array.h>
-#include <arrow/builder.h>
-#include <arrow/memory_pool.h>
-#include <arrow/record_batch.h>
-#include <arrow/status.h>
-#include <arrow/testing/gtest_util.h>
-#include <arrow/testing/util.h>
+#include <arrow/array.h> // IWYU pragma: keep
+#include <arrow/array/array_decimal.h>
+#include <arrow/array/data.h>
+#include <arrow/buffer.h>
+#include <arrow/result.h>
 #include <arrow/util/bit_util.h>
-#include <gtest/gtest.h>
+#include <assert.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <string.h>
 
+#include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
-#include "arrow/array/builder_base.h"
-#include "arrow/scalar.h"
 #include "arrow/type.h"
-#include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
-#include "gutil/casts.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -159,6 +175,7 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
 template <typename ArrowType, typename ColumnType, bool is_nullable>
 void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::string>& test_cases,
                    size_t num_elements) {
+    TimezoneUtils::load_timezones_to_cache();
     using ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType;
     size_t counter = 0;
     auto pt = arrow_type_to_primitive_type(type->id());
@@ -166,9 +183,14 @@ void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::strin
     DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, true);
     MutableColumnPtr data_column = data_type->create_column();
     ColumnWithTypeAndName column(std::move(data_column), data_type, "test_datatime_column");
-    for (auto& value : test_cases) {
+    for (const auto& value : test_cases) {
         ArrowCppType arrow_datetime = string_to_arrow_datetime<ArrowType>(type, value);
         VecDateTimeValue tv;
+        if constexpr (std::is_same_v<ArrowType, arrow::Date32Type>) {
+            tv.set_type(TimeType::TIME_DATE);
+        } else {
+            tv.set_type(TimeType::TIME_DATETIME);
+        }
         tv.from_date_str(value.c_str(), value.size());
         test_arrow_to_datetime_column<ArrowType, ColumnType, is_nullable>(
                 type, column, num_elements, arrow_datetime, tv, counter);
@@ -178,16 +200,16 @@ void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::strin
 TEST(ArrowColumnToDorisColumnTest, test_date32_to_date) {
     auto type = std::make_shared<arrow::Date32Type>();
     std::vector<std::string> test_cases = {{"1970-01-01"}, {"2021-05-30"}, {"2022-05-08"}};
-    test_datetime<arrow::Date32Type, ColumnVector<Int64>, false>(type, test_cases, 32);
-    test_datetime<arrow::Date32Type, ColumnVector<Int64>, true>(type, test_cases, 32);
+    test_datetime<arrow::Date32Type, ColumnInt64, false>(type, test_cases, 32);
+    test_datetime<arrow::Date32Type, ColumnInt64, true>(type, test_cases, 32);
 }
 
 TEST(ArrowColumnToDorisColumnTest, test_date64_to_datetime) {
     auto type = std::make_shared<arrow::Date64Type>();
     std::vector<std::string> test_cases = {
             {"1970-01-01 12:12:12"}, {"2021-05-30 22:22:22"}, {"2022-05-08 00:00:01"}};
-    test_datetime<arrow::Date64Type, ColumnVector<Int64>, false>(type, test_cases, 64);
-    test_datetime<arrow::Date64Type, ColumnVector<Int64>, true>(type, test_cases, 64);
+    test_datetime<arrow::Date64Type, ColumnInt64, false>(type, test_cases, 64);
+    test_datetime<arrow::Date64Type, ColumnInt64, true>(type, test_cases, 64);
 }
 
 TEST(ArrowColumnToDorisColumnTest, test_timestamp_to_datetime) {
@@ -202,17 +224,18 @@ TEST(ArrowColumnToDorisColumnTest, test_timestamp_to_datetime) {
     for (auto& unit : time_units) {
         for (auto& zone : zones) {
             auto type = std::make_shared<arrow::TimestampType>(unit, zone);
-            test_datetime<arrow::TimestampType, ColumnVector<Int64>, false>(type, test_cases, 64);
-            test_datetime<arrow::TimestampType, ColumnVector<Int64>, true>(type, test_cases, 64);
+            test_datetime<arrow::TimestampType, ColumnInt64, false>(type, test_cases, 64);
+            test_datetime<arrow::TimestampType, ColumnInt64, true>(type, test_cases, 64);
         }
     }
 }
 
-template <typename ArrowType, typename CppType, bool is_nullable,
-          typename ColumnType = ColumnVector<CppType>,
+template <typename ArrowType, PrimitiveType PType, bool is_nullable,
+          typename ColumnType = ColumnVector<PType>,
           typename ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType>
 void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTypeAndName& column,
-                                  size_t num_elements, ArrowCppType arrow_numeric, CppType numeric,
+                                  size_t num_elements, ArrowCppType arrow_numeric,
+                                  typename PrimitiveTypeTraits<PType>::ColumnItemType numeric,
                                   size_t& counter) {
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_constant_numeric_array<ArrowType, is_nullable>(num_elements, arrow_numeric,
@@ -248,10 +271,12 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
     }
 }
 
-template <typename ArrowType, typename CppType, bool is_nullable,
-          typename ColumnType = ColumnVector<CppType>>
-void test_numeric(std::shared_ptr<ArrowType> type, const std::vector<CppType>& test_cases,
-                  size_t num_elements) {
+template <typename ArrowType, PrimitiveType PType, bool is_nullable,
+          typename ColumnType = ColumnVector<PType>>
+void test_numeric(
+        std::shared_ptr<ArrowType> type,
+        const std::vector<typename PrimitiveTypeTraits<PType>::ColumnItemType>& test_cases,
+        size_t num_elements) {
     using ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType;
     size_t counter = 0;
     auto pt = arrow_type_to_primitive_type(type->id());
@@ -260,7 +285,7 @@ void test_numeric(std::shared_ptr<ArrowType> type, const std::vector<CppType>& t
     MutableColumnPtr data_column = data_type->create_column();
     ColumnWithTypeAndName column(std::move(data_column), data_type, "test_numeric_column");
     for (auto& value : test_cases) {
-        test_arrow_to_numeric_column<ArrowType, CppType, is_nullable>(
+        test_arrow_to_numeric_column<ArrowType, PType, is_nullable>(
                 type, column, num_elements, ArrowCppType(value), value, counter);
     }
 }
@@ -268,44 +293,16 @@ void test_numeric(std::shared_ptr<ArrowType> type, const std::vector<CppType>& t
 TEST(ArrowColumnToDorisColumnTest, test_int8) {
     auto type = std::make_shared<arrow::Int8Type>();
     std::vector<Int8> test_cases = {1, -1, -128, 127, int8_t(255)};
-    test_numeric<arrow::Int8Type, Int8, false>(type, test_cases, 64);
-    test_numeric<arrow::Int8Type, Int8, true>(type, test_cases, 64);
+    test_numeric<arrow::Int8Type, TYPE_TINYINT, false>(type, test_cases, 64);
+    test_numeric<arrow::Int8Type, TYPE_TINYINT, true>(type, test_cases, 64);
 }
 
 TEST(ArrowColumnToDorisColumnTest, test_uint8) {
     auto type = std::make_shared<arrow::UInt8Type>();
     std::vector<UInt8> test_cases = {uint8_t(-1), uint8_t(1), uint8_t(-128), uint8_t(127),
                                      uint8_t(255)};
-    test_numeric<arrow::UInt8Type, UInt8, false>(type, test_cases, 64);
-    test_numeric<arrow::UInt8Type, UInt8, true>(type, test_cases, 64);
-}
-
-TEST(ArrowColumnToDorisColumnTest, test_uint16) {
-    auto type = std::make_shared<arrow::UInt16Type>();
-    std::vector<UInt16> test_cases = {uint16_t(-1), uint16_t(1), uint16_t(-128), uint16_t(127),
-                                      uint16_t(65535)};
-    test_numeric<arrow::UInt16Type, UInt16, false>(type, test_cases, 64);
-    test_numeric<arrow::UInt16Type, UInt16, true>(type, test_cases, 64);
-}
-
-TEST(ArrowColumnToDorisColumnTest, test_uint32) {
-    auto type = std::make_shared<arrow::UInt32Type>();
-    std::vector<UInt32> test_cases = {uint32_t(-1), uint32_t(1), uint32_t(-65535), uint32_t(65535),
-                                      uint32_t(4294967295)};
-    test_numeric<arrow::UInt32Type, UInt32, false>(type, test_cases, 64);
-    test_numeric<arrow::UInt32Type, UInt32, true>(type, test_cases, 64);
-}
-
-TEST(ArrowColumnToDorisColumnTest, test_uint64) {
-    auto type = std::make_shared<arrow::UInt64Type>();
-    std::vector<UInt64> test_cases = {uint64_t(-1),
-                                      uint64_t(1),
-                                      uint64_t(-4294967295),
-                                      uint64_t(4294967295),
-                                      uint64_t(std::numeric_limits<uint64_t>::min()),
-                                      uint64_t(std::numeric_limits<uint64_t>::max())};
-    test_numeric<arrow::UInt64Type, UInt64, false>(type, test_cases, 64);
-    test_numeric<arrow::UInt64Type, UInt64, true>(type, test_cases, 64);
+    test_numeric<arrow::UInt8Type, TYPE_BOOLEAN, false>(type, test_cases, 64);
+    test_numeric<arrow::UInt8Type, TYPE_BOOLEAN, true>(type, test_cases, 64);
 }
 
 TEST(ArrowColumnToDorisColumnTest, test_float64) {
@@ -316,8 +313,8 @@ TEST(ArrowColumnToDorisColumnTest, test_float64) {
                                       double(4294967295),
                                       double(std::numeric_limits<double>::min()),
                                       double(std::numeric_limits<double>::max())};
-    test_numeric<arrow::DoubleType, Float64, false>(type, test_cases, 64);
-    test_numeric<arrow::DoubleType, Float64, true>(type, test_cases, 64);
+    test_numeric<arrow::DoubleType, TYPE_DOUBLE, false>(type, test_cases, 64);
+    test_numeric<arrow::DoubleType, TYPE_DOUBLE, true>(type, test_cases, 64);
 }
 
 template <bool is_nullable>
@@ -366,8 +363,7 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
     } else {
         data_column = (*std::move(column.column)).mutate();
     }
-    auto& decimal_data =
-            static_cast<ColumnDecimal<vectorized::Decimal128>&>(*data_column).get_data();
+    auto& decimal_data = static_cast<ColumnDecimal128V2&>(*data_column).get_data();
     for (auto i = 0; i < num_elements; ++i) {
         auto idx = counter - num_elements + i;
         if (is_nullable) {
@@ -385,44 +381,10 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
     }
 }
 
-template <bool is_nullable>
-void test_decimalv2(std::shared_ptr<arrow::Decimal128Type> type,
-                    const std::vector<std::string>& test_cases, size_t num_elements) {
-    using ArrowCppType = typename arrow::TypeTraits<arrow::Decimal128Type>::CType;
-    size_t counter = 0;
-    auto pt = arrow_type_to_primitive_type(type->id());
-    ASSERT_NE(pt, INVALID_TYPE);
-    DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, true);
-    MutableColumnPtr data_column = data_type->create_column();
-    ColumnWithTypeAndName column(std::move(data_column), data_type, "test_numeric_column");
-    for (auto& str : test_cases) {
-        DecimalV2Value decimal_value(str);
-        int128_t value = binary_cast<DecimalV2Value, int128_t>(decimal_value);
-        int128_t expect_value =
-                convert_decimals<vectorized::DataTypeDecimal<vectorized::Decimal128>,
-                                 vectorized::DataTypeDecimal<vectorized::Decimal128>>(
-                        value, type->scale(), 9);
-        test_arrow_to_decimal_column<is_nullable>(type, column, num_elements, value, expect_value,
-                                                  counter);
-    }
-}
-
-TEST(ArrowColumnToDorisColumnTest, test_decimalv2) {
-    std::vector<std::string> test_cases = {"1.2345678", "-12.34567890", "99999999999.99999999",
-                                           "-99999999999.99999999"};
-    auto type_p27s9 = std::make_shared<arrow::Decimal128Type>(27, 9);
-    test_decimalv2<false>(type_p27s9, test_cases, 64);
-    test_decimalv2<true>(type_p27s9, test_cases, 64);
-
-    auto type_p27s25 = std::make_shared<arrow::Decimal128Type>(27, 25);
-    test_decimalv2<false>(type_p27s25, test_cases, 128);
-    test_decimalv2<true>(type_p27s25, test_cases, 128);
-}
-
 template <int bytes_width, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_fixed_size_binary_array(int64_t num_elements,
-                                                                           const std::string& value,
-                                                                           size_t& counter) {
+std::shared_ptr<arrow::Array> create_fixed_size_binary_array(int64_t num_elements,
+                                                             const std::string& value,
+                                                             size_t& counter) {
     auto data_buf_size = bytes_width * num_elements;
     auto data_buf_tmp = arrow::AllocateBuffer(data_buf_size);
     std::shared_ptr<arrow::Buffer> data_buf = std::move(data_buf_tmp.ValueOrDie());
@@ -514,9 +476,8 @@ TEST(ArrowColumnToDorisColumnTest, test_fixed_binary) {
 }
 
 template <typename ArrowType, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_binary_array(int64_t num_elements,
-                                                                const std::string& value,
-                                                                size_t& counter) {
+std::shared_ptr<arrow::Array> create_binary_array(int64_t num_elements, const std::string& value,
+                                                  size_t& counter) {
     using offset_type = typename ArrowType::offset_type;
     size_t offsets_bytes = (num_elements + 1) * sizeof(offset_type);
     auto offsets_buf_tmp = arrow::AllocateBuffer(offsets_bytes);
@@ -613,13 +574,14 @@ TEST(ArrowColumnToDorisColumnTest, test_binary) {
 }
 
 template <typename ArrowValueType, bool is_nullable = false>
-static inline std::shared_ptr<arrow::Array> create_array_array(
-        std::vector<IColumn::Offset>& vec_offsets, std::vector<bool>& null_map,
-        std::shared_ptr<arrow::DataType> value_type, std::shared_ptr<arrow::Array> values,
-        size_t& counter) {
+std::shared_ptr<arrow::Array> create_array_array(std::vector<ColumnArray::Offset64>& vec_offsets,
+                                                 std::vector<bool>& null_map,
+                                                 std::shared_ptr<arrow::DataType> value_type,
+                                                 std::shared_ptr<arrow::Array> values,
+                                                 size_t& counter) {
     using offset_type = typename arrow::ListType::offset_type;
     size_t num_rows = vec_offsets.size() - 1;
-    DCHECK(null_map.size() == num_rows);
+    EXPECT_EQ(null_map.size(), num_rows);
     size_t offsets_bytes = (vec_offsets.size()) * sizeof(offset_type);
     auto offsets_buf_tmp = arrow::AllocateBuffer(offsets_bytes);
     std::shared_ptr<arrow::Buffer> offsets_buf = std::move(offsets_buf_tmp.ValueOrDie());
@@ -647,18 +609,18 @@ static inline std::shared_ptr<arrow::Array> create_array_array(
 
 template <typename ArrowType, bool is_nullable>
 void test_arrow_to_array_column(ColumnWithTypeAndName& column,
-                                std::vector<IColumn::Offset>& vec_offsets,
+                                std::vector<ColumnArray::Offset64>& vec_offsets,
                                 std::vector<bool>& null_map,
                                 std::shared_ptr<arrow::DataType> value_type,
                                 std::shared_ptr<arrow::Array> values, const std::string& value,
                                 size_t& counter) {
-    ASSERT_EQ(column.column->size(), counter);
     auto array = create_array_array<ArrowType, is_nullable>(vec_offsets, null_map, value_type,
                                                             values, counter);
+    auto old_size = column.column->size();
     auto ret = arrow_column_to_doris_column(array.get(), 0, column.column, column.type,
                                             vec_offsets.size() - 1, "UTC");
     ASSERT_EQ(ret.ok(), true);
-    ASSERT_EQ(column.column->size(), counter);
+    ASSERT_EQ(column.column->size() - old_size, counter);
     MutableColumnPtr data_column = nullptr;
     vectorized::ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
@@ -669,14 +631,16 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
         data_column = (*std::move(column.column)).mutate();
     }
     auto& array_column = static_cast<ColumnArray&>(*data_column);
-    EXPECT_EQ(array_column.size(), vec_offsets.size() - 1);
-    for (size_t i = 0; i < array_column.size(); ++i) {
-        auto v = get<Array>(array_column[i]);
+    EXPECT_EQ(array_column.size() - old_size, vec_offsets.size() - 1);
+    for (size_t i = 0; i < array_column.size() - old_size; ++i) {
+        auto v = get<Array>(array_column[old_size + i]);
         EXPECT_EQ(v.size(), vec_offsets[i + 1] - vec_offsets[i]);
+        EXPECT_EQ(v.size(), array_column.get_offsets()[old_size + i] -
+                                    array_column.get_offsets()[old_size + i - 1]);
         if (is_nullable) {
             ASSERT_NE(nullable_column, nullptr);
             NullMap& map_data = nullable_column->get_null_map_data();
-            ASSERT_EQ(map_data[i], null_map[i]);
+            ASSERT_EQ(map_data[old_size + i], null_map[i]);
             if (!null_map[i]) {
                 // check value
                 for (size_t j = 0; j < v.size(); ++j) {
@@ -697,11 +661,11 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
 
 template <typename ArrowType, bool is_nullable>
 void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
-                std::vector<IColumn::Offset>& vec_offsets, std::vector<bool>& null_map,
+                std::vector<ColumnArray::Offset64>& vec_offsets, std::vector<bool>& null_map,
                 std::shared_ptr<arrow::DataType> value_type) {
-    TypeDescriptor type(TYPE_ARRAY);
-    type.children.push_back(TYPE_VARCHAR);
-    DataTypePtr data_type = DataTypeFactory::instance().create_data_type(type, true);
+    auto type = make_nullable(std::make_shared<DataTypeArray>(
+            DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, true)));
+    DataTypePtr data_type = type;
     for (auto& value : test_cases) {
         MutableColumnPtr data_column = data_type->create_column();
         ColumnWithTypeAndName column(std::move(data_column), data_type, "test_array_column");
@@ -713,13 +677,17 @@ void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
         size_t counter = 0;
         test_arrow_to_array_column<ArrowType, is_nullable>(column, vec_offsets, null_map,
                                                            value_type, array, value, counter);
+        // multi arrow array can merge into one array column, here test again with non empty array column
+        counter = 0;
+        test_arrow_to_array_column<ArrowType, is_nullable>(column, vec_offsets, null_map,
+                                                           value_type, array, value, counter);
     }
 }
 
 TEST(ArrowColumnToDorisColumnTest, test_array) {
     std::vector<std::string> test_cases = {"1.2345678", "-12.34567890", "99999999999.99999999",
                                            "-99999999999.99999999"};
-    std::vector<IColumn::Offset> vec_offsets = {0, 3, 3, 4, 6, 6, 64};
+    std::vector<ColumnArray::Offset64> vec_offsets = {0, 3, 3, 4, 6, 6, 64};
     std::vector<bool> null_map = {false, true, false, false, false, false};
     test_array<arrow::BinaryType, false>(test_cases, 64, vec_offsets, null_map,
                                          arrow::list(arrow::binary()));

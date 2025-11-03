@@ -17,22 +17,25 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <sanitizer/asan_interface.h>
+
 #include <cstdint>
 #include <cstring>
 #include <string>
 
-#include "gutil/dynamic_annotations.h"
-#include "gutil/macros.h"
-#include "gutil/port.h"
-#include "gutil/strings/fastmem.h"
+#include "util/memcpy_inlined.h"
 #include "util/slice.h"
+#include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 
 // A faststring is similar to a std::string, except that it is faster for many
 // common use cases (in particular, resize() will fill with uninitialized data
 // instead of memsetting to \0)
-class faststring {
+// only build() can transfer data to the outside.
+class faststring : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     enum { kInitialCapacity = 32 };
 
@@ -42,7 +45,7 @@ public:
     explicit faststring(size_t capacity)
             : data_(initial_data_), len_(0), capacity_(kInitialCapacity) {
         if (capacity > capacity_) {
-            data_ = new uint8_t[capacity];
+            data_ = reinterpret_cast<uint8_t*>(Allocator::alloc(capacity));
             capacity_ = capacity;
         }
         ASAN_POISON_MEMORY_REGION(data_, capacity_);
@@ -51,7 +54,7 @@ public:
     ~faststring() {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
         if (data_ != initial_data_) {
-            delete[] data_;
+            Allocator::free(data_, capacity_);
         }
     }
 
@@ -82,10 +85,11 @@ public:
     OwnedSlice build() {
         uint8_t* ret = data_;
         if (ret == initial_data_) {
-            ret = new uint8_t[len_];
+            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(capacity_));
+            DCHECK(len_ <= capacity_);
             memcpy(ret, data_, len_);
         }
-        OwnedSlice result(ret, len_);
+        OwnedSlice result(ret, len_, capacity_);
         len_ = 0;
         capacity_ = kInitialCapacity;
         data_ = initial_data_;
@@ -99,7 +103,9 @@ public:
     // NOTE: even though the new capacity is reserved, it is illegal to begin writing into that memory
     // directly using pointers. If ASAN is enabled, this is ensured using manual memory poisoning.
     void reserve(size_t newcapacity) {
-        if (PREDICT_TRUE(newcapacity <= capacity_)) return;
+        if (newcapacity <= capacity_) [[likely]] {
+            return;
+        }
         GrowArray(newcapacity);
     }
 
@@ -120,7 +126,7 @@ public:
                 *p++ = *src++;
             }
         } else {
-            strings::memcpy_inlined(&data_[len_], src, count);
+            memcpy_inlined(&data_[len_], src, count);
         }
         len_ += count;
     }
@@ -202,7 +208,7 @@ private:
     // If necessary, expand the buffer to fit at least 'count' more bytes.
     // If the array has to be grown, it is grown by at least 50%.
     void EnsureRoomForAppend(size_t count) {
-        if (PREDICT_TRUE(len_ + count <= capacity_)) {
+        if (len_ + count <= capacity_) [[likely]] {
             return;
         }
 
@@ -221,7 +227,7 @@ private:
 
     void ShrinkToFitInternal();
 
-    uint8_t* data_;
+    uint8_t* data_ = nullptr;
     uint8_t initial_data_[kInitialCapacity];
     size_t len_;
     // NOTE: we will make a initial buffer as part of the object, so the smallest

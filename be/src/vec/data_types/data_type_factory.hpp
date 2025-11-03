@@ -19,24 +19,30 @@
 // and modified by Doris
 
 #pragma once
-#include <mutex>
-#include <string>
+#include <gen_cpp/Types_types.h>
 
-#include "arrow/type.h"
-#include "gen_cpp/data.pb.h"
-#include "olap/field.h"
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "olap/tablet_schema.h"
 #include "runtime/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+
+namespace arrow {
+class DataType;
+} // namespace arrow
+namespace doris {
+class Field;
+class PColumnMeta;
+enum class FieldType;
+
+namespace segment_v2 {
+class ColumnMetaPB;
+}
+
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -46,76 +52,43 @@ class DataTypeFactory {
 
 public:
     static DataTypeFactory& instance() {
-        static std::once_flag oc;
         static DataTypeFactory instance;
-        std::call_once(oc, []() {
-            std::unordered_map<std::string, DataTypePtr> base_type_map {
-                    {"UInt8", std::make_shared<DataTypeUInt8>()},
-                    {"UInt16", std::make_shared<DataTypeUInt16>()},
-                    {"UInt32", std::make_shared<DataTypeUInt32>()},
-                    {"UInt64", std::make_shared<DataTypeUInt64>()},
-                    {"Int8", std::make_shared<DataTypeInt8>()},
-                    {"Int16", std::make_shared<DataTypeInt16>()},
-                    {"Int32", std::make_shared<DataTypeInt32>()},
-                    {"Int64", std::make_shared<DataTypeInt64>()},
-                    {"Int128", std::make_shared<DataTypeInt128>()},
-                    {"Float32", std::make_shared<DataTypeFloat32>()},
-                    {"Float64", std::make_shared<DataTypeFloat64>()},
-                    {"Date", std::make_shared<DataTypeDate>()},
-                    {"DateV2", std::make_shared<DataTypeDateV2>()},
-                    {"DateTime", std::make_shared<DataTypeDateTime>()},
-                    {"String", std::make_shared<DataTypeString>()},
-                    {"Decimal", std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
-
-            };
-            for (auto const& [key, val] : base_type_map) {
-                instance.register_data_type(key, val);
-                instance.register_data_type("Array(" + key + ")",
-                                            std::make_shared<vectorized::DataTypeArray>(val));
-                instance.register_data_type(
-                        "Array(Nullable(" + key + "))",
-                        std::make_shared<vectorized::DataTypeArray>(
-                                std::make_shared<vectorized::DataTypeNullable>(val)));
-            }
-        });
         return instance;
-    }
-    DataTypePtr get(const std::string& name) { return _data_type_map[name]; }
-    const std::string& get(const DataTypePtr& data_type) const {
-        auto type_ptr = data_type->is_nullable()
-                                ? ((DataTypeNullable*)(data_type.get()))->get_nested_type()
-                                : data_type;
-        for (const auto& entity : _invert_data_type_map) {
-            if (entity.first->equals(*type_ptr)) {
-                return entity.second;
-            }
-        }
-        return _empty_string;
     }
 
     DataTypePtr create_data_type(const doris::Field& col_desc);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
 
-    DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
-
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);
+    DataTypePtr create_data_type(const segment_v2::ColumnMetaPB& pcolumn);
 
-    DataTypePtr create_data_type(const arrow::DataType* type, bool is_nullable);
+    DataTypePtr create_data_type(const TTypeDesc& t);
+    // Nullable will be not consistent with `raw_type.is_nullable` in SlotDescriptor.
+    DataTypePtr create_data_type(const TTypeDesc& raw_type, bool is_nullable);
 
-    DataTypePtr create_data_type(const TTypeDesc& raw_type) {
-        return create_data_type(TypeDescriptor::from_thrift(raw_type), raw_type.is_nullable);
+    DataTypePtr create_data_type(const FieldType& type, int precision, int scale) {
+        return _create_primitive_data_type(type, precision, scale, -1);
+    }
+    // Create DataType by PrimitiveType (only for naive types)
+    DataTypePtr create_data_type(const PrimitiveType primitive_type, bool is_nullable,
+                                 int precision = 0, int scale = 0, int len = -1);
+    // Create DataType by TTypeNode
+    DataTypePtr create_data_type(const std::vector<TTypeNode>& types, int* idx, bool is_nullable);
+    // Create DataType by PTypeNode
+    // Create DataType by PTypeNode
+    DataTypePtr create_data_type(const google::protobuf::RepeatedPtrField<PTypeNode>& types,
+                                 int* idx, bool is_nullable);
+    DataTypePtr create_data_type(const PTypeDesc& ptype, bool is_nullable) {
+        int idx = 0;
+        auto res = create_data_type(ptype.types(), &idx, is_nullable);
+        DCHECK_EQ(idx, ptype.types_size() - 1) << res->get_name();
+        return res;
     }
 
 private:
-    DataTypePtr _create_primitive_data_type(const FieldType& type) const;
+    DataTypePtr _create_primitive_data_type(const FieldType& type, int precision, int scale,
+                                            int length) const;
 
-    void register_data_type(const std::string& name, const DataTypePtr& data_type) {
-        _data_type_map.emplace(name, data_type);
-        _invert_data_type_map.emplace_back(data_type, name);
-    }
-    // TODO: Here is a little trick here, use bimap to replace map and vector
-    DataTypeMap _data_type_map;
-    InvertedDataTypeMap _invert_data_type_map;
     std::string _empty_string;
 };
 } // namespace doris::vectorized

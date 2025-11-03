@@ -17,24 +17,32 @@
 
 #include "olap/txn_manager.h"
 
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <memory>
+#include <new>
 #include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include "json2pb/json_to_pb.h"
+#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/options.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
+#include "olap/tablet_manager.h"
+#include "olap/tablet_schema.h"
+#include "olap/task/engine_publish_version_task.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -43,10 +51,11 @@ using std::string;
 
 namespace doris {
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 const std::string rowset_meta_path_2 = "./be/test/olap/test_data/rowset_meta2.json";
+const std::string rowset_meta_path_3 = "./be/test/olap/test_data/rowset_meta3.json";
 
 class TxnManagerTest : public testing::Test {
 public:
@@ -93,27 +102,31 @@ public:
         _schema->init_from_pb(tablet_schema_pb);
     }
 
+    void create_tablet() {
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->set_tablet_uid(_tablet_uid);
+        auto tablet = std::make_shared<Tablet>(*k_engine, std::move(tablet_meta), nullptr);
+        auto& tablet_map = k_engine->tablet_manager()->_get_tablet_map(tablet_id);
+        tablet_map[tablet_id] = std::move(tablet);
+    }
+
     virtual void SetUp() {
         config::max_runnings_transactions_per_txn_map = 500;
-        _txn_mgr.reset(new TxnManager(64, 1024));
 
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
         EngineOptions options;
-        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
-        if (k_engine == nullptr) {
-            k_engine = new StorageEngine(options);
-        }
-
+        // won't open engine, options.path is needless
+        k_engine = std::make_unique<StorageEngine>(options);
+        create_tablet();
         std::string meta_path = "./meta";
         std::filesystem::remove_all("./meta");
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
-        _meta = new (std::nothrow) OlapMeta(meta_path);
-        EXPECT_NE(nullptr, _meta);
+        _meta = std::make_unique<OlapMeta>(meta_path);
         Status st = _meta->init();
-        EXPECT_TRUE(st == Status::OK());
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(std::filesystem::exists("./meta"));
         load_id.set_hi(0);
         load_id.set_lo(0);
@@ -130,13 +143,13 @@ public:
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         RowsetId rowset_id;
         rowset_id.init(10000);
-        RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
-                                                             rowset_meta, &_alpha_rowset));
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
-                                                             rowset_meta, &_alpha_rowset_same_id));
+        EXPECT_EQ(Status::OK(),
+                  RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta, &_rowset));
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta,
+                                                             &_rowset_same_id));
 
         // init rowset meta 2
         _json_rowset_meta = "";
@@ -148,38 +161,53 @@ public:
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         rowset_id.init(10001);
-        RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
+        RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_2,
-                                                             rowset_meta2, &_alpha_rowset_diff_id));
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path_2,
+                                                             rowset_meta2, &_rowset_diff_id));
+
+        // init rowset meta 3
+        _json_rowset_meta = "";
+        std::ifstream infile3(rowset_meta_path_3);
+        char buffer3[1024];
+        while (!infile3.eof()) {
+            infile3.getline(buffer3, 1024);
+            _json_rowset_meta = _json_rowset_meta + buffer3 + "\n";
+        }
+        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        rowset_id.init(10002);
+        RowsetMetaSharedPtr rowset_meta3(new RowsetMeta());
+        rowset_meta3->init_from_json(_json_rowset_meta);
+        EXPECT_EQ(rowset_meta3->rowset_id(), rowset_id);
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path_3,
+                                                             rowset_meta3, &_rowset_ingested));
         _tablet_uid = TabletUid(10, 10);
     }
 
     virtual void TearDown() {
-        delete _meta;
+        k_engine.reset();
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
     }
 
 private:
-    OlapMeta* _meta;
+    std::unique_ptr<OlapMeta> _meta;
     std::string _json_rowset_meta;
-    std::unique_ptr<TxnManager> _txn_mgr;
     TPartitionId partition_id = 1123;
     TTransactionId transaction_id = 111;
     TTabletId tablet_id = 222;
-    SchemaHash schema_hash = 333;
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
-    std::unique_ptr<TabletSchema> _schema;
-    RowsetSharedPtr _alpha_rowset;
-    RowsetSharedPtr _alpha_rowset_same_id;
-    RowsetSharedPtr _alpha_rowset_diff_id;
+    TabletSchemaSPtr _schema;
+    RowsetSharedPtr _rowset;
+    RowsetSharedPtr _rowset_same_id;
+    RowsetSharedPtr _rowset_diff_id;
+    RowsetSharedPtr _rowset_ingested;
 };
 
 TEST_F(TxnManagerTest, PrepareNewTxn) {
-    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                          _tablet_uid, load_id);
+    Status status = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id,
+                                                         _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
 }
 
@@ -187,138 +215,260 @@ TEST_F(TxnManagerTest, PrepareNewTxn) {
 // 2. commit txn
 // 3. should be success
 TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
-    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                          _tablet_uid, load_id);
-    _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash, _tablet_uid,
-                         load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
-                                                rowset_meta);
-    EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _alpha_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id,
+                                                   _tablet_uid, load_id);
+    ASSERT_TRUE(st.ok()) << st;
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid, load_id, _rowset, std::move(guard),
+                                             false);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->rowset_id(), _rowset->rowset_id());
+    EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
 }
 
 // 1. commit without prepare
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
-    Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
 }
 
 // 1. commit twice with different rowset id
 // 2. should failed
 TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
-    Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid, load_id, _alpha_rowset_diff_id, false);
-    EXPECT_TRUE(status != Status::OK());
+    auto guard1 = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard1), false);
+    ASSERT_TRUE(st.ok()) << st;
+    auto guard2 = k_engine->pending_local_rowsets().add(_rowset_diff_id->rowset_id());
+    st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid, load_id, _rowset_diff_id,
+                                             std::move(guard2), false);
+    ASSERT_FALSE(st.ok()) << st;
+    EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
+    EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset_diff_id->rowset_id()));
 }
 
 // 1. commit twice with same rowset id
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
-    Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid, load_id, _alpha_rowset_same_id, false);
-    EXPECT_TRUE(status == Status::OK());
+    auto guard1 = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard1), false);
+    ASSERT_TRUE(st.ok()) << st;
+    auto guard2 = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid, load_id, _rowset_same_id,
+                                             std::move(guard2), false);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
 }
 
 // 1. prepare twice should be success
 TEST_F(TxnManagerTest, PrepareNewTxnTwice) {
-    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                          _tablet_uid, load_id);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                   _tablet_uid, load_id);
-    EXPECT_TRUE(status == Status::OK());
+    auto st = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id,
+                                                   _tablet_uid, load_id);
+    ASSERT_TRUE(st.ok()) << st;
+    st = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid,
+                                              load_id);
+    ASSERT_TRUE(st.ok()) << st;
 }
 
 // 1. txn could be rollbacked if it is not committed
 TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
-    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                          _tablet_uid, load_id);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->rollback_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                    _tablet_uid);
-    EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
-                                                rowset_meta);
-    EXPECT_TRUE(status != Status::OK());
+    auto st = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id,
+                                                   _tablet_uid, load_id);
+    ASSERT_TRUE(st.ok()) << st;
+    st = k_engine->txn_manager()->rollback_txn(partition_id, transaction_id, tablet_id,
+                                               _tablet_uid);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_FALSE(st.ok()) << st;
 }
 
 // 1. txn could not be rollbacked if it is committed
 TEST_F(TxnManagerTest, RollbackCommittedTxn) {
-    Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->rollback_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                    _tablet_uid);
-    EXPECT_FALSE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
-                                                rowset_meta);
-    EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _alpha_rowset->rowset_id());
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    st = k_engine->txn_manager()->rollback_txn(partition_id, transaction_id, tablet_id,
+                                               _tablet_uid);
+    ASSERT_FALSE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->rowset_id(), _rowset->rowset_id());
+    EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
 }
 
 // 1. publish version success
 TEST_F(TxnManagerTest, PublishVersionSuccessful) {
-    Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
     Version new_version(10, 11);
-    status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                   _tablet_uid, new_version);
-    EXPECT_TRUE(status == Status::OK());
+    TabletPublishStatistics stats;
+    {
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, new_version, &stats,
+                                                  extend_tablet_txn_info_lifetime);
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
-                                                rowset_meta);
-    EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _alpha_rowset->rowset_id());
-    EXPECT_TRUE(rowset_meta->start_version() == 10);
-    EXPECT_TRUE(rowset_meta->end_version() == 11);
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->rowset_id(), _rowset->rowset_id());
+    EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
+    EXPECT_EQ(rowset_meta->start_version(), 10);
+    EXPECT_EQ(rowset_meta->end_version(), 11);
 }
 
 // 1. publish version failed if not found related txn and rowset
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
-    Status status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id,
-                                          schema_hash, _tablet_uid, new_version);
-    EXPECT_TRUE(status != Status::OK());
+    auto not_exist_txn = transaction_id + 1000;
+    TabletPublishStatistics stats;
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+    auto st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, not_exist_txn,
+                                                   tablet_id, _tablet_uid, new_version, &stats,
+                                                   extend_tablet_txn_info_lifetime);
+    ASSERT_FALSE(st.ok()) << st;
 }
 
 TEST_F(TxnManagerTest, DeletePreparedTxn) {
-    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
-                                          _tablet_uid, load_id);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->delete_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid);
-    EXPECT_TRUE(status == Status::OK());
+    auto st = k_engine->txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id,
+                                                   _tablet_uid, load_id);
+    ASSERT_TRUE(st.ok()) << st;
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.ok()) << st;
 }
 
 TEST_F(TxnManagerTest, DeleteCommittedTxn) {
-    Status status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                         schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
-    EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
-                                                rowset_meta);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->delete_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid);
-    EXPECT_TRUE(status == Status::OK());
-    RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(),
-                                                rowset_meta2);
-    EXPECT_TRUE(status != Status::OK());
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->rowset_id(), _rowset->rowset_id());
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta2);
+    ASSERT_FALSE(st.ok()) << st;
+    EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
+}
+
+TEST_F(TxnManagerTest, TabletVersionCache) {
+    std::unique_ptr<TxnManager> txn_mgr = std::make_unique<TxnManager>(*k_engine, 64, 1024);
+    txn_mgr->update_tablet_version_txn(123, 100, 456);
+    txn_mgr->update_tablet_version_txn(124, 100, 567);
+    int64_t tx1 = txn_mgr->get_txn_by_tablet_version(123, 100);
+    EXPECT_EQ(tx1, 456);
+    int64_t tx2 = txn_mgr->get_txn_by_tablet_version(124, 100);
+    EXPECT_EQ(tx2, 567);
+    int64_t tx3 = txn_mgr->get_txn_by_tablet_version(124, 101);
+    EXPECT_EQ(tx3, -1);
+    txn_mgr->update_tablet_version_txn(123, 101, 888);
+    txn_mgr->update_tablet_version_txn(124, 101, 890);
+    int64_t tx4 = txn_mgr->get_txn_by_tablet_version(123, 100);
+    EXPECT_EQ(tx4, 456);
+    int64_t tx5 = txn_mgr->get_txn_by_tablet_version(123, 101);
+    EXPECT_EQ(tx5, 888);
+    int64_t tx6 = txn_mgr->get_txn_by_tablet_version(124, 101);
+    EXPECT_EQ(tx6, 890);
+}
+
+TEST_F(TxnManagerTest, DeleteCommittedTxnForIngestingBinlog) {
+    auto guard = k_engine->pending_local_rowsets().add(_rowset_ingested->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset_ingested,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset_ingested->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->rowset_id(), _rowset_ingested->rowset_id());
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.ok()) << st;
+    RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset_ingested->rowset_id(),
+                                            rowset_meta2);
+    ASSERT_FALSE(st.ok()) << st;
+    EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset_ingested->rowset_id()));
+}
+
+TEST_F(TxnManagerTest, DeleteCommittedTxnCleanupOnError) {
+    // first commit a transaction
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+
+    // verify transaction exists before deletion
+    std::vector<TPartitionId> partition_ids;
+    k_engine->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    ASSERT_EQ(1, partition_ids.size());
+    ASSERT_EQ(partition_id, partition_ids[0]);
+
+    // also verify using get_tablet_related_txns
+    int64_t found_partition_id;
+    std::set<int64_t> found_txn_ids;
+    k_engine->txn_manager()->get_tablet_related_txns(tablet_id, _tablet_uid, &found_partition_id,
+                                                     &found_txn_ids);
+    ASSERT_EQ(1, found_txn_ids.size());
+    ASSERT_EQ(transaction_id, *found_txn_ids.begin());
+
+    // make rowset visible
+    Version version(0, 1);
+    _rowset->make_visible(version);
+
+    // now try to delete the transaction
+    // this should return TRANSACTION_ALREADY_COMMITTED but still clean up the transaction state
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.is<ErrorCode::TRANSACTION_ALREADY_COMMITTED>()) << st;
+
+    // verify transaction is removed from txn map
+    partition_ids.clear();
+    k_engine->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    ASSERT_TRUE(partition_ids.empty()) << "Transaction should be removed from txn map";
+
+    // verify by checking if we can get tablet related txns
+    found_txn_ids.clear();
+    k_engine->txn_manager()->get_tablet_related_txns(tablet_id, _tablet_uid, &found_partition_id,
+                                                     &found_txn_ids);
+    ASSERT_TRUE(found_txn_ids.empty()) << "Transaction should not be found in tablet related txns";
 }
 
 } // namespace doris

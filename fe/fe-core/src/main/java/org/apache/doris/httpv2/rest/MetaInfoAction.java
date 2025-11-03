@@ -17,11 +17,12 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -30,8 +31,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
-import org.apache.doris.datasource.DataSourceIf;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -58,6 +59,7 @@ import javax.servlet.http.HttpServletResponse;
  * And meta info like databases, tables and schema
  */
 @RestController
+@Deprecated
 public class MetaInfoAction extends RestBaseController {
 
     private static final String NAMESPACES = "namespaces";
@@ -74,9 +76,9 @@ public class MetaInfoAction extends RestBaseController {
      *   "msg": "success",
      *   "code": 0,
      *   "data": [
-     *     "default_cluster:db1",
-     *     "default_cluster:doris_audit_db__",
-     *     "default_cluster:information_schema"
+     *     "db1",
+     *     "doris_audit_db__",
+     *     "information_schema"
      *   ],
      *   "count": 0
      * }
@@ -86,24 +88,26 @@ public class MetaInfoAction extends RestBaseController {
     public Object getAllDatabases(
             @PathVariable(value = NS_KEY) String ns,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        boolean checkAuth = Config.enable_all_http_auth ? true : false;
+        checkWithCookie(request, response, checkAuth);
 
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            ns = InternalDataSource.INTERNAL_DS_NAME;
+            ns = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
 
         // 1. get all database with privilege
-        DataSourceIf ds = Catalog.getCurrentCatalog().getDataSourceMgr().getCatalog(ns);
-        if (ds == null) {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ns);
+        if (catalog == null) {
             return ResponseEntityBuilder.badRequest("Unknown catalog " + ns);
         }
-        List<String> dbNames = ds.getDbNames();
+        List<String> dbNames = catalog.getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             dbNameSet.add(db);
@@ -133,25 +137,27 @@ public class MetaInfoAction extends RestBaseController {
     public Object getTables(
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        boolean checkAuth = Config.enable_all_http_auth ? true : false;
+        checkWithCookie(request, response, checkAuth);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-
         String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> tblNames = Lists.newArrayList();
         for (Table tbl : db.getTables()) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                            tbl.getName(),
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             tblNames.add(tbl.getName());
@@ -209,7 +215,8 @@ public class MetaInfoAction extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) throws UserException {
-        checkWithCookie(request, response, false);
+        boolean checkAuth = Config.enable_all_http_auth ? true : false;
+        checkWithCookie(request, response, checkAuth);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
@@ -226,8 +233,8 @@ public class MetaInfoAction extends RestBaseController {
         Database db;
         Table tbl;
         try {
-            db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-            tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            tbl = db.getTableOrMetaException(tblName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -323,8 +330,8 @@ public class MetaInfoAction extends RestBaseController {
         }
 
         if (maxNum <= 0) {
-            return Pair.create(0, 0);
+            return Pair.of(0, 0);
         }
-        return Pair.create(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
+        return Pair.of(Math.min(offset, maxNum - 1), Math.min(limit + offset, maxNum));
     }
 }

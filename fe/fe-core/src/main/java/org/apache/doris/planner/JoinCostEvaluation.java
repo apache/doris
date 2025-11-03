@@ -52,7 +52,7 @@ public class JoinCostEvaluation {
         PlanNode rhsTree = rightChildFragment.getPlanRoot();
         rhsTreeCardinality = rhsTree.getCardinality();
         rhsTreeAvgRowSize = rhsTree.getAvgRowSize();
-        rhsTreeTupleIdNum = rhsTree.getTupleIds().size();
+        rhsTreeTupleIdNum = rhsTree.getOutputTupleIds().size();
         PlanNode lhsTree = leftChildFragment.getPlanRoot();
         lhsTreeCardinality = lhsTree.getCardinality();
         lhsTreeAvgRowSize = lhsTree.getAvgRowSize();
@@ -75,10 +75,10 @@ public class JoinCostEvaluation {
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug(nodeOverview);
-            LOG.debug("broadcast: cost=" + Long.toString(broadcastCost));
-            LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality)
-                    + " rhs row_size=" + Float.toString(rhsTreeAvgRowSize)
-                    + " lhs nodes=" + Integer.toString(lhsTreeNumNodes));
+            LOG.debug("broadcast: cost=" + broadcastCost);
+            LOG.debug("rhs card=" + rhsTreeCardinality
+                    + " rhs row_size=" + rhsTreeAvgRowSize
+                    + " lhs nodes=" + lhsTreeNumNodes);
         }
     }
 
@@ -92,12 +92,10 @@ public class JoinCostEvaluation {
                     (double) lhsTreeCardinality * lhsTreeAvgRowSize + (double) rhsTreeCardinality * rhsTreeAvgRowSize);
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug(nodeOverview);
-            LOG.debug("partition: cost=" + Long.toString(partitionCost));
-            LOG.debug("lhs card=" + Long.toString(lhsTreeCardinality) + " row_size="
-                    + Float.toString(lhsTreeAvgRowSize));
-            LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality) + " row_size="
-                    + Float.toString(rhsTreeAvgRowSize));
+            LOG.debug("nodeOverview: {}", nodeOverview);
+            LOG.debug("partition: cost={} ", partitionCost);
+            LOG.debug("lhs card={} row_size={}", lhsTreeCardinality, lhsTreeAvgRowSize);
+            LOG.debug("rhs card={} row_size={}", rhsTreeCardinality, rhsTreeAvgRowSize);
         }
     }
 

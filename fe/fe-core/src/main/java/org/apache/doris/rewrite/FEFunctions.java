@@ -17,7 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -26,6 +25,7 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
@@ -35,11 +35,10 @@ import org.apache.doris.qe.GlobalVariable;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joda.time.DateTimeZone;
-import org.joda.time.LocalDateTime;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.LocalDateTime;
 
 /**
  * compute functions in FE.
@@ -58,28 +57,51 @@ public class FEFunctions {
     /**
      * date and time function
      */
-    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIME")
+    @FEFunction(name = "timediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "TIMEV2")
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
         long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000,
-            FloatLiteral.getDefaultTimeType(Type.TIME));
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000, Type.TIMEV2);
     }
 
-    @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
-    public static IntLiteral dateDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        DateLiteral firstDate = ((DateLiteral) first);
-        DateLiteral secondDate = ((DateLiteral) second);
-        // DATEDIFF function only uses the date part for calculations and ignores the time part
-        firstDate.castToDate();
-        secondDate.castToDate();
-        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone())
-                - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
-        return new IntLiteral(datediff, Type.INT);
+    @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "TINYINT")
+    public static IntLiteral dayOfWeek(LiteralExpr date) throws AnalysisException {
+        // use zellar algorithm.
+        long year = ((DateLiteral) date).getYear();
+        long month = ((DateLiteral) date).getMonth();
+        long day = ((DateLiteral) date).getDay();
+        if (month < 3) {
+            month += 12;
+            year -= 1;
+        }
+        long c = year / 100;
+        long y = year % 100;
+        long t;
+        if (date.compareTo(new DateLiteral(1582, 10, 4)) > 0) {
+            t = (y + y / 4 + c / 4 - 2 * c + 26 * (month + 1) / 10 + day - 1) % 7;
+        } else {
+            t = (y + y / 4 - c + 26 * (month + 1) / 10 + day + 4) % 7;
+        }
+        return new IntLiteral(t + 1);
     }
 
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @FEFunction(name = "date_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral dateAddDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @FEFunction(name = "date_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral dateAddDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @FEFunction(name = "date_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral dateAddDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, day);
     }
 
@@ -88,14 +110,84 @@ public class FEFunctions {
         return daysAdd(date, day);
     }
 
+    @FEFunction(name = "adddate", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral addDateDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @FEFunction(name = "adddate", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral addDateDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
     @FEFunction(name = "years_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral yearsAdd(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusYears(year.getLongValue());
+    }
+
+    @FEFunction(name = "years_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral yearsAddDate(LiteralExpr date, LiteralExpr year) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
         return dateLiteral.plusYears((int) year.getLongValue());
     }
 
+    @FEFunction(name = "years_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral yearsAddDateV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusYears((int) year.getLongValue());
+    }
+
+    @FEFunction(name = "years_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral yearsAddDateTimeV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusYears((int) year.getLongValue());
+    }
+
+    @FEFunction(name = "quarters_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    public static DateLiteral quartersAdd(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
+    }
+
+    @FEFunction(name = "quarters_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral quartersAddDate(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
+    }
+
+    @FEFunction(name = "quarters_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral quartersAddDateV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
+    }
+
+    @FEFunction(name = "quarters_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral quartersAddDateTimeV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths(3 * (int) quarter.getLongValue());
+    }
+
     @FEFunction(name = "months_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral monthsAdd(LiteralExpr date, LiteralExpr month) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths(month.getLongValue());
+    }
+
+    @FEFunction(name = "months_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral monthsAddDate(LiteralExpr date, LiteralExpr month) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths((int) month.getLongValue());
+    }
+
+    @FEFunction(name = "months_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral monthsAddDateV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusMonths((int) month.getLongValue());
+    }
+
+    @FEFunction(name = "months_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral monthsAddDateTimeV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
         return dateLiteral.plusMonths((int) month.getLongValue());
     }
@@ -103,121 +195,55 @@ public class FEFunctions {
     @FEFunction(name = "days_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral daysAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusDays(day.getLongValue());
+    }
+
+    @FEFunction(name = "days_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral daysAddDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusDays((int) day.getLongValue());
+    }
+
+    @FEFunction(name = "days_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral daysAddDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
+        return dateLiteral.plusDays((int) day.getLongValue());
+    }
+
+    @FEFunction(name = "days_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral daysAddDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        DateLiteral dateLiteral = (DateLiteral) date;
         return dateLiteral.plusDays((int) day.getLongValue());
     }
 
     @FEFunction(name = "hours_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral hoursAdd(LiteralExpr date, LiteralExpr hour) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusHours((int) hour.getLongValue());
+        return dateLiteral.plusHours(hour.getLongValue());
     }
 
     @FEFunction(name = "minutes_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral minutesAdd(LiteralExpr date, LiteralExpr minute) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMinutes((int) minute.getLongValue());
+        return dateLiteral.plusMinutes(minute.getLongValue());
     }
 
     @FEFunction(name = "seconds_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
      public static DateLiteral secondsAdd(LiteralExpr date, LiteralExpr second) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusSeconds((int) second.getLongValue());
+        return dateLiteral.plusSeconds(second.getLongValue());
     }
 
-    @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
-    public static StringLiteral dateFormat(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = ((DateLiteral) date).dateFormat(fmtLiteral.getStringValue());
-        return new StringLiteral(result);
-    }
-
-    @FEFunction(name = "timediff", argTypes = { "DATETIMEV2", "DATETIMEV2" }, returnType = "TIME")
-    public static FloatLiteral timeDiffV2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
-        long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000,
-                FloatLiteral.getDefaultTimeType(Type.TIME));
-    }
-
-    @FEFunction(name = "datediff", argTypes = { "DATETIMEV2", "DATETIMEV2" }, returnType = "INT")
-    public static IntLiteral dateDiffV2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        DateLiteral firstDate = ((DateLiteral) first);
-        DateLiteral secondDate = ((DateLiteral) second);
-        // DATEDIFF function only uses the date part for calculations and ignores the time part
-        firstDate.castToDate();
-        secondDate.castToDate();
-        long datediff = (firstDate.unixTimestamp(TimeUtils.getTimeZone())
-                - secondDate.unixTimestamp(TimeUtils.getTimeZone())) / 1000 / 60 / 60 / 24;
-        return new IntLiteral(datediff, Type.INT);
-    }
-
-    @FEFunction(name = "date_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral dateAddV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
-        return daysAddV2(date, day);
-    }
-
-    @FEFunction(name = "adddate", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral addDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
-        return daysAddV2(date, day);
-    }
-
-    @FEFunction(name = "years_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral yearsAddV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
-        DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusYears((int) year.getLongValue());
-    }
-
-    @FEFunction(name = "months_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral monthsAddV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
-        DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMonths((int) month.getLongValue());
-    }
-
-    @FEFunction(name = "days_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral daysAddV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
-        DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusDays((int) day.getLongValue());
-    }
-
-    @FEFunction(name = "hours_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral hoursAddV2(LiteralExpr date, LiteralExpr hour) throws AnalysisException {
-        DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusHours((int) hour.getLongValue());
-    }
-
-    @FEFunction(name = "minutes_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral minutesAddV2(LiteralExpr date, LiteralExpr minute) throws AnalysisException {
-        DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMinutes((int) minute.getLongValue());
-    }
-
-    @FEFunction(name = "seconds_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral secondsAddV2(LiteralExpr date, LiteralExpr second) throws AnalysisException {
-        DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusSeconds((int) second.getLongValue());
-    }
-
-    @FEFunction(name = "date_format", argTypes = { "DATETIMEV2", "VARCHAR" }, returnType = "VARCHAR")
-    public static StringLiteral dateFormatV2(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
-        String result = ((DateLiteral) date).dateFormat(fmtLiteral.getStringValue());
-        return new StringLiteral(result);
-    }
-
-    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
+    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
         try {
             dateLiteral.fromDateFormatStr(fmtLiteral.getStringValue(), date.getStringValue(), false);
-            dateLiteral.setType(DateLiteral.getDefaultDateType(dateLiteral.getType()));
+            dateLiteral.setType(dateLiteral.getType());
             return dateLiteral;
         } catch (InvalidFormatException e) {
-            e.printStackTrace();
             throw new AnalysisException(e.getMessage());
         }
-    }
-
-    @FEFunction(name = "makedate", argTypes = { "INT", "INT" }, returnType = "DATETIME")
-    public static DateLiteral makeDate(LiteralExpr date) throws AnalysisException {
-        return (DateLiteral) date;
     }
 
     @FEFunction(name = "date_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -225,9 +251,59 @@ public class FEFunctions {
         return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
+    @FEFunction(name = "date_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral dateSubDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "date_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral dateSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "date_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral dateSubDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
     @FEFunction(name = "years_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral yearsSub(LiteralExpr date, LiteralExpr year) throws AnalysisException {
         return yearsAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    }
+
+    @FEFunction(name = "years_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral yearsSubDate(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+        return yearsAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    }
+
+    @FEFunction(name = "years_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral yearsSubDateV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+        return yearsAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    }
+
+    @FEFunction(name = "years_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral yearsSubDateTimeV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
+        return yearsAdd(date, new IntLiteral(-(int) year.getLongValue()));
+    }
+
+    @FEFunction(name = "quarters_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
+    public static DateLiteral quartersSub(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
+    }
+
+    @FEFunction(name = "quarters_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral quartersSubDate(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
+    }
+
+    @FEFunction(name = "quarters_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral quartersSubDateV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
+    }
+
+    @FEFunction(name = "quarters_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral quartersSubDateTimeV2(LiteralExpr date, LiteralExpr quarter) throws AnalysisException {
+        return quartersAdd(date, new IntLiteral(-(int) quarter.getLongValue()));
     }
 
     @FEFunction(name = "months_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
@@ -235,8 +311,38 @@ public class FEFunctions {
         return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
     }
 
+    @FEFunction(name = "months_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral monthsSubDate(LiteralExpr date, LiteralExpr month) throws AnalysisException {
+        return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
+    }
+
+    @FEFunction(name = "months_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral monthsSubDateV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
+        return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
+    }
+
+    @FEFunction(name = "months_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral monthsSubDateTimeV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
+        return monthsAdd(date, new IntLiteral(-(int) month.getLongValue()));
+    }
+
     @FEFunction(name = "days_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral daysSub(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "days_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral daysSubDate(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "days_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral daysSubDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "days_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral daysSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
@@ -255,17 +361,17 @@ public class FEFunctions {
         return secondsAdd(date, new IntLiteral(-(int) second.getLongValue()));
     }
 
-    @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "INT")
+    @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "SMALLINT")
     public static IntLiteral year(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getYear(), Type.INT);
     }
 
-    @FEFunction(name = "month", argTypes = { "DATETIME" }, returnType = "INT")
+    @FEFunction(name = "month", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral month(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getMonth(), Type.INT);
     }
 
-    @FEFunction(name = "day", argTypes = { "DATETIME" }, returnType = "INT")
+    @FEFunction(name = "day", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral day(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getDay(), Type.INT);
     }
@@ -288,100 +394,22 @@ public class FEFunctions {
         return new IntLiteral(unixTime, Type.INT);
     }
 
-    @FEFunction(name = "date_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral dateSubV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
-        return dateAddV2(date, new IntLiteral(-(int) day.getLongValue()));
-    }
-
-    @FEFunction(name = "years_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral yearsSubV2(LiteralExpr date, LiteralExpr year) throws AnalysisException {
-        return yearsAddV2(date, new IntLiteral(-(int) year.getLongValue()));
-    }
-
-    @FEFunction(name = "months_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral monthsSubV2(LiteralExpr date, LiteralExpr month) throws AnalysisException {
-        return monthsAddV2(date, new IntLiteral(-(int) month.getLongValue()));
-    }
-
-    @FEFunction(name = "days_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral daysSubV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
-        return daysAddV2(date, new IntLiteral(-(int) day.getLongValue()));
-    }
-
-    @FEFunction(name = "hours_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral hoursSubV2(LiteralExpr date, LiteralExpr hour) throws AnalysisException {
-        return hoursAddV2(date, new IntLiteral(-(int) hour.getLongValue()));
-    }
-
-    @FEFunction(name = "minutes_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral minutesSubV2(LiteralExpr date, LiteralExpr minute) throws AnalysisException {
-        return minutesAddV2(date, new IntLiteral(-(int) minute.getLongValue()));
-    }
-
-    @FEFunction(name = "seconds_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIME")
-    public static DateLiteral secondsSubV2(LiteralExpr date, LiteralExpr second) throws AnalysisException {
-        return secondsAddV2(date, new IntLiteral(-(int) second.getLongValue()));
-    }
-
-    @FEFunction(name = "year", argTypes = { "DATETIMEV2" }, returnType = "INT")
-    public static IntLiteral yearV2(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).getYear(), Type.INT);
-    }
-
-    @FEFunction(name = "month", argTypes = { "DATETIMEV2" }, returnType = "INT")
-    public static IntLiteral monthV2(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).getMonth(), Type.INT);
-    }
-
-    @FEFunction(name = "day", argTypes = { "DATETIMEV2" }, returnType = "INT")
-    public static IntLiteral dayV2(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).getDay(), Type.INT);
-    }
-
-    @FEFunction(name = "unix_timestamp", argTypes = { "DATETIMEV2" }, returnType = "INT")
-    public static IntLiteral unixTimestampV2(LiteralExpr arg) throws AnalysisException {
-        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
-        // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
-        unixTime = unixTime < 0 ? 0 : unixTime;
-        unixTime = unixTime > Integer.MAX_VALUE ? 0 : unixTime;
-        return new IntLiteral(unixTime, Type.INT);
-    }
-
-    @FEFunction(name = "unix_timestamp", argTypes = { "DATEV2" }, returnType = "INT")
-    public static IntLiteral unixTimestamp2V2(LiteralExpr arg) throws AnalysisException {
-        long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
-        // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
-        unixTime = unixTime < 0 ? 0 : unixTime;
-        unixTime = unixTime > Integer.MAX_VALUE ? 0 : unixTime;
-        return new IntLiteral(unixTime, Type.INT);
-    }
-
-    @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0) {
-            throw new AnalysisException("unixtime should larger than zero");
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() > 32536771199L) {
+            throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
-                DateLiteral.getDefaultDateType(Type.DATETIME));
+                Type.DATETIME);
         return new StringLiteral(dl.getStringValue());
-    }
-
-    @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
-    public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
-        // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0) {
-            throw new AnalysisException("unixtime should larger than zero");
-        }
-        DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
-                DateLiteral.getDefaultDateType(Type.DATETIME));
-        return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
-        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
-            DateLiteral.getDefaultDateType(Type.DATETIME));
+        return  new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
+                Type.DATETIME);
     }
 
     @FEFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")
@@ -390,62 +418,34 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
-    public static DateLiteral curDate() throws AnalysisException {
-        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())),
-            DateLiteral.getDefaultDateType(Type.DATE));
+    public static DateLiteral curDate() {
+        return new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
+                Type.DATE);
     }
 
-    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
+    @FEFunction(name = "current_date", argTypes = {}, returnType = "DATE")
+    public static DateLiteral currentDate() {
+        return curDate();
+    }
+
+    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIMEV2")
     public static FloatLiteral curTime() throws AnalysisException {
         DateLiteral now = now();
-        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()),
-            FloatLiteral.getDefaultTimeType(Type.TIME));
+        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()), Type.TIMEV2);
     }
 
-    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIME")
+    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIMEV2")
     public static FloatLiteral currentTime() throws AnalysisException {
         return curTime();
     }
 
     @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
-    public static DateLiteral utcTimestamp() throws AnalysisException {
-        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getOrSystemTimeZone("+00:00"))),
-            DateLiteral.getDefaultDateType(Type.DATETIME));
+    public static DateLiteral utcTimestamp() {
+        return new DateLiteral(LocalDateTime.now(TimeUtils.getOrSystemTimeZone("+00:00").toZoneId()),
+                Type.DATETIME);
     }
 
-    @FEFunction(name = "yearweek", argTypes = { "DATE" }, returnType = "INT")
-    public static IntLiteral yearWeek(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "yearweek", argTypes = { "DATE", "INT" }, returnType = "INT")
-    public static IntLiteral yearWeekMod(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "week", argTypes = { "DATE" }, returnType = "INT")
-    public static IntLiteral week(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "week", argTypes = { "DATE", "INT" }, returnType = "INT")
-    public static IntLiteral weekMode(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
-        }
-        return null;
-    }
-
-    @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral hour(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
             return new IntLiteral(((DateLiteral) arg).getHour());
@@ -453,7 +453,7 @@ public class FEFunctions {
         return null;
     }
 
-    @FEFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral minute(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
             return new IntLiteral(((DateLiteral) arg).getMinute());
@@ -461,7 +461,7 @@ public class FEFunctions {
         return null;
     }
 
-    @FEFunction(name = "second", argTypes = {"DATETIME"}, returnType = "INT")
+    @FEFunction(name = "second", argTypes = {"DATETIME"}, returnType = "TINYINT")
     public static IntLiteral second(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
             return new IntLiteral(((DateLiteral) arg).getSecond());
@@ -477,68 +477,315 @@ public class FEFunctions {
         return null;
     }
 
-    @FEFunction(name = "yearweek", argTypes = { "DATEV2" }, returnType = "INT")
-    public static IntLiteral yearWeekV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
+    @FEFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
+    public static DateLiteral toMonday(LiteralExpr arg) {
+        if (arg instanceof DateLiteral && (arg.getType().isDate() || arg.getType().isDatetime())) {
+            DateLiteral dateLiteral = ((DateLiteral) arg);
+            LocalDateTime dateTime = LocalDateTime.of(
+                    ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
+                    0, 0, 0);
+            dateTime = toMonday(dateTime);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATE);
         }
         return null;
     }
 
-    @FEFunction(name = "yearweek", argTypes = { "DATEV2", "INT" }, returnType = "INT")
-    public static IntLiteral yearWeekModV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
+    @FEFunction(name = "to_monday", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateLiteral toMondayV2(LiteralExpr arg) {
+        if (arg instanceof DateLiteral && (arg.getType().isDateV2() || arg.getType().isDatetimeV2())) {
+            DateLiteral dateLiteral = ((DateLiteral) arg);
+            LocalDateTime dateTime = LocalDateTime.of(
+                    ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
+                    0, 0, 0);
+            dateTime = toMonday(dateTime);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATEV2);
         }
         return null;
     }
 
-    @FEFunction(name = "week", argTypes = { "DATEV2" }, returnType = "INT")
-    public static IntLiteral weekV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
+    @FEFunction(name = "second_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral second_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.SECOND);
+    }
+
+    @FEFunction(name = "second_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral second_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.SECOND);
+    }
+
+    @FEFunction(name = "minute_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral minute_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.MINUTE);
+    }
+
+    @FEFunction(name = "minute_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral minute_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.MINUTE);
+    }
+
+    @FEFunction(name = "hour_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral hour_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.HOUR);
+    }
+
+    @FEFunction(name = "hour_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral hour_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.HOUR);
+    }
+
+    @FEFunction(name = "day_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral day_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.DAY);
+    }
+
+    @FEFunction(name = "day_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral day_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.DAY);
+    }
+
+    // get it's from be/src/vec/functions/function_datetime_floor_ceil.cpp##time_round
+    public static DateLiteral getFloorCeilDateLiteral(LiteralExpr datetime, LiteralExpr period,
+            LiteralExpr defaultDatetime, boolean isCeil, TimeUnit type) throws AnalysisException {
+        DateLiteral dt = ((DateLiteral) datetime);
+        DateLiteral start = ((DateLiteral) defaultDatetime);
+        long periodValue = ((IntLiteral) period).getValue();
+        long diff = 0;
+        long trivialPart = 0;
+
+        switch (type) {
+            case YEAR: {
+                diff = dt.getYear() - start.getYear();
+                trivialPart = (dt.getLongValue() % 10000000000L) - (start.getLongValue() % 10000000000L);
+                break;
+            }
+            case MONTH: {
+                diff = (dt.getYear() - start.getYear()) * 12 + (dt.getMonth() - start.getMonth());
+                trivialPart = (dt.getLongValue() % 100000000L) - (start.getLongValue() % 100000000L);
+                break;
+            }
+            case WEEK: {
+                diff = (dt.daynr() / 7) - (start.daynr() / 7);
+                long part2 = (dt.daynr() % 7) * 24 * 3600 + dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
+                long part1 = (start.daynr() % 7) * 24 * 3600 + start.getHour() * 3600 + start.getMinute() * 60
+                        + start.getSecond();
+                trivialPart = part2 - part1;
+                break;
+            }
+            case DAY: {
+                diff = dt.daynr() - start.daynr();
+                long part2 = dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
+                long part1 = start.getHour() * 3600 + start.getMinute() * 60 + start.getSecond();
+                trivialPart = part2 - part1;
+                break;
+            }
+            case HOUR: {
+                diff = (dt.daynr() - start.daynr()) * 24 + (dt.getHour() - start.getHour());
+                trivialPart = (dt.getMinute() * 60 + dt.getSecond()) - (start.getMinute() * 60 + start.getSecond());
+                break;
+            }
+            case MINUTE: {
+                diff = (dt.daynr() - start.daynr()) * 24 * 60 + (dt.getHour() - start.getHour()) * 60
+                        + (dt.getMinute() - start.getMinute());
+                trivialPart = dt.getSecond() - start.getSecond();
+                break;
+            }
+            case SECOND: {
+                diff = (dt.daynr() - start.daynr()) * 24 * 60 * 60 + (dt.getHour() - start.getHour()) * 60 * 60
+                        + (dt.getMinute() - start.getMinute()) * 60 + (dt.getSecond() - start.getSecond());
+                trivialPart = 0;
+                break;
+            }
+            default:
+                break;
+        }
+
+        if (isCeil) {
+            diff = diff + (trivialPart > 0 ? 1 : 0);
+        } else {
+            diff = diff - (trivialPart < 0 ? 1 : 0);
+        }
+        long deltaInsidePeriod = (diff % periodValue + periodValue) % periodValue;
+        long step = diff - deltaInsidePeriod;
+        if (isCeil) {
+            step = step + (deltaInsidePeriod == 0 ? 0 : periodValue);
+        }
+        switch (type) {
+            case YEAR:
+                return start.plusYears(step);
+            case MONTH:
+                return start.plusMonths(step);
+            case WEEK:
+                return start.plusDays(step * 7);
+            case DAY:
+                return start.plusDays(step);
+            case HOUR:
+                return start.plusHours(step);
+            case MINUTE:
+                return start.plusMinutes(step);
+            case SECOND:
+                return start.plusSeconds(step);
+            default:
+                break;
         }
         return null;
     }
 
-    @FEFunction(name = "week", argTypes = { "DATEV2", "INT" }, returnType = "INT")
-    public static IntLiteral weekModeV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof IntLiteral) {
-            return (IntLiteral) arg;
+    @FEFunction(name = "week_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral week_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.WEEK);
+    }
+
+    @FEFunction(name = "week_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral week_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.WEEK);
+    }
+
+    @FEFunction(name = "month_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral month_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.MONTH);
+    }
+
+    @FEFunction(name = "month_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral month_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.MONTH);
+    }
+
+    @FEFunction(name = "year_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral year_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.YEAR);
+    }
+
+    @FEFunction(name = "year_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral year_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.YEAR);
+    }
+
+    @FEFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
+    public static DateLiteral dateTruncDatetime(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                            (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
+                            (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
         }
         return null;
     }
 
-    @FEFunction(name = "hour", argTypes = {"DATETIMEV2"}, returnType = "INT")
-    public static IntLiteral hourV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof DateLiteral) {
-            return new IntLiteral(((DateLiteral) arg).getHour());
+    @FEFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
+    public static DateLiteral dateTruncDatetimeV2(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                            (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
+                            (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
         }
         return null;
     }
 
-    @FEFunction(name = "minute", argTypes = {"DATETIMEV2"}, returnType = "INT")
-    public static IntLiteral minuteV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof DateLiteral) {
-            return new IntLiteral(((DateLiteral) arg).getMinute());
+    @FEFunction(name = "date_trunc", argTypes = { "DATE", "VARCHAR" }, returnType = "DATE")
+    public static DateLiteral dateTruncDate(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                    (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
         }
         return null;
     }
 
-    @FEFunction(name = "second", argTypes = {"DATETIMEV2"}, returnType = "INT")
-    public static IntLiteral secondV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof DateLiteral) {
-            return new IntLiteral(((DateLiteral) arg).getSecond());
+    @FEFunction(name = "date_trunc", argTypes = { "DATEV2", "VARCHAR" }, returnType = "DATEV2")
+    public static DateLiteral dateTruncDateV2(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateType()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                    (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
         }
         return null;
     }
 
-    @FEFunction(name = "timestamp", argTypes = {"DATETIMEV2"}, returnType = "DATETIME")
-    public static DateLiteral timestampV2(LiteralExpr arg) throws AnalysisException {
-        if (arg instanceof DateLiteral) {
-            return (DateLiteral) arg;
+    private static LocalDateTime dateTruncHelper(LocalDateTime dateTime, String trunc) {
+        int year = dateTime.getYear();
+        int month = dateTime.getMonthValue();
+        int day = dateTime.getDayOfMonth();
+        int hour = dateTime.getHour();
+        int minute = dateTime.getMinute();
+        int second = dateTime.getSecond();
+        switch (trunc.toLowerCase()) {
+            case "year":
+                month = 0;
+            case "quarter": // CHECKSTYLE IGNORE THIS LINE
+                month = ((month - 1) / 3) * 3 + 1;
+            case "month": // CHECKSTYLE IGNORE THIS LINE
+                day = 1;
+                break;
+            case "week":
+                LocalDateTime firstDayOfWeek = firstDayOfWeek(dateTime);
+                year = firstDayOfWeek.getYear();
+                month = firstDayOfWeek.getMonthValue();
+                day = firstDayOfWeek.getDayOfMonth();
+            default: // CHECKSTYLE IGNORE THIS LINE
+                break;
         }
-        return null;
+        switch (trunc.toLowerCase()) {
+            case "year":
+            case "quarter":
+            case "month":
+            case "week":
+            case "day": // CHECKSTYLE IGNORE THIS LINE
+                hour = 0;
+            case "hour": // CHECKSTYLE IGNORE THIS LINE
+                minute = 0;
+            case "minute": // CHECKSTYLE IGNORE THIS LINE
+                second = 0;
+            default: // CHECKSTYLE IGNORE THIS LINE
+        }
+        return LocalDateTime.of(year, month, day, hour, minute, second);
+    }
+
+    private static int distanceToFirstDayOfWeek(LocalDateTime dateTime) {
+        return dateTime.getDayOfWeek().getValue() - 1;
+    }
+
+    private static LocalDateTime firstDayOfWeek(LocalDateTime dateTime) {
+        return dateTime.plusDays(-distanceToFirstDayOfWeek(dateTime));
+    }
+
+    private static LocalDateTime toMonday(LocalDateTime dateTime) {
+        LocalDateTime specialUpperBound = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
+        LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
+        if (dateTime.isAfter(specialUpperBound) || dateTime.isBefore(specialLowerBound)) {
+            return dateTime.plusDays(-dateTime.getDayOfWeek().getValue() + 1);
+        }
+        return specialLowerBound;
     }
 
     /**
@@ -752,10 +999,7 @@ public class FEFunctions {
         @FEFunction(name = "ifnull", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
         @FEFunction(name = "ifnull", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
         @FEFunction(name = "ifnull", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
-        @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME"),
-        @FEFunction(name = "ifnull", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIME"),
-        @FEFunction(name = "ifnull", argTypes = { "DATEV2", "DATETIMEV2" }, returnType = "DATETIME"),
-        @FEFunction(name = "ifnull", argTypes = { "DATETIMEV2", "DATEV2" }, returnType = "DATETIME")
+        @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
     })
     public static LiteralExpr ifNull(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;
@@ -769,34 +1013,10 @@ public class FEFunctions {
         @FEFunction(name = "nvl", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
         @FEFunction(name = "nvl", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
         @FEFunction(name = "nvl", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
-        @FEFunction(name = "nvl", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME"),
-        @FEFunction(name = "nvl", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "DATETIME"),
-        @FEFunction(name = "nvl", argTypes = { "DATEV2", "DATETIMEV2" }, returnType = "DATETIME"),
-        @FEFunction(name = "nvl", argTypes = { "DATETIMEV2", "DATEV2" }, returnType = "DATETIME")
+        @FEFunction(name = "nvl", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
     })
     public static LiteralExpr nvl(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunctionList({
-        @FEFunction(name = "array", argTypes = {"BOOLEAN"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"TINYINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"SMALLINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"INT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"BIGINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"LARGEINT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DATETIME"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DATE"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DATETIMEV2"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DATEV2"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"FLOAT"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DOUBLE"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"DECIMALV2"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"VARCHAR"}, returnType = "ARRAY"),
-        @FEFunction(name = "array", argTypes = {"STRING"}, returnType = "ARRAY")
-    })
-    public static ArrayLiteral array(LiteralExpr... exprs) throws AnalysisException {
-        return new ArrayLiteral(exprs);
     }
 
 }

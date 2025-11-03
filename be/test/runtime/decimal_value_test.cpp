@@ -21,7 +21,6 @@
 #include <string>
 
 #include "runtime/decimalv2_value.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -128,7 +127,7 @@ TEST_F(DecimalValueTest, int_to_decimal) {
     DecimalValue value8(11, 0);
     EXPECT_EQ("11", value8.to_string(3));
 
-    // more than 9digit, fraction will be trancated to 999999999
+    // more than 9digit, fraction will be truncated to 999999999
     DecimalValue value9(1230123456789, 1230123456789);
     EXPECT_EQ("1230123456789.999999999", value9.to_string(10));
 

@@ -111,7 +111,7 @@ public class BackendTabletsInfo implements Writable {
         for (int i = 0; i < size; i++) {
             long tabletId = in.readLong();
             int schemaHash = in.readInt();
-            tabletSchemaHash.add(Pair.create(tabletId, schemaHash));
+            tabletSchemaHash.add(Pair.of(tabletId, schemaHash));
         }
 
         bad = in.readBoolean();

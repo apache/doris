@@ -21,7 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
-import org.apache.parquet.Strings;
+import com.google.common.base.Strings;
 
 import java.util.Map;
 
@@ -37,11 +37,23 @@ public class ReplaceTableClause extends AlterTableClause {
     // if true, the new table and the old table will be exchanged.
     // default is true.
     private boolean swapTable;
+    // isForce used when swap is false, then original table need to keep in recycle bin or not.
+    private boolean isForce;
 
-    public ReplaceTableClause(String tblName, Map<String, String> properties) {
+    public ReplaceTableClause(String tblName, Map<String, String> properties, boolean isForce) {
         super(AlterOpType.REPLACE_TABLE);
         this.tblName = tblName;
         this.properties = properties;
+        this.isForce = isForce;
+    }
+
+    // for nereids
+    public ReplaceTableClause(String tblName, Map<String, String> properties, boolean isForce, boolean swapTable) {
+        super(AlterOpType.REPLACE_TABLE);
+        this.tblName = tblName;
+        this.properties = properties;
+        this.isForce = isForce;
+        this.swapTable = swapTable;
     }
 
     public String getTblName() {
@@ -52,8 +64,12 @@ public class ReplaceTableClause extends AlterTableClause {
         return swapTable;
     }
 
+    public boolean isForce() {
+        return isForce;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(tblName)) {
             throw new AnalysisException("No table specified");
         }
@@ -68,6 +84,16 @@ public class ReplaceTableClause extends AlterTableClause {
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return true;
     }
 
     @Override

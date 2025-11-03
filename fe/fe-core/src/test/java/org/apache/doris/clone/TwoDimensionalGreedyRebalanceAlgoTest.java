@@ -89,7 +89,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         Set<Pair<Long, Long>> partitionIds = Sets.newHashSet();
         for (TestClusterConfig.PartitionPerBeReplicas p : tcc.partitionReplicas) {
             Assert.assertEquals(tcc.beIds.size(), p.numReplicasByServer.size());
-            partitionIds.add(new Pair<>(p.partitionId, p.indexId));
+            partitionIds.add(Pair.of(p.partitionId, p.indexId));
         }
         Assert.assertEquals(partitionIds.size(), tcc.partitionReplicas.size());
 
@@ -193,10 +193,10 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
                     beByTotalReplicaCount.put(0L, 10001L);
                     beByTotalReplicaCount.put(1L, 10002L);
                 }
-            }, 0);
+            }, -1);
             Assert.fail("Exception will be thrown in GetNextMoves");
         } catch (Exception e) {
-            Assert.assertSame(e.getClass(), IllegalStateException.class);
+            Assert.assertSame(e.getClass(), IllegalArgumentException.class);
             LOG.info(e.getMessage());
         }
     }

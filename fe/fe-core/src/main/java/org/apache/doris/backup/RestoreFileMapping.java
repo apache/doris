@@ -17,21 +17,18 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.common.io.Writable;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
-public class RestoreFileMapping implements Writable {
+public class RestoreFileMapping {
 
-    public static class IdChain implements Writable {
-        // tblId, partId, idxId, tabletId, replicaId
+    public static class IdChain {
+        // tblId, partId, idxId, tabletId, replicaId, (refTabletId)
+        @SerializedName("c")
         private Long[] chain;
 
         private IdChain() {
@@ -39,7 +36,7 @@ public class RestoreFileMapping implements Writable {
         }
 
         public IdChain(Long... ids) {
-            Preconditions.checkState(ids.length == 5);
+            Preconditions.checkState(ids.length == 6);
             chain = ids;
         }
 
@@ -63,6 +60,14 @@ public class RestoreFileMapping implements Writable {
             return chain[4];
         }
 
+        public boolean hasRefTabletId() {
+            return chain.length >= 6 && chain[5] != -1L;
+        }
+
+        public long getRefTabletId() {
+            return chain[5];
+        }
+
         @Override
         public String toString() {
             StringBuilder sb = new StringBuilder();
@@ -78,8 +83,12 @@ public class RestoreFileMapping implements Writable {
                 return false;
             }
 
+            if (((IdChain) obj).chain.length != chain.length) {
+                return false;
+            }
+
             IdChain other = (IdChain) obj;
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < chain.length; i++) {
                 // DO NOT use ==, Long_1 != Long_2
                 if (!chain[i].equals(other.chain[i])) {
                     return false;
@@ -92,38 +101,18 @@ public class RestoreFileMapping implements Writable {
         @Override
         public int hashCode() {
             int code = chain[0].hashCode();
-            for (int i = 1; i < 5; i++) {
+            for (int i = 1; i < chain.length; i++) {
                 code ^= chain[i].hashCode();
             }
             return code;
         }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            out.writeInt(chain.length);
-            for (Long id : chain) {
-                out.writeLong(id);
-            }
-        }
-
-        public void readFields(DataInput in) throws IOException {
-            int size = in.readInt();
-            chain = new Long[size];
-            for (int i = 0; i < size; i++) {
-                chain[i] = in.readLong();
-            }
-        }
-
-        public static IdChain read(DataInput in) throws IOException {
-            IdChain chain = new IdChain();
-            chain.readFields(in);
-            return chain;
-        }
     }
 
     // catalog ids -> repository ids
+    @SerializedName("m")
     private Map<IdChain, IdChain> mapping = Maps.newHashMap();
     // tablet id -> is overwrite
+    @SerializedName("o")
     private Map<Long, Boolean> overwriteMap = Maps.newHashMap();
 
     public RestoreFileMapping() {
@@ -150,41 +139,9 @@ public class RestoreFileMapping implements Writable {
         return false;
     }
 
-    public static RestoreFileMapping read(DataInput in) throws IOException {
-        RestoreFileMapping mapping = new RestoreFileMapping();
-        mapping.readFields(in);
-        return mapping;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(mapping.size());
-        for (Map.Entry<IdChain, IdChain> entry : mapping.entrySet()) {
-            entry.getKey().write(out);
-            entry.getValue().write(out);
-        }
-
-        out.writeInt(overwriteMap.size());
-        for (Map.Entry<Long, Boolean> entry : overwriteMap.entrySet()) {
-            out.writeLong(entry.getKey());
-            out.writeBoolean(entry.getValue());
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            IdChain key = IdChain.read(in);
-            IdChain val = IdChain.read(in);
-            mapping.put(key, val);
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            long tabletId = in.readLong();
-            boolean overwrite = in.readBoolean();
-            overwriteMap.put(tabletId, overwrite);
-        }
+    public void clear() {
+        mapping.clear();
+        overwriteMap.clear();
     }
 
     @Override

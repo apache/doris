@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -45,37 +46,38 @@ public class ColocatePersistInfo implements Writable {
     private long tableId;
     @SerializedName(value = "backendsPerBucketSeq")
     private Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
+    @SerializedName(value = "replicaAlloc")
+    private ReplicaAllocation replicaAlloc = new ReplicaAllocation();
 
-    public ColocatePersistInfo() {
-
-    }
-
-    private ColocatePersistInfo(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+    private ColocatePersistInfo(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq,
+            ReplicaAllocation replicaAlloc) {
         this.groupId = groupId;
         this.tableId = tableId;
         this.backendsPerBucketSeq = backendsPerBucketSeq;
+        this.replicaAlloc = replicaAlloc;
     }
 
     public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId,
             Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
-        return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
+        return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq, new ReplicaAllocation());
     }
 
     public static ColocatePersistInfo createForBackendsPerBucketSeq(GroupId groupId,
             Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
-        return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq);
+        return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq, new ReplicaAllocation());
     }
 
     public static ColocatePersistInfo createForMarkUnstable(GroupId groupId) {
-        return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap());
+        return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap(), new ReplicaAllocation());
     }
 
     public static ColocatePersistInfo createForMarkStable(GroupId groupId) {
-        return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap());
+        return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap(), new ReplicaAllocation());
     }
 
-    public static ColocatePersistInfo createForRemoveTable(long tableId) {
-        return new ColocatePersistInfo(new GroupId(-1, -1), tableId, Maps.newHashMap());
+    public static ColocatePersistInfo createForModifyReplicaAlloc(GroupId groupId, ReplicaAllocation replicaAlloc,
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+        return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq, replicaAlloc);
     }
 
     public static ColocatePersistInfo read(DataInput in) throws IOException {
@@ -93,6 +95,10 @@ public class ColocatePersistInfo implements Writable {
 
     public Map<Tag, List<List<Long>>> getBackendsPerBucketSeq() {
         return backendsPerBucketSeq;
+    }
+
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
     }
 
     @Override
@@ -137,7 +143,7 @@ public class ColocatePersistInfo implements Writable {
         ColocatePersistInfo info = (ColocatePersistInfo) obj;
 
         return tableId == info.tableId && groupId.equals(info.groupId) && backendsPerBucketSeq.equals(
-                info.backendsPerBucketSeq);
+                info.backendsPerBucketSeq) && replicaAlloc.equals(info.replicaAlloc);
     }
 
     @Override
@@ -146,6 +152,7 @@ public class ColocatePersistInfo implements Writable {
         sb.append("table id: ").append(tableId);
         sb.append(" group id: ").append(groupId);
         sb.append(" backendsPerBucketSeq: ").append(backendsPerBucketSeq);
+        sb.append(" replicaAlloc: ").append(replicaAlloc);
         return sb.toString();
     }
 }

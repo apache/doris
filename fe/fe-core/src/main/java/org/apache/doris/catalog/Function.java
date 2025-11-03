@@ -17,25 +17,37 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.IOUtils;
+import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.io.output.NullOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Base class for all functions.
@@ -94,39 +106,62 @@ public class Function implements Writable {
 
     public static final long UNIQUE_FUNCTION_ID = 0;
     // Function id, every function has a unique id. Now all built-in functions' id is 0
+    @SerializedName("id")
     private long id = 0;
     // User specified function name e.g. "Add"
+    @SerializedName("n")
     private FunctionName name;
+    @SerializedName("rt")
     private Type retType;
     // Array of parameter types.  empty array if this function does not have parameters.
+    @SerializedName("at")
     private Type[] argTypes;
     // If true, this function has variable arguments.
     // TODO: we don't currently support varargs with no fixed types. i.e. fn(...)
+    @SerializedName("hva")
     private boolean hasVarArgs;
 
     // If true (default), this function is called directly by the user. For operators,
     // this is false. If false, it also means the function is not visible from
     // 'show functions'.
+    @SerializedName("uv")
     private boolean userVisible;
 
     // Absolute path in HDFS for the binary that contains this function.
     // e.g. /udfs/udfs.jar
+    @SerializedName("l")
     private URI location;
+    @SerializedName("bt")
     private TFunctionBinaryType binaryType;
 
+    private Function nestedFunction = null;
+
+    @SerializedName("nm")
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
-    protected boolean vectorized = false;
+    protected boolean vectorized = true;
 
     // library's checksum to make sure all backends use one library to serve user's request
+    @SerializedName("cs")
     protected String checksum = "";
+
+    // If true, this function is global function
+    protected boolean isGlobal = false;
+    // If true, this function is table function, mainly used by java-udtf
+    @SerializedName("isU")
+    protected boolean isUDTFunction = false;
+    // iff true, this udf function is static load, and BE need cache class load.
+    @SerializedName("isS")
+    protected boolean isStaticLoad = false;
+    @SerializedName("eT")
+    protected long expirationTime = 360; // default 6 hours;
 
     // Only used for serialization
     protected Function() {
     }
 
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
-        this(0, name, args, retType, varArgs, false, NullableMode.DEPEND_ON_ARGUMENT);
+        this(0, name, args, retType, varArgs, true, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized) {
@@ -139,7 +174,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-                    TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
@@ -156,8 +191,44 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
-                    boolean hasVarArgs, boolean vectorized, NullableMode mode) {
+            boolean hasVarArgs, boolean vectorized, NullableMode mode) {
         this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
+    }
+
+    public Function(Function other) {
+        if (other == null) {
+            return;
+        }
+        this.id = other.id;
+        this.name = new FunctionName(other.name.getDb(), other.name.getFunction());
+        this.hasVarArgs = other.hasVarArgs;
+        this.retType = other.retType;
+        this.userVisible = other.userVisible;
+        this.nullableMode = other.nullableMode;
+        this.vectorized = other.vectorized;
+        this.binaryType = other.binaryType;
+        this.location = other.location;
+        if (other.argTypes != null) {
+            this.argTypes = new Type[other.argTypes.length];
+            System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
+        }
+        this.checksum = other.checksum;
+        this.isGlobal = other.isGlobal;
+        this.isUDTFunction = other.isUDTFunction;
+        this.isStaticLoad = other.isStaticLoad;
+        this.expirationTime = other.expirationTime;
+    }
+
+    public void setNestedFunction(Function nestedFunction) {
+        this.nestedFunction = nestedFunction;
+    }
+
+    public Function getNestedFunction() {
+        return nestedFunction;
+    }
+
+    public Function clone() {
+        return new Function(this);
     }
 
     public FunctionName getFunctionName() {
@@ -184,6 +255,10 @@ public class Function implements Writable {
         return argTypes;
     }
 
+    public void setArgs(List<Type> argTypes) {
+        this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
+    }
+
     // Returns the number of arguments to this function.
     public int getNumArgs() {
         return argTypes.length;
@@ -195,6 +270,10 @@ public class Function implements Writable {
 
     public void setLocation(URI loc) {
         location = loc;
+    }
+
+    public void setName(FunctionName name) {
+        this.name = name;
     }
 
     public TFunctionBinaryType getBinaryType() {
@@ -243,6 +322,14 @@ public class Function implements Writable {
 
     public String getChecksum() {
         return checksum;
+    }
+
+    public boolean isGlobal() {
+        return isGlobal;
+    }
+
+    public void setGlobal(boolean global) {
+        isGlobal = global;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
@@ -297,14 +384,16 @@ public class Function implements Writable {
             return false;
         }
         for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true)) {
+            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true,
+                    SessionVariable.getEnableDecimal256())) {
                 return false;
             }
         }
         // Check trailing varargs.
         if (this.hasVarArgs) {
             for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
-                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true)) {
+                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true,
+                        SessionVariable.getEnableDecimal256())) {
                     return false;
                 }
             }
@@ -452,7 +541,16 @@ public class Function implements Writable {
         }
     }
 
-    public TFunction toThrift() {
+    public boolean isInferenceFunction() {
+        for (Type arg : argTypes) {
+            if (arg instanceof AnyType) {
+                return true;
+            }
+        }
+        return retType instanceof AnyType;
+    }
+
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
         TFunction fn = new TFunction();
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
@@ -460,8 +558,24 @@ public class Function implements Writable {
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }
-        fn.setArgTypes(Type.toThrift(argTypes));
-        fn.setRetType(getReturnType().toThrift());
+        // `realArgTypes.length != argTypes.length` is true iff this is an aggregation
+        // function.
+        // For aggregation functions, `argTypes` here is already its real type with true
+        // precision and scale.
+        if (realArgTypes.length != argTypes.length) {
+            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes)));
+        } else {
+            fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
+        }
+
+        // For types with different precisions and scales, return type only indicates a
+        // type with default
+        // precision and scale so we need to transform it to the correct type.
+        if (realReturnType.typeContainsPrecision() || realReturnType.isAggStateType()) {
+            fn.setRetType(realReturnType.toThrift());
+        } else {
+            fn.setRetType(getReturnType().toThrift());
+        }
         fn.setHasVarArgs(hasVarArgs);
         // TODO: Comment field is missing?
         // fn.setComment(comment)
@@ -470,94 +584,15 @@ public class Function implements Writable {
             fn.setChecksum(checksum);
         }
         fn.setVectorized(vectorized);
+        fn.setIsUdtfFunction(isUDTFunction);
+        fn.setIsStaticLoad(isStaticLoad);
+        fn.setExpirationTime(expirationTime);
         return fn;
     }
 
     // Child classes must override this function.
     public String toSql(boolean ifNotExists) {
         return "";
-    }
-
-    public static String getUdfTypeName(PrimitiveType t) {
-        switch (t) {
-            case BOOLEAN:
-                return "boolean_val";
-            case TINYINT:
-                return "tiny_int_val";
-            case SMALLINT:
-                return "small_int_val";
-            case INT:
-                return "int_val";
-            case BIGINT:
-                return "big_int_val";
-            case LARGEINT:
-                return "large_int_val";
-            case FLOAT:
-                return "float_val";
-            case DOUBLE:
-            case TIME:
-            case TIMEV2:
-                return "double_val";
-            case VARCHAR:
-            case CHAR:
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-            case STRING:
-                return "string_val";
-            case DATE:
-            case DATETIME:
-            case DATEV2:
-            case DATETIMEV2:
-                return "datetime_val";
-            case DECIMALV2:
-                return "decimalv2_val";
-            default:
-                Preconditions.checkState(false, t.toString());
-                return "";
-        }
-    }
-
-    public static String getUdfType(PrimitiveType t) {
-        switch (t) {
-            case NULL_TYPE:
-                return "AnyVal";
-            case BOOLEAN:
-                return "BooleanVal";
-            case TINYINT:
-                return "TinyIntVal";
-            case SMALLINT:
-                return "SmallIntVal";
-            case INT:
-                return "IntVal";
-            case BIGINT:
-                return "BigIntVal";
-            case LARGEINT:
-                return "LargeIntVal";
-            case FLOAT:
-                return "FloatVal";
-            case DOUBLE:
-            case TIME:
-            case TIMEV2:
-                return "DoubleVal";
-            case VARCHAR:
-            case CHAR:
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-            case STRING:
-                return "StringVal";
-            case DATE:
-            case DATETIME:
-            case DATEV2:
-            case DATETIMEV2:
-                return "DateTimeVal";
-            case DECIMALV2:
-                return "DecimalV2Val";
-            default:
-                Preconditions.checkState(false, t.toString());
-                return "";
-        }
     }
 
     public static Function getFunction(List<Function> fns, Function desc, CompareMode mode) {
@@ -602,117 +637,13 @@ public class Function implements Writable {
         return null;
     }
 
-    enum FunctionType {
-        ORIGIN(0),
-        SCALAR(1),
-        AGGREGATE(2),
-        ALIAS(3);
-
-        private int code;
-
-        FunctionType(int code) {
-            this.code = code;
-        }
-
-        public int getCode() {
-            return code;
-        }
-
-        public static FunctionType fromCode(int code) {
-            switch (code) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
-                case 0:
-                    return ORIGIN;
-                case 1:
-                    return SCALAR;
-                case 2:
-                    return AGGREGATE;
-                case 3:
-                    return ALIAS;
-            }
-            return null;
-        }
-
-        public void write(DataOutput output) throws IOException {
-            output.writeInt(code);
-        }
-
-        public static FunctionType read(DataInput input) throws IOException {
-            return fromCode(input.readInt());
-        }
-    }
-
-    protected void writeFields(DataOutput output) throws IOException {
-        output.writeLong(id);
-        name.write(output);
-        ColumnType.write(output, retType);
-        output.writeInt(argTypes.length);
-        for (Type type : argTypes) {
-            ColumnType.write(output, type);
-        }
-        output.writeBoolean(hasVarArgs);
-        output.writeBoolean(userVisible);
-        output.writeInt(binaryType.getValue());
-        // write library URL
-        String libUrl = "";
-        if (location != null) {
-            libUrl = location.getLocation();
-        }
-        IOUtils.writeOptionString(output, libUrl);
-        IOUtils.writeOptionString(output, checksum);
-    }
-
     @Override
     public void write(DataOutput output) throws IOException {
-        throw new Error("Origin function cannot be serialized");
-    }
-
-    public void readFields(DataInput input) throws IOException {
-        id = input.readLong();
-        name = FunctionName.read(input);
-        retType = ColumnType.read(input);
-        int numArgs = input.readInt();
-        argTypes = new Type[numArgs];
-        for (int i = 0; i < numArgs; ++i) {
-            argTypes[i] = ColumnType.read(input);
-        }
-        hasVarArgs = input.readBoolean();
-        userVisible = input.readBoolean();
-        binaryType = TFunctionBinaryType.findByValue(input.readInt());
-
-        boolean hasLocation = input.readBoolean();
-        if (hasLocation) {
-            String locationStr = Text.readString(input);
-            try {
-                location = URI.create(locationStr);
-            } catch (AnalysisException e) {
-                LOG.warn("failed to parse location:" + locationStr);
-            }
-
-        }
-        boolean hasChecksum = input.readBoolean();
-        if (hasChecksum) {
-            checksum = Text.readString(input);
-        }
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
     public static Function read(DataInput input) throws IOException {
-        Function function;
-        FunctionType functionType = FunctionType.read(input);
-        switch (functionType) {
-            case SCALAR:
-                function = new ScalarFunction();
-                break;
-            case AGGREGATE:
-                function = new AggregateFunction();
-                break;
-            case ALIAS:
-                function = new AliasFunction();
-                break;
-            default:
-                throw new Error("Unsupported function type, type=" + functionType);
-        }
-        function.readFields(input);
-        return function;
+        return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
     }
 
     public String getProperties() {
@@ -729,7 +660,11 @@ public class Function implements Writable {
             // function type
             // intermediate type
             if (this instanceof ScalarFunction) {
-                row.add("Scalar");
+                if (isUDTFunction()) {
+                    row.add("TABLES");
+                } else {
+                    row.add("Scalar");
+                }
                 row.add("NULL");
             } else if (this instanceof AliasFunction) {
                 row.add("Alias");
@@ -752,11 +687,154 @@ public class Function implements Writable {
         return row;
     }
 
-    boolean isVectorized() {
-        return vectorized;
+    public void setNullableMode(NullableMode nullableMode) {
+        this.nullableMode = nullableMode;
     }
 
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    public void setUDTFunction(boolean isUDTFunction) {
+        this.isUDTFunction = isUDTFunction;
+    }
+
+    public boolean isUDTFunction() {
+        return this.isUDTFunction;
+    }
+
+    public void setStaticLoad(boolean isStaticLoad) {
+        this.isStaticLoad = isStaticLoad;
+    }
+
+    public boolean isStaticLoad() {
+        return this.isStaticLoad;
+    }
+
+    public void setExpirationTime(long expirationTime) {
+        this.expirationTime = expirationTime;
+    }
+
+    public long getExpirationTime() {
+        return this.expirationTime;
+    }
+
+    // Try to serialize this function and write to nowhere.
+    // Just for checking if we forget to implement write() method for some Exprs.
+    // To avoid FE exist when writing edit log.
+    public void checkWritable() throws UserException {
+        try {
+            DataOutputStream out = new DataOutputStream(new NullOutputStream());
+            write(out);
+        } catch (Throwable t) {
+            throw new UserException("failed to serialize function: " + functionName(), t);
+        }
+    }
+
+    public boolean hasTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.hasTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public boolean hasVariadicTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.needExpandTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // collect expand size of variadic template
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap) throws TypeException {
+        for (int i = argTypes.length - 1; i >= 0; i--) {
+            if (argTypes[i].hasTemplateType()) {
+                if (argTypes[i].needExpandTemplateType()) {
+                    argTypes[i].collectTemplateExpandSize(
+                            Arrays.copyOfRange(args, i, args.length), expandSizeMap);
+                }
+            }
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Function function = (Function) o;
+        return id == function.id && hasVarArgs == function.hasVarArgs && userVisible == function.userVisible
+                && vectorized == function.vectorized && Objects.equals(name, function.name)
+                && Objects.equals(retType, function.retType) && Arrays.equals(argTypes,
+                function.argTypes) && Objects.equals(location, function.location)
+                && binaryType == function.binaryType && nullableMode == function.nullableMode && Objects.equals(
+                checksum, function.checksum);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hash(id, name, retType, hasVarArgs, userVisible, location, binaryType, nullableMode,
+                vectorized, checksum);
+        result = 31 * result + Arrays.hashCode(argTypes);
+        return result;
+    }
+
+    public static FunctionCallExpr convertToStateCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        List<Type> arguments = Arrays.asList(aggFunction.getArgs());
+        ScalarFunction fn = new ScalarFunction(
+                new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_STATE_SUFFIX), arguments,
+                Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
+                        fnCall.getChildren().stream().map(expr -> {
+                            return expr.getType();
+                        }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
+                            return expr.isNullable();
+                        }).collect(Collectors.toList())),
+                aggFunction.hasVarArgs(), aggFunction.isUserVisible());
+        fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()));
+    }
+
+    public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_MERGE_SUFFIX));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return fnCall;
+    }
+
+    public static FunctionCallExpr convertToUnionCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_UNION_SUFFIX));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
+        fnCall.setType(fnCall.getChildren().get(0).getType());
+        return fnCall;
+    }
+
+    public static FunctionCallExpr convertForEachCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction()
+                + Expr.AGG_FOREACH_SUFFIX + "v2"));
+        List<Type> argTypes = new ArrayList();
+        for (Type type : aggFunction.argTypes) {
+            argTypes.add(new ArrayType(type));
+        }
+        aggFunction.setArgs(argTypes);
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), true));
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
+        return fnCall;
     }
 }

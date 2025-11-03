@@ -22,18 +22,20 @@
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "http/http_handler.h"
-#include "util/easy_json.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class EvHttpServer;
+class EasyJson;
+class HttpRequest;
 
 // This a handler for webpage request
 // and this handler manage all the page handler
-class WebPageHandler : public HttpHandler {
+class WebPageHandler : public HttpHandlerWithAuth {
 public:
     typedef std::map<std::string, std::string> ArgumentMap;
     typedef std::function<void(const ArgumentMap& args, std::stringstream* output)>
@@ -41,7 +43,7 @@ public:
     typedef std::function<void(const ArgumentMap& args, EasyJson* output)>
             TemplatePageHandlerCallback;
 
-    WebPageHandler(EvHttpServer* http_server);
+    WebPageHandler(EvHttpServer* http_server, ExecEnv* exec_env);
     virtual ~WebPageHandler();
 
     void handle(HttpRequest* req) override;

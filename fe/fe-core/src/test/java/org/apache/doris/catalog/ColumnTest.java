@@ -17,9 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -27,54 +34,52 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class ColumnTest {
 
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        catalog = Deencapsulation.newInstance(Catalog.class);
+        fakeEnv = new FakeEnv();
+        env = Deencapsulation.newInstance(Env.class);
 
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./columnTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createTempFile("columnTest", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         Column column1 = new Column("user",
                                 ScalarType.createChar(20), false, AggregateType.SUM, "", "");
-        column1.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column1));
         Column column2 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20", "");
-        column2.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column2));
 
         Column column3 = new Column("name", PrimitiveType.BIGINT);
         column3.setIsKey(true);
-        column3.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column3));
 
         Column column4 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
                                     "");
-        column4.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column4));
 
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        Column rColumn1 = Column.read(dis);
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
+        Column rColumn1 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals("user", rColumn1.getName());
         Assert.assertEquals(PrimitiveType.CHAR, rColumn1.getDataType());
         Assert.assertEquals(AggregateType.SUM, rColumn1.getAggregationType());
@@ -85,25 +90,24 @@ public class ColumnTest {
         Assert.assertFalse(rColumn1.isAllowNull());
 
         // 3. Test read()
-        Column rColumn2 = Column.read(dis);
+        Column rColumn2 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals("age", rColumn2.getName());
         Assert.assertEquals(PrimitiveType.INT, rColumn2.getDataType());
         Assert.assertEquals(AggregateType.REPLACE, rColumn2.getAggregationType());
         Assert.assertEquals("20", rColumn2.getDefaultValue());
 
-        Column rColumn3 = Column.read(dis);
-        Assert.assertTrue(rColumn3.equals(column3));
+        Column rColumn3 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
+        Assert.assertEquals(rColumn3, column3);
 
-        Column rColumn4 = Column.read(dis);
-        Assert.assertTrue(rColumn4.equals(column4));
+        Column rColumn4 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
+        Assert.assertEquals(rColumn4, column4);
 
         Assert.assertEquals(rColumn2.toString(), column2.toString());
-        Assert.assertTrue(column1.equals(column1));
-        Assert.assertFalse(column1.equals(this));
+        Assert.assertEquals(column1, column1);
 
         // 4. delete files
         dis.close();
-        file.delete();
+        Files.delete(path);
     }
 
     @Test(expected = DdlException.class)
@@ -144,5 +148,28 @@ public class ColumnTest {
         Column newColumn = new Column("c", ScalarType.createType(PrimitiveType.VARCHAR, 31,  0, 0), false, null, true, "0", "");
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeArrayToArray() throws DdlException {
+        Column oldColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
+        Column newColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testBaseColumn() {
+        Column baseColumn = new Column("base_a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
+        SlotDescriptor baseDescriptor = new SlotDescriptor(new SlotId(0), null);
+        baseDescriptor.setColumn(baseColumn);
+        SlotRef baseSlot = new SlotRef(baseDescriptor);
+        Column mvColumnSimple = new Column("mv_a", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        mvColumnSimple.setDefineExpr(baseSlot);
+        Assert.assertTrue(mvColumnSimple.tryGetBaseColumnName().equalsIgnoreCase("base_a"));
+        Expr add = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, baseSlot, baseSlot);
+        Column mvColumnComplex = new Column("mv_b", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        mvColumnComplex.setDefineExpr(add);
+        Assert.assertTrue(mvColumnComplex.tryGetBaseColumnName().equalsIgnoreCase("mv_b"));
     }
 }

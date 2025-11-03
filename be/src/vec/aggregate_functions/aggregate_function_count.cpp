@@ -20,26 +20,27 @@
 
 #include "vec/aggregate_functions/aggregate_function_count.h"
 
+#include <string>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_count(const std::string& name,
                                                      const DataTypes& argument_types,
-                                                     const Array& parameters,
-                                                     const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
-    assert_arity_at_most<1>(name, argument_types);
+                                                     const bool result_is_nullable,
+                                                     const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 0, 1);
 
     return std::make_shared<AggregateFunctionCount>(argument_types);
 }
 
-AggregateFunctionPtr create_aggregate_function_count_not_null_unary(const std::string& name,
-                                                                    const DataTypes& argument_types,
-                                                                    const Array& parameters,
-                                                                    const bool result_is_nullable) {
-    assert_arity_at_most<1>(name, argument_types);
+AggregateFunctionPtr create_aggregate_function_count_not_null_unary(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 0, 1);
 
     return std::make_shared<AggregateFunctionCountNotNullUnary>(argument_types);
 }

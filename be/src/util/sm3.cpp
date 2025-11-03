@@ -17,7 +17,10 @@
 
 #include "util/sm3.h"
 
-#include "util/logging.h"
+#include <openssl/evp.h>
+#include <stdint.h>
+
+#include "common/logging.h"
 
 namespace doris {
 

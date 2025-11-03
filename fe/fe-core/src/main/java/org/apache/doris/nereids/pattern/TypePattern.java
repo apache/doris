@@ -17,36 +17,40 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.operators.Operator;
-import org.apache.doris.nereids.operators.OperatorType;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
 
 /** pattern that used to match class type. */
-public class TypePattern<TYPE extends NODE_TYPE, NODE_TYPE extends TreeNode<NODE_TYPE>>
-        extends Pattern<TYPE, NODE_TYPE> {
+public class TypePattern<TYPE extends Plan>
+        extends Pattern<TYPE> {
     protected final Class<TYPE> type;
 
     public TypePattern(Class clazz, Pattern... children) {
-        super(OperatorType.UNKNOWN, children);
+        super(PlanType.UNKNOWN, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
     public TypePattern(Class<TYPE> clazz, List<Predicate<TYPE>> predicates, Pattern... children) {
-        super(OperatorType.UNKNOWN, predicates, children);
+        super(PlanType.UNKNOWN, predicates, children);
         this.type = Objects.requireNonNull(clazz, "class can not be null");
     }
 
     @Override
-    public TypePattern<TYPE, NODE_TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
-        return new TypePattern(type, predicates, children.toArray(new Pattern[0]));
+    public TypePattern<TYPE> withPredicates(List<Predicate<TYPE>> predicates) {
+        return new TypePattern<>(type, predicates, children.toArray(new Pattern[0]));
     }
 
     @Override
-    public boolean matchOperator(Operator operator) {
-        return type.isInstance(operator);
+    public final boolean matchRoot(Plan plan) {
+        return type.isInstance(plan);
+    }
+
+    @Override
+    public Class<TYPE> getMatchedType() {
+        return type;
     }
 }

@@ -16,6 +16,88 @@
 // under the License.
 
 suite("test_backup_restore", "backup_restore") {
-    // todo: test repository/backup/restore/cancel backup ...
-    sql "SHOW REPOSITORIES"
+    String suiteName = "test_backup_restore"
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
+    String dbName = "${suiteName}_db"
+    String tableName = "${suiteName}_table"
+    String snapshotName = "${suiteName}_snapshot"
+
+    def syncer = getSyncer()
+    syncer.createS3Repository(repoName)
+
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+    sql """
+        CREATE TABLE ${dbName}.${tableName} (
+            `id` LARGEINT NOT NULL,
+            `count` LARGEINT SUM DEFAULT "0")
+        AGGREGATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        )
+        """
+
+    List<String> values = []
+    for (int i = 1; i <= 10; ++i) {
+        values.add("(${i}, ${i})")
+    }
+    sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(",")}"
+    def result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), values.size());
+
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${snapshotName}
+        TO `${repoName}`
+        ON (${tableName})
+    """
+
+    syncer.waitSnapshotFinish(dbName)
+
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    assertTrue(snapshot != null)
+
+    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true"
+        )
+    """
+
+    syncer.waitAllRestoreFinish(dbName)
+
+    result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), values.size());
+
+    // backup of temp table should not support
+    sql """ 
+        create temporary table ${dbName}.test_temp_table_backup PROPERTIES (
+            'replication_num' = '1'
+        ) 
+        as select * from ${dbName}.${tableName};
+    """
+
+    try {
+        sql """
+            BACKUP SNAPSHOT ${dbName}.${snapshotName}_1
+            TO `${repoName}`
+            ON (test_temp_table_backup)
+        """
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("is a temporary table, do not support backup"), ex.getMessage())
+    }
+
+    sql "DROP TABLE ${dbName}.test_temp_table_backup FORCE"
+    sql "DROP TABLE ${dbName}.${tableName} FORCE"
+    sql "DROP DATABASE ${dbName} FORCE"
+    sql "DROP REPOSITORY `${repoName}`"
 }
+

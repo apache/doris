@@ -23,7 +23,9 @@ import com.google.common.collect.Lists;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public enum AggregateType {
     SUM("SUM"),
@@ -34,10 +36,24 @@ public enum AggregateType {
     HLL_UNION("HLL_UNION"),
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION"),
-    QUANTILE_UNION("QUANTILE_UNION");
-
+    QUANTILE_UNION("QUANTILE_UNION"),
+    GENERIC("GENERIC");
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
+
+    private static final Map<String, AggregateType> aggTypeMap = new HashMap<>();
+
+    static {
+        aggTypeMap.put("NONE", AggregateType.NONE);
+        aggTypeMap.put("SUM", AggregateType.SUM);
+        aggTypeMap.put("MIN", AggregateType.MIN);
+        aggTypeMap.put("MAX", AggregateType.MAX);
+        aggTypeMap.put("REPLACE", AggregateType.REPLACE);
+        aggTypeMap.put("REPLACE_IF_NOT_NULL", AggregateType.REPLACE_IF_NOT_NULL);
+        aggTypeMap.put("HLL_UNION", AggregateType.HLL_UNION);
+        aggTypeMap.put("BITMAP_UNION", AggregateType.BITMAP_UNION);
+        aggTypeMap.put("QUANTILE_UNION", AggregateType.QUANTILE_UNION);
+    }
 
     static {
         compatibilityMap = new EnumMap<>(AggregateType.class);
@@ -51,6 +67,9 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.FLOAT);
         primitiveTypeList.add(PrimitiveType.DOUBLE);
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
+        primitiveTypeList.add(PrimitiveType.DECIMAL32);
+        primitiveTypeList.add(PrimitiveType.DECIMAL64);
+        primitiveTypeList.add(PrimitiveType.DECIMAL128);
         compatibilityMap.put(SUM, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
@@ -62,8 +81,13 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.FLOAT);
         primitiveTypeList.add(PrimitiveType.DOUBLE);
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
+        primitiveTypeList.add(PrimitiveType.DECIMAL32);
+        primitiveTypeList.add(PrimitiveType.DECIMAL64);
+        primitiveTypeList.add(PrimitiveType.DECIMAL128);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.DATEV2);
+        primitiveTypeList.add(PrimitiveType.DATETIMEV2);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);
@@ -78,19 +102,22 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.FLOAT);
         primitiveTypeList.add(PrimitiveType.DOUBLE);
         primitiveTypeList.add(PrimitiveType.DECIMALV2);
+        primitiveTypeList.add(PrimitiveType.DECIMAL32);
+        primitiveTypeList.add(PrimitiveType.DECIMAL64);
+        primitiveTypeList.add(PrimitiveType.DECIMAL128);
         primitiveTypeList.add(PrimitiveType.DATE);
         primitiveTypeList.add(PrimitiveType.DATETIME);
+        primitiveTypeList.add(PrimitiveType.DATEV2);
+        primitiveTypeList.add(PrimitiveType.DATETIMEV2);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        // all types except object stored column type, such as bitmap hll quantile_state.
+        // all types except agg_state.
         EnumSet<PrimitiveType> excObjectStored = EnumSet.allOf(PrimitiveType.class);
-        excObjectStored.remove(PrimitiveType.BITMAP);
-        excObjectStored.remove(PrimitiveType.HLL);
-        excObjectStored.remove(PrimitiveType.QUANTILE_STATE);
+        excObjectStored.remove(PrimitiveType.AGG_STATE);
         compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
 
         compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(excObjectStored));
@@ -166,5 +193,9 @@ public enum AggregateType {
             default:
                 return null;
         }
+    }
+
+    public static AggregateType getAggTypeFromAggName(String typeName) {
+        return aggTypeMap.get(typeName);
     }
 }

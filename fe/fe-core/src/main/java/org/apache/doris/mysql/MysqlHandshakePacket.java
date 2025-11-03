@@ -17,20 +17,25 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.qe.GlobalVariable;
+
 // MySQL protocol handshake packet.
 public class MysqlHandshakePacket extends MysqlPacket {
     private static final int SCRAMBLE_LENGTH = 20;
     // Version of handshake packet, since MySQL 3.21.0, Handshake of protocol 10 is used
     private static final int PROTOCOL_VERSION = 10;
     // JDBC uses this version to check which protocol the server support
-    public static final String SERVER_VERSION = "5.7.37";
+    // Set the patch version to 99 to prevent the vulnerability scanning tool from
+    // falsely reporting MySQL vulnerabilities
+    public static final String DEFAULT_SERVER_VERSION = "5.7.99";
     // 33 stands for UTF-8 character set
     private static final int CHARACTER_SET = 33;
     // use default capability for all
     private static final MysqlCapability CAPABILITY = MysqlCapability.DEFAULT_CAPABILITY;
+    private static final MysqlCapability SSL_CAPABILITY = MysqlCapability.SSL_CAPABILITY;
     // status flags not supported in palo
     private static final int STATUS_FLAGS = 0;
-    private static final String AUTH_PLUGIN_NAME = "mysql_native_password";
+    public static final String AUTH_PLUGIN_NAME = "mysql_native_password";
 
     // connection id used in KILL statement.
     private int connectionId;
@@ -47,10 +52,10 @@ public class MysqlHandshakePacket extends MysqlPacket {
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-        MysqlCapability capability = CAPABILITY;
+        MysqlCapability capability = MysqlProto.SERVER_USE_SSL ? SSL_CAPABILITY : CAPABILITY;
 
         serializer.writeInt1(PROTOCOL_VERSION);
-        serializer.writeNulTerminateString(SERVER_VERSION);
+        serializer.writeNulTerminateString(GlobalVariable.version);
         serializer.writeInt4(connectionId);
         // first 8 bytes of auth plugin data
         serializer.writeBytes(authPluginData, 0, 8);

@@ -17,14 +17,14 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
-import org.apache.doris.common.Pair;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
@@ -47,23 +47,23 @@ import org.junit.Test;
 public class HeartbeatMgrTest {
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Before
     public void setUp() {
         new Expectations() {
             {
-                catalog.getSelfNode();
+                env.getSelfNode();
                 minTimes = 0;
-                result = Pair.create("192.168.1.3", 9010); // not self
+                result = new HostInfo("192.168.1.3", 9010); // not self
 
-                catalog.isReady();
+                env.isReady();
                 minTimes = 0;
                 result = true;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -95,6 +95,7 @@ public class HeartbeatMgrTest {
         normalResult.setReplayedJournalId(191224);
         normalResult.setQueryPort(9131);
         normalResult.setRpcPort(9121);
+        normalResult.setArrowFlightSqlPort(9141);
         normalResult.setVersion("test");
 
         TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
@@ -123,6 +124,7 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
         Assert.assertEquals(9131, hbResponse.getQueryPort());
         Assert.assertEquals(9121, hbResponse.getRpcPort());
+        Assert.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
         Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
         Assert.assertEquals("test", hbResponse.getVersion());
 
@@ -135,6 +137,7 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(0, hbResponse.getReplayedJournalId());
         Assert.assertEquals(0, hbResponse.getQueryPort());
         Assert.assertEquals(0, hbResponse.getRpcPort());
+        Assert.assertEquals(0, hbResponse.getArrowFlightSqlPort());
         Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
         Assert.assertEquals("not ready", hbResponse.getMsg());
     }
@@ -175,7 +178,6 @@ public class HeartbeatMgrTest {
 
         Assert.assertTrue(response instanceof BrokerHbResponse);
         BrokerHbResponse hbResponse = (BrokerHbResponse) response;
-        System.out.println(hbResponse.toString());
         Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
     }
 

@@ -20,8 +20,30 @@
 
 #pragma once
 
-#include "vec/columns/column_array.h"
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "serde/data_type_array_serde.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -31,57 +53,66 @@ private:
     DataTypePtr nested;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_ARRAY;
     static constexpr bool is_parametric = true;
 
     DataTypeArray(const DataTypePtr& nested_);
 
-    TypeIndex get_type_id() const override { return TypeIndex::Array; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_ARRAY; }
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
+    }
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Array"; }
-
-    bool can_be_inside_nullable() const override { return true; }
+    const std::string get_family_name() const override { return "Array"; }
 
     MutableColumnPtr create_column() const override;
-
+    Status check_column(const IColumn& column) const override;
     Field get_default() const override;
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for array");
+    }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
-
-    bool get_is_parametric() const override { return true; }
-    bool have_subtypes() const override { return true; }
-    bool cannot_be_stored_in_tables() const override {
-        return nested->cannot_be_stored_in_tables();
-    }
-    bool text_can_contain_only_valid_utf8() const override {
-        return nested->text_can_contain_only_valid_utf8();
-    }
-    bool is_comparable() const override { return nested->is_comparable(); }
-    bool can_be_compared_with_collation() const override {
-        return nested->can_be_compared_with_collation();
-    }
-
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return nested->is_value_unambiguously_represented_in_contiguous_memory_region();
-    }
-
-    //SerializationPtr doGetDefaultSerialization() const override;
 
     const DataTypePtr& get_nested_type() const { return nested; }
 
     /// 1 for plain array, 2 for array of arrays and so on.
     size_t get_number_of_dimensions() const;
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
-
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeArraySerDe;
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<SerDeType>(nested->get_serde(nesting_level + 1), nesting_level);
+    };
+
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        node->set_type(TTypeNodeType::ARRAY);
+        node->set_contains_null(nested->is_nullable());
+        nested->to_protobuf(ptype);
+    }
+
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        node.type = TTypeNodeType::ARRAY;
+        node.__isset.contains_nulls = true;
+        node.contains_nulls.push_back(nested->is_nullable());
+        nested->to_thrift(thrift_type);
+    }
+#endif
 };
 
 } // namespace doris::vectorized

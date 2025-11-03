@@ -16,37 +16,65 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
 
 namespace doris {
 class SlotDescriptor;
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
 namespace vectorized {
-class VSlotRef final : public VExpr {
+class Block;
+class VExprContext;
+
+class VSlotRef MOCK_REMOVE(final) : public VExpr {
+    ENABLE_FACTORY_CREATOR(VSlotRef);
+
 public:
-    VSlotRef(const doris::TExprNode& node);
+    VSlotRef(const TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VSlotRef(*this));
+#ifdef BE_TEST
+    VSlotRef() = default;
+    void set_column_id(int column_id) { _column_id = column_id; }
+    void set_slot_id(int slot_id) { _slot_id = slot_id; }
+#endif
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+
+    const std::string& expr_name() const override;
+    std::string expr_label() override;
+    std::string debug_string() const override;
+    bool is_constant() const override { return false; }
+
+    int column_id() const { return _column_id; }
+
+    MOCK_FUNCTION int slot_id() const { return _slot_id; }
+
+    bool equals(const VExpr& other) override;
+
+    size_t estimate_memory(const size_t rows) override { return 0; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
     }
 
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
-    virtual bool is_constant() const override { return false; }
+    MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
 
-    const int column_id() const { return _column_id; }
+    uint64_t get_digest(uint64_t seed) const override;
 
 private:
-    FunctionPtr _function;
     int _slot_id;
     int _column_id;
-    bool _is_nullable;
-    const std::string* _column_name;
+    int _column_uniq_id = -1;
+    const std::string* _column_name = nullptr;
+    const std::string _column_label;
 };
 } // namespace vectorized
 } // namespace doris

@@ -17,18 +17,18 @@
 
 #pragma once
 
-#include <functional>
+#include <memory>
+#include <string>
 
-#include "gen_cpp/PlanNodes_types.h"
 #include "http/http_handler.h"
-#include "runtime/client_cache.h"
-#include "runtime/message_body_sink.h"
+#include "util/metrics.h"
 
 namespace doris {
 
 class ExecEnv;
 class Status;
 class StreamLoadContext;
+class HttpRequest;
 
 class StreamLoadAction : public HttpHandler {
 public:
@@ -42,22 +42,21 @@ public:
     int on_header(HttpRequest* req) override;
 
     void on_chunk_data(HttpRequest* req) override;
-    void free_handler_ctx(void* ctx) override;
+    void free_handler_ctx(std::shared_ptr<void> ctx) override;
 
 private:
-    Status _on_header(HttpRequest* http_req, StreamLoadContext* ctx);
-    Status _handle(StreamLoadContext* ctx);
-    Status _data_saved_path(HttpRequest* req, std::string* file_path);
-    Status _execute_plan_fragment(StreamLoadContext* ctx);
-    Status _process_put(HttpRequest* http_req, StreamLoadContext* ctx);
-    void _sava_stream_load_record(StreamLoadContext* ctx, const std::string& str);
+    Status _on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    Status _handle(std::shared_ptr<StreamLoadContext> ctx);
+    Status _data_saved_path(HttpRequest* req, std::string* file_path, int64_t file_bytes);
+    Status _process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
+    Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     ExecEnv* _exec_env;
 
     std::shared_ptr<MetricEntity> _stream_load_entity;
     IntCounter* streaming_load_requests_total;
-    IntCounter* streaming_load_bytes;
     IntCounter* streaming_load_duration_ms;
     IntGauge* streaming_load_current_processing;
 };

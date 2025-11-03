@@ -21,27 +21,21 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AnalyticWindow;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -49,7 +43,6 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 
@@ -76,23 +69,29 @@ public class AnalyticEvalNode extends PlanNode {
     private final Expr orderByEq;
     private final TupleDescriptor bufferedTupleDesc;
 
+    private boolean isColocate = false;
+
+    // constructor used in Nereids
     public AnalyticEvalNode(
             PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
             List<Expr> partitionExprs, List<OrderByElement> orderByElements,
             AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-            TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
-            Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, input.getTupleIds(), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
+            TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
+            TupleDescriptor bufferedTupleDesc) {
+        super(id,
+                input.getOutputTupleIds(),
+                "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
         tupleIds.add(outputTupleDesc.getId());
         this.analyticFnCalls = analyticFnCalls;
         this.partitionExprs = partitionExprs;
+        this.substitutedPartitionExprs = partitionExprs;
         this.orderByElements = orderByElements;
         this.analyticWindow = analyticWindow;
         this.intermediateTupleDesc = intermediateTupleDesc;
         this.outputTupleDesc = outputTupleDesc;
-        this.logicalToPhysicalSmap = logicalToPhysicalSmap;
+        this.logicalToPhysicalSmap = new ExprSubstitutionMap();
         this.partitionByEq = partitionByEq;
         this.orderByEq = orderByEq;
         this.bufferedTupleDesc = bufferedTupleDesc;
@@ -100,56 +99,8 @@ public class AnalyticEvalNode extends PlanNode {
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
-    public List<Expr> getPartitionExprs() {
-        return partitionExprs;
-    }
-
-    public List<OrderByElement> getOrderByElements() {
-        return orderByElements;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        analyzer.getDescTbl().computeStatAndMemLayout();
-        intermediateTupleDesc.computeStatAndMemLayout();
-        // we add the analyticInfo's smap to the combined smap of our child
-        outputSmap = logicalToPhysicalSmap;
-        createDefaultSmap(analyzer);
-
-        // Do not assign any conjuncts here: the conjuncts out of our SelectStmt's
-        // Where clause have already been assigned, and conjuncts coming out of an
-        // enclosing scope need to be evaluated *after* all analytic computations.
-
-        // do this at the end so it can take all conjuncts into account
-        computeStats(analyzer);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("desctbl: " + analyzer.getDescTbl().debugString());
-        }
-
-        // point fn calls, partition and ordering exprs at our input
-        ExprSubstitutionMap childSmap = getCombinedChildSmap();
-        analyticFnCalls = Expr.substituteList(analyticFnCalls, childSmap, analyzer, false);
-        substitutedPartitionExprs = Expr.substituteList(partitionExprs, childSmap,
-                                    analyzer, false);
-        orderByElements = OrderByElement.substitute(orderByElements, childSmap, analyzer);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("evalnode: " + debugString());
-        }
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        cardinality = getChild(0).cardinality;
+    public void setColocate(boolean colocate) {
+        this.isColocate = colocate;
     }
 
     @Override
@@ -186,7 +137,7 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
         msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
-
+        msg.analytic_node.setIsColocate(isColocate);
         if (analyticWindow == null) {
             if (!orderByElements.isEmpty()) {
                 msg.analytic_node.setWindow(AnalyticWindow.DEFAULT_WINDOW.toThrift());
@@ -215,20 +166,18 @@ public class AnalyticEvalNode extends PlanNode {
             return "";
         }
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "functions: ");
+        output.append(prefix).append("functions: ");
         List<String> strings = Lists.newArrayList();
 
         for (Expr fnCall : analyticFnCalls) {
-            strings.add("[");
-            strings.add(fnCall.toSql());
-            strings.add("]");
+            strings.add("[" + fnCall.toSql() + "]");
         }
 
         output.append(Joiner.on(", ").join(strings));
         output.append("\n");
 
         if (!partitionExprs.isEmpty()) {
-            output.append(prefix + "partition by: ");
+            output.append(prefix).append("partition by: ");
             strings.clear();
 
             for (Expr partitionExpr : partitionExprs) {
@@ -240,7 +189,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!orderByElements.isEmpty()) {
-            output.append(prefix + "order by: ");
+            output.append(prefix).append("order by: ");
             strings.clear();
 
             for (OrderByElement element : orderByElements) {
@@ -264,10 +213,14 @@ public class AnalyticEvalNode extends PlanNode {
         return output.toString();
     }
 
-    public void computeCosts(TQueryOptions queryOptions) {
-        Preconditions.checkNotNull(fragmentId,
-                                   "PlanNode must be placed into a fragment before calling this method.");
-        // TODO: come up with estimate based on window
-        cardinality = 0;
+    /**
+     * If `partitionExprs` is empty, the result must be output by single instance.
+     *
+     * For example, for `window (colA order by colB)`,
+     * all data should be input in this node to ensure the global ordering by colB.
+     */
+    @Override
+    public boolean isSerialOperator() {
+        return partitionExprs.isEmpty();
     }
 }

@@ -25,7 +25,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,7 +42,8 @@ public class RuntimeFilterTypeHelper {
     public static final long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
             | TRuntimeFilterType.BLOOM.getValue()
             | TRuntimeFilterType.MIN_MAX.getValue()
-            | TRuntimeFilterType.IN_OR_BLOOM.getValue());
+            | TRuntimeFilterType.IN_OR_BLOOM.getValue()
+            | TRuntimeFilterType.BITMAP.getValue());
 
     private static final Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
@@ -51,6 +52,11 @@ public class RuntimeFilterTypeHelper {
         varValueSet.put("BLOOM_FILTER", (long) TRuntimeFilterType.BLOOM.getValue());
         varValueSet.put("MIN_MAX", (long) TRuntimeFilterType.MIN_MAX.getValue());
         varValueSet.put("IN_OR_BLOOM_FILTER", (long) TRuntimeFilterType.IN_OR_BLOOM.getValue());
+        varValueSet.put("BITMAP_FILTER", (long) TRuntimeFilterType.BITMAP.getValue());
+    }
+
+    public static boolean allowedRuntimeFilterType(long runtimeFilterType, TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) != 0;
     }
 
     // convert long type variable value to string type that user can read
@@ -96,6 +102,20 @@ public class RuntimeFilterTypeHelper {
                 ErrorReport.reportDdlException(
                         ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, key);
             }
+        }
+
+        int count = 0;
+        if (allowedRuntimeFilterType(resultCode, TRuntimeFilterType.IN_OR_BLOOM)) {
+            count++;
+        }
+        if (allowedRuntimeFilterType(resultCode, TRuntimeFilterType.BLOOM)) {
+            count++;
+        }
+        if (allowedRuntimeFilterType(resultCode, TRuntimeFilterType.IN)) {
+            count++;
+        }
+        if (count > 1) {
+            ErrorReport.reportDdlException("IN, BLOOM, IN_OR_BLOOM can not be enabled at the same time");
         }
         return resultCode;
     }

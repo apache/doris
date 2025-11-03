@@ -20,10 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HiveTable;
@@ -31,25 +28,33 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
+import org.apache.doris.nereids.load.NereidsImportColumnDesc;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -58,11 +63,14 @@ import java.util.Map;
  * produce one BrokerFileGroup. After parsed by broker, detailed
  * broker file information will be saved here.
  */
-public class BrokerFileGroup implements Writable {
+public class BrokerFileGroup {
     private static final Logger LOG = LogManager.getLogger(BrokerFileGroup.class);
 
     private long tableId;
-    private String valueSeparator;
+    // columnSeparator and lineDelimiter here are only for toString(),
+    // and may be null if format will be decided by file's suffix
+    // we should get them from fileFormatProperties
+    private String columnSeparator;
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
@@ -75,7 +83,7 @@ public class BrokerFileGroup implements Writable {
 
     private List<String> fileFieldNames;
     // partition columnNames
-    private List<String> columnsFromPath;
+    private List<String> columnNamesFromPath;
     // columnExprList includes all fileFieldNames, columnsFromPath and column mappings
     // this param will be recreated by data desc when the log replay
     private List<ImportColumnDesc> columnExprList;
@@ -93,63 +101,17 @@ public class BrokerFileGroup implements Writable {
     // load from table
     private long srcTableId = -1;
     private boolean isLoadFromTable = false;
+    private boolean ignoreCsvRedundantCol = false;
 
-    // for multi load
-    private TNetworkAddress beAddr;
-    private long backendID;
-    private boolean stripOuterArray = false;
-    private String jsonPaths = "";
-    private String jsonRoot = "";
-    private boolean fuzzyParse = true;
-    private boolean readJsonByLine = false;
-    private boolean numAsString = false;
+    private FileFormatProperties fileFormatProperties;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
     }
 
-    // Used for broker table, no need to parse
-    public BrokerFileGroup(BrokerTable table) throws AnalysisException {
-        this.tableId = table.getId();
-        this.valueSeparator = Separator.convertSeparator(table.getColumnSeparator());
-        this.lineDelimiter = Separator.convertSeparator(table.getLineDelimiter());
-        this.isNegative = false;
-        this.filePaths = table.getPaths();
-        this.fileFormat = table.getFileFormat();
-    }
-
-    /**
-     * Should used for hive/iceberg/hudi external table.
-     */
-    public BrokerFileGroup(long tableId,
-                           String filePath,
-                           String fileFormat) throws AnalysisException {
-        this(tableId,  "|", "\n", filePath, fileFormat, null, null);
-    }
-
-    /**
-     * Should used for hive/iceberg/hudi external table.
-     */
-    public BrokerFileGroup(long tableId,
-            String columnSeparator,
-            String lineDelimiter,
-            String filePath,
-            String fileFormat,
-            List<String> columnsFromPath,
-            List<ImportColumnDesc> columnExprList) throws AnalysisException {
-        this.tableId = tableId;
-        this.valueSeparator = Separator.convertSeparator(columnSeparator);
-        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
-        this.isNegative = false;
-        this.filePaths = Lists.newArrayList(filePath);
-        this.fileFormat = fileFormat;
-        this.columnsFromPath = columnsFromPath;
-        this.columnExprList = columnExprList;
-    }
-
     public BrokerFileGroup(DataDescription dataDescription) {
         this.fileFieldNames = dataDescription.getFileFieldNames();
-        this.columnsFromPath = dataDescription.getColumnsFromPath();
+        this.columnNamesFromPath = dataDescription.getColumnsFromPath();
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
         this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
@@ -157,6 +119,9 @@ public class BrokerFileGroup implements Writable {
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
         this.sequenceCol = dataDescription.getSequenceCol();
+        this.filePaths = dataDescription.getFilePaths();
+        // use for cloud copy into
+        this.ignoreCsvRedundantCol = dataDescription.getIgnoreCsvRedundantCol();
     }
 
     // NOTE: DBLock will be held
@@ -168,21 +133,34 @@ public class BrokerFileGroup implements Writable {
         olapTable.readLock();
         try {
             // partitionId
-            PartitionNames partitionNames = dataDescription.getPartitionNames();
-            if (partitionNames != null) {
+            PartitionNamesInfo partitionNamesInfo = dataDescription.getPartitionNamesInfo();
+            if (partitionNamesInfo != null) {
                 partitionIds = Lists.newArrayList();
-                for (String pName : partitionNames.getPartitionNames()) {
-                    Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
+                for (String pName : partitionNamesInfo.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(pName, partitionNamesInfo.isTemp());
                     if (partition == null) {
                         throw new DdlException("Unknown partition '" + pName
                                 + "' in table '" + olapTable.getName() + "'");
+                    }
+                    // partition which need load data
+                    if (partition.getState() == PartitionState.RESTORE) {
+                        throw new DdlException("Table [" + olapTable.getName()
+                                + "], Partition[" + partition.getName() + "] is under restore");
                     }
                     partitionIds.add(partition.getId());
                 }
             }
 
+            // only do check when here's restore on this table now
             if (olapTable.getState() == OlapTableState.RESTORE) {
-                throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
+                boolean hasPartitionRestoring = olapTable.getPartitions().stream()
+                        .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
+                // tbl RESTORE && all partition NOT RESTORE -> whole table restore
+                // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
+                // so check wether the whole table restore here
+                if (!hasPartitionRestoring) {
+                    throw new DdlException("Table [" + olapTable.getName() + "] is under restore");
+                }
             }
 
             if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
@@ -201,27 +179,13 @@ public class BrokerFileGroup implements Writable {
             olapTable.readUnlock();
         }
 
-        // column
-        valueSeparator = dataDescription.getColumnSeparator();
-        if (valueSeparator == null) {
-            valueSeparator = "\t";
-        }
-        lineDelimiter = dataDescription.getLineDelimiter();
-        if (lineDelimiter == null) {
-            lineDelimiter = "\n";
+        fileFormatProperties = dataDescription.getFileFormatProperties();
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            fileFormat = fileFormatProperties.getFormatName();
+            columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
+            lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
         }
 
-        fileFormat = dataDescription.getFileFormat();
-        if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase("parquet")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv)
-                    && !fileFormat.equalsIgnoreCase("orc")
-                    && !fileFormat.equalsIgnoreCase("json")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
-                throw new DdlException("File Format Type " + fileFormat + " is invalid.");
-            }
-        }
         isNegative = dataDescription.isNegative();
 
         // FilePath
@@ -251,34 +215,10 @@ public class BrokerFileGroup implements Writable {
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
-        beAddr = dataDescription.getBeAddr();
-        backendID = dataDescription.getBackendId();
-        if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
-            stripOuterArray = dataDescription.isStripOuterArray();
-            jsonPaths = dataDescription.getJsonPaths();
-            jsonRoot = dataDescription.getJsonRoot();
-            fuzzyParse = dataDescription.isFuzzyParse();
-            // For broker load, we only support reading json format data line by line,
-            // so we set readJsonByLine to true here.
-            readJsonByLine = true;
-            numAsString = dataDescription.isNumAsString();
-        }
     }
 
     public long getTableId() {
         return tableId;
-    }
-
-    public String getValueSeparator() {
-        return valueSeparator;
-    }
-
-    public String getLineDelimiter() {
-        return lineDelimiter;
-    }
-
-    public String getFileFormat() {
-        return fileFormat;
     }
 
     public boolean isNegative() {
@@ -297,12 +237,16 @@ public class BrokerFileGroup implements Writable {
         return whereExpr;
     }
 
+    public void setWhereExpr(Expr whereExpr) {
+        this.whereExpr = whereExpr;
+    }
+
     public List<String> getFilePaths() {
         return filePaths;
     }
 
-    public List<String> getColumnsFromPath() {
-        return columnsFromPath;
+    public List<String> getColumnNamesFromPath() {
+        return columnNamesFromPath;
     }
 
     public List<ImportColumnDesc> getColumnExprList() {
@@ -349,68 +293,27 @@ public class BrokerFileGroup implements Writable {
         this.fileSize = fileSize;
     }
 
-    public TNetworkAddress getBeAddr() {
-        return beAddr;
-    }
-
-    public long getBackendID() {
-        return backendID;
-    }
-
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public void setStripOuterArray(boolean stripOuterArray) {
-        this.stripOuterArray = stripOuterArray;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public void setFuzzyParse(boolean fuzzyParse) {
-        this.fuzzyParse = fuzzyParse;
-    }
-
-    public boolean isReadJsonByLine() {
-        return readJsonByLine;
-    }
-
-    public void setReadJsonByLine(boolean readJsonByLine) {
-        this.readJsonByLine = readJsonByLine;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public void setNumAsString(boolean numAsString) {
-        this.numAsString = numAsString;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public void setJsonPaths(String jsonPaths) {
-        this.jsonPaths = jsonPaths;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
-    public void setJsonRoot(String jsonRoot) {
-        this.jsonRoot = jsonRoot;
+    public void initDeferredFileFormatPropertiesIfNecessary(List<TBrokerFileStatus> fileStatuses) {
+        if (fileFormatProperties instanceof DeferredFileFormatProperties) {
+            Preconditions.checkState(fileStatuses != null && !fileStatuses.isEmpty());
+            TBrokerFileStatus fileStatus = fileStatuses.get(0);
+            TFileFormatType formatType = Util.getFileFormatTypeFromPath(fileStatus.path);
+            ((DeferredFileFormatProperties) fileFormatProperties).deferInit(formatType);
+        }
     }
 
     public boolean isBinaryFileFormat() {
-        if (fileFormat == null) {
-            // null means default: csv
-            return false;
-        }
-        return fileFormat.toLowerCase().equals("parquet") || fileFormat.toLowerCase().equals("orc");
+        // Must call initDeferredFileFormatPropertiesIfNecessary before
+        return fileFormatProperties instanceof ParquetFileFormatProperties
+                || fileFormatProperties instanceof OrcFileFormatProperties;
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
+    }
+
+    public boolean getIgnoreCsvRedundantCol() {
+        return ignoreCsvRedundantCol;
     }
 
     @Override
@@ -428,10 +331,10 @@ public class BrokerFileGroup implements Writable {
             }
             sb.append("]");
         }
-        if (columnsFromPath != null) {
+        if (columnNamesFromPath != null) {
             sb.append(",columnsFromPath=[");
             int idx = 0;
-            for (String name : columnsFromPath) {
+            for (String name : columnNamesFromPath) {
                 if (idx++ != 0) {
                     sb.append(",");
                 }
@@ -450,7 +353,7 @@ public class BrokerFileGroup implements Writable {
             }
             sb.append("]");
         }
-        sb.append(",valueSeparator=").append(valueSeparator)
+        sb.append(",valueSeparator=").append(columnSeparator)
                 .append(",lineDelimiter=").append(lineDelimiter)
                 .append(",fileFormat=").append(fileFormat)
                 .append(",isNegative=").append(isNegative);
@@ -470,129 +373,29 @@ public class BrokerFileGroup implements Writable {
         return sb.toString();
     }
 
-    @Deprecated
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // tableId
-        out.writeLong(tableId);
-        // valueSeparator
-        Text.writeString(out, valueSeparator);
-        // lineDelimiter
-        Text.writeString(out, lineDelimiter);
-        // isNegative
-        out.writeBoolean(isNegative);
-        // partitionIds
-        if (partitionIds == null) {
-            out.writeInt(0);
-        } else {
-            out.writeInt(partitionIds.size());
-            for (long id : partitionIds) {
-                out.writeLong(id);
+    public NereidsBrokerFileGroup toNereidsBrokerFileGroup() throws UserException {
+        Expression deleteCondition = getDeleteCondition() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSqlWithoutTbl()).get(0)
+                : null;
+        Expression precedingFilter = getPrecedingFilterExpr() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSqlWithoutTbl()).get(0)
+                : null;
+        Expression whereExpr = getWhereExpr() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
+                : null;
+        List<NereidsImportColumnDesc> importColumnDescs = null;
+        if (columnExprList != null && !columnExprList.isEmpty()) {
+            importColumnDescs = new ArrayList<>(columnExprList.size());
+            for (ImportColumnDesc desc : columnExprList) {
+                Expression expression = desc.getExpr() != null
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
+                        : null;
+                importColumnDescs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
         }
-        // fileFieldNames
-        if (fileFieldNames == null) {
-            out.writeInt(0);
-        } else {
-            out.writeInt(fileFieldNames.size());
-            for (String name : fileFieldNames) {
-                Text.writeString(out, name);
-            }
-        }
-        // filePaths
-        out.writeInt(filePaths.size());
-        for (String path : filePaths) {
-            Text.writeString(out, path);
-        }
-        // expr column map will be null after broker load supports function
-        out.writeInt(0);
-
-        // fileFormat
-        if (fileFormat == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, fileFormat);
-        }
-
-        // src table
-        out.writeLong(srcTableId);
-        out.writeBoolean(isLoadFromTable);
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        tableId = in.readLong();
-        valueSeparator = Text.readString(in);
-        lineDelimiter = Text.readString(in);
-        isNegative = in.readBoolean();
-        // partitionIds
-        { // CHECKSTYLE IGNORE THIS LINE
-            int partSize = in.readInt();
-            if (partSize > 0) {
-                partitionIds = Lists.newArrayList();
-                for (int i = 0; i < partSize; ++i) {
-                    partitionIds.add(in.readLong());
-                }
-            }
-        } // CHECKSTYLE IGNORE THIS LINE
-        // fileFieldName
-        { // CHECKSTYLE IGNORE THIS LINE
-            int fileFieldNameSize = in.readInt();
-            if (fileFieldNameSize > 0) {
-                fileFieldNames = Lists.newArrayList();
-                for (int i = 0; i < fileFieldNameSize; ++i) {
-                    fileFieldNames.add(Text.readString(in));
-                }
-            }
-        } // CHECKSTYLE IGNORE THIS LINE
-        // fileInfos
-        { // CHECKSTYLE IGNORE THIS LINE
-            int size = in.readInt();
-            filePaths = Lists.newArrayList();
-            for (int i = 0; i < size; ++i) {
-                filePaths.add(Text.readString(in));
-            }
-        } // CHECKSTYLE IGNORE THIS LINE
-        // expr column map
-        Map<String, Expr> exprColumnMap = Maps.newHashMap();
-        {  // CHECKSTYLE IGNORE THIS LINE
-            int size = in.readInt();
-            for (int i = 0; i < size; ++i) {
-                final String name = Text.readString(in);
-                exprColumnMap.put(name, Expr.readIn(in));
-            }
-        } // CHECKSTYLE IGNORE THIS LINE
-        // file format
-        if (in.readBoolean()) {
-            fileFormat = Text.readString(in);
-        }
-        srcTableId = in.readLong();
-        isLoadFromTable = in.readBoolean();
-
-        // There are no columnExprList in the previous load job which is created before function is supported.
-        // The columnExprList could not be analyzed without origin stmt in the previous load job.
-        // So, the columnExprList need to be merged in here.
-        if (fileFieldNames == null || fileFieldNames.isEmpty()) {
-            return;
-        }
-        // Order of columnExprList: fileFieldNames + columnsFromPath
-        columnExprList = Lists.newArrayList();
-        for (String columnName : fileFieldNames) {
-            columnExprList.add(new ImportColumnDesc(columnName, null));
-        }
-        if (exprColumnMap == null || exprColumnMap.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<String, Expr> columnExpr : exprColumnMap.entrySet()) {
-            columnExprList.add(new ImportColumnDesc(columnExpr.getKey(), columnExpr.getValue()));
-        }
-    }
-
-    @Deprecated
-    public static BrokerFileGroup read(DataInput in) throws IOException {
-        BrokerFileGroup fileGroup = new BrokerFileGroup();
-        fileGroup.readFields(in);
-        return fileGroup;
+        return new NereidsBrokerFileGroup(tableId, isNegative, partitionIds, filePaths, fileSize, fileFieldNames,
+                columnNamesFromPath, importColumnDescs, columnToHadoopFunction, precedingFilter, whereExpr,
+                deleteCondition, mergeType, sequenceCol, srcTableId, isLoadFromTable, ignoreCsvRedundantCol,
+                fileFormatProperties);
     }
 }

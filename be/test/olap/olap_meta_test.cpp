@@ -17,30 +17,32 @@
 
 #include "olap/olap_meta.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
 #include <filesystem>
+#include <memory>
 #include <sstream>
 #include <string>
 
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
-#include "util/file_utils.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
 
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 class OlapMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
         _root_path = "./ut_dir/olap_meta_test";
-        FileUtils::remove_all(_root_path);
-        FileUtils::create_dir(_root_path);
-
+        auto st = io::global_local_filesystem()->delete_directory(_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_root_path);
+        ASSERT_TRUE(st.ok()) << st;
         _meta = new OlapMeta(_root_path);
         Status s = _meta->init();
         EXPECT_EQ(Status::OK(), s);
@@ -49,7 +51,7 @@ public:
 
     virtual void TearDown() {
         delete _meta;
-        FileUtils::remove_all(_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_root_path).ok());
     }
 
 private:
@@ -75,7 +77,7 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
 
     // abnormal cases
     s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND), s);
+    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(""), s);
 }
 
 TEST_F(OlapMetaTest, TestRemove) {
@@ -107,7 +109,7 @@ TEST_F(OlapMetaTest, TestIterate) {
     }
     bool error_flag = false;
     s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
-                       [&error_flag](const std::string& key, const std::string& value) -> bool {
+                       [&error_flag](std::string_view key, std::string_view value) -> bool {
                            size_t pos = key.find_first_of("hdr_");
                            if (pos != 0) {
                                error_flag = true;

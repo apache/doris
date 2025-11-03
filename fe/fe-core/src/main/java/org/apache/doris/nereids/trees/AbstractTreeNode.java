@@ -17,14 +17,14 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.nereids.parser.Origin;
+import org.apache.doris.nereids.parser.ParserUtils;
+import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
+import org.apache.doris.nereids.util.Utils;
 
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.operators.Operator;
-
-import com.google.common.collect.ImmutableList;
-
+import java.util.BitSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -36,37 +36,48 @@ import java.util.Optional;
 public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
 
-    protected final NodeType type;
+    protected final Optional<Origin> origin = ParserUtils.getOrigin();
+
+    protected final BitSet containsTypes;
+
     protected final List<NODE_TYPE> children;
-    // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
-    // https://github.com/apache/doris/pull/9807#discussion_r884829067
-    protected final Optional<GroupExpression> groupExpression;
 
-    public AbstractTreeNode(NodeType type, NODE_TYPE... children) {
-        this(type, Optional.empty(), children);
+    // this field is special, because other fields in tree node is immutable, but in some scenes, mutable
+    // state is necessary. e.g. the rewrite framework need distinguish whether the plan is created by
+    // rules, the framework can set this field to a state variable to quickly judge without new big plan.
+    // we should avoid using it as much as possible, because mutable state is easy to cause bugs and
+    // difficult to locate.
+    private MutableState mutableState = EmptyMutableState.INSTANCE;
+
+    protected AbstractTreeNode(NODE_TYPE... children) {
+        // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
+        //       direct generate a ImmutableList
+        this.children = Utils.fastToImmutableList(children);
+
+        this.containsTypes = new BitSet();
+        for (NODE_TYPE child : children) {
+            BitSet childTypes = child.getAllChildrenTypes();
+            containsTypes.or(childTypes);
+        }
+        containsTypes.or(getSuperClassTypes());
     }
 
-    /**
-     * Constructor for plan node.
-     *
-     * @param type node type
-     * @param groupExpression group expression related to the operator of this node
-     * @param children children of this node
-     */
-    public AbstractTreeNode(NodeType type, Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
-        this.type = type;
-        this.children = ImmutableList.copyOf(children);
-        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
+    protected AbstractTreeNode(List<NODE_TYPE> children) {
+        // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
+        //       direct generate a ImmutableList
+        this.children = Utils.fastToImmutableList(children);
+
+        this.containsTypes = new BitSet();
+        for (NODE_TYPE child : children) {
+            BitSet childTypes = child.getAllChildrenTypes();
+            containsTypes.or(childTypes);
+        }
+        containsTypes.or(getSuperClassTypes());
     }
 
     @Override
-    public Operator getOperator() {
-        throw new RuntimeException();
-    }
-
-    @Override
-    public Optional<GroupExpression> getGroupExpression() {
-        return groupExpression;
+    public Optional<Origin> getOrigin() {
+        return origin;
     }
 
     @Override
@@ -80,11 +91,32 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     }
 
     @Override
-    public NodeType getType() {
-        return type;
+    public <T> Optional<T> getMutableState(String key) {
+        return mutableState.get(key);
     }
 
+    @Override
+    public void setMutableState(String key, Object state) {
+        this.mutableState = this.mutableState.set(key, state);
+    }
+
+    @Override
+    public MutableState getMutableStates() {
+        return mutableState;
+    }
+
+    @Override
+    public BitSet getAllChildrenTypes() {
+        return containsTypes;
+    }
+
+    @Override
     public int arity() {
         return children.size();
+    }
+
+    @Override
+    public BitSet getSuperClassTypes() {
+        return SuperClassId.getSuperClassIds(getClass());
     }
 }

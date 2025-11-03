@@ -20,90 +20,35 @@
 
 #include "vec/data_types/data_type_date_time.h"
 
-#include "runtime/datetime_value.h"
+#include <typeinfo>
+#include <utility>
+
 #include "util/binary_cast.hpp"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
-namespace doris::vectorized {
 
-DataTypeDateTime::DataTypeDateTime() {}
+namespace doris::vectorized {
 
 bool DataTypeDateTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-std::string DataTypeDateTime::to_string(const IColumn& column, size_t row_num) const {
-    Int64 int_val = assert_cast<const ColumnInt64&>(*column.convert_to_full_column_if_const().get())
-                            .get_data()[row_num];
-    // TODO: Rethink we really need to do copy replace const reference here?
-    doris::vectorized::VecDateTimeValue value =
-            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
-
-    std::stringstream ss;
-    // Year
-    uint32_t temp = value.year() / 100;
-    ss << (char)('0' + (temp / 10)) << (char)('0' + (temp % 10));
-    temp = value.year() % 100;
-    ss << (char)('0' + (temp / 10)) << (char)('0' + (temp % 10)) << '-';
-    // Month
-    ss << (char)('0' + (value.month() / 10)) << (char)('0' + (value.month() % 10)) << '-';
-    // Day
-    ss << (char)('0' + (value.day() / 10)) << (char)('0' + (value.day() % 10));
-    if (value.neg()) {
-        ss << '-';
-    }
-    ss << ' ';
-    // Hour
-    temp = value.hour();
-    if (temp >= 100) {
-        ss << (char)('0' + (temp / 100));
-        temp %= 100;
-    }
-    ss << (char)('0' + (temp / 10)) << (char)('0' + (temp % 10)) << ':';
-    // Minute
-    ss << (char)('0' + (value.minute() / 10)) << (char)('0' + (value.minute() % 10)) << ':';
-    /* Second */
-    ss << (char)('0' + (value.second() / 10)) << (char)('0' + (value.second() % 10));
-
-    return ss.str();
-}
-
-void DataTypeDateTime::to_string(const IColumn& column, size_t row_num,
-                                 BufferWritable& ostr) const {
-    Int64 int_val = assert_cast<const ColumnInt64&>(*column.convert_to_full_column_if_const().get())
-                            .get_data()[row_num];
-    // TODO: Rethink we really need to do copy replace const reference here?
-    doris::vectorized::VecDateTimeValue value =
-            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
-
-    char buf[64];
-    char* pos = value.to_string(buf);
-    // DateTime to_string the end is /0
-    ostr.write(buf, pos - buf - 1);
-}
-
-Status DataTypeDateTime::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnInt64*>(column);
-    Int64 val = 0;
-    if (!read_datetime_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
-}
-
 void DataTypeDateTime::cast_to_date_time(Int64& x) {
-    auto value = binary_cast<Int64, doris::vectorized::VecDateTimeValue>(x);
+    auto value = binary_cast<Int64, doris::VecDateTimeValue>(x);
     value.to_datetime();
-    x = binary_cast<doris::vectorized::VecDateTimeValue, Int64>(value);
+    x = binary_cast<doris::VecDateTimeValue, Int64>(value);
 }
 
 MutableColumnPtr DataTypeDateTime::create_column() const {
-    auto col = DataTypeNumberBase<Int64>::create_column();
-    col->set_datetime_type();
-    return col;
+    return DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::create_column();
 }
 
 } // namespace doris::vectorized

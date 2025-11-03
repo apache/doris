@@ -20,55 +20,23 @@
 
 #include "vec/data_types/data_type_date.h"
 
-#include "runtime/datetime_value.h"
+#include <typeinfo>
+#include <utility>
+
 #include "util/binary_cast.hpp"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris::vectorized {
 bool DataTypeDate::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
-}
-
-std::string DataTypeDate::to_string(const IColumn& column, size_t row_num) const {
-    Int64 int_val = assert_cast<const ColumnInt64&>(*column.convert_to_full_column_if_const().get())
-                            .get_data()[row_num];
-    doris::vectorized::VecDateTimeValue value =
-            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
-    std::stringstream ss;
-    // Year
-    uint32_t temp = value.year() / 100;
-    ss << (char)('0' + (temp / 10)) << (char)('0' + (temp % 10));
-    temp = value.year() % 100;
-    ss << (char)('0' + (temp / 10)) << (char)('0' + (temp % 10)) << '-';
-    // Month
-    ss << (char)('0' + (value.month() / 10)) << (char)('0' + (value.month() % 10)) << '-';
-    // Day
-    ss << (char)('0' + (value.day() / 10)) << (char)('0' + (value.day() % 10));
-    return ss.str();
-}
-
-void DataTypeDate::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    Int64 int_val = assert_cast<const ColumnInt64&>(*column.convert_to_full_column_if_const().get())
-                            .get_data()[row_num];
-    doris::vectorized::VecDateTimeValue value =
-            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
-
-    char buf[64];
-    char* pos = value.to_string(buf);
-    // DateTime to_string the end is /0
-    ostr.write(buf, pos - buf - 1);
-}
-
-Status DataTypeDate::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnInt64*>(column);
-    Int64 val = 0;
-    if (!read_date_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
 }
 
 void DataTypeDate::cast_to_date(Int64& x) {
@@ -78,9 +46,7 @@ void DataTypeDate::cast_to_date(Int64& x) {
 }
 
 MutableColumnPtr DataTypeDate::create_column() const {
-    auto col = DataTypeNumberBase<Int64>::create_column();
-    col->set_date_type();
-    return col;
+    return DataTypeNumberBase<PrimitiveType::TYPE_DATE>::create_column();
 }
 
 } // namespace doris::vectorized

@@ -17,7 +17,9 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -82,14 +84,20 @@ public class SetConfigAction extends RestBaseController {
         Map<String, String> setConfigs = Maps.newHashMap();
         List<ErrConfig> errConfigs = Lists.newArrayList();
 
-        LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
+        }
 
         for (Map.Entry<String, String[]> config : configs.entrySet()) {
             String confKey = config.getKey();
             String[] confValue = config.getValue();
             try {
                 if (confValue != null && confValue.length == 1) {
-                    ConfigBase.setMutableConfig(confKey, confValue[0]);
+                    try {
+                        Env.getCurrentEnv().setMutableConfigWithCallback(confKey, confValue[0]);
+                    } catch (ConfigException e) {
+                        throw new DdlException(e.getMessage());
+                    }
                     setConfigs.put(confKey, confValue[0]);
                 } else {
                     throw new DdlException("conf value size != 1");

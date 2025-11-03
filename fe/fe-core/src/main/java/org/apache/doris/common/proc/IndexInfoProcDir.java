@@ -22,8 +22,8 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -59,7 +59,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
         result.setNames(TITLE_NAMES);
         table.readLock();
         try {
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 OlapTable olapTable = (OlapTable) table;
 
                 // indices order
@@ -121,13 +121,17 @@ public class IndexInfoProcDir implements ProcDirInterface {
         try {
             List<Column> schema = null;
             Set<String> bfColumns = null;
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 OlapTable olapTable = (OlapTable) table;
                 schema = olapTable.getSchemaByIndexId(idxId);
                 if (schema == null) {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
                 bfColumns = olapTable.getCopiedBfColumns();
+                if (olapTable.hasVariantColumns()
+                                    && SessionVariable.enableDescribeExtendVariantColumn()) {
+                    return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
+                }
             } else {
                 schema = table.getBaseSchema();
             }

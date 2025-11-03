@@ -20,31 +20,25 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TFunctionName;
 
-import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
  * Class to represent a function name. Function names are specified as
  * db.function_name.
  */
-public class FunctionName implements Writable {
+public class FunctionName {
     private static final Logger LOG = LogManager.getLogger(FunctionName.class);
 
+    @SerializedName("db")
     private String db;
+    @SerializedName("fn")
     private String fn;
 
     private FunctionName() {
@@ -53,9 +47,6 @@ public class FunctionName implements Writable {
     public FunctionName(String db, String fn) {
         this.db = db;
         this.fn = fn.toLowerCase();
-        if (this.db != null) {
-            this.db = this.db.toLowerCase();
-        }
     }
 
     public FunctionName(String fn) {
@@ -108,6 +99,10 @@ public class FunctionName implements Writable {
         this.db = db;
     }
 
+    public void setFn(String fn) {
+        this.fn = fn;
+    }
+
     public String getFunction() {
         return fn;
     }
@@ -124,21 +119,7 @@ public class FunctionName implements Writable {
         return db + "." + fn;
     }
 
-    // used to analyze db element in function name, add cluster
-    public String analyzeDb(Analyzer analyzer) throws AnalysisException {
-        String db = this.db;
-        if (db == null) {
-            db = analyzer.getDefaultDb();
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
-            }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
-        }
-        return db;
-    }
-
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze(SetType type) throws AnalysisException {
         if (fn.length() == 0) {
             throw new AnalysisException("Function name can not be empty.");
         }
@@ -150,17 +131,6 @@ public class FunctionName implements Writable {
         }
         if (Character.isDigit(fn.charAt(0))) {
             throw new AnalysisException("Function cannot start with a digit: " + fn);
-        }
-        if (db == null) {
-            db = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(db)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
-            }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
     }
 
@@ -176,31 +146,12 @@ public class FunctionName implements Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        if (db != null) {
-            out.writeBoolean(true);
-            Text.writeString(out, db);
-        } else {
-            out.writeBoolean(false);
-        }
-        Text.writeString(out, fn);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            db = Text.readString(in);
-        }
-        fn = Text.readString(in);
-    }
-
-    public static FunctionName read(DataInput in) throws IOException {
-        FunctionName functionName = new FunctionName();
-        functionName.readFields(in);
-        return functionName;
+    public int hashCode() {
+        return 31 * Objects.hashCode(db) + Objects.hashCode(fn);
     }
 
     @Override
-    public int hashCode() {
-        return 31 * Objects.hashCode(db) + Objects.hashCode(fn);
+    public FunctionName clone() {
+        return new FunctionName(db, fn);
     }
 }

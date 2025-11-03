@@ -53,6 +53,23 @@ public class CatalogLog implements Writable {
     @SerializedName(value = "newProps")
     private Map<String, String> newProps;
 
+    @SerializedName(value = "invalidCache")
+    private boolean invalidCache;
+
+    @Deprecated
+    @SerializedName(value = "resource")
+    private String resource;
+
+    @SerializedName(value = "comment")
+    private String comment;
+
+    public static CatalogLog createForRefreshCatalog(long catalogId, boolean invalidCache) {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalogId);
+        log.setInvalidCache(invalidCache);
+        return log;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));

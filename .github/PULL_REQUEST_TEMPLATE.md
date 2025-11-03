@@ -1,19 +1,39 @@
-# Proposed changes
+### What problem does this PR solve?
 
 Issue Number: close #xxx
 
-## Problem Summary:
+Related PR: #xxx
 
-Describe the overview of changes.
+Problem Summary:
 
-## Checklist(Required)
+### Release note
 
-1. Does it affect the original behavior: (Yes/No/I Don't know)
-2. Has unit tests been added: (Yes/No/No Need)
-3. Has document been added or modified: (Yes/No/No Need)
-4. Does it need to update dependencies: (Yes/No)
-5. Are there any changes that cannot be rolled back: (Yes/No)
+None
 
-## Further comments
+### Check List (For Author)
 
-If this is a relatively large or complex change, kick off the discussion at [dev@doris.apache.org](mailto:dev@doris.apache.org) by explaining why you chose the solution you did and what alternatives you considered, etc...
+- Test <!-- At least one of them must be included. -->
+    - [ ] Regression test
+    - [ ] Unit Test
+    - [ ] Manual test (add detailed scripts or steps below)
+    - [ ] No need to test or manual test. Explain why:
+        - [ ] This is a refactor/code format and no logic has been changed.
+        - [ ] Previous test can cover this change.
+        - [ ] No code files have been changed.
+        - [ ] Other reason <!-- Add your reason?  -->
+
+- Behavior changed:
+    - [ ] No.
+    - [ ] Yes. <!-- Explain the behavior change -->
+
+- Does this need documentation?
+    - [ ] No.
+    - [ ] Yes. <!-- Add document PR link here. eg: https://github.com/apache/doris-website/pull/1214 -->
+
+### Check List (For Reviewer who merge this PR)
+
+- [ ] Confirm the release note
+- [ ] Confirm test cases
+- [ ] Confirm document
+- [ ] Add branch pick label <!-- Add branch pick label that this PR should merge into -->
+

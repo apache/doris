@@ -17,24 +17,544 @@
 
 package org.apache.doris.common;
 
-import org.junit.Test;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.VariableMgr;
+
+import com.google.common.collect.Lists;
+import org.apache.ivy.util.StringUtils;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class FeNameFormatTest {
 
     @Test
-    public void testCheckColumnName() {
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("_id"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("__id"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("___id"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("___id_"));
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("@timestamp"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("?id_"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("#id_"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("@@timestamp"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("@timestamp@"));
-        // length 64
-        String tblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb_uniq";
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkTableName(tblName));
+    void testLabelName() {
+        List<String> alwaysValid = Lists.newArrayList(
+                "abc123",        // alphanumeric
+                "A-B_C:D",       // contains all allowed special chars
+                "0-1_2:3",       // starts with number, contains special chars
+                "a",             // single character
+                "X-Y-Z",         // hyphens and uppercase
+                "test_123:456",  // mixed with underscore and colon
+                "-valid",        // starts with hyphen
+                "_valid",        // starts with underscore
+                ":valid",        // starts with colon
+                StringUtils.repeat("a", Config.label_regex_length)  // maximum length
+        );
+
+        List<String> alwaysInvalid = Lists.newArrayList(
+                "",              // empty string
+                " ",             // space character
+                "a b",           // contains space
+                "a.b",           // contains dot
+                "a@b",           // contains @
+                "a\nb",          // contains newline
+                "a$b",           // contains $
+                "a*b",           // contains *
+                "a#b",           // contains #
+                StringUtils.repeat("a", Config.label_regex_length + 1) // maximum length
+        );
+
+        List<String> unicodeValid = Lists.newArrayList(
+                "äöü",          // German umlauts
+                "北京",         // Chinese characters
+                "東京123",      // Japanese with numbers
+                "München",      // German city name
+                "Beyoncé",      // French name
+                "αβγ",          // Greek letters
+                "русский",      // Russian letters
+                "naïve",        // French word
+                "Ḥello",        // special diacritic
+                "øre",          // Nordic word
+                "café",         // French word
+                "ẞig"           // German sharp S
+        );
+
+        test(FeNameFormat::checkLabel, alwaysValid, alwaysInvalid, unicodeValid);
     }
 
+    @Test
+    void testTableName() {
+        List<String> alwaysValid = Lists.newArrayList(
+                "abc123",    // Starts with ASCII letter, contains alphanumerics + underscores
+                "A_1_b",     // Contains allowed symbols (underscore)
+                "Z",         // Single ASCII letter
+                "a1b2c3",    // Alphanumeric combination
+                "x_y_z",     // Contains underscores
+                "test",      // Letters only
+                "a_b_c",     // Multiple underscores
+                "a_1",       // Underscore + number
+                "B2",        // Uppercase letter + number
+                "1abc",      // Starts with digit
+                "abc$",      // Contains invalid symbol $
+                "-abc",      // Starts with hyphen
+                "_abc"       // Starts with underscore
+        );
+
+        List<String> alwaysInvalid = Lists.newArrayList(
+                "",          // Empty string
+                "x ",          // space character as last one
+                "x\t",         // table character as last one
+                "x\n"          // enter character as last one
+        );
+
+        List<String> unicodeValid = Lists.newArrayList(
+                "@test",     // Contains invalid symbol @
+                "a b",       // Contains space
+                "a\tb",      // Contains space
+                "a\nb",      // Contains space
+                "a\rb",      // Contains space
+                " ab",       // Contains space
+                "a*b",       // Contains asterisk
+                "a.b",       // Contains dot
+                "a#b",       // Contains hash
+                "abc!",      // Contains invalid symbol !
+                "a\nb",      // Contains newline
+                "éclair",    // Contains French letter
+                "über",      // Contains German umlaut
+                "北京",      // Chinese characters
+                "東京123",   // Japanese characters + numbers
+                "München",   // Contains umlaut
+                "Beyoncé",   // Contains French accent
+                "αβγ",       // Greek letters
+                "русский",   // Cyrillic letters
+                "øre",       // Nordic letter
+                "ção",       // Portuguese letter
+                "naïve",     // Contains diacritic
+                "Ḥello",     // Contains special diacritic
+                "ẞig"        // German sharp S
+        );
+
+        test(FeNameFormat::checkTableName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    @Test
+    void testCheckColumnName() {
+        List<String> alwaysValid = Lists.newArrayList(
+                "_id",
+                "_id",
+                "_ id",
+                " _id",
+                "__id",
+                "___id",
+                "___id_",
+                "mv_",
+                "mva_",
+                "@timestamp",
+                "@timestamp#",
+                "timestamp*",
+                "timestamp.1",
+                "timestamp.#",
+                "?id_",
+                "#id_",
+                "$id_",
+                "a-zA-Z0-9.+-/?@#$%^&*\" ,:",
+                " x",
+                "y x",
+                "y\tx",
+                "y\nx",
+                "y\rx"
+        );
+
+        List<String> alwaysInvalid = Lists.newArrayList(
+                // inner column prefix
+                "__doris_shadow_",
+                "",
+                " ",
+                "x ",
+                "x\t",
+                "x\n",
+                "x\r",
+                StringUtils.repeat("a", 257)
+        );
+
+        List<String> unicodeValid = Lists.newArrayList(
+                "\\",
+                "column\\",
+                "中文",
+                "語言",
+                "язык",
+                "언어",
+                "لغة",
+                "ภาษา",
+                "שפה",
+                "γλώσσα",
+                "ენა",
+                "げんご"
+        );
+
+        test(FeNameFormat::checkColumnName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    @Test
+    void testUserName() {
+        List<String> alwaysValid = Arrays.asList(
+                "a",
+                "abc123",
+                "A-1_b.c",
+                "x.y-z_123",
+                "test",
+                "a.b-c_d",
+                "Z",
+                "a-",
+                "a_",
+                "a."
+        );
+        List<String> alwaysInvalid = Arrays.asList(
+                "1abc",      // starts with digit
+                "@test",     // contains invalid character @
+                "a b",       // contains space
+                "",          // empty string
+                "-abc",      // starts with hyphen
+                ".abc",      // starts with dot
+                "_abc",      // starts with underscore
+                "abc!",      // contains invalid character !
+                "abc\n",     // contains newline
+                "9",         // digit only
+                " ",         // whitespace only
+                "a\tb",      // contains tab
+                "a\nb",      // contains newline
+                "a*",        // contains asterisk
+                "a(",         // contains parenthesis
+                "a:b",        // contains colon
+                " ab"         // contains space
+        );
+        List<String> unicodeValid = Lists.newArrayList(
+                "éclair",       // starts with accented letter
+                "über",         // starts with umlaut
+                "北京abc",       // starts with Chinese characters
+                "東京123",       // starts with Japanese kanji
+                "русский",      // starts with Cyrillic letters
+                "αβγ.123",      // starts with Greek letters
+                "München",      // contains umlaut
+                "Beyoncé",      // contains accented letter
+                "naïve"       // contains diacritic
+        );
+        test(FeNameFormat::checkUserName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    @Test
+    void testDbName() {
+        boolean defaultUnicode = VariableMgr.getDefaultSessionVariable().enableUnicodeNameSupport;
+        boolean defaultNestedNamespace = GlobalVariable.enableNestedNamespace;
+        List<Boolean> enableUnicode = Lists.newArrayList(false, true);
+        List<Boolean> enableNestedNamespace = Lists.newArrayList(false, true);
+
+        // Names that are always valid regardless of nested namespace setting
+        List<String> alwaysValid = Arrays.asList(
+                "abc123",        // ASCII letters + numbers
+                "A-1_b",         // with allowed symbols (-_)
+                "Z",             // single ASCII letter
+                "a1b2c3",        // alphanumeric
+                "x_y-z",         // underscore and hyphen
+                "test",          // letters only
+                "a-b-c",         // multiple hyphens
+                "a_b",           // underscore
+                "a-1",           // hyphen + number
+                "B2"             // uppercase + number
+        );
+
+        // Names that are always invalid regardless of settings
+        List<String> alwaysInvalid = Arrays.asList(
+                "1abc",          // starts with number
+                "@test",         // contains invalid symbol @
+                "",              // empty string
+                "a b",           // contains space
+                "abc!",          // contains invalid symbol !
+                "a\nb",          // contains newline
+                "abc$",          // contains invalid symbol $
+                "-abc",          // starts with hyphen
+                "_abc",          // starts with underscore
+                "a*b",           // contains asterisk
+                "a#b"            // contains hash symbol
+        );
+
+        // Names with dots - only valid when nested namespace is enabled
+        List<String> dotNames = Arrays.asList(
+                "db1.db2",       // database name with dot in middle
+                "db1.db2.db3",   // multiple dots in middle
+                "a.b.c.d",       // multiple segments with dots
+                "test.prod",     // simple dot notation
+                "system.user.profile"  // nested database name
+        );
+
+        // Names with dots that are always invalid (start/end with dot, consecutive dots)
+        List<String> invalidDotNames = Arrays.asList(
+                ".abc",          // starts with dot
+                "abc.",          // ends with dot
+                ".abc.def",      // starts with dot
+                "abc.def.",      // ends with dot
+                "a..b",          // consecutive dots
+                "a.b.",          // ends with dot after valid segment
+                ".a.b"           // starts with dot before valid segment
+        );
+
+        // Unicode names that are always valid
+        List<String> unicodeValid = Lists.newArrayList(
+                "éclair",        // French letters
+                "über",          // German umlaut
+                "北京",          // Chinese characters
+                "東京123",       // Japanese + numbers
+                "München",       // German umlaut
+                "Beyoncé",       // French accent
+                "αβγ",           // Greek letters
+                "русский",       // Cyrillic letters
+                "øre",           // Nordic letter
+                "ção",           // Portuguese letter
+                "naïve",         // French diacritic
+                "Ḥello",         // special diacritic
+                "ẞig"            // German sharp S
+        );
+
+        // Unicode names with dots - only valid when both unicode and nested namespace are enabled
+        List<String> unicodeDotNames = Lists.newArrayList(
+                "北京.東京",     // Chinese and Japanese with dot
+                "café.système",  // French words with dot
+                "über.München",  // German words with dot
+                "αβγ.русский"    // Greek and Cyrillic with dot
+        );
+
+        try {
+            for (Boolean unicode : enableUnicode) {
+                for (Boolean nestedNamespace : enableNestedNamespace) {
+                    VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(unicode);
+                    GlobalVariable.enableNestedNamespace = nestedNamespace;
+
+                    // Test always valid names
+                    for (String s : alwaysValid) {
+                        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
+                    }
+
+                    // Test always invalid names
+                    for (String s : alwaysInvalid) {
+                        Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
+                                "name should be invalid: " + s
+                                        + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
+                    }
+
+                    // Test names with invalid dot patterns (always invalid)
+                    for (String s : invalidDotNames) {
+                        Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
+                                "name should be invalid: " + s
+                                        + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
+                    }
+
+                    // Test names with dots (valid only when nested namespace is enabled)
+                    for (String s : dotNames) {
+                        if (nestedNamespace) {
+                            ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
+                        } else {
+                            Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
+                                    "name should be invalid when nested namespace is disabled: " + s);
+                        }
+                    }
+
+                    // Test unicode names
+                    for (String s : unicodeValid) {
+                        if (unicode) {
+                            ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
+                        } else {
+                            Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
+                                    "unicode name should be invalid when unicode issh bi     disabled: " + s);
+                        }
+                    }
+
+                    // Test unicode names with dots (valid only when both unicode and nested namespace are enabled)
+                    for (String s : unicodeDotNames) {
+                        if (unicode && nestedNamespace) {
+                            ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
+                        } else {
+                            Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
+                                    "unicode dot name should be invalid: " + s
+                                            + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
+                        }
+                    }
+                }
+            }
+        } finally {
+            VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(defaultUnicode);
+            GlobalVariable.enableNestedNamespace = defaultNestedNamespace;
+        }
+    }
+
+    @Test
+    void testCommonName() {
+        List<String> alwaysValid = Arrays.asList(
+                "abc123",    // ASCII letters + numbers
+                "A-1_b",     // with allowed symbols (-_)
+                "Z",         // single ASCII letter
+                "a1b2c3",    // alphanumeric
+                "x_y-z",     // underscore and hyphen
+                "test",      // letters only
+                "a-b-c",     // multiple hyphens
+                "a_b",       // underscore
+                "a-1",       // hyphen + number
+                "B2"         // uppercase + number
+        );
+        List<String> alwaysInvalid = Arrays.asList(
+                "1abc",      // starts with number
+                "@test",     // contains invalid symbol @
+                "",          // empty string
+                "a b",       // contains space
+                "abc!",      // contains invalid symbol !
+                "a\nb",      // contains newline
+                "abc$",      // contains invalid symbol $
+                "-abc",      // starts with hyphen
+                "_abc",      // starts with underscore
+                StringUtils.repeat("a", 65), // exceeds length limit (64)
+                "a*b",       // contains asterisk
+                "a.b",       // contains dot (not allowed)
+                "a#b"        // contains hash symbol
+        );
+        List<String> unicodeValid = Lists.newArrayList(
+                "éclair",    // French letters
+                "über",      // German umlaut
+                "北京",      // Chinese characters
+                "東京123",   // Japanese + numbers
+                "München",   // German umlaut
+                "Beyoncé",   // French accent
+                "αβγ",       // Greek letters
+                "русский",   // Cyrillic letters
+                "øre",       // Nordic letter
+                "ção",       // Portuguese letter
+                "naïve",     // French diacritic
+                "Ḥello",     // special diacritic
+                "ẞig"        // German sharp S
+        );
+        test(FeNameFormatTest::checkCommonName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    @Test
+    void testOutfileName() {
+        List<String> alwaysValid = Arrays.asList(
+                "_valid",      // starts with underscore
+                "a1_b-c",      // letters, numbers, hyphens, underscores
+                "ValidName",   // standard camel case
+                "x_123",       // underscore + numbers
+                "A_B_C",       // multiple underscores
+                "z",           // single letter
+                "_9value",     // starts with _, contains number
+                "a-b",         // simple hyphenated
+                "MAX_LENGTH"   // uppercase with underscores
+        );
+        List<String> alwaysInvalid = Arrays.asList(
+                "1invalid",    // starts with number
+                "@test",       // invalid starting character
+                "",            // empty string
+                "has space",   // contains space
+                "a.b",         // contains dot
+                "a*b",         // contains asterisk
+                "a\nb",        // contains newline
+                "-invalid",     // starts with hyphen
+                "a#b",         // contains hash
+                StringUtils.repeat("a", 65), // exceeds length limit (64)
+                "a>b",         // contains angle bracket
+                "a$b"          // contains dollar sign
+        );
+        List<String> unicodeValid = Lists.newArrayList(
+                "_éclair",     // starts with _, contains French letter
+                "über",        // German umlaut
+                "_北京",       // starts with _, Chinese characters
+                "東京123",     // Japanese + numbers
+                "München",     // German umlaut
+                "Beyoncé",     // French accent
+                "αβγ",         // Greek letters
+                "_русский",    // starts with _, Cyrillic letters
+                "naïve",       // French diacritic
+                "Ḥello",       // special diacritic
+                "ẞig",         // German sharp S
+                "øre",         // Nordic letter
+                "_ção"         // starts with _, Portuguese letter
+        );
+        test(FeNameFormatTest::checkOutfileSuccessFileName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    @Test
+    void checkRepositoryName() {
+        List<String> alwaysValid = Arrays.asList(
+                "validName",      // Standard ASCII letters
+                "A1_b2",         // Letters, numbers, underscore
+                "Product123",     // CamelCase with numbers
+                "x_y_z",         // Multiple underscores
+                "test",          // Lowercase only
+                "MAX_LENGTH",    // Uppercase with underscores
+                "a1-b2",         // Hyphen included
+                "Z",             // Single character
+                StringUtils.repeat("a", 256)  // Maximum length (255 chars)
+        );
+        List<String> alwaysInvalid = Arrays.asList(
+                "",               // Empty string
+                " ",              // Space character
+                "1stInvalid",     // Starts with number
+                "@username",      // Invalid starting character
+                "name with space", // Contains space
+                "a.b",            // Contains dot
+                "a*b",            // Contains asterisk
+                "a\nb",           // Contains newline
+                "a$b",            // Contains dollar sign
+                "a#b",            // Contains hash
+                StringUtils.repeat("a", 257),  // Exceeds length limit (255)
+                "-invalid"        // Starts with hyphen
+        );
+        List<String> unicodeValid = Lists.newArrayList(
+                "München",       // German umlaut
+                "Beyoncé",       // French accent
+                "東京太郎",      // Japanese characters
+                "北京123",       // Chinese with numbers
+                "αβγ",           // Greek letters
+                "русский",       // Cyrillic letters
+                "naïve",         // French diacritic
+                "øre",           // Nordic letter
+                "café",          // French word
+                "Ḥello",         // Special diacritic
+                "ẞig",           // German sharp S
+                "SãoPaulo"       // Portuguese
+        );
+        test(FeNameFormat::checkRepositoryName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    private static void checkOutfileSuccessFileName(String name) throws AnalysisException {
+        FeNameFormat.checkOutfileSuccessFileName("fakeType", name);
+    }
+
+    private static void checkCommonName(String name) throws AnalysisException {
+        FeNameFormat.checkCommonName("fakeType", name);
+    }
+
+    @FunctionalInterface
+    public interface NameValidator {
+        void accept(String name) throws AnalysisException;
+    }
+
+    private void test(NameValidator validator, List<String> alwaysValid, List<String> alwaysInvalid,
+            List<String> unicodeValid) {
+        boolean defaultUnicode = VariableMgr.getDefaultSessionVariable().enableUnicodeNameSupport;
+        List<Boolean> enableUnicode = Lists.newArrayList(false, true);
+        try {
+            for (Boolean unicode : enableUnicode) {
+                VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(unicode);
+                for (String s : alwaysValid) {
+                    ExceptionChecker.expectThrowsNoException(() -> validator.accept(s));
+                }
+                for (String s : alwaysInvalid) {
+                    Assertions.assertThrowsExactly(AnalysisException.class, () -> validator.accept(s),
+                            "name should be invalid: " + s);
+                }
+                for (String s : unicodeValid) {
+                    if (unicode) {
+                        ExceptionChecker.expectThrowsNoException(() -> validator.accept(s));
+                    } else {
+                        Assertions.assertThrowsExactly(AnalysisException.class, () -> validator.accept(s),
+                                "name should be invalid: " + s);
+
+                    }
+                }
+            }
+        } finally {
+            VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(defaultUnicode);
+        }
+    }
 }

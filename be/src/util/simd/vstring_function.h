@@ -17,36 +17,83 @@
 
 #pragma once
 
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #include <unistd.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
-#ifdef __aarch64__
-#include <sse2neon.h>
-#endif
-
-#include "runtime/string_value.hpp"
 #include "util/simd/lower_upper_impl.h"
+#include "util/sse_util.hpp"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
-static size_t get_utf8_byte_length(unsigned char byte) {
-    size_t char_size = 0;
-    if (byte >= 0xFC) {
-        char_size = 6;
-    } else if (byte >= 0xF8) {
-        char_size = 5;
-    } else if (byte >= 0xF0) {
-        char_size = 4;
-    } else if (byte >= 0xE0) {
-        char_size = 3;
-    } else if (byte >= 0xC0) {
-        char_size = 2;
-    } else {
-        char_size = 1;
-    }
-    return char_size;
+static constexpr std::array<uint8_t, 256> UTF8_BYTE_LENGTH = {
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6};
+
+inline uint8_t get_utf8_byte_length(uint8_t character) {
+    return UTF8_BYTE_LENGTH[character];
 }
+
+// copy from https://github.com/lemire/fastvalidate-utf-8/blob/master/include/simdasciicheck.h
+// The function returns true (1) if all chars passed in src are
+// 7-bit values (0x00..0x7F). Otherwise, it returns false (0).
+inline bool validate_ascii_fast(const char* src, size_t len) {
+    size_t i = 0;
+    __m128i has_error = _mm_setzero_si128();
+    if (len >= 16) {
+        for (; i <= len - 16; i += 16) {
+            __m128i current_bytes = _mm_loadu_si128((const __m128i*)(src + i));
+            has_error = _mm_or_si128(has_error, current_bytes);
+        }
+    }
+    int error_mask = _mm_movemask_epi8(has_error);
+
+    char tail_has_error = 0;
+    for (; i < len; i++) {
+        tail_has_error |= src[i];
+    }
+    error_mask |= (tail_has_error & 0x80);
+
+    return !error_mask;
+}
+
+#ifdef __AVX2__
+#include <x86intrin.h>
+// The function returns true (1) if all chars passed in src are
+// 7-bit values (0x00..0x7F). Otherwise, it returns false (0).
+inline bool validate_ascii_fast_avx(const char* src, size_t len) {
+    size_t i = 0;
+    __m256i has_error = _mm256_setzero_si256();
+    if (len >= 32) {
+        for (; i <= len - 32; i += 32) {
+            __m256i current_bytes = _mm256_loadu_si256((const __m256i*)(src + i));
+            has_error = _mm256_or_si256(has_error, current_bytes);
+        }
+    }
+    int error_mask = _mm256_movemask_epi8(has_error);
+
+    char tail_has_error = 0;
+    for (; i < len; i++) {
+        tail_has_error |= src[i];
+    }
+    error_mask |= (tail_has_error & 0x80);
+
+    return !error_mask;
+}
+#endif
 
 namespace simd {
 
@@ -56,101 +103,139 @@ public:
     /// n equals to 16 chars length
     static constexpr auto REGISTER_SIZE = sizeof(__m128i);
 #endif
-public:
-    static StringVal rtrim(const StringVal& str) {
-        if (str.is_null || str.len == 0) {
-            return str;
+
+    template <bool trim_single>
+    static inline const unsigned char* rtrim(const unsigned char* begin, const unsigned char* end,
+                                             const StringRef& remove_str) {
+        if (remove_str.size == 0) {
+            return end;
         }
-        auto begin = 0;
-        auto end = str.len - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
-        char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(str.ptr + end + 1 - REGISTER_SIZE));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern);
-            int offset = __builtin_clz(~(mask << REGISTER_SIZE));
-            /// means not found
-            if (offset == 0) {
-                return StringVal(str.ptr + begin, end - begin + 1);
+        const auto* p = end;
+
+        if constexpr (trim_single) {
+            const auto ch = remove_str.data[0];
+#if defined(__AVX2__)
+            constexpr auto AVX2_BYTES = sizeof(__m256i);
+            const auto size = end - begin;
+            const auto* const avx2_begin = end - size / AVX2_BYTES * AVX2_BYTES;
+            const auto spaces = _mm256_set1_epi8(ch);
+            for (p = end - AVX2_BYTES; p >= avx2_begin; p -= AVX2_BYTES) {
+                uint32_t masks = _mm256_movemask_epi8(
+                        _mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i*)p), spaces));
+                if ((~masks)) {
+                    break;
+                }
+            }
+            p += AVX2_BYTES;
+#endif
+            for (; (p - 1) >= begin && *(p - 1) == ch; p--) {
+            }
+            return p;
+        }
+
+        const auto remove_size = remove_str.size;
+        const auto* const remove_data = remove_str.data;
+        while (p - begin >= remove_size) {
+            if (memcmp(p - remove_size, remove_data, remove_size) == 0) {
+                p -= remove_str.size;
             } else {
-                end -= offset;
+                break;
             }
         }
-#endif
-        while (end >= begin && str.ptr[end] == ' ') {
-            --end;
-        }
-        if (end < 0) {
-            return StringVal("");
-        }
-        return StringVal(str.ptr + begin, end - begin + 1);
+        return p;
     }
 
-    static StringVal ltrim(const StringVal& str) {
-        if (str.is_null || str.len == 0) {
-            return str;
+    template <bool trim_single>
+    static inline const unsigned char* ltrim(const unsigned char* begin, const unsigned char* end,
+                                             const StringRef& remove_str) {
+        if (remove_str.size == 0) {
+            return begin;
         }
-        auto begin = 0;
-        auto end = str.len - 1;
-#if defined(__SSE2__) || defined(__aarch64__)
-        char blank = ' ';
-        const auto pattern = _mm_set1_epi8(blank);
-        while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack =
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.ptr + begin));
-            const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
-            const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
-            /// zero means not found
-            if (mask == 0) {
-                begin += REGISTER_SIZE;
+        const auto* p = begin;
+
+        if constexpr (trim_single) {
+            const auto ch = remove_str.data[0];
+#if defined(__AVX2__)
+            constexpr auto AVX2_BYTES = sizeof(__m256i);
+            const auto size = end - begin;
+            const auto* const avx2_end = begin + size / AVX2_BYTES * AVX2_BYTES;
+            const auto spaces = _mm256_set1_epi8(ch);
+            for (; p < avx2_end; p += AVX2_BYTES) {
+                uint32_t masks = _mm256_movemask_epi8(
+                        _mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i*)p), spaces));
+                if ((~masks)) {
+                    break;
+                }
+            }
+#endif
+            for (; p < end && *p == ch; ++p) {
+            }
+            return p;
+        }
+
+        const auto remove_size = remove_str.size;
+        const auto* const remove_data = remove_str.data;
+        while (end - p >= remove_size) {
+            if (memcmp(p, remove_data, remove_size) == 0) {
+                p += remove_str.size;
             } else {
-                const auto offset = __builtin_ctz(mask);
-                begin += offset;
-                return StringVal(str.ptr + begin, end - begin + 1);
+                break;
             }
         }
-#endif
-        while (begin <= end && str.ptr[begin] == ' ') {
-            ++begin;
-        }
-        return StringVal(str.ptr + begin, end - begin + 1);
+        return p;
     }
 
-    static StringVal trim(const StringVal& str) {
-        if (str.is_null || str.len == 0) {
-            return str;
+    // Iterate a UTF-8 string without exceeding a given length n.
+    // The function returns two values:
+    // the first represents the byte length traversed, and the second represents the char length traversed.
+    static inline std::pair<size_t, size_t> iterate_utf8_with_limit_length(const char* begin,
+                                                                           const char* end,
+                                                                           size_t n) {
+        const char* p = begin;
+        int char_size = 0;
+
+        size_t i = 0;
+        for (; i < n && p < end; ++i, p += char_size) {
+            char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
         }
-        return rtrim(ltrim(str));
+
+        return {p - begin, i};
     }
 
     // Gcc will do auto simd in this function
-    static bool is_ascii(const StringVal& str) {
-        char or_code = 0;
-        for (size_t i = 0; i < str.len; i++) {
-            or_code |= str.ptr[i];
-        }
-        return !(or_code & 0x80);
+    // if input empty, return true
+    static bool is_ascii(const StringRef& str) {
+#ifdef __AVX2__
+        return validate_ascii_fast_avx(str.data, str.size);
+#endif
+        return validate_ascii_fast(str.data, str.size);
     }
 
-    static void reverse(const StringVal& str, StringVal dst) {
+    static void reverse(const StringRef& str, std::string* dst) {
         if (is_ascii(str)) {
             int64_t begin = 0;
-            int64_t end = str.len;
-            int64_t result_end = dst.len - 1;
+            int64_t end = str.size;
+            int64_t result_end = dst->size() - 1;
 
             // auto SIMD here
-            auto* __restrict l = dst.ptr;
-            auto* __restrict r = str.ptr;
+            auto* __restrict l = dst->data();
+            auto* __restrict r = str.data;
             for (; begin < end; ++begin, --result_end) {
                 l[result_end] = r[begin];
             }
         } else {
-            for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-                std::copy(str.ptr + i, str.ptr + i + char_size, dst.ptr + str.len - i - char_size);
+            char* dst_data = dst->data();
+            for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
+                // there exists occasion where the last character is an illegal UTF-8 one which returns
+                // a char_size larger than the actual space, which would cause offset execeeding the buffer range
+                // for example, consider str.size=4, i = 3, then the last char returns char_size 2, then
+                // the str.data + offset would exceed the buffer range
+                size_t offset = i + char_size;
+                if (offset > str.size) {
+                    offset = str.size;
+                }
+                std::copy(str.data + i, str.data + offset, dst_data + str.size - offset);
             }
         }
     }
@@ -160,7 +245,7 @@ public:
         auto src_str_end = src_str + length;
 
 #if defined(__SSE2__) || defined(__aarch64__)
-        constexpr auto step = sizeof(uint64);
+        constexpr auto step = sizeof(uint64_t);
         if (src_str + step < src_str_end) {
             const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i*>(hex_table));
             const auto mask_map = _mm_set1_epi8(0x0F);
@@ -188,7 +273,7 @@ public:
         }
     }
 
-    static void to_lower(uint8_t* src, int64_t len, uint8_t* dst) {
+    static void to_lower(const uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }
@@ -196,12 +281,56 @@ public:
         lowerUpper.transfer(src, src + len, dst);
     }
 
-    static void to_upper(uint8_t* src, int64_t len, uint8_t* dst) {
+    static void to_upper(const uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }
         LowerUpperImpl<'a', 'z'> lowerUpper;
         lowerUpper.transfer(src, src + len, dst);
+    }
+
+    static inline size_t get_char_len(const char* src, size_t len, std::vector<size_t>& str_index) {
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < len; i += char_size) {
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)src[i]];
+            str_index.push_back(i);
+            ++char_len;
+        }
+        return char_len;
+    }
+
+    // utf8-encoding:
+    // - 1-byte: 0xxx_xxxx;
+    // - 2-byte: 110x_xxxx 10xx_xxxx;
+    // - 3-byte: 1110_xxxx 10xx_xxxx 10xx_xxxx;
+    // - 4-byte: 1111_0xxx 10xx_xxxx 10xx_xxxx 10xx_xxxx.
+    // Counting utf8 chars in a byte string is equivalent to counting first byte of utf chars, that
+    // is to say, counting bytes which do not match 10xx_xxxx pattern.
+    // All 0xxx_xxxx, 110x_xxxx, 1110_xxxx and 1111_0xxx are greater than 1011_1111 when use int8_t arithmetic,
+    // so just count bytes greater than 1011_1111 in a byte string as the result of utf8_length.
+    // get_char_len is used to return the UTF-8 length of a string.
+    // The return value will never exceed len.
+    template <typename T>
+    static inline T get_char_len(const char* src, T len) {
+        T char_len = 0;
+        const char* p = src;
+        const char* end = p + len;
+#if defined(__SSE2__) || defined(__aarch64__)
+        constexpr auto bytes_sse2 = sizeof(__m128i);
+        const auto src_end_sse2 = p + (len & ~(bytes_sse2 - 1));
+        // threshold = 1011_1111
+        const auto threshold = _mm_set1_epi8(0xBF);
+        for (; p < src_end_sse2; p += bytes_sse2) {
+            char_len += __builtin_popcount(_mm_movemask_epi8(_mm_cmpgt_epi8(
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(p)), threshold)));
+        }
+#endif
+        // process remaining bytes the number of which not exceed bytes_sse2 at the
+        // tail of string, one by one.
+        for (; p < end; ++p) {
+            char_len += static_cast<int8_t>(*p) > static_cast<int8_t>(0xBF);
+        }
+        return char_len;
     }
 };
 } // namespace simd

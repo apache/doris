@@ -19,24 +19,27 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class BackendTest {
     private Backend backend;
@@ -47,21 +50,21 @@ public class BackendTest {
     private int httpPort = 21237;
     private int beRpcPort = 21238;
 
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
     private FakeEditLog fakeEditLog;
 
     @Before
     public void setUp() {
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        env = AccessTestUtil.fetchAdminCatalog();
 
-        fakeCatalog = new FakeCatalog();
+        fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
 
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
-        FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
 
         backend = new Backend(backendId, host, heartbeatPort);
         backend.updateOnce(bePort, httpPort, beRpcPort);
@@ -114,9 +117,9 @@ public class BackendTest {
     @Test
     public void testSerialization() throws Exception {
         // Write 100 objects to file
-        File file = new File("./backendTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Paths.get("./backendTest" + UUID.randomUUID());
+        Files.createFile(path);
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         List<Backend> list1 = new LinkedList<Backend>();
         List<Backend> list2 = new LinkedList<Backend>();
@@ -145,7 +148,7 @@ public class BackendTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 200; ++count) {
             Backend backend = Backend.read(dis);
             list2.add(backend);
@@ -170,35 +173,40 @@ public class BackendTest {
         Assert.assertEquals(100, backend100BackendStatus.lastStreamLoadTime);
 
         for (int count = 0; count < 200; count++) {
-            Assert.assertTrue(list1.get(count).equals(list2.get(count)));
+            Assert.assertEquals(list1.get(count), list2.get(count));
         }
-        Assert.assertFalse(list1.get(1).equals(list1.get(2)));
-        Assert.assertFalse(list1.get(1).equals(this));
-        Assert.assertTrue(list1.get(1).equals(list1.get(1)));
+        Assert.assertNotEquals(list1.get(1), list1.get(2));
+        Assert.assertNotEquals(list1.get(1), this);
+        Assert.assertEquals(list1.get(1), list1.get(1));
 
         Backend back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         Backend back2 = new Backend(2, "a", 1);
         back2.updateOnce(1, 1, 1);
-        Assert.assertFalse(back1.equals(back2));
+        Assert.assertNotEquals(back1, back2);
 
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "b", 1);
         back2.updateOnce(1, 1, 1);
-        Assert.assertFalse(back1.equals(back2));
+        Assert.assertNotEquals(back1, back2);
 
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "a", 2);
         back2.updateOnce(1, 1, 1);
-        Assert.assertFalse(back1.equals(back2));
+        Map<String, String> tagMap = Maps.newHashMap();
+        tagMap.put(Tag.TYPE_LOCATION, "l1");
+        tagMap.put("compute", "c1");
+        back2.setTagMap(tagMap);
+        Assert.assertNotEquals(back1, back2);
 
-        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tag: {\"location\" : \"default\"}]", back1.toString());
+        Assert.assertTrue(back1.toString().contains("tags: {location=default}"));
+        Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 
 }

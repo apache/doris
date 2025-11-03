@@ -40,7 +40,9 @@ public class ConfigBase {
     public void init(String propfile) throws Exception {
         props = new Properties();
         confClass = this.getClass();
-        props.load(new FileReader(propfile));
+        try (FileReader fr = new FileReader(propfile)) {
+            props.load(fr);
+        }
         replacedByEnv();
         setFields();
     }

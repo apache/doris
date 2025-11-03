@@ -20,12 +20,13 @@
 
 #pragma once
 
+#include <gen_cpp/RuntimeProfile_types.h>
+
 #include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
 
-#include "gen_cpp/RuntimeProfile_types.h"
 #include "util/binary_cast.hpp"
 #include "util/cpu_info.h"
 
@@ -55,29 +56,35 @@ public:
         ss.flags(std::ios::fixed);
         switch (unit) {
         case TUnit::NONE: {
-            ss << value;
+            // TUnit::NONE is used as a special counter, it is just a label
+            //         - PeakMemoryUsage:
+            //              - BuildKeyArena: 0
+            //              - ProbeKeyArena: 0
+            // So do not need output its value
             return ss.str();
         }
 
         case TUnit::UNIT: {
-            std::string unit;
-            double output = get_unit(value, &unit);
-            if (unit.empty()) {
+            std::string nest_unit;
+            double output = get_unit(value, &nest_unit);
+            if (nest_unit.empty()) {
                 ss << value;
             } else {
-                ss << std::setprecision(PRECISION) << output << unit;
+                ss << std::setprecision(PRECISION) << output << nest_unit;
             }
-            if (verbose) ss << " (" << value << ")";
+            if (verbose) {
+                ss << " (" << value << ")";
+            }
             break;
         }
 
         case TUnit::UNIT_PER_SECOND: {
-            std::string unit;
-            double output = get_unit(value, &unit);
+            std::string nest_unit;
+            double output = get_unit(value, &nest_unit);
             if (output == 0) {
                 ss << "0";
             } else {
-                ss << std::setprecision(PRECISION) << output << " " << unit << "/sec";
+                ss << std::setprecision(PRECISION) << output << " " << nest_unit << "/sec";
             }
             break;
         }
@@ -122,21 +129,23 @@ public:
         }
 
         case TUnit::BYTES: {
-            std::string unit;
-            double output = get_byte_unit(value, &unit);
+            std::string nest_unit;
+            double output = get_byte_unit(value, &nest_unit);
             if (output == 0) {
                 ss << "0";
             } else {
-                ss << std::setprecision(PRECISION) << output << " " << unit;
-                if (verbose) ss << " (" << value << ")";
+                ss << std::setprecision(PRECISION) << output << " " << nest_unit;
+                if (verbose) {
+                    ss << " (" << value << ")";
+                }
             }
             break;
         }
 
         case TUnit::BYTES_PER_SECOND: {
-            std::string unit;
-            double output = get_byte_unit(value, &unit);
-            ss << std::setprecision(PRECISION) << output << " " << unit << "/sec";
+            std::string nest_unit;
+            double output = get_byte_unit(value, &nest_unit);
+            ss << std::setprecision(PRECISION) << output << " " << nest_unit << "/sec";
             break;
         }
 
@@ -181,7 +190,8 @@ public:
 
     /// Convenience method
     static std::string print_bytes(int64_t value) {
-        return PrettyPrinter::print(value, TUnit::BYTES);
+        return value >= 0 ? PrettyPrinter::print(value, TUnit::BYTES)
+                          : "-" + PrettyPrinter::print(std::abs(value), TUnit::BYTES);
     }
 
 private:

@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <cstdint>
 #include <string>
 
-#include "gen_cpp/segment_v2.pb.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 
@@ -71,6 +72,11 @@ struct PagePointer {
 
     bool operator!=(const PagePointer& other) const { return !(*this == other); }
 };
+
+inline std::ostream& operator<<(std::ostream& os, const PagePointer& pp) {
+    os << "PagePointer { offset=" << pp.offset << " size=" << pp.size << " }";
+    return os;
+}
 
 } // namespace segment_v2
 } // namespace doris

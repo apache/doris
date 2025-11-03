@@ -32,6 +32,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.net.URI;
 
 public class FsBrokerTest {
 
@@ -70,7 +71,7 @@ public class FsBrokerTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         FsBroker readBroker = FsBroker.readIn(dis);
-        Assert.assertEquals(fsBroker.ip, readBroker.ip);
+        Assert.assertEquals(fsBroker.host, readBroker.host);
         Assert.assertEquals(fsBroker.port, readBroker.port);
         Assert.assertEquals(fsBroker.isAlive, readBroker.isAlive);
         Assert.assertTrue(fsBroker.isAlive);
@@ -97,12 +98,30 @@ public class FsBrokerTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         FsBroker readBroker = FsBroker.readIn(dis);
-        Assert.assertEquals(fsBroker.ip, readBroker.ip);
+        Assert.assertEquals(fsBroker.host, readBroker.host);
         Assert.assertEquals(fsBroker.port, readBroker.port);
         Assert.assertEquals(fsBroker.isAlive, readBroker.isAlive);
         Assert.assertFalse(fsBroker.isAlive);
         Assert.assertEquals(-1, readBroker.lastStartTime);
         Assert.assertEquals(-1, readBroker.lastUpdateTime);
         dis.close();
+    }
+
+    @Test
+    public void test() throws Exception {
+        URI url = new URI("/tmp/LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
+        url = new URI("file:/tmp/LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
+        url = new URI("file:///tmp/LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
+        url = new URI("asczcsad:/tmp/LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
+        url = new URI("http:/tmp/LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
+        url = new URI("http:///tmp/LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
+        url = new URI("LetsVPNHelper.sent.socket");
+        System.out.println(url.getScheme());
     }
 }

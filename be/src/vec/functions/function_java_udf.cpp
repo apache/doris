@@ -17,202 +17,148 @@
 
 #include "vec/functions/function_java_udf.h"
 
-#ifdef LIBJVM
-#include <fmt/format.h>
+#include <bthread/bthread.h>
 
 #include <memory>
-#include <sstream>
+#include <string>
 
-#include "gen_cpp/Exprs_types.h"
-#include "runtime/exec_env.h"
+#include "common/exception.h"
+#include "jni.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
-#include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/exec/jni_connector.h"
 
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
-const char* EXECUTOR_EVALUATE_SIGNATURE = "()V";
+const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 
 namespace doris::vectorized {
+std::unique_ptr<ThreadPool> JavaFunctionCall::close_workers;
+std::once_flag JavaFunctionCall::close_workers_init_once;
+
 JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                    const DataTypePtr& return_type)
-        : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
+        : fn_(fn), _argument_types(argument_types), _return_type(return_type) {
+    std::call_once(close_workers_init_once, []() {
+        auto build_st = ThreadPoolBuilder("UDFCloseWorkers")
+                                .set_min_threads(4)
+                                .set_max_threads(std::min(32, CpuInfo::num_cores()))
+                                .build(&close_workers);
+        if (!build_st.ok()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to build UDFCloseWorkers");
+        }
+    });
+}
 
-Status JavaFunctionCall::prepare(FunctionContext* context,
-                                 FunctionContext::FunctionStateScope scope) {
+Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
+
+    if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+        SCOPED_TIMER(context->get_udf_execute_timer());
+        std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
+        context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
+
+        // Add a scoped cleanup jni reference object. This cleans up local refs made below.
+        JniLocalFrame jni_frame;
+        {
+            std::string local_location;
+            auto function_cache = UserFunctionCache::instance();
+            TJavaUdfExecutorCtorParams ctor_params;
+            ctor_params.__set_fn(fn_);
+            // get jar path if both file path location and checksum are null
+            if (!fn_.hdfs_location.empty() && !fn_.checksum.empty()) {
+                RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
+                                                            &local_location));
+                ctor_params.__set_location(local_location);
+            }
+
+            jbyteArray ctor_params_bytes;
+
+            // Pushed frame will be popped when jni_frame goes out-of-scope.
+            RETURN_IF_ERROR(jni_frame.push(env));
+
+            RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
+
+            RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &jni_ctx->executor_cl));
+            jni_ctx->executor_ctor_id =
+                    env->GetMethodID(jni_ctx->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE);
+            jni_ctx->executor_evaluate_id =
+                    env->GetMethodID(jni_ctx->executor_cl, "evaluate", EXECUTOR_EVALUATE_SIGNATURE);
+            jni_ctx->executor_close_id =
+                    env->GetMethodID(jni_ctx->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE);
+            jni_ctx->executor = env->NewObject(jni_ctx->executor_cl, jni_ctx->executor_ctor_id,
+                                               ctor_params_bytes);
+
+            jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
+            env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
+            env->DeleteLocalRef(ctor_params_bytes);
+        }
+        RETURN_ERROR_IF_EXC(env);
+        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
+        jni_ctx->open_successes = true;
     }
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &executor_cl_));
-    executor_ctor_id_ = env->GetMethodID(executor_cl_, "<init>", EXECUTOR_CTOR_SIGNATURE);
-    RETURN_ERROR_IF_EXC(env);
-    executor_evaluate_id_ = env->GetMethodID(executor_cl_, "evaluate", EXECUTOR_EVALUATE_SIGNATURE);
-    RETURN_ERROR_IF_EXC(env);
-    executor_close_id_ = env->GetMethodID(executor_cl_, "close", EXECUTOR_CLOSE_SIGNATURE);
-    RETURN_ERROR_IF_EXC(env);
-
-    JniContext* jni_ctx = new JniContext(_argument_types.size(), this);
-    context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
-
-    // Add a scoped cleanup jni reference object. This cleans up local refs made below.
-    JniLocalFrame jni_frame;
-    {
-        std::string local_location;
-        auto function_cache = UserFunctionCache::instance();
-        RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
-                                                    &local_location));
-        TJavaUdfExecutorCtorParams ctor_params;
-        ctor_params.__set_fn(fn_);
-        ctor_params.__set_location(local_location);
-        ctor_params.__set_input_offsets_ptrs((int64_t)jni_ctx->input_offsets_ptrs.get());
-        ctor_params.__set_input_buffer_ptrs((int64_t)jni_ctx->input_values_buffer_ptr.get());
-        ctor_params.__set_input_nulls_ptrs((int64_t)jni_ctx->input_nulls_buffer_ptr.get());
-        ctor_params.__set_output_buffer_ptr((int64_t)jni_ctx->output_value_buffer.get());
-        ctor_params.__set_output_null_ptr((int64_t)jni_ctx->output_null_value.get());
-        ctor_params.__set_output_offsets_ptr((int64_t)jni_ctx->output_offsets_ptr.get());
-        ctor_params.__set_output_intermediate_state_ptr(
-                (int64_t)jni_ctx->output_intermediate_state_ptr.get());
-        ctor_params.__set_batch_size_ptr((int64_t)jni_ctx->batch_size_ptr.get());
-
-        jbyteArray ctor_params_bytes;
-
-        // Pushed frame will be popped when jni_frame goes out-of-scope.
-        RETURN_IF_ERROR(jni_frame.push(env));
-
-        RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-        jni_ctx->executor = env->NewObject(executor_cl_, executor_ctor_id_, ctor_params_bytes);
-    }
-    RETURN_ERROR_IF_EXC(env);
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
-
     return Status::OK();
 }
 
-Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result, size_t num_rows,
-                                 bool dry_run) {
+Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
+                                      const ColumnNumbers& arguments, uint32_t result,
+                                      size_t num_rows) const {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
+    auto* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    int arg_idx = 0;
-    for (size_t col_idx : arguments) {
-        ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        auto col = column.column->convert_to_full_column_if_const();
-        if (!_argument_types[arg_idx]->equals(*column.type)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "$0-th input column's type $1 does not equal to required type $2", arg_idx,
-                    column.type->get_name(), _argument_types[arg_idx]->get_name()));
-        }
-        auto data_col = col;
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*col)) {
-            data_col = nullable->get_nested_column_ptr();
-            auto null_col =
-                    check_and_get_column<ColumnVector<UInt8>>(nullable->get_null_map_column_ptr());
-            jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] =
-                    reinterpret_cast<int64_t>(null_col->get_data().data());
-        } else {
-            jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] = -1;
-        }
-
-        if (data_col->is_column_string()) {
-            const ColumnString* str_col = assert_cast<const ColumnString*>(data_col.get());
-            jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
-                    reinterpret_cast<int64_t>(str_col->get_chars().data());
-            jni_ctx->input_offsets_ptrs.get()[arg_idx] =
-                    reinterpret_cast<int64_t>(str_col->get_offsets().data());
-        } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
-            jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
-                    reinterpret_cast<int64_t>(data_col->get_raw_data().data);
-        } else {
-            return Status::InvalidArgument(
-                    strings::Substitute("Java UDF doesn't support type $0 now !",
-                                        _argument_types[arg_idx]->get_name()));
-        }
-        arg_idx++;
-    }
-    *(jni_ctx->batch_size_ptr) = num_rows;
-    auto return_type = block.get_data_type(result);
-    if (return_type->is_nullable()) {
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
-        auto data_col = null_type->get_nested_type()->create_column();
-        auto null_col = ColumnUInt8::create(data_col->size(), 0);
-        null_col->reserve(num_rows);
-        null_col->resize(num_rows);
-
-        *(jni_ctx->output_null_value) = reinterpret_cast<int64_t>(null_col->get_data().data());
-#ifndef EVALUATE_JAVA_UDF
-#define EVALUATE_JAVA_UDF                                                                          \
-    if (data_col->is_column_string()) {                                                            \
-        const ColumnString* str_col = assert_cast<const ColumnString*>(data_col.get());            \
-        ColumnString::Chars& chars = const_cast<ColumnString::Chars&>(str_col->get_chars());       \
-        ColumnString::Offsets& offsets =                                                           \
-                const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
-        int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
-        chars.reserve(buffer_size);                                                                \
-        chars.resize(buffer_size);                                                                 \
-        offsets.reserve(num_rows);                                                                 \
-        offsets.resize(num_rows);                                                                  \
-        *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());                 \
-        *(jni_ctx->output_offsets_ptr) = reinterpret_cast<int64_t>(offsets.data());                \
-        jni_ctx->output_intermediate_state_ptr->row_idx = 0;                                       \
-        jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                         \
-        env->CallNonvirtualVoidMethodA(jni_ctx->executor, executor_cl_, executor_evaluate_id_,     \
-                                       nullptr);                                                   \
-        while (jni_ctx->output_intermediate_state_ptr->row_idx < num_rows) {                       \
-            increase_buffer_size++;                                                                \
-            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
-            chars.resize(buffer_size);                                                             \
-            *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());             \
-            jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                     \
-            env->CallNonvirtualVoidMethodA(jni_ctx->executor, executor_cl_, executor_evaluate_id_, \
-                                           nullptr);                                               \
-        }                                                                                          \
-    } else if (data_col->is_numeric() || data_col->is_column_decimal()) {                          \
-        data_col->reserve(num_rows);                                                               \
-        data_col->resize(num_rows);                                                                \
-        *(jni_ctx->output_value_buffer) =                                                          \
-                reinterpret_cast<int64_t>(data_col->get_raw_data().data);                          \
-        env->CallNonvirtualVoidMethodA(jni_ctx->executor, executor_cl_, executor_evaluate_id_,     \
-                                       nullptr);                                                   \
-    } else {                                                                                       \
-        return Status::InvalidArgument(strings::Substitute(                                        \
-                "Java UDF doesn't support return type $0 now !", return_type->get_name()));        \
-    }
-#endif
-        EVALUATE_JAVA_UDF;
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(data_col), std::move(null_col)));
-    } else {
-        *(jni_ctx->output_null_value) = -1;
-        auto data_col = return_type->create_column();
-        EVALUATE_JAVA_UDF;
-        block.replace_by_position(result, std::move(data_col));
-    }
-    return JniUtil::GetJniExceptionMsg(env);
+    SCOPED_TIMER(context->get_udf_execute_timer());
+    std::unique_ptr<long[]> input_table;
+    RETURN_IF_ERROR(JniConnector::to_java_table(&block, num_rows, arguments, input_table));
+    auto input_table_schema = JniConnector::parse_table_schema(&block, arguments, true);
+    std::map<String, String> input_params = {
+            {"meta_address", std::to_string((long)input_table.get())},
+            {"required_fields", input_table_schema.first},
+            {"columns_types", input_table_schema.second}};
+    jobject input_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
+    auto output_table_schema = JniConnector::parse_table_schema(&block, {result}, true);
+    std::string output_nullable =
+            block.get_by_position(result).type->is_nullable() ? "true" : "false";
+    std::map<String, String> output_params = {{"is_nullable", output_nullable},
+                                              {"required_fields", output_table_schema.first},
+                                              {"columns_types", output_table_schema.second}};
+    jobject output_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
+    long output_address = env->CallLongMethod(jni_ctx->executor, jni_ctx->executor_evaluate_id,
+                                              input_map, output_map);
+    env->DeleteGlobalRef(input_map);
+    env->DeleteGlobalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
+    return JniConnector::fill_block(&block, {result}, output_address);
 }
 
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (jni_ctx != nullptr) {
-        delete jni_ctx;
-        context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
+    auto close_func = [context]() {
+        auto* jni_ctx = reinterpret_cast<JniContext*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        // JNIContext own some resource and its release method depend on JavaFunctionCall
+        // has to release the resource before JavaFunctionCall is deconstructed.
+        if (jni_ctx) {
+            RETURN_IF_ERROR(jni_ctx->close());
+        }
+        return Status::OK();
+    };
+
+    if (bthread_self() == 0) {
+        return close_func();
+    } else {
+        DorisMetrics::instance()->udf_close_bthread_count->increment(1);
+        // Use the close_workers pthread pool to execute the close function
+        auto task = std::make_shared<std::packaged_task<Status()>>(std::move(close_func));
+        auto task_future = task->get_future();
+        RETURN_IF_ERROR(close_workers->submit_func([task]() { (*task)(); }));
+        RETURN_IF_ERROR(task_future.get());
+        return Status::OK();
     }
-    return Status::OK();
 }
 } // namespace doris::vectorized
-#endif

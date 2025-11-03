@@ -17,81 +17,135 @@
 
 #pragma once
 
-#include <string>
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/Descriptors_types.h>
 
-#include "common/object_pool.h"
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "cctz/time_zone.h"
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Types_types.h"
-#include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
-class DorisServer;
+
 class RuntimeState;
+class ObjectPool;
+class TUserIdentity;
 
-// scanner parameter from frontend
-struct SchemaScannerParam {
-    const std::string* db;
-    const std::string* table;
-    const std::string* wild;
-    const std::string* user;                 // deprecated
-    const std::string* user_ip;              // deprecated
-    const TUserIdentity* current_user_ident; // to replace the user and user ip
-    const std::string* ip;                   // frontend ip
-    int32_t port;                            // frontend thrift port
-    int64_t thread_id;
+namespace vectorized {
+class Block;
+}
 
-    SchemaScannerParam()
+namespace pipeline {
+class Dependency;
+}
+
+struct SchemaScannerCommonParam {
+    SchemaScannerCommonParam()
             : db(nullptr),
               table(nullptr),
               wild(nullptr),
               user(nullptr),
               user_ip(nullptr),
               current_user_ident(nullptr),
+              frontend_conjuncts(nullptr),
               ip(nullptr),
-              port(0) {}
+              port(0),
+              catalog(nullptr) {}
+    const std::string* db = nullptr;
+    const std::string* table = nullptr;
+    const std::string* wild = nullptr;
+    const std::string* user = nullptr;                 // deprecated
+    const std::string* user_ip = nullptr;              // deprecated
+    const TUserIdentity* current_user_ident = nullptr; // to replace the user and user ip
+    const std::string* frontend_conjuncts = nullptr;   // frontend_conjuncts
+    const std::string* ip = nullptr;                   // frontend ip
+    int32_t port;                                      // frontend thrift port
+    int64_t thread_id;
+    const std::string* catalog = nullptr;
+    std::set<TNetworkAddress> fe_addr_list;
+};
+
+// scanner parameter from frontend
+struct SchemaScannerParam {
+    std::shared_ptr<SchemaScannerCommonParam> common_param;
+    std::unique_ptr<RuntimeProfile> profile;
+
+    SchemaScannerParam() : common_param(new SchemaScannerCommonParam()) {}
 };
 
 // virtual scanner for all schema table
 class SchemaScanner {
 public:
     struct ColumnDesc {
-        const char* name;
+        const char* name = nullptr;
         PrimitiveType type;
         int size;
         bool is_null;
+        /// Only set if type == TYPE_DECIMAL
+        int precision = -1;
+        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
+        int scale = -1;
     };
-    SchemaScanner(ColumnDesc* columns, int column_num);
+    SchemaScanner(const std::vector<ColumnDesc>& columns,
+                  TSchemaTableType::type type = TSchemaTableType::SCH_INVALID);
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
-    virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
+    virtual Status init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool);
+    Status get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    virtual Status get_next_block_internal(vectorized::Block* block, bool* eos) = 0;
+    const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
-    static SchemaScanner* create(TSchemaTableType::type type);
-
-    const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
-
-    static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
+    static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
+    TSchemaTableType::type type() const { return _schema_table_type; }
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dep) { _dependency = dep; }
+    Status get_next_block_async(RuntimeState* state);
 
 protected:
-    Status create_tuple_desc(ObjectPool* pool);
+    void _init_block(vectorized::Block* src_block);
+    Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+                                      const std::vector<void*>& datas);
+
+    Status insert_block_column(TCell cell, int col_index, vectorized::Block* block,
+                               PrimitiveType type);
+
+    // get dbname from catalogname.dbname
+    // if full_name does not have catalog part, just return origin name.
+    std::string get_db_from_full_name(const std::string& full_name);
 
     bool _is_init;
     // this is used for sub class
-    SchemaScannerParam* _param;
-    // pointer to schema table's column desc
-    ColumnDesc* _columns;
-    // num of columns
-    int _column_num;
-    TupleDescriptor* _tuple_desc;
+    SchemaScannerParam* _param = nullptr;
+    // schema table's column desc
+    std::vector<ColumnDesc> _columns;
 
-    static DorisServer* _s_doris_server;
+    TSchemaTableType::type _schema_table_type;
+
+    RuntimeProfile::Counter* _get_db_timer = nullptr;
+    RuntimeProfile::Counter* _get_table_timer = nullptr;
+    RuntimeProfile::Counter* _get_describe_timer = nullptr;
+    RuntimeProfile::Counter* _fill_block_timer = nullptr;
+
+    std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
+
+    std::unique_ptr<vectorized::Block> _data_block;
+    AtomicStatus _scanner_status;
+    std::atomic<bool> _eos = false;
+    std::atomic<bool> _opened = false;
+    std::atomic<bool> _async_thread_running = false;
+    cctz::time_zone _timezone_obj;
 };
 
 } // namespace doris

@@ -32,13 +32,18 @@ inline constexpr size_t integerRoundUp(size_t value, size_t dividend) {
     return ((value + dividend - 1) / dividend) * dividend;
 }
 
-template <typename T, size_t initial_bytes = 4096, typename TAllocator = Allocator<false>,
+template <typename T, size_t initial_bytes = 4096,
+          typename TAllocator = Allocator<false, false, false, DefaultMemoryAllocator, false>,
           size_t pad_right_ = 0, size_t pad_left_ = 0>
 class PODArray;
 
-/** For columns. Padding is enough to read and write xmm-register at the address of the last element. */
-template <typename T, size_t initial_bytes = 4096, typename TAllocator = Allocator<false>>
-using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 15, 16>;
+/** For columns. Padding is enough to read and write xmm-register at the address of the last element.
+  * TODO, Adapt internal data structures to 512-bit era https://github.com/ClickHouse/ClickHouse/pull/42564
+  *       Padding in internal data structures increased to 64 bytes., support AVX-512 simd.
+  */
+template <typename T, size_t initial_bytes = 4096,
+          typename TAllocator = Allocator<false, false, false, DefaultMemoryAllocator, false>>
+using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 16, 15>;
 
 /** A helper for declaring PODArray that uses inline memory.
   * The initial size is set to use all the inline bytes, since using less would
@@ -46,8 +51,9 @@ using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 15, 16>;
   */
 template <typename T, size_t inline_bytes,
           size_t rounded_bytes = integerRoundUp(inline_bytes, sizeof(T))>
-using PODArrayWithStackMemory =
-        PODArray<T, rounded_bytes,
-                 AllocatorWithStackMemory<Allocator<false>, rounded_bytes, alignof(T)>>;
+using PODArrayWithStackMemory = PODArray<
+        T, rounded_bytes,
+        AllocatorWithStackMemory<Allocator<false, false, false, DefaultMemoryAllocator, false>,
+                                 rounded_bytes, alignof(T)>>;
 
 } // namespace doris::vectorized

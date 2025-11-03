@@ -17,32 +17,41 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import com.google.common.collect.ImmutableList;
+import lombok.Getter;
+
 import java.util.List;
 
+@Getter
 public class DropBackendClause extends BackendClause {
-    private boolean force;
+    private final boolean force;
 
-    public DropBackendClause(List<String> hostPorts) {
-        super(hostPorts);
+    public DropBackendClause(List<String> params) {
+        super(params);
         this.force = true;
     }
 
-    public DropBackendClause(List<String> hostPorts, boolean force) {
-        super(hostPorts);
+    public DropBackendClause(List<String> params, boolean force) {
+        super(params);
         this.force = force;
     }
 
-    public boolean isForce() {
-        return force;
+    public DropBackendClause(List<String> ids, List<HostInfo> hostPorts, boolean force) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
+        this.force = force;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP BACKEND ");
-        for (int i = 0; i < hostPorts.size(); i++) {
-            sb.append("\"").append(hostPorts.get(i)).append("\"");
-            if (i != hostPorts.size() - 1) {
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
                 sb.append(", ");
             }
         }

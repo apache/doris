@@ -17,122 +17,148 @@
 
 #pragma once
 
-#include "gen_cpp/internal_service.pb.h"
-#include "olap/rowset/rowset_writer.h"
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "olap/delta_writer_context.h"
+#include "olap/memtable_writer.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
 class FlushToken;
 class MemTable;
-class MemTracker;
-class RowBatch;
-class Schema;
 class StorageEngine;
-class Tuple;
 class TupleDescriptor;
-class TupleRow;
 class SlotDescriptor;
+class OlapTableSchemaParam;
+class RowsetWriter;
 
-enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-struct WriteRequest {
-    int64_t tablet_id;
-    int32_t schema_hash;
-    WriteType write_type;
-    int64_t txn_id;
-    int64_t partition_id;
-    PUniqueId load_id;
-    TupleDescriptor* tuple_desc;
-    // slots are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* slots;
-    bool is_high_priority = false;
-};
+class BaseRowsetBuilder;
+class RowsetBuilder;
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
-class DeltaWriter {
+class BaseDeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer, bool is_vec = false);
+    BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile, const UniqueId& load_id);
 
-    ~DeltaWriter();
+    virtual ~BaseDeltaWriter();
 
-    Status init();
+    virtual Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) = 0;
 
-    Status write(Tuple* tuple);
-    Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
-
-    // flush the last memtable to flush queue, must call it before close_wait()
-    Status close();
+    // flush the last memtable to flush queue, must call it before build_rowset()
+    virtual Status close() = 0;
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait();
+    virtual Status build_rowset();
+    Status submit_calc_delete_bitmap_task();
+    Status wait_calc_delete_bitmap();
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
+    virtual Status cancel_with_status(const Status& st);
 
-    // submit current memtable to flush queue, and wait all memtables in flush queue
-    // to be flushed.
-    // This is currently for reducing mem consumption of this delta writer.
-    // If need_wait is true, it will wait for all memtable in flush queue to be flushed.
-    // Otherwise, it will just put memtables to the flush queue and return.
-    Status flush_memtable_and_wait(bool need_wait);
-
-    int64_t partition_id() const;
-
-    int64_t mem_consumption() const;
+    int64_t mem_consumption(MemType mem);
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
-    int64_t tablet_id() { return _tablet->tablet_id(); }
+    int64_t partition_id() const { return _req.partition_id; }
 
-    int32_t schema_hash() { return _tablet->schema_hash(); }
+    int64_t tablet_id() const { return _req.tablet_id; }
 
-    int64_t memtable_consumption() const;
+    int64_t txn_id() const { return _req.txn_id; }
 
-    int64_t save_mem_consumption_snapshot();
+    int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
 
-    int64_t get_mem_consumption_snapshot() const;
+    int64_t num_rows_filtered() const;
 
-private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
+    void set_tablet_load_rowset_num_info(
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info);
 
-    // push a full memtable to flush executor
-    Status _flush_memtable_async();
+protected:
+    virtual void _init_profile(RuntimeProfile* profile);
 
-    void _garbage_collection();
-
-    void _reset_mem_table();
+    Status init();
 
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
-    TabletSharedPtr _tablet;
-    RowsetSharedPtr _cur_rowset;
-    std::unique_ptr<RowsetWriter> _rowset_writer;
-    // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
-    std::shared_ptr<MemTable> _mem_table;
-    std::unique_ptr<Schema> _schema;
-    const TabletSchema* _tablet_schema;
-    bool _delta_written_success;
+    std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
+    std::shared_ptr<MemTableWriter> _memtable_writer;
 
-    StorageEngine* _storage_engine;
-    std::unique_ptr<FlushToken> _flush_token;
-    std::shared_ptr<MemTracker> _mem_tracker;
+    // total rows num written by DeltaWriter
+    std::atomic<int64_t> _total_received_rows = 0;
 
-    // The counter of number of segment flushed already.
-    int64_t _segment_counter = 0;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_limit_timer = nullptr;
+
+    MonotonicStopWatch _lock_watch;
+};
+
+// `StorageEngine` mixin for `BaseDeltaWriter`
+class DeltaWriter final : public BaseDeltaWriter {
+public:
+    DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
+                const UniqueId& load_id);
+
+    ~DeltaWriter() override;
+
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
+
+    Status close() override;
+
+    Status cancel_with_status(const Status& st) override;
+
+    Status build_rowset() override;
+
+    Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes);
+
+    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                           success_slave_tablet_node_ids);
+
+    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                             success_slave_tablet_node_ids);
+
+    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+
+private:
+    void _init_profile(RuntimeProfile* profile) override;
+
+    void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
+
+    // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
+    RowsetBuilder* rowset_builder();
 
     std::mutex _lock;
 
-    // use in vectorized load
-    bool _is_vec;
+    StorageEngine& _engine;
+    std::unordered_set<int64_t> _unfinished_slave_node;
+    PSuccessSlaveTabletNodeIds _success_slave_node_ids;
+    std::shared_mutex _slave_node_lock;
 
-    //only used for std::sort more detail see issue(#9237)
-    int64_t _mem_consumption_snapshot = 0;
+    RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 };
 
 } // namespace doris

@@ -17,7 +17,20 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.parser.DorisSqlSeparatorLexer;
+import org.apache.doris.parser.DorisSqlSeparatorParser;
+
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import org.antlr.v4.runtime.CharStreams;
+import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.atn.PredictionMode;
+import org.antlr.v4.runtime.misc.ParseCancellationException;
+import org.antlr.v4.runtime.tree.ParseTree;
+
+import java.util.Collections;
+import java.util.List;
 
 public class SqlUtils {
     public static String escapeUnquote(String ident) {
@@ -43,5 +56,48 @@ public class SqlUtils {
             return str;
         }
         return str.replaceAll("\"", "\\\\\"");
+    }
+
+    public static List<String> splitMultiStmts(String sql) {
+        DorisSqlSeparatorLexer lexer = new DorisSqlSeparatorLexer(CharStreams.fromString(sql));
+        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+        DorisSqlSeparatorParser parser = new DorisSqlSeparatorParser(tokenStream);
+        ParserRuleContext tree;
+
+        try {
+            // first, try parsing with potentially faster SLL mode
+            parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
+            tree = parser.statements();
+        } catch (ParseCancellationException ex) {
+            // if we fail, parse with LL mode
+            tokenStream.seek(0);
+            parser.reset();
+
+            parser.getInterpreter().setPredictionMode(PredictionMode.LL);
+            tree = parser.statement();
+        }
+
+        DorisSqlSeparatorParser.StatementsContext stmt = (DorisSqlSeparatorParser.StatementsContext) tree;
+        List<String> singleStmtList = Lists.newArrayList();
+        for (DorisSqlSeparatorParser.StatementContext statementContext : stmt.statement()) {
+            if (!isEmptySql(statementContext)) {
+                singleStmtList.add(statementContext.getText());
+            }
+        }
+
+        return Collections.unmodifiableList(singleStmtList);
+    }
+
+    private static boolean isEmptySql(DorisSqlSeparatorParser.StatementContext statementContext) {
+        if (statementContext.children == null) {
+            return true;
+        }
+        for (ParseTree child : statementContext.children) {
+            if (!(child instanceof DorisSqlSeparatorParser.CommentContext)
+                    && !(child instanceof DorisSqlSeparatorParser.WsContext)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

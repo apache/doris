@@ -17,27 +17,40 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * Define a context when match a pattern pass through a MatchedAction.
  */
-public class MatchingContext<TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> {
+public class MatchingContext<TYPE extends Plan> {
     public final TYPE root;
-    public final Pattern<TYPE, RULE_TYPE> pattern;
-    public final PlannerContext plannerContext;
+    public final Pattern<TYPE> pattern;
+    public final CascadesContext cascadesContext;
+    public final StatementContext statementContext;
+    public final ConnectContext connectContext;
+    public final CTEContext cteContext;
 
     /**
      * the MatchingContext is the param pass through the MatchedAction.
      *
      * @param root the matched tree node root
      * @param pattern the defined pattern
-     * @param plannerContext the planner context
+     * @param cascadesContext the planner context
      */
-    public MatchingContext(TYPE root, Pattern<TYPE, RULE_TYPE> pattern, PlannerContext plannerContext) {
+    public MatchingContext(TYPE root, Pattern<TYPE> pattern, CascadesContext cascadesContext) {
         this.root = root;
         this.pattern = pattern;
-        this.plannerContext = plannerContext;
+        this.cascadesContext = cascadesContext;
+        this.statementContext = cascadesContext.getStatementContext();
+        this.connectContext = cascadesContext.getConnectContext();
+        this.cteContext = cascadesContext.getCteContext();
+    }
+
+    public boolean isRewriteRoot() {
+        return cascadesContext.isRewriteRoot();
     }
 }

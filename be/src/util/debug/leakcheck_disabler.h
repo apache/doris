@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "gutil/macros.h"
 #include "util/debug/leak_annotations.h"
 
 namespace doris {
@@ -30,7 +29,7 @@ public:
     ScopedLeakCheckDisabler() {}
 
 private:
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
     ScopedLSANDisabler lsan_disabler;
 #endif
 

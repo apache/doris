@@ -26,9 +26,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
@@ -73,6 +75,11 @@ public class AgentTaskTest {
     private long version = 1L;
 
     private TStorageType storageType = TStorageType.COLUMN;
+    private long rowStorePageSize = 16384L;
+    private long storagePageSize = 65536L;
+
+    private long storageDictPageSize = 262144L;
+
     private List<Column> columns;
     private MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(3);
 
@@ -87,6 +94,7 @@ public class AgentTaskTest {
 
     @Before
     public void setUp() throws AnalysisException {
+        MetricRepo.init();
         agentBatchTask = new AgentBatchTask();
 
         columns = new LinkedList<Column>();
@@ -102,21 +110,21 @@ public class AgentTaskTest {
         range2 = Range.closedOpen(pk2, pk3);
 
         // create tasks
-
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
-                                                  indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1,
-                                                  version, KeysType.AGG_KEYS,
-                                                  storageType, TStorageMedium.SSD,
-                                                  columns, null, 0, latch, null,
-                                                  false, TTabletType.TABLET_TYPE_DISK, TCompressionType.LZ4F);
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
+                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize);
 
         // drop
-        dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1);
+        dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);
 
         // clone
         cloneTask =
-                new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, replicaId1, schemaHash1,
+                new CloneTask(new TBackend("host2", 8290, 8390), backendId1, dbId, tableId, partitionId,
+                        indexId1, tabletId1, replicaId1, schemaHash1,
                         Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
 
         // storageMediaMigrationTask
@@ -226,7 +234,7 @@ public class AgentTaskTest {
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));
 
         dropTask.failed();
-        DropReplicaTask dropTask2 = new DropReplicaTask(backendId2, tabletId1, replicaId1, schemaHash1);
+        DropReplicaTask dropTask2 = new DropReplicaTask(backendId2, tabletId1, replicaId1, schemaHash1, false);
         AgentTaskQueue.addTask(dropTask2);
         dropTask2.failed();
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));

@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMySQLTable;
@@ -26,19 +25,16 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 public class MysqlTable extends Table {
-    private static final Logger LOG = LogManager.getLogger(OlapTable.class);
+    private static final Logger LOG = LogManager.getLogger(MysqlTable.class);
 
     private static final String ODBC_CATALOG_RESOURCE = "odbc_catalog_resource";
     private static final String MYSQL_HOST = "host";
@@ -49,13 +45,21 @@ public class MysqlTable extends Table {
     private static final String MYSQL_TABLE = "table";
     private static final String MYSQL_CHARSET = "charset";
 
+    @SerializedName("ocrn")
     private String odbcCatalogResourceName;
+    @SerializedName("h")
     private String host;
+    @SerializedName("p")
     private String port;
+    @SerializedName("un")
     private String userName;
+    @SerializedName("pwd")
     private String passwd;
+    @SerializedName("mdn")
     private String mysqlDatabaseName;
+    @SerializedName("mtn")
     private String mysqlTableName;
+    @SerializedName("c")
     private String charset;
 
     public MysqlTable() {
@@ -78,13 +82,13 @@ public class MysqlTable extends Table {
             odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
             // 1. check whether resource exist
-            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName);
+            Resource oriResource = Env.getCurrentEnv().getResourceMgr().getResource(odbcCatalogResourceName);
             if (oriResource == null) {
                 throw new DdlException("Resource does not exist. name: " + odbcCatalogResourceName);
             }
 
             // 2. check resource usage privilege
-            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                     odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
@@ -151,7 +155,7 @@ public class MysqlTable extends Table {
 
     private String getPropertyFromResource(String propertyName) {
         OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
-                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+                (Env.getCurrentEnv().getResourceMgr().getResource(odbcCatalogResourceName));
         if (odbcCatalogResource == null) {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
@@ -233,55 +237,9 @@ public class MysqlTable extends Table {
         sb.append(mysqlTableName);
         sb.append(getCharset());
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of mysql table {}: {}. signature string: {}", name, md5, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get signature of mysql table {}: {}. signature string: {}", name, md5, sb.toString());
+        }
         return md5;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Map<String, String> serializeMap = Maps.newHashMap();
-        serializeMap.put(ODBC_CATALOG_RESOURCE, odbcCatalogResourceName);
-        serializeMap.put(MYSQL_HOST, host);
-        serializeMap.put(MYSQL_PORT, port);
-        serializeMap.put(MYSQL_USER, userName);
-        serializeMap.put(MYSQL_PASSWORD, passwd);
-        serializeMap.put(MYSQL_DATABASE, mysqlDatabaseName);
-        serializeMap.put(MYSQL_TABLE, mysqlTableName);
-        serializeMap.put(MYSQL_CHARSET, charset);
-
-        int size = (int) serializeMap.values().stream().filter(v -> {
-            return v != null;
-        }).count();
-        out.writeInt(size);
-        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
-            if (kv.getValue() != null) {
-                Text.writeString(out, kv.getKey());
-                Text.writeString(out, kv.getValue());
-            }
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        // Read MySQL meta
-        int size = in.readInt();
-        Map<String, String> serializeMap = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            serializeMap.put(key, value);
-        }
-
-        odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
-        host = serializeMap.get(MYSQL_HOST);
-        port = serializeMap.get(MYSQL_PORT);
-        userName = serializeMap.get(MYSQL_USER);
-        passwd = serializeMap.get(MYSQL_PASSWORD);
-        mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
-        mysqlTableName = serializeMap.get(MYSQL_TABLE);
-        charset = serializeMap.get(MYSQL_CHARSET);
     }
 }

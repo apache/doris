@@ -42,12 +42,22 @@ public class ModifyTableCommentClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
     }
 
     @Override
     public Map<String, String> getProperties() {
         return Maps.newHashMap();
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

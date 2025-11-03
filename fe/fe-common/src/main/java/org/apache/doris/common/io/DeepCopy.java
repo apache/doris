@@ -33,37 +33,7 @@ import java.lang.reflect.Method;
 public class DeepCopy {
     private static final Logger LOG = LoggerFactory.getLogger(DeepCopy.class);
 
-    public static final String READ_FIELDS_METHOD_NAME = "readFields";
     public static final String READ_METHOD_NAME = "read";
-
-    // deep copy orig to dest.
-    // the param "c" is the implementation class of "dest".
-    // And the "dest" class must has method "readFields(DataInput)"
-    public static boolean copy(Writable orig, Writable dest, Class c, int metaVersion) {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(metaVersion);
-        metaContext.setThreadLocalInfo();
-
-        FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
-        DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
-        try {
-            orig.write(out);
-            out.flush();
-            out.close();
-
-            DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
-
-            Method readMethod = c.getDeclaredMethod(READ_FIELDS_METHOD_NAME, DataInput.class);
-            readMethod.invoke(dest, in);
-            in.close();
-        } catch (Exception e) {
-            LOG.warn("failed to copy object.", e);
-            return false;
-        } finally {
-            MetaContext.remove();
-        }
-        return true;
-    }
 
     // Deep copy orig to result
     // The param "c" is the implementation class of "orig"
@@ -74,19 +44,16 @@ public class DeepCopy {
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();
 
-        FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
-        DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
-        try {
+        try (FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
+                DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
             orig.write(out);
             out.flush();
-            out.close();
 
-            DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
-
-            Method readMethod = c.getDeclaredMethod(READ_METHOD_NAME, DataInput.class);
-            T result = (T) readMethod.invoke(orig, in);
-            in.close();
-            return result;
+            try (DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream())) {
+                Method readMethod = c.getDeclaredMethod(READ_METHOD_NAME, DataInput.class);
+                T result = (T) readMethod.invoke(orig, in);
+                return result;
+            }
         } catch (Exception e) {
             LOG.warn("failed to copy object.", e);
             return null;

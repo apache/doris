@@ -17,10 +17,14 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.UUID;
 
 public class DebugUtilTest {
     @Test
@@ -46,16 +50,16 @@ public class DebugUtilTest {
     @Test
     public void testGetPrettyStringMs() {
         // 6hour1min
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(21660222), "6h1m");
+        Assert.assertEquals("6hour1min", DebugUtil.getPrettyStringMs(21660222));
 
         // 1min222ms
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(60222), "1m");
+        Assert.assertEquals("1min", DebugUtil.getPrettyStringMs(60222));
 
         // 2s222ms
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(2222), "2s222ms");
+        Assert.assertEquals("2sec222ms", DebugUtil.getPrettyStringMs(2222));
 
         // 22ms
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(22), "22ms");
+        Assert.assertEquals("22ms", DebugUtil.getPrettyStringMs(22));
     }
 
     @Test
@@ -80,5 +84,62 @@ public class DebugUtilTest {
         result = DebugUtil.getByteUint(1234567890L);  // G
         Assert.assertEquals(result.first, Double.valueOf(1.1497809458523989));
         Assert.assertEquals(result.second, "GB");
+    }
+
+    @Test
+    public void testUtilGetStackTrace() {
+        Exception e1 = new Exception("exception1");
+        DdlException e2 = new DdlException("exception2", e1);
+        e2.printStackTrace();
+        System.out.println(Util.getRootCauseStack(e2));
+        Assert.assertTrue(Util.getRootCauseStack(e2).contains("java.lang.Exception: exception1"));
+
+        DdlException e3 = new DdlException("only one exception");
+        System.out.println(Util.getRootCauseStack(e3));
+        Assert.assertTrue(Util.getRootCauseStack(e3)
+                .contains("org.apache.doris.common.DdlException: errCode = 2, detailMessage = only one exception"));
+        Assert.assertEquals("unknown", Util.getRootCauseStack(null));
+    }
+
+    @Test
+    public void testParseIdFromString() {
+        // test null
+        TUniqueId nullTUniqueId = null;
+        try {
+            nullTUniqueId = DebugUtil.parseTUniqueIdFromString(null);
+        } catch (NumberFormatException e) {
+            Assert.assertTrue("invalid query id".equals(e.getMessage()));
+        }
+        Assert.assertTrue(nullTUniqueId == null);
+
+
+        try {
+            nullTUniqueId = DebugUtil.parseTUniqueIdFromString("");
+        } catch (NumberFormatException e) {
+            Assert.assertTrue("invalid query id".equals(e.getMessage()));
+        }
+        Assert.assertTrue(nullTUniqueId == null);
+
+        Assert.assertEquals(new TUniqueId(), DebugUtil.parseTUniqueIdFromString("0-0"));
+
+        try {
+            nullTUniqueId = DebugUtil.parseTUniqueIdFromString("INVALID-STRING");
+        } catch (NumberFormatException e) {
+            Assert.assertTrue(e.getMessage().contains("For input string"));
+        }
+        Assert.assertTrue(nullTUniqueId == null);
+
+        for (int i = 0; i < 100; i++) {
+            UUID uuid = UUID.randomUUID();
+            TUniqueId originTQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            String originStrQueryId = DebugUtil.printId(originTQueryId);
+
+            TUniqueId convertedTQueryId = DebugUtil.parseTUniqueIdFromString(originStrQueryId);
+            String convertedStrQueryId = DebugUtil.printId(convertedTQueryId);
+
+            Assert.assertTrue(originTQueryId.hi == convertedTQueryId.hi);
+            Assert.assertTrue(originTQueryId.lo == convertedTQueryId.lo);
+            Assert.assertTrue(originStrQueryId.equals(convertedStrQueryId));
+        }
     }
 }

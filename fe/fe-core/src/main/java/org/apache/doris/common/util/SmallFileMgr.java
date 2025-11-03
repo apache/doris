@@ -17,20 +17,21 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.CreateFileStmt;
-import org.apache.doris.analysis.DropFileStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -49,7 +50,6 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -57,17 +57,25 @@ import java.util.Map;
 /*
  * Manage some small files, such as certification file, public/private key used for some operations
  */
-public class SmallFileMgr implements Writable {
+public class SmallFileMgr {
     public static final Logger LOG = LogManager.getLogger(SmallFileMgr.class);
 
     public static class SmallFile implements Writable {
+        @SerializedName("dbid")
         public long dbId;
+        @SerializedName("log")
         public String catalog;
+        @SerializedName("n")
         public String name;
+        @SerializedName("id")
         public long id;
+        @SerializedName("ctn")
         public String content;
+        @SerializedName("s")
         public long size;
+        @SerializedName("md5")
         public String md5;
+        @SerializedName("isC")
         public boolean isContent;
 
         private SmallFile() {
@@ -87,9 +95,7 @@ public class SmallFileMgr implements Writable {
         }
 
         public static SmallFile read(DataInput in) throws IOException {
-            SmallFile smallFile = new SmallFile();
-            smallFile.readFields(in);
-            return smallFile;
+            return GsonUtils.GSON.fromJson(Text.readString(in), SmallFile.class);
         }
 
         public byte[] getContentBytes() {
@@ -101,25 +107,7 @@ public class SmallFileMgr implements Writable {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            out.writeLong(dbId);
-            Text.writeString(out, catalog);
-            Text.writeString(out, name);
-            out.writeLong(id);
-            Text.writeString(out, content);
-            out.writeLong(size);
-            Text.writeString(out, md5);
-            out.writeBoolean(isContent);
-        }
-
-        public void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            catalog = Text.readString(in);
-            name = Text.readString(in);
-            id = in.readLong();
-            content = Text.readString(in);
-            size = in.readLong();
-            md5 = Text.readString(in);
-            isContent = in.readBoolean();
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
     }
 
@@ -162,17 +150,10 @@ public class SmallFileMgr implements Writable {
     public SmallFileMgr() {
     }
 
-    public void createFile(CreateFileStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
-                stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
-    }
-
-    public void dropFile(DropFileStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        removeFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(), false);
+    public void createFile(String dbName, String catalog, String fileName, String downloadUrl, String md5sum,
+                            boolean saveContent) throws DdlException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        downloadAndAddFile(db.getId(), catalog, fileName, downloadUrl, md5sum, saveContent);
     }
 
     private void downloadAndAddFile(long dbId, String catalog, String fileName, String downloadUrl, String md5sum,
@@ -199,7 +180,7 @@ public class SmallFileMgr implements Writable {
             smallFiles.addFile(fileName, smallFile);
             idToFiles.put(smallFile.id, smallFile);
 
-            Catalog.getCurrentCatalog().getEditLog().logCreateSmallFile(smallFile);
+            Env.getCurrentEnv().getEditLog().logCreateSmallFile(smallFile);
 
             LOG.info("finished to add file {} from url {}. current file number: {}", fileName, downloadUrl,
                     idToFiles.size());
@@ -234,7 +215,7 @@ public class SmallFileMgr implements Writable {
                 idToFiles.remove(smallFile.id);
 
                 if (!isReplay) {
-                    Catalog.getCurrentCatalog().getEditLog().logDropSmallFile(smallFile);
+                    Env.getCurrentEnv().getEditLog().logDropSmallFile(smallFile);
                 }
 
                 LOG.info("finished to remove file {}. current file number: {}. is replay: {}",
@@ -289,6 +270,7 @@ public class SmallFileMgr implements Writable {
     private SmallFile downloadAndCheck(long dbId, String catalog, String fileName,
             String downloadUrl, String md5sum, boolean saveContent) throws DdlException {
         try {
+            SecurityChecker.getInstance().startSSRFChecking(downloadUrl);
             URL url = new URL(downloadUrl);
             // get file length
             URLConnection urlConnection = url.openConnection();
@@ -356,7 +338,7 @@ public class SmallFileMgr implements Writable {
             }
 
             SmallFile smallFile;
-            long fileId = Catalog.getCurrentCatalog().getNextId();
+            long fileId = Env.getCurrentEnv().getNextId();
             if (saveContent) {
                 smallFile = new SmallFile(dbId, catalog, fileName, fileId, base64Content, bytesRead,
                         checksum, true /* is content */);
@@ -366,13 +348,15 @@ public class SmallFileMgr implements Writable {
                         checksum, false /* not content */);
             }
             return smallFile;
-        } catch (IOException | NoSuchAlgorithmException e) {
+        } catch (Exception e) {
             LOG.warn("failed to get file from url: {}", downloadUrl, e);
             String errorMsg = e.getMessage();
             if (e instanceof FileNotFoundException) {
                 errorMsg = "File not found";
             }
             throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + errorMsg);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
 
@@ -418,10 +402,10 @@ public class SmallFileMgr implements Writable {
             }
             file.createNewFile();
             byte[] decoded = Base64.getDecoder().decode(smallFile.content);
-            FileOutputStream outputStream = new FileOutputStream(file);
-            outputStream.write(decoded);
-            outputStream.flush();
-            outputStream.close();
+            try (FileOutputStream outputStream = new FileOutputStream(file)) {
+                outputStream.write(decoded);
+                outputStream.flush();
+            }
 
             if (!checkMd5(file, smallFile.md5)) {
                 throw new DdlException("write file " + fileName
@@ -436,9 +420,9 @@ public class SmallFileMgr implements Writable {
     }
 
     private boolean checkMd5(File file, String expectedMd5) throws DdlException {
-        String md5sum = null;
-        try {
-            md5sum = DigestUtils.md5Hex(new FileInputStream(file));
+        String md5sum;
+        try (FileInputStream fis = new FileInputStream(file)) {
+            md5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             throw new DdlException("File " + file.getName() + " does not exist");
         } catch (IOException e) {
@@ -455,7 +439,7 @@ public class SmallFileMgr implements Writable {
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         List<List<String>> infos = Lists.newArrayList();
         synchronized (files) {
             if (files.containsRow(db.getId())) {
@@ -479,13 +463,6 @@ public class SmallFileMgr implements Writable {
         return infos;
     }
 
-    public static SmallFileMgr read(DataInput in) throws IOException {
-        SmallFileMgr mgr = new SmallFileMgr();
-        mgr.readFields(in);
-        return mgr;
-    }
-
-    @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(idToFiles.size());
         for (SmallFile smallFile : idToFiles.values()) {
@@ -506,8 +483,7 @@ public class SmallFileMgr implements Writable {
             try {
                 smallFiles.addFile(smallFile.name, smallFile);
             } catch (DdlException e) {
-                // should not happen
-                e.printStackTrace();
+                LOG.warn("should not happen", e);
             }
         }
     }

@@ -40,13 +40,13 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadPendingTask.class);
 
-    private Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
-    private BrokerDesc brokerDesc;
+    protected Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
+    protected BrokerDesc brokerDesc;
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
                                  Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
-                                 BrokerDesc brokerDesc) {
-        super(loadTaskCallback, TaskType.PENDING);
+                                 BrokerDesc brokerDesc, Priority priority) {
+        super(loadTaskCallback, TaskType.PENDING, priority);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
@@ -55,13 +55,13 @@ public class BrokerLoadPendingTask extends LoadTask {
     }
 
     @Override
-    void executeTask() throws UserException {
+    public void executeTask() throws UserException {
         LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
         getAllFileStatus();
         ((BrokerLoadJob) callback).beginTxn();
     }
 
-    private void getAllFileStatus() throws UserException {
+    protected void getAllFileStatus() throws UserException {
         long start = System.currentTimeMillis();
         long totalFileSize = 0;
         int totalFileNum = 0;
@@ -97,33 +97,43 @@ public class BrokerLoadPendingTask extends LoadTask {
                     for (String path : fileGroup.getFilePaths()) {
                         BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                     }
-                    boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
-                    List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
-                    for (TBrokerFileStatus fstatus : fileStatuses) {
-                        if (fstatus.getSize() == 0 && isBinaryFileFormat) {
-                            // For parquet or orc file, if it is an empty file, ignore it.
-                            // Because we can not read an empty parquet or orc file.
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                        .add("empty file", fstatus).build());
-                            }
-                        } else {
-                            groupFileSize += fstatus.size;
-                            filteredFileStatuses.add(fstatus);
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                        .add("file_status", fstatus).build());
+                    if (!fileStatuses.isEmpty()) {
+                        fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);
+                        boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+                        List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
+                        for (TBrokerFileStatus fstatus : fileStatuses) {
+                            if (fstatus.getSize() == 0 && isBinaryFileFormat) {
+                                // For parquet or orc file, if it is an empty file, ignore it.
+                                // Because we can not read an empty parquet or orc file.
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                            .add("empty file", fstatus).build());
+                                }
+                            } else {
+                                groupFileSize += fstatus.size;
+                                filteredFileStatuses.add(fstatus);
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                            .add("file_status", fstatus).build());
+                                }
                             }
                         }
+                        fileStatusList.add(filteredFileStatuses);
+                        tableTotalFileSize += groupFileSize;
+                        tableTotalFileNum += filteredFileStatuses.size();
+                        LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
+                                filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                                callback.getCallbackId(),
+                                brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                        ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                    } else {
+                        LOG.info("no file found in file group {} for table {}, job: {}, broker: {}",
+                                groupNum, entry.getKey(), callback.getCallbackId(),
+                                brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                        ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                        throw new UserException("No source files found in the specified paths: "
+                                + fileGroup.getFilePaths());
                     }
-                    fileStatusList.add(filteredFileStatuses);
-                    tableTotalFileSize += groupFileSize;
-                    tableTotalFileNum += filteredFileStatuses.size();
-                    LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                            filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
-                            callback.getCallbackId(),
-                            brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
-                                    ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     groupNum++;
                 }
             }

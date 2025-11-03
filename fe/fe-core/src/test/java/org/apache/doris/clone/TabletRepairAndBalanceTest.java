@@ -17,16 +17,11 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AlterSystemStmt;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.analysis.BackendClause;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -35,7 +30,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -44,8 +38,18 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -53,7 +57,7 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
@@ -70,8 +74,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -103,11 +109,19 @@ public class TabletRepairAndBalanceTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_schedule_interval_ms = 100;
+        Config.tablet_checker_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
+        Config.schedule_slot_num_per_hdd_path = 10000;
+        Config.schedule_slot_num_per_ssd_path = 10000;
+        Config.schedule_batch_size = 10000;
+        Config.disable_colocate_balance_between_groups = true;
+        Config.max_scheduling_tablets = 10000;
+        Config.disable_balance = true;
         // 5 backends:
         // 127.0.0.1
         // 127.0.0.2
@@ -119,16 +133,20 @@ public class TabletRepairAndBalanceTest {
 
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Catalog.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
             tDisk1.setRootPath("/home/doris.HDD");
-            tDisk1.setDiskTotalCapacity(2000000000);
+            tDisk1.setDiskTotalCapacity(10L << 30);
             tDisk1.setDataUsedCapacity(1);
             tDisk1.setUsed(true);
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
@@ -138,7 +156,7 @@ public class TabletRepairAndBalanceTest {
 
             TDisk tDisk2 = new TDisk();
             tDisk2.setRootPath("/home/doris.SSD");
-            tDisk2.setDiskTotalCapacity(2000000000);
+            tDisk2.setDiskTotalCapacity(10L << 30);
             tDisk2.setDataUsedCapacity(1);
             tDisk2.setUsed(true);
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
@@ -156,40 +174,32 @@ public class TabletRepairAndBalanceTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         // must set replicas' path hash, or the tablet scheduler won't work
-        updateReplicaPathHash();
+        RebalancerTestUtil.updateReplicaPathHash();
     }
 
     private static void dropTable(String sql) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
-    }
-
-    private static void updateReplicaPathHash() {
-        Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
-        for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
-            long beId = cell.getColumnKey();
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
-            if (be == null) {
-                continue;
-            }
-            Replica replica = cell.getValue();
-            TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
-            ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
-            for (DiskInfo diskInfo : diskMap.values()) {
-                if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
-                    replica.setPathHash(diskInfo.getPathHash());
-                    break;
-                }
-            }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
         }
     }
 
     private static void alterTable(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
@@ -203,33 +213,71 @@ public class TabletRepairAndBalanceTest {
             if (i > 2) {
                 tag = "zone2";
             }
-            String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-                    + "\" set ('tag.location' = '" + tag + "')";
-            AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-            DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
+            // "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
+            //      + "\" set ('tag.location' = '" + tag + "')";
+            String hostPort = be.getHost() + ":" + be.getHeartbeatPort();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("tag.location", tag);
+            ModifyBackendOp op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+            AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+            command.doRun(connectContext, new StmtExecutor(connectContext, ""));
         }
+
+        // Test set tag without location type, expect throw exception
+        Backend be1 = backends.get(0);
+        String hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
+        Map<String, String> properties = new HashMap<>();
+        properties.put("tag.compution", "abc");
+        ModifyBackendOp op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+        AlterSystemCommand command0 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.NEED_LOCATION_TAG_MSG,
+                () -> command0.validate(connectContext));
+
+        // Test set multi tag for a Backend when Config.enable_multi_tags is false
+        Config.enable_multi_tags = false;
+        hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
+        properties = new HashMap<>();
+        properties.put("tag.location", "zone3");
+        properties.put("tag.compution", "abc");
+        op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+        final AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.MUTLI_TAG_DISABLED_MSG,
+                () -> command.validate(connectContext));
+
+        // Test set multi tag for a Backend when Config.enable_multi_tags is true
+        Config.enable_multi_tags = true;
+        hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
+        properties = new HashMap<>();
+        properties.put("tag.location", "zone1");
+        properties.put("tag.compute", "c1");
+        op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+        AlterSystemCommand command1 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        command1.doRun(connectContext, new StmtExecutor(connectContext, ""));
+
+        Map<String, String> tagMap = be1.getTagMap();
+        Assert.assertEquals(2, tagMap.size());
+        Assert.assertEquals("zone1", tagMap.get(Tag.TYPE_LOCATION));
+        Assert.assertEquals("c1", tagMap.get("compute"));
+        Assert.assertEquals(Tag.createNotCheck(Tag.TYPE_LOCATION, "zone1"), be1.getLocationTag());
+
         Tag zone1 = Tag.create(Tag.TYPE_LOCATION, "zone1");
         Tag zone2 = Tag.create(Tag.TYPE_LOCATION, "zone2");
-        Assert.assertEquals(zone1, backends.get(0).getTag());
-        Assert.assertEquals(zone1, backends.get(1).getTag());
-        Assert.assertEquals(zone1, backends.get(2).getTag());
-        Assert.assertEquals(zone2, backends.get(3).getTag());
-        Assert.assertEquals(zone2, backends.get(4).getTag());
+        Assert.assertEquals(zone1, backends.get(0).getLocationTag());
+        Assert.assertEquals(zone1, backends.get(1).getLocationTag());
+        Assert.assertEquals(zone1, backends.get(2).getLocationTag());
+        Assert.assertEquals(zone2, backends.get(3).getLocationTag());
+        Assert.assertEquals(zone2, backends.get(4).getLocationTag());
 
         // create table
         // 1. no default tag, create will fail
-        String createStr = "create table test.tbl1\n"
-                + "(k1 date, k2 int)\n"
-                + "partition by range(k1)\n"
-                + "(\n"
+        String createStr = "create table test.tbl1\n" + "(k1 date, k2 int)\n" + "partition by range(k1)\n" + "(\n"
                 + " partition p1 values less than(\"2021-06-01\"),\n"
                 + " partition p2 values less than(\"2021-07-01\"),\n"
-                + " partition p3 values less than(\"2021-08-01\")\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 10;";
+                + " partition p3 values less than(\"2021-08-01\")\n" + ")\n" + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr));
 
         // nodes of zone2 not enough, create will fail
+        // it will fail because of we check tag location during the analysis process, so we check AnalysisException
         String createStr2 = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
                 + "partition by range(k1)\n"
@@ -243,7 +291,8 @@ public class TabletRepairAndBalanceTest {
                 + "(\n"
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\"\n"
                 + ")";
-        ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr2));
+        ExceptionChecker.expectThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> createTable(createStr2));
 
         // normal, create success
         String createStr3 = "create table test.tbl1\n"
@@ -260,13 +309,13 @@ public class TabletRepairAndBalanceTest {
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr3));
-        Database db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         // alter table's replica allocation failed, tag not enough
         String alterStr = "alter table test.tbl1"
                 + " set (\"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\");";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr));
         ReplicaAllocation tblReplicaAlloc = tbl.getDefaultReplicaAllocation();
         Assert.assertEquals(3, tblReplicaAlloc.getTotalReplicaNum());
         Assert.assertEquals(Short.valueOf((short) 2), tblReplicaAlloc.getReplicaNumByTag(tag1));
@@ -276,20 +325,20 @@ public class TabletRepairAndBalanceTest {
         String alterStr2 = "alter table test.tbl1 modify partition p1"
                 + " set (\"replication_allocation\" = \"tag.location.zone1: 1, tag.location.zone2: 2\");";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr2));
+        Thread.sleep(5000);
         Partition p1 = tbl.getPartition("p1");
         ReplicaAllocation p1ReplicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(p1.getId());
         Assert.assertEquals(3, p1ReplicaAlloc.getTotalReplicaNum());
         Assert.assertEquals(Short.valueOf((short) 1), p1ReplicaAlloc.getReplicaNumByTag(tag1));
         Assert.assertEquals(Short.valueOf((short) 2), p1ReplicaAlloc.getReplicaNumByTag(tag2));
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
 
         // check backend get() methods
-        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
-        Set<Tag> tags = infoService.getTagsByCluster(SystemInfoService.DEFAULT_CLUSTER);
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+        Set<Tag> tags = infoService.getTags();
         Assert.assertEquals(2, tags.size());
 
         // check tablet and replica number
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Table<Long, Long, Replica> replicaMetaTable = invertedIndex.getReplicaMetaTable();
         Assert.assertEquals(30, replicaMetaTable.rowKeySet().size());
         Assert.assertEquals(5, replicaMetaTable.columnKeySet().size());
@@ -310,12 +359,14 @@ public class TabletRepairAndBalanceTest {
         // set tag for all backends. 0-2 to zone1, 4 and 5 to zone2
         // and wait all replica reallocating to correct backend
         Backend be = backends.get(2);
-        String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-                + "\" set ('tag.location' = 'zone2')";
-        AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
-        Assert.assertEquals(tag2, be.getTag());
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        hostPort = be.getHost() + ":" + be.getHeartbeatPort();
+        Map<String, String> properties1 = new HashMap<>();
+        properties1.put("tag.location", "zone2");
+        op = new ModifyBackendOp(ImmutableList.of(hostPort), properties1);
+        AlterSystemCommand command2 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        command2.doRun(connectContext, new StmtExecutor(connectContext, ""));
+        Assert.assertEquals(tag2, be.getLocationTag());
+        Thread.sleep(5000);
         checkTableReplicaAllocation(tbl);
         Assert.assertEquals(90, replicaMetaTable.cellSet().size());
 
@@ -358,7 +409,7 @@ public class TabletRepairAndBalanceTest {
         OlapTable colTbl2 = (OlapTable) db.getTableNullable("col_tbl2");
         Assert.assertNotNull(colTbl1);
         Assert.assertNotNull(colTbl2);
-        ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         ColocateTableIndex.GroupId groupId = colocateTableIndex.getGroup(colTbl1.getId());
         Assert.assertEquals(groupId, colocateTableIndex.getGroup(colTbl2.getId()));
         ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
@@ -372,12 +423,15 @@ public class TabletRepairAndBalanceTest {
         // [0, 1, 4]: zone1
         // [2, 3]:    zone2
         be = backends.get(4);
-        stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-                + "\" set ('tag.location' = 'zone1')";
-        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
-        DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
-        Assert.assertEquals(tag1, be.getTag());
-        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+        hostPort = be.getHost() + ":" + be.getHeartbeatPort();
+        Map<String, String> properties2 = new HashMap<>();
+        properties2.put("tag.location", "zone1");
+        op = new ModifyBackendOp(ImmutableList.of(hostPort), properties2);
+        AlterSystemCommand command3 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        command3.doRun(connectContext, new StmtExecutor(connectContext, ""));
+        Assert.assertEquals(tag1, be.getLocationTag());
+        Thread.sleep(5000);
+        tbl.checkReplicaAllocation();
 
         checkTableReplicaAllocation(colTbl1);
         checkTableReplicaAllocation(colTbl2);
@@ -392,18 +446,19 @@ public class TabletRepairAndBalanceTest {
         //      p1: zone1:1, zone2:2
         //      p2,p2: zone1:2, zone2:1
 
-        // change tbl1's default replica allocation to zone1:4, which is allowed
-        String alterStr3 = "alter table test.tbl1 set ('default.replication_allocation' = 'tag.location.zone1:4')";
+        // change tbl1's default replica allocation to zone1:3, which is allowed
+        String alterStr3 = "alter table test.tbl1 set ('default.replication_allocation' = 'tag.location.zone1:3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr3));
 
         // change tbl1's p1's replica allocation to zone1:4, which is forbidden
         String alterStr4 = "alter table test.tbl1 modify partition p1"
                 + " set ('replication_allocation' = 'tag.location.zone1:4')";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr4));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr4));
 
-        // change col_tbl1's default replica allocation to zone2:4, which is allowed
-        String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:4')";
-        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr5));
+        // change col_tbl1's default replica allocation to zone2:2, which is forbidden
+        String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:2')";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Cannot change replication allocation of colocate table", () -> alterTable(alterStr5));
 
         // Drop all tables
         String dropStmt1 = "drop table test.tbl1 force";
@@ -412,33 +467,37 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt1));
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt2));
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt3));
-        Assert.assertEquals(0, replicaMetaTable.size());
+        Assert.assertNull(db.getTableNullable("tbl1"));
+        Assert.assertNull(db.getTableNullable("col_tbl1"));
+        Assert.assertNull(db.getTableNullable("col_tbl2"));
+        //  After unify force and non-force drop table, the indexes will be erase eventually.
+        while (colocateTableIndex.getAllGroupIds().size() > 0) {
+            Thread.sleep(1000);
+        }
 
         // set all backends' tag to default
         for (int i = 0; i < backends.size(); ++i) {
             Backend backend = backends.get(i);
-            String backendStmt = "alter system modify backend \"" + backend.getHost() + ":" + backend.getHeartbeatPort()
-                    + "\" set ('tag.location' = 'default')";
-            AlterSystemStmt systemStmt
-                    = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(backendStmt, connectContext);
-            DdlExecutor.execute(Catalog.getCurrentCatalog(), systemStmt);
+            // "alter system modify backend \"" + backend.getHost() + ":" + backend.getHeartbeatPort()
+            //        + "\" set ('tag.location' = 'default')";
+            hostPort = backend.getHost() + ":" + backend.getHeartbeatPort();
+            Map<String, String> properties3 = new HashMap<>();
+            properties3.put("tag.location", "default");
+            op = new ModifyBackendOp(ImmutableList.of(hostPort), properties3);
+            AlterSystemCommand command4 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+            command4.doRun(connectContext, new StmtExecutor(connectContext, ""));
         }
-        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(0).getTag());
-        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(1).getTag());
-        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(2).getTag());
-        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(3).getTag());
-        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(4).getTag());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(0).getLocationTag());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(1).getLocationTag());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(2).getLocationTag());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(3).getLocationTag());
+        Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(4).getLocationTag());
 
         // create table tbl2 with "replication_num" property
-        String createStmt = "create table test.tbl2\n"
-                + "(k1 date, k2 int)\n"
-                + "partition by range(k1)\n"
-                + "(\n"
+        String createStmt = "create table test.tbl2\n" + "(k1 date, k2 int)\n" + "partition by range(k1)\n" + "(\n"
                 + " partition p1 values less than(\"2021-06-01\"),\n"
                 + " partition p2 values less than(\"2021-07-01\"),\n"
-                + " partition p3 values less than(\"2021-08-01\")\n"
-                + ")\n"
-                + "distributed by hash(k2) buckets 10;";
+                + " partition p3 values less than(\"2021-08-01\")\n" + ")\n" + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStmt));
         OlapTable tbl2 = (OlapTable) db.getTableNullable("tbl2");
         ReplicaAllocation defaultAlloc = new ReplicaAllocation((short) 3);
@@ -477,7 +536,7 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr6));
 
         OlapTable tbl3 = db.getOlapTableOrDdlException("col_tbl3");
-        updateReplicaPathHash();
+        RebalancerTestUtil.updateReplicaPathHash();
         // Set one replica's state as DECOMMISSION, see if it can be changed to NORMAL
         Tablet oneTablet = null;
         Replica oneReplica = null;
@@ -498,6 +557,16 @@ public class TabletRepairAndBalanceTest {
         // set one replica to bad, see if it can be repaired
         oneReplica.setBad(true);
         Assert.assertTrue(checkReplicaBad(oneTablet, oneReplica));
+
+
+        //test cancel decommission backend by ids
+        hostPort = be.getHost() + ":" + be.getHeartbeatPort();
+        DecommissionBackendOp op1 = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command5 = new AlterSystemCommand(op1, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command5.doRun(connectContext, new StmtExecutor(connectContext, ""));
+
+        Assert.assertTrue(be.isDecommissioned());
+
     }
 
     private static boolean checkReplicaState(Replica replica) throws Exception {
@@ -565,11 +634,14 @@ public class TabletRepairAndBalanceTest {
             try {
                 tbl.checkReplicaAllocation();
                 break;
-            } catch (UserException e) {
+            } catch (UserException | NoSuchElementException e) {
+                // Why do we add no such element exception because hash map is not a thread safe struct.
+                // In this ut using a big loop to iterate the hash map,
+                // it will increase the probability of map to throw NoSuchElementException exception.
                 System.out.println(e.getMessage());
             }
-            Thread.sleep(1000);
             System.out.println("wait table " + tbl.getId() + " to be stable");
+            Thread.sleep(1000);
         }
         ExceptionChecker.expectThrowsNoException(() -> tbl.checkReplicaAllocation());
         System.out.println("table " + tbl.getId() + " is stable");

@@ -48,7 +48,7 @@ public class ReorderColumnsClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (columnsByPos == null || columnsByPos.isEmpty()) {
             throw new AnalysisException("No column in reorder columns clause.");
         }
@@ -65,6 +65,16 @@ public class ReorderColumnsClause extends AlterTableClause {
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

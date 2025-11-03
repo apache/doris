@@ -19,20 +19,13 @@
 // and modified by Doris
 
 #include "vec/core/materialize_block.h"
+
+#include <stddef.h>
+
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+
 namespace doris::vectorized {
-
-Block materialize_block(const Block& block) {
-    if (!block) return block;
-
-    Block res = block;
-    size_t columns = res.columns();
-    for (size_t i = 0; i < columns; ++i) {
-        auto& element = res.get_by_position(i);
-        element.column = element.column->convert_to_full_column_if_const();
-    }
-
-    return res;
-}
 
 void materialize_block_inplace(Block& block) {
     for (size_t i = 0; i < block.columns(); ++i) {

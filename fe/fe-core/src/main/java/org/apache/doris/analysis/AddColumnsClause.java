@@ -34,6 +34,7 @@ import java.util.Map;
  */
 public class AddColumnsClause extends AlterTableClause {
     private List<ColumnDef> columnDefs;
+    private String sql;
     private String rollupName;
 
     private Map<String, String> properties;
@@ -47,6 +48,15 @@ public class AddColumnsClause extends AlterTableClause {
         this.properties = properties;
     }
 
+    // for nereids
+    public AddColumnsClause(String sql, List<Column> columns, String rollupName, Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.sql = sql;
+        this.columns = columns;
+        this.rollupName = rollupName;
+        this.properties = properties;
+    }
+
     public List<Column> getColumns() {
         return columns;
     }
@@ -56,7 +66,7 @@ public class AddColumnsClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (columnDefs == null || columnDefs.isEmpty()) {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }
@@ -79,22 +89,36 @@ public class AddColumnsClause extends AlterTableClause {
     }
 
     @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ADD COLUMN (");
-        int idx = 0;
-        for (ColumnDef columnDef : columnDefs) {
-            if (idx != 0) {
-                sb.append(", ");
+        if (sql != null) {
+            return sql;
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("ADD COLUMN (");
+            int idx = 0;
+            for (ColumnDef columnDef : columnDefs) {
+                if (idx != 0) {
+                    sb.append(", ");
+                }
+                sb.append(columnDef.toSql());
+                idx++;
             }
-            sb.append(columnDef.toSql());
-            idx++;
+            sb.append(")");
+            if (rollupName != null) {
+                sb.append(" IN `").append(rollupName).append("`");
+            }
+            return sb.toString();
         }
-        sb.append(")");
-        if (rollupName != null) {
-            sb.append(" IN `").append(rollupName).append("`");
-        }
-        return sb.toString();
     }
 
     @Override

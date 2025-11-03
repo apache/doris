@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -35,8 +36,12 @@ public class ReplacePartitionOperationLog implements Writable {
 
     @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "dbName")
+    private String dbName;
     @SerializedName(value = "tblId")
     private long tblId;
+    @SerializedName(value = "tblName")
+    private String tblName;
     @SerializedName(value = "partitions")
     private List<String> partitions;
     @SerializedName(value = "tempPartitions")
@@ -45,15 +50,31 @@ public class ReplacePartitionOperationLog implements Writable {
     private boolean strictRange;
     @SerializedName(value = "useTempPartitionName")
     private boolean useTempPartitionName;
+    @SerializedName(value = "version")
+    private long version = 0L;
+    @SerializedName(value = "versionTime")
+    private long versionTime = 0L;
+    @SerializedName(value = "force")
+    private boolean force = false;
+    @SerializedName(value = "partitionIds")
+    private List<Long> replacedPartitionIds;
 
-    public ReplacePartitionOperationLog(long dbId, long tblId, List<String> partitionNames,
-            List<String> tempPartitonNames, boolean strictRange, boolean useTempPartitionName) {
+    public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
+            List<String> partitionNames,
+            List<String> tempPartitonNames, List<Long> replacedPartitionIds, boolean strictRange,
+            boolean useTempPartitionName, long version, long versionTime, boolean force) {
         this.dbId = dbId;
+        this.dbName = dbName;
         this.tblId = tblId;
+        this.tblName = tblName;
         this.partitions = partitionNames;
         this.tempPartitions = tempPartitonNames;
+        this.replacedPartitionIds = replacedPartitionIds;
         this.strictRange = strictRange;
         this.useTempPartitionName = useTempPartitionName;
+        this.version = version;
+        this.versionTime = versionTime;
+        this.force = force;
     }
 
     public long getDbId() {
@@ -68,6 +89,10 @@ public class ReplacePartitionOperationLog implements Writable {
         return partitions;
     }
 
+    public List<Long> getReplacedPartitionIds() {
+        return replacedPartitionIds == null ? Lists.newArrayList() : replacedPartitionIds;
+    }
+
     public List<String> getTempPartitions() {
         return tempPartitions;
     }
@@ -80,6 +105,18 @@ public class ReplacePartitionOperationLog implements Writable {
         return useTempPartitionName;
     }
 
+    public long getVersion() {
+        return version;
+    }
+
+    public long getVersionTime() {
+        return versionTime;
+    }
+
+    public boolean isForce() {
+        return force;
+    }
+
     public static ReplacePartitionOperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ReplacePartitionOperationLog.class);
@@ -89,5 +126,18 @@ public class ReplacePartitionOperationLog implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
+
+    public static RecoverInfo fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, RecoverInfo.class);
     }
 }

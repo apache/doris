@@ -16,48 +16,82 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/Types_types.h>
+
+#include <cstddef>
+#include <string>
+#include <vector>
+
+#include "common/be_mock_util.h"
+#include "common/status.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/core/block.h"
+#include "vec/core/sort_description.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 class SlotDescriptor;
+class ObjectPool;
+class RowDescriptor;
+class TExpr;
+class TExprNode;
+class TSortInfo;
+
 namespace vectorized {
+class Arena;
+class Block;
+class BufferWritable;
+class IColumn;
+
 class AggFnEvaluator {
 public:
-    static Status create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result);
+    ENABLE_FACTORY_CREATOR(AggFnEvaluator);
+    MOCK_DEFINE(virtual) ~AggFnEvaluator() = default;
 
-    Status prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
+public:
+    static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
+                         const bool without_key, const bool is_window_function,
+                         AggFnEvaluator** result);
+
+    Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    const SlotDescriptor* intermediate_slot_desc,
-                   const SlotDescriptor* output_slot_desc,
-                   const std::shared_ptr<MemTracker>& mem_tracker);
+                   const SlotDescriptor* output_slot_desc);
 
-    void set_timer(RuntimeProfile::Counter* exec_timer, RuntimeProfile::Counter* merge_timer,
-                   RuntimeProfile::Counter* expr_timer) {
-        _exec_timer = exec_timer;
+    void set_timer(RuntimeProfile::Counter* merge_timer, RuntimeProfile::Counter* expr_timer) {
         _merge_timer = merge_timer;
         _expr_timer = expr_timer;
     }
 
     Status open(RuntimeState* state);
 
-    void close(RuntimeState* state);
-
     // create/destroy AGG Data
     void create(AggregateDataPtr place);
     void destroy(AggregateDataPtr place);
 
     // agg_function
-    void execute_single_add(Block* block, AggregateDataPtr place, Arena* arena = nullptr);
+    Status execute_single_add(Block* block, AggregateDataPtr place, Arena& arena);
 
-    void execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                           Arena* arena = nullptr);
+    Status execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places, Arena& arena,
+                             bool agg_many = false);
+
+    Status execute_batch_add_selected(Block* block, size_t offset, AggregateDataPtr* places,
+                                      Arena& arena);
+
+    Status streaming_agg_serialize(Block* block, BufferWritable& buf, const size_t num_rows,
+                                   Arena& arena);
+
+    Status streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
+                                             const size_t num_rows, Arena& arena);
 
     void insert_result_info(AggregateDataPtr place, IColumn* column);
+
+    void insert_result_info_vec(const std::vector<AggregateDataPtr>& place, size_t offset,
+                                IColumn* column, const size_t num_rows);
 
     void reset(AggregateDataPtr place);
 
@@ -67,29 +101,53 @@ public:
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
     bool is_merge() const { return _is_merge; }
-    const std::vector<VExprContext*>& input_exprs_ctxs() const { return _input_exprs_ctxs; }
+    const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
+
+    static Status check_agg_fn_output(uint32_t key_size,
+                                      const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
+                                      const RowDescriptor& output_row_desc);
+
+    void set_version(const int version) { _function->set_version(version); }
+
+    AggFnEvaluator* clone(RuntimeState* state, ObjectPool* pool);
+
+    bool is_blockable() const;
 
 private:
     const TFunction _fn;
 
     const bool _is_merge;
+    // We need this flag to distinguish between the two types of aggregation functions:
+    // 1. executed without group by key (agg function used with window function is also regarded as this type)
+    // 2. executed with group by key
+    const bool _without_key;
 
-    AggFnEvaluator(const TExprNode& desc);
+    const bool _is_window_function;
 
-    void _calc_argment_columns(Block* block);
+    AggFnEvaluator(const TExprNode& desc, const bool without_key, const bool is_window_function);
+    AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
-    DataTypes _argument_types;
-    const TypeDescriptor _return_type;
+#ifdef BE_TEST
+    AggFnEvaluator(bool is_merge, bool without_key, const bool is_window_function)
+            : _is_merge(is_merge),
+              _without_key(without_key),
+              _is_window_function(is_window_function) {};
+#endif
+    Status _calc_argument_columns(Block* block);
 
-    const SlotDescriptor* _intermediate_slot_desc;
-    const SlotDescriptor* _output_slot_desc;
+    DataTypes _argument_types_with_sort;
+    DataTypes _real_argument_types;
 
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _expr_timer;
+    const SlotDescriptor* _intermediate_slot_desc = nullptr;
+    const SlotDescriptor* _output_slot_desc = nullptr;
+
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 
     // input context
-    std::vector<VExprContext*> _input_exprs_ctxs;
+    VExprContextSPtrs _input_exprs_ctxs;
+
+    SortDescription _sort_description;
 
     DataTypePtr _data_type;
 
@@ -101,4 +159,5 @@ private:
 };
 } // namespace vectorized
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -17,37 +17,45 @@
 
 #pragma once
 
-#include <map>
+#include <butil/macros.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Exprs_types.h>
+
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "exec/base_scanner.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/MasterService_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "olap/file_helper.h"
-#include "olap/merger.h"
+#include "common/factory_creator.h"
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "exec/olap_common.h"
 #include "olap/olap_common.h"
-#include "olap/row_cursor.h"
-#include "olap/rowset/rowset.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
+#include "runtime/runtime_state.h"
+#include "vec/core/block.h"
+#include "vec/exec/format/generic_reader.h"
 
 namespace doris {
 
-class BinaryFile;
-class BinaryReader;
-struct ColumnMapping;
-class RowCursor;
+class DescriptorTbl;
+class RuntimeProfile;
+class Schema;
+class TBrokerScanRange;
+class TDescriptorTable;
+class TTabletInfo;
+class StorageEngine;
 
-struct TabletVars {
-    TabletSharedPtr tablet;
-    RowsetSharedPtr rowset_to_add;
-};
+namespace vectorized {
+class GenericReader;
+class VExprContext;
+} // namespace vectorized
 
 class PushHandler {
 public:
-    using SchemaMapping = std::vector<ColumnMapping>;
-
-    PushHandler() = default;
+    PushHandler(StorageEngine& engine) : _engine(engine) {}
     ~PushHandler() = default;
 
     // Load local data file into specified tablet.
@@ -59,24 +67,14 @@ public:
     int64_t write_rows() const { return _write_rows; }
 
 private:
-    Status _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                       RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
-    // Convert local data file to internal formatted delta,
-    // return new delta's SegmentGroup
-    Status _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
-
-    // Only for debug
-    std::string _debug_version_list(const Versions& versions) const;
-
-    void _get_tablet_infos(const std::vector<TabletVars>& tablet_infos,
-                           std::vector<TTabletInfo>* tablet_info_vec);
+    Status _convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
+                       TabletSchemaSPtr tablet_schema, PushType push_type);
 
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                   PushType push_type, vector<TabletVars>* tablet_vars,
-                                   std::vector<TTabletInfo>* tablet_info_vec);
+                                   PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
 
-private:
+    StorageEngine& _engine;
+
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 
@@ -85,137 +83,77 @@ private:
 
     int64_t _write_bytes = 0;
     int64_t _write_rows = 0;
-    DISALLOW_COPY_AND_ASSIGN(PushHandler);
-};
-
-// package FileHandlerWithBuf to read header of dpp output file
-class BinaryFile : public FileHandlerWithBuf {
-public:
-    BinaryFile() = default;
-    virtual ~BinaryFile() { close(); }
-
-    Status init(const char* path);
-
-    size_t header_size() const { return _header.size(); }
-    size_t file_length() const { return _header.file_length(); }
-    uint32_t checksum() const { return _header.checksum(); }
-    SchemaHash schema_hash() const { return _header.message().schema_hash(); }
-
-private:
-    FileHeader<OLAPRawDeltaHeaderMessage, int32_t, FileHandlerWithBuf> _header;
-
-    DISALLOW_COPY_AND_ASSIGN(BinaryFile);
-};
-
-class IBinaryReader {
-public:
-    static IBinaryReader* create(bool need_decompress);
-    virtual ~IBinaryReader() = default;
-
-    virtual Status init(TabletSharedPtr tablet, BinaryFile* file) = 0;
-    virtual Status finalize() = 0;
-
-    virtual Status next(RowCursor* row) = 0;
-
-    virtual bool eof() = 0;
-
-    // call this function after finalize()
-    bool validate_checksum() { return _adler_checksum == _file->checksum(); }
-
-protected:
-    IBinaryReader()
-            : _file(nullptr),
-              _content_len(0),
-              _curr(0),
-              _adler_checksum(ADLER32_INIT),
-              _ready(false) {}
-
-    BinaryFile* _file;
-    TabletSharedPtr _tablet;
-    size_t _content_len;
-    size_t _curr;
-    uint32_t _adler_checksum;
-    bool _ready;
-};
-
-// input file reader for Protobuffer format
-class BinaryReader : public IBinaryReader {
-public:
-    explicit BinaryReader();
-    ~BinaryReader() override { finalize(); }
-
-    Status init(TabletSharedPtr tablet, BinaryFile* file) override;
-    Status finalize() override;
-
-    Status next(RowCursor* row) override;
-
-    bool eof() override { return _curr >= _content_len; }
-
-private:
-    char* _row_buf;
-    size_t _row_buf_size;
-};
-
-class LzoBinaryReader : public IBinaryReader {
-public:
-    explicit LzoBinaryReader();
-    ~LzoBinaryReader() override { finalize(); }
-
-    Status init(TabletSharedPtr tablet, BinaryFile* file) override;
-    Status finalize() override;
-
-    Status next(RowCursor* row) override;
-
-    bool eof() override { return _curr >= _content_len && _row_num == 0; }
-
-private:
-    Status _next_block();
-
-    using RowNumType = uint32_t;
-    using CompressedSizeType = uint64_t;
-
-    char* _row_buf;
-    char* _row_compressed_buf;
-    char* _row_info_buf;
-    size_t _max_row_num;
-    size_t _max_row_buf_size;
-    size_t _max_compressed_buf_size;
-    size_t _row_num;
-    size_t _next_row_start;
+    PendingRowsetGuard _pending_rs_guard;
 };
 
 class PushBrokerReader {
-public:
-    PushBrokerReader() : _ready(false), _eof(false), _fill_tuple(false) {}
-    ~PushBrokerReader() = default;
+    ENABLE_FACTORY_CREATOR(PushBrokerReader);
 
-    Status init(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                const TDescriptorTable& t_desc_tbl);
-    Status next(ContiguousRow* row);
+public:
+    PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
+                     const TDescriptorTable& t_desc_tbl);
+    ~PushBrokerReader() = default;
+    Status init();
+    Status next(vectorized::Block* block);
     void print_profile();
 
-    Status close() {
-        _ready = false;
-        return Status::OK();
-    }
+    Status close();
     bool eof() const { return _eof; }
-    bool is_fill_tuple() const { return _fill_tuple; }
-    MemPool* mem_pool() { return _mem_pool.get(); }
+
+protected:
+    Status _get_next_reader();
+    Status _init_src_block();
+    Status _cast_to_input_block();
+    Status _convert_to_output_block(vectorized::Block* block);
+    Status _init_expr_ctxes();
 
 private:
-    Status fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                          FieldType type);
     bool _ready;
     bool _eof;
-    bool _fill_tuple;
-    TupleDescriptor* _tuple_desc;
-    Tuple* _tuple;
-    const Schema* _schema;
+    int _next_range;
+    vectorized::Block* _src_block_ptr = nullptr;
+    vectorized::Block _src_block;
+    const TDescriptorTable& _t_desc_tbl;
+    std::unordered_map<std::string, vectorized::DataTypePtr> _name_to_col_type;
+    std::unordered_set<std::string> _missing_cols;
+    std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
+    vectorized::VExprContextSPtrs _dest_expr_ctxs;
+    vectorized::VExprContextSPtr _pre_filter_ctx_ptr;
+    std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
+    std::unordered_map<int, int> _dest_slot_to_src_slot_index;
+
+    std::vector<SlotDescriptor*> _src_slot_descs;
+    std::unique_ptr<RowDescriptor> _row_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
+
     std::unique_ptr<RuntimeState> _runtime_state;
-    RuntimeProfile* _runtime_profile;
-    std::unique_ptr<MemPool> _mem_pool;
-    std::unique_ptr<ScannerCounter> _counter;
-    std::unique_ptr<BaseScanner> _scanner;
+    RuntimeProfile* _runtime_profile = nullptr;
+    std::unique_ptr<vectorized::GenericReader> _cur_reader;
+    bool _cur_reader_eof;
+    const TBrokerScanRangeParams& _params;
+    const std::vector<TBrokerRangeDesc>& _ranges;
+    TFileScanRangeParams _file_params;
+    std::vector<TFileRangeDesc> _file_ranges;
+
+    std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::FileReaderStats> _file_reader_stats;
+    std::unique_ptr<io::IOContext> _io_ctx;
+
+    // col names from _slot_descs
+    std::vector<std::string> _all_col_names;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    vectorized::VExprContextSPtrs _push_down_exprs;
+    const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    // single slot filter conjuncts
+    std::unordered_map<int, vectorized::VExprContextSPtrs> _slot_id_to_filter_conjuncts;
+    // not single(zero or multi) slot filter conjuncts
+    vectorized::VExprContextSPtrs _not_single_slot_filter_conjuncts;
+    // File source slot descriptors
+    std::vector<SlotDescriptor*> _file_slot_descs;
+    // row desc for default exprs
+    std::unique_ptr<RowDescriptor> _default_val_row_desc;
+    const TupleDescriptor* _real_tuple_desc = nullptr;
+
     // Not used, just for placeholding
     std::vector<TExpr> _pre_filter_texprs;
 };

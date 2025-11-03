@@ -18,7 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.TableRef;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -40,7 +40,7 @@ public class JoinCostEvaluationTest {
     private PlanNode node;
 
     @Mocked
-    private TableRef ref;
+    private TableRefInfo ref;
 
     @Mocked
     private PlanFragmentId fragmentId;
@@ -58,7 +58,7 @@ public class JoinCostEvaluationTest {
     public void setUp() {
         new Expectations() {
             {
-                node.getTupleIds();
+                node.getOutputTupleIds();
                 result = Lists.newArrayList();
                 node.getTblRefIds();
                 result = Lists.newArrayList();
@@ -114,7 +114,7 @@ public class JoinCostEvaluationTest {
         double nodeArrayLen = 6144;
         new Expectations() {
             {
-                node.getTupleIds();
+                node.getOutputTupleIds();
                 result = new ArrayList<>(Collections.nCopies(rhsNodeTupleIdNum, 0));
             }
         };

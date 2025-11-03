@@ -17,14 +17,16 @@
 
 #include "geo/wkt_parse.h"
 
-#include "geo/geo_types.h"
 #include "geo/wkt_parse_ctx.h"
+#include "geo/wkt_parse_type.h" // IWYU pragma: keep
 #include "geo/wkt_yacc.y.hpp"
+
 #define YYSTYPE WKT_STYPE
 #define YY_EXTRA_TYPE WktParseContext*
 #include "geo/wkt_lex.l.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape) {
     WktParseContext ctx;
@@ -45,4 +47,5 @@ GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape
     return ctx.parse_status;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

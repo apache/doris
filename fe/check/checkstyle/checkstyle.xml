@@ -44,6 +44,10 @@ under the License.
     <module name="FileTabCharacter">
         <property name="eachLine" value="true"/>
     </module>
+    <module name="Header">
+        <property name="headerFile" value="check/checkstyle/checkstyle-apache-header.txt"/>
+        <property name="fileExtensions" value="java"/>
+    </module>
     <module name="LineLength">
         <property name="fileExtensions" value="java"/>
         <property name="max" value="120"/>
@@ -53,10 +57,6 @@ under the License.
         <property name="lineSeparator" value="lf"/>
     </module>
 
-    <module name="RegexpSingleline">
-        <property name="format" value="&gt;&gt;&gt;&gt;&gt;&gt;&gt;"/>
-        <property name="message" value="Merge conflicts unresolved."/>
-    </module>
     <module name="RegexpSingleline">
         <property name="format" value="&lt;&lt;&lt;&lt;&lt;&lt;&lt;"/>
         <property name="message" value="Merge conflicts unresolved."/>
@@ -160,9 +160,18 @@ under the License.
             <property name="customImportOrderRules" value="SAME_PACKAGE(3)###THIRD_PARTY_PACKAGE###STANDARD_JAVA_PACKAGE"/>
             <property name="tokens" value="IMPORT, STATIC_IMPORT, PACKAGE_DEF"/>
         </module>
+        <module name="ImportControl">
+            <property name="file" value="check/checkstyle/import-control.xml"/>
+        </module>
         <module name="RedundantImport"/>
         <module name="UnusedImports"/>
         <module name="EmptyStatement"/>
+        <!-- Disallow the use of commons-lang -->
+        <module name="Regexp">
+            <property name="format" value="org\.apache\.commons\.lang\."/>
+            <property name="illegalPattern" value="true"/>
+            <property name="message" value="Use commons-lang3 instead of commons-lang."/>
+        </module>
 
         <!-- Javadoc Comments -->
         <module name="AtclauseOrder">
@@ -311,10 +320,21 @@ under the License.
         <!-- Size Violations -->
         <!-- Whitespace -->
         <module name="EmptyLineSeparator">
+            <property name="id" value="exceptForNereids"/>
             <property name="tokens"
                       value="PACKAGE_DEF, IMPORT, STATIC_IMPORT, CLASS_DEF, INTERFACE_DEF, ENUM_DEF,
                     STATIC_INIT, INSTANCE_INIT, METHOD_DEF, CTOR_DEF, VARIABLE_DEF, RECORD_DEF,
                     COMPACT_CTOR_DEF"/>
+            <property name="allowNoEmptyLineBetweenFields" value="true"/>
+        </module>
+        <module name="EmptyLineSeparator">
+            <property name="id" value="forNereids"/>
+            <property name="tokens"
+                      value="PACKAGE_DEF, IMPORT, STATIC_IMPORT, CLASS_DEF, INTERFACE_DEF, ENUM_DEF,
+                    STATIC_INIT, INSTANCE_INIT, METHOD_DEF, CTOR_DEF, VARIABLE_DEF, RECORD_DEF,
+                    COMPACT_CTOR_DEF"/>
+            <property name="allowMultipleEmptyLines" value="false"/>
+            <property name="allowMultipleEmptyLinesInsideClassMembers" value="false"/>
             <property name="allowNoEmptyLineBetweenFields" value="true"/>
         </module>
         <module name="GenericWhitespace">
@@ -384,6 +404,7 @@ under the License.
             <property name="tokens" value="METHOD_REF"/>
             <property name="option" value="nl"/>
         </module>
+        <module name="SingleSpaceSeparator"/>
         <module name="WhitespaceAfter">
             <property name="tokens"
                       value="COMMA, SEMI, TYPECAST, LITERAL_IF, LITERAL_ELSE,
@@ -408,6 +429,10 @@ under the License.
                      value="WhitespaceAround: ''{0}'' is not followed by whitespace. Empty blocks may only be represented as '{}' when not part of a multi-block statement (4.1.3)"/>
             <message key="ws.notPreceded"
                      value="WhitespaceAround: ''{0}'' is not preceded with whitespace."/>
+        </module>
+
+        <module name="PackageDeclaration">
+            <property name="matchDirectoryStructure" value="true"/>
         </module>
 
         <!-- filter -->

@@ -28,14 +28,36 @@ import org.apache.doris.common.DdlException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // to describe the key list partition's information in create table stmt
 public class ListPartitionDesc extends PartitionDesc {
 
     public ListPartitionDesc(List<String> partitionColNames,
-                             List<SinglePartitionDesc> singlePartitionDescs) {
-        super(partitionColNames, singlePartitionDescs);
+                             List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        super(partitionColNames, allPartitionDescs);
         type = PartitionType.LIST;
+        this.isAutoCreatePartitions = false;
+        this.partitionExprs = new ArrayList<>(partitionColNames.stream()
+            .map(col -> new SlotRef(null, col))
+            .collect(Collectors.toList()));
+    }
+
+    public ListPartitionDesc(ArrayList<Expr> exprs, List<String> partitionColNames,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        if (exprs != null) {
+            this.partitionExprs = exprs;
+        }
+        this.partitionColNames = partitionColNames;
+        this.singlePartitionDescs = handleAllPartitionDesc(allPartitionDescs);
+        this.type = PartitionType.LIST;
+        this.isAutoCreatePartitions = true;
+    }
+
+    public static ListPartitionDesc createListPartitionDesc(ArrayList<Expr> exprs,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        List<String> colNames = getColNamesFromExpr(exprs, true, true);
+        return new ListPartitionDesc(exprs, colNames, allPartitionDescs);
     }
 
     @Override
@@ -50,12 +72,12 @@ public class ListPartitionDesc extends PartitionDesc {
         StringBuilder sb = new StringBuilder();
         sb.append("PARTITION BY LIST(");
         int idx = 0;
-        for (String column : partitionColNames) {
-            if (idx != 0) {
+        for (Expr e : partitionExprs) {
+            if (idx > 0) {
                 sb.append(", ");
             }
-            sb.append("`").append(column).append("`");
             idx++;
+            sb.append(e.toSql());
         }
         sb.append(")\n(\n");
 
@@ -100,7 +122,8 @@ public class ListPartitionDesc extends PartitionDesc {
             }
         }
 
-        ListPartitionInfo listPartitionInfo = new ListPartitionInfo(partitionColumns);
+        ListPartitionInfo listPartitionInfo = new ListPartitionInfo(this.isAutoCreatePartitions, this.partitionExprs,
+                partitionColumns);
         for (SinglePartitionDesc desc : singlePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
             listPartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);

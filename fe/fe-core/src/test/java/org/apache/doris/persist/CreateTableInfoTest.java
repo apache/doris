@@ -18,9 +18,9 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -34,6 +34,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Before;
@@ -41,51 +42,44 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 public class CreateTableInfoTest {
-    private Catalog catalog;
+    private Env env;
 
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Before
     public void setUp() {
-        fakeCatalog = new FakeCatalog();
-        catalog = Deencapsulation.newInstance(Catalog.class);
+        fakeEnv = new FakeEnv();
+        env = Deencapsulation.newInstance(Env.class);
 
-        FakeCatalog.setCatalog(catalog);
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv.setEnv(env);
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
-        File file = new File("./createTableInfo");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        final Path path = Files.createTempFile("createTableInfo", "tmp");
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
-        List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
-        columns.add(column2);
-        columns.add(new Column("column3",
-                        ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4",
-                        ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5",
-                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6",
-                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7",
-                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
-        columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
-        columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
-        columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
+        ImmutableList<Column> columns = ImmutableList.<Column>builder()
+                .add(column2)
+                .add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""))
+                .add(new Column("column4", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column6", ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column7", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""))
+                .add(new Column("column8", ScalarType.createChar(10), true, null, "", ""))
+                .add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""))
+                .add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""))
+                .add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""))
+                .build();
 
         MaterializedIndex index = new MaterializedIndex(1, IndexState.NORMAL);
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
@@ -97,26 +91,26 @@ public class CreateTableInfoTest {
 
         List<Column> column = Lists.newArrayList();
         column.add(column2);
-        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount,
+        table.setIndexMeta(1L, "test", column, 1, 1, shortKeyColumnCount,
                 TStorageType.COLUMN, KeysType.AGG_KEYS);
         Deencapsulation.setField(table, "baseIndexId", 1000);
         table.addPartition(partition);
-        CreateTableInfo info = new CreateTableInfo("db1", table);
+        CreateTableInfo info = new CreateTableInfo("db1", -1L, table);
         info.write(dos);
 
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         CreateTableInfo rInfo1 = CreateTableInfo.read(dis);
-        Assert.assertTrue(rInfo1.getTable().equals(table));
-        Assert.assertTrue(rInfo1.equals(info));
+        Assert.assertEquals(rInfo1.getTable(), table);
+        Assert.assertEquals(rInfo1, info);
         Assert.assertEquals(rInfo1.getDbName(), "db1");
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.delete(path);
     }
 }

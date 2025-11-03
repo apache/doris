@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include "runtime/string_search.hpp"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
+class StringSearch;
 
 // TODO: For now, our parse_url may not behave exactly like Hive
 // when given malformed URLs.
@@ -47,37 +47,42 @@ public:
     // Tries to parse the part from url. Places the result in result.
     // Returns false if the URL is malformed or if part is invalid. True otherwise.
     // If false is returned the contents of results are undefined.
-    static bool parse_url(const StringValue& url, UrlPart part, StringValue* result);
+    static bool parse_url(const StringRef& url, UrlPart part, StringRef* result);
 
     // Tries to parse key from url. Places the result in result.
     // Returns false if the URL is malformed or if part is invalid. True otherwise.
     // If false is returned the contents of results are undefined.
-    static bool parse_url_key(const StringValue& url, UrlPart part, const StringValue& key,
-                              StringValue* result);
+    static bool parse_url_key(const StringRef& url, UrlPart part, const StringRef& key,
+                              StringRef* result);
 
     // Compares part against url_authority, url_file, url_host, etc.,
     // and returns the corresponding enum.
     // If part did not match any of the url part constants, returns INVALID.
-    static UrlPart get_url_part(const StringValue& part);
+    static UrlPart get_url_part(const StringRef& part);
+
+    // Extract parameter value from url
+    // Example for url:
+    // http://doris.apache.org?k1=aa&k2=bb&k3=cc&test=dd#999
+    static StringRef extract_url(StringRef url, StringRef name);
 
 private:
     // Constants representing parts of a URL.
-    static const StringValue _s_url_authority;
-    static const StringValue _s_url_file;
-    static const StringValue _s_url_host;
-    static const StringValue _s_url_path;
-    static const StringValue _s_url_protocol;
-    static const StringValue _s_url_query;
-    static const StringValue _s_url_ref;
-    static const StringValue _s_url_userinfo;
-    static const StringValue _s_url_port;
+    static const StringRef _s_url_authority;
+    static const StringRef _s_url_file;
+    static const StringRef _s_url_host;
+    static const StringRef _s_url_path;
+    static const StringRef _s_url_protocol;
+    static const StringRef _s_url_query;
+    static const StringRef _s_url_ref;
+    static const StringRef _s_url_userinfo;
+    static const StringRef _s_url_port;
     // Constants used in searching for URL parts.
-    static const StringValue _s_protocol;
-    static const StringValue _s_at;
-    static const StringValue _s_slash;
-    static const StringValue _s_colon;
-    static const StringValue _s_question;
-    static const StringValue _s_hash;
+    static const StringRef _s_protocol;
+    static const StringRef _s_at;
+    static const StringRef _s_slash;
+    static const StringRef _s_colon;
+    static const StringRef _s_question;
+    static const StringRef _s_hash;
     static const StringSearch _s_protocol_search;
     static const StringSearch _s_at_search;
     static const StringSearch _s_slash_search;

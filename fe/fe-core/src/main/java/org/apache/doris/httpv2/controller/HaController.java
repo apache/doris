@@ -17,13 +17,15 @@
 
 package org.apache.doris.httpv2.controller;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.system.Frontend;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,6 +41,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/rest/v1")
 public class HaController {
+    private static final Logger LOG = LogManager.getLogger(HaController.class);
 
     @RequestMapping(path = "/ha", method = RequestMethod.GET)
     public Object ha() {
@@ -59,7 +62,7 @@ public class HaController {
         List<Map<String, Object>> list = new ArrayList<>();
 
         info.put("Name", "FrontendRole");
-        info.put("Value", Catalog.getCurrentCatalog().getFeType());
+        info.put("Value", Env.getCurrentEnv().getFeType());
         list.add(info);
         result.put("FrontendRole", list);
     }
@@ -68,19 +71,19 @@ public class HaController {
         Map<String, Object> info = new HashMap<>();
         List<Map<String, Object>> list = new ArrayList<>();
 
-        if (Catalog.getCurrentCatalog().isMaster()) {
+        if (Env.getCurrentEnv().isMaster()) {
             info.put("Name", "FrontendRole");
-            info.put("Value", Catalog.getCurrentCatalog().getEditLog().getMaxJournalId());
+            info.put("Value", Env.getCurrentEnv().getEditLog().getMaxJournalId());
         } else {
             info.put("Name", "FrontendRole");
-            info.put("Value", Catalog.getCurrentCatalog().getReplayedJournalId());
+            info.put("Value", Env.getCurrentEnv().getReplayedJournalId());
         }
         list.add(info);
         result.put("CurrentJournalId", list);
     }
 
     private void appendNodesInfo(Map<String, Object> result) {
-        HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();
+        HAProtocol haProtocol = Env.getCurrentEnv().getHaProtocol();
         if (haProtocol == null) {
             return;
         }
@@ -123,7 +126,7 @@ public class HaController {
         List<Map<String, Object>> list = new ArrayList<>();
 
         canRead.put("Name", "Status");
-        canRead.put("Value", Catalog.getCurrentCatalog().canRead());
+        canRead.put("Value", Env.getCurrentEnv().canRead());
         list.add(canRead);
         result.put("CanRead", list);
     }
@@ -145,14 +148,14 @@ public class HaController {
             result.put("CheckpointInfo", list);
 
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
     private void appendDbNames(Map<String, Object> result) {
         Map<String, Object> dbs = new HashMap<>();
 
-        List<Long> names = Catalog.getCurrentCatalog().getEditLog().getDatabaseNames();
+        List<Long> names = Env.getCurrentEnv().getEditLog().getDatabaseNames();
         if (names == null) {
             return;
         }
@@ -170,7 +173,7 @@ public class HaController {
     }
 
     private void appendFe(Map<String, Object> result) {
-        List<Frontend> fes = Catalog.getCurrentCatalog().getFrontends(null /* all */);
+        List<Frontend> fes = Env.getCurrentEnv().getFrontends(null /* all */);
         if (fes == null) {
             return;
         }
@@ -185,7 +188,7 @@ public class HaController {
     }
 
     private void appendRemovedFe(Map<String, Object> result) {
-        List<String> feNames = Catalog.getCurrentCatalog().getRemovedFrontendNames();
+        List<String> feNames = Env.getCurrentEnv().getRemovedFrontendNames();
         List<Map<String, Object>> list = new ArrayList<>();
         for (String feName : feNames) {
             Map<String, Object> removed = new HashMap<>();

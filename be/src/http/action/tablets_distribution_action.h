@@ -17,22 +17,35 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "util/easy_json.h"
 
 namespace doris {
+class HttpRequest;
+
+class ExecEnv;
+class StorageEngine;
 
 // Get BE tablets distribution info from http API.
-class TabletsDistributionAction : public HttpHandler {
+class TabletsDistributionAction : public HttpHandlerWithAuth {
 public:
-    TabletsDistributionAction();
+    TabletsDistributionAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                              TPrivilegeType::type type);
+
+    ~TabletsDistributionAction() override = default;
+
     void handle(HttpRequest* req) override;
+
     EasyJson get_tablets_distribution_group_by_partition(uint64_t partition_id);
+
     std::string host() { return _host; }
 
 private:
+    StorageEngine& _engine;
     std::string _host;
 };
 } // namespace doris

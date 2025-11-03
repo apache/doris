@@ -18,13 +18,25 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
 
-#include "olap/reader.h"
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/tablet_reader.h"
+#include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris {
+class ColumnPredicate;
+class FunctionFilter;
+class RuntimeProfile;
 
 namespace vectorized {
 
@@ -35,38 +47,34 @@ public:
     // Initialize BlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) override {
-        return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
-    }
+    Status next_block_with_aggregation(Block* block, bool* eof) override;
 
-    Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) override {
-        return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
+
+    void update_profile(RuntimeProfile* profile) override {
+        return _vcollect_iter.update_profile(profile);
     }
 
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
-    Status _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _direct_next_block(Block* block, bool* eof);
     // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
     // And this is an optimization for AGGR tables.
     // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    Status _direct_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                      bool* eof);
+    Status _direct_agg_key_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
-    Status _agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
-    Status _unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _unique_key_next_block(Block* block, bool* eof);
 
-    Status _init_collect_iter(const ReaderParams& read_params,
-                              std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _init_collect_iter(const ReaderParams& read_params);
 
-    void _init_agg_state(const ReaderParams& read_params);
+    Status _init_agg_state(const ReaderParams& read_params);
 
-    void _insert_data_normal(MutableColumns& columns);
+    Status _insert_data_normal(MutableColumns& columns);
 
     void _append_agg_data(MutableColumns& columns);
 
@@ -75,6 +83,11 @@ private:
     size_t _copy_agg_data();
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
+
+    bool _get_next_row_same();
+
+    // return false if keys of rowsets are mono ascending and disjoint
+    bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
 
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
@@ -93,14 +106,21 @@ private:
     std::vector<IteratorRowRef> _stored_row_ref;
 
     std::vector<bool> _stored_has_null_tag;
-    std::vector<bool> _stored_has_string_tag;
+    std::vector<bool> _stored_has_variable_length_tag;
 
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int16_t, int16_t>>> _temp_ref_map;
+    phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     bool _eof = false;
 
-    Status (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                            bool* eof) = nullptr;
+    Status (BlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
+
+    std::vector<RowLocation> _block_row_locations;
+
+    ColumnPtr _delete_filter_column;
+
+    bool _is_rowsets_overlapping = true;
+
+    Arena _arena;
 };
 
 } // namespace vectorized

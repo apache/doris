@@ -17,17 +17,22 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "olap/field.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "olap/olap_tuple.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/schema.h"
-#include "olap/tuple.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class Field;
 
 // Delegate the operation of a row of data
@@ -41,54 +46,27 @@ public:
     ~RowCursor();
 
     // Create a RowCursor based on the schema
-    Status init(const TabletSchema& schema);
-    Status init(const std::vector<TabletColumn>& schema);
+    Status init(TabletSchemaSPtr schema);
+    Status init(const std::vector<TabletColumnPtr>& schema);
 
     // Create a RowCursor based on the first n columns of the schema
-    Status init(const std::vector<TabletColumn>& schema, size_t column_count);
-    Status init(const TabletSchema& schema, size_t column_count);
+    Status init(const std::vector<TabletColumnPtr>& schema, uint32_t column_count);
+    Status init(TabletSchemaSPtr schema, uint32_t column_count);
 
     // Create a RowCursor based on the schema and column id list
     // which is used for the calculation process only uses some discontinuous prefix columns
-    Status init(const TabletSchema& schema, const std::vector<uint32_t>& columns);
+    Status init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns);
 
     // Initialize with the size of the key, currently only used when splitting the range of key
-    Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
+    Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys);
 
-    Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys,
+    Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys,
                          const std::shared_ptr<Schema>& shared_schema);
-
-    //allocate memory for string type, which include char, varchar, hyperloglog
-    Status allocate_memory_for_string_type(const TabletSchema& schema);
 
     RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
     // RowCursor received a continuous buf
     void attach(char* buf) { _fixed_buf = buf; }
-
-    // Output the index of a column to buf
-    void write_index_by_index(size_t index, char* index_ptr) const {
-        auto dst_cell = RowCursorCell(index_ptr);
-        column_schema(index)->to_index(&dst_cell, cell(index));
-    }
-
-    // deep copy field content (ignore null-byte)
-    void set_field_content(size_t index, const char* buf, MemPool* mem_pool) {
-        char* dest = cell_ptr(index);
-        column_schema(index)->deep_copy_content(dest, buf, mem_pool);
-    }
-
-    // shallow copy field content (ignore null-byte)
-    void set_field_content_shallow(size_t index, const char* buf) {
-        char* dst_cell = cell_ptr(index);
-        column_schema(index)->shallow_copy_content(dst_cell, buf);
-    }
-    // convert and deep copy field content
-    Status convert_from(size_t index, const char* src, const TypeInfo* src_type,
-                        MemPool* mem_pool) {
-        char* dest = cell_ptr(index);
-        return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
-    }
 
     // Deserialize the value of each field from the string array,
     // Each array item must be a \0 terminated string
@@ -101,8 +79,6 @@ public:
     // Output row cursor content in string format, only for using of log and debug
     std::string to_string() const;
     OlapTuple to_tuple() const;
-
-    const size_t get_index_size(size_t index) const { return column_schema(index)->index_size(); }
 
     bool is_delete() const {
         auto sign_idx = _schema->delete_sign_idx();
@@ -127,11 +103,15 @@ public:
     char* nullable_cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid); }
     char* cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid) + 1; }
 
-    bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
+    bool is_null(uint32_t index) const {
+        return *reinterpret_cast<bool*>(nullable_cell_ptr(index));
+    }
 
-    void set_null(size_t index) const { *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true; }
+    void set_null(uint32_t index) const {
+        *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
+    }
 
-    void set_not_null(size_t index) const {
+    void set_not_null(uint32_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
     }
 
@@ -148,10 +128,10 @@ private:
     Status _init(const std::shared_ptr<Schema>& shared_schema,
                  const std::vector<uint32_t>& columns);
     // common init function
-    Status _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
+    Status _init(const std::vector<TabletColumnPtr>& schema, const std::vector<uint32_t>& columns);
     Status _alloc_buf();
 
-    Status _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
+    Status _init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys);
 
     std::unique_ptr<Schema> _schema;
 
@@ -162,8 +142,9 @@ private:
     char* _variable_buf = nullptr;
     size_t _variable_len;
     size_t _string_field_count;
-    char** _long_text_buf;
+    char** _long_text_buf = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
+#include "common/compile_check_end.h"
 } // namespace doris

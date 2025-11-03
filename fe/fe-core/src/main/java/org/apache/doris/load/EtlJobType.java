@@ -18,11 +18,17 @@
 package org.apache.doris.load;
 
 public enum EtlJobType {
-    HADOOP,
-    MINI,
     INSERT,
     BROKER,
     DELETE,
+    @Deprecated
     SPARK,
+    COPY,
+    LOCAL_FILE,
+    // create by job scheduler,inner use
+    @Deprecated
+    INSERT_JOB,
+    @Deprecated
+    INGESTION,
     UNKNOWN
 }

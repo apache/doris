@@ -75,6 +75,9 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
 
         checkWithCookie(request, response, false);
 
@@ -127,6 +130,11 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) {
+
+        // This is a strict restriction
+        if (!Strings.isNullOrEmpty(Config.security_checker_class_name)) {
+            return ResponseEntityBuilder.badRequest("Not support upload data api in security env");
+        }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
 

@@ -20,10 +20,11 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <map>
 #include <unordered_map>
 
-#include "gen_cpp/Types_types.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -35,11 +36,11 @@ inline std::size_t hash_value(const TNetworkAddress& host_port) {
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 
-struct HashTNetworkAddressPtr : public std::unary_function<TNetworkAddress*, size_t> {
+struct HashTNetworkAddressPtr {
     size_t operator()(const TNetworkAddress* const& p) const { return hash_value(*p); }
 };
 
-struct TNetworkAddressPtrEquals : public std::unary_function<TNetworkAddress*, bool> {
+struct TNetworkAddressPtrEquals {
     bool operator()(const TNetworkAddress* const& p1, const TNetworkAddress* const& p2) const {
         return p1->hostname == p2->hostname && p1->port == p2->port;
     }
@@ -74,7 +75,8 @@ V* find_or_insert(std::unordered_map<K, V>* m, const K& key, const V& default_va
 // is not present, return the supplied default value
 
 template <typename K, typename V>
-const V& find_with_default(const std::map<K, V>& m, const K& key, const V& default_val) {
+std::reference_wrapper<const V> find_with_default(const std::map<K, V>& m, const K& key,
+                                                  const V& default_val) {
     typename std::map<K, V>::const_iterator it = m.find(key);
 
     if (it == m.end()) {
@@ -85,7 +87,8 @@ const V& find_with_default(const std::map<K, V>& m, const K& key, const V& defau
 }
 
 template <typename K, typename V>
-const V& find_with_default(const std::unordered_map<K, V>& m, const K& key, const V& default_val) {
+std::reference_wrapper<const V> find_with_default(const std::unordered_map<K, V>& m, const K& key,
+                                                  const V& default_val) {
     typename std::unordered_map<K, V>::const_iterator it = m.find(key);
 
     if (it == m.end()) {

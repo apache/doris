@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.FeConstants;
 
 import org.junit.Assert;
@@ -30,13 +30,13 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 public class TabletLoadInfoTest {
-    private FakeCatalog fakeCatalog;
+    private FakeEnv fakeEnv;
 
     @Test
     public void testSerialization() throws Exception {
         // mock catalog
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        fakeEnv = new FakeEnv();
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // test
         File file = new File("./tabletLoadInfoTest");
@@ -61,9 +61,9 @@ public class TabletLoadInfoTest {
         Assert.assertEquals("hdfs://host:port/dir", tabletLoadInfo1.getFilePath());
         Assert.assertEquals(1L, tabletLoadInfo1.getFileSize());
 
-        Assert.assertTrue(tabletLoadInfo1.equals(tabletLoadInfo));
-        Assert.assertTrue(rTabletLoadInfo0.equals(tabletLoadInfo0));
-        Assert.assertFalse(rTabletLoadInfo0.equals(tabletLoadInfo1));
+        Assert.assertEquals(tabletLoadInfo1, tabletLoadInfo);
+        Assert.assertEquals(rTabletLoadInfo0, tabletLoadInfo0);
+        Assert.assertNotEquals(rTabletLoadInfo0, tabletLoadInfo1);
 
         dis.close();
         file.delete();

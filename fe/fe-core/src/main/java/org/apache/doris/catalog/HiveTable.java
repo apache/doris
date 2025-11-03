@@ -18,18 +18,19 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.security.authentication.AuthType;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -45,18 +46,17 @@ public class HiveTable extends Table {
     private static final String PROPERTY_ERROR_MSG = "Hive table properties('%s'='%s')"
             + " is illegal or not supported. Please check it";
 
+    public static final String AWS_PROPERTIES_PREFIX = "AWS";
+
+    @SerializedName("hdb")
     private String hiveDb;
+    @SerializedName("ht")
     private String hiveTable;
+    @SerializedName("hp")
     private Map<String, String> hiveProperties = Maps.newHashMap();
 
     public static final String HIVE_DB = "database";
     public static final String HIVE_TABLE = "table";
-    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
-    public static final String HIVE_HDFS_PREFIX = "dfs.";
-    public static final String S3_PROPERTIES_PREFIX = "AWS";
-    public static final String S3_AK = "AWS_ACCESS_KEY";
-    public static final String S3_SK = "AWS_SECRET_KEY";
-    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
 
     public HiveTable() {
         super(TableType.HIVE);
@@ -104,56 +104,66 @@ public class HiveTable extends Table {
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetaStoreUris = copiedProps.get(HIVE_METASTORE_URIS);
+        String hiveMetaStoreUris = copiedProps.get(HMSBaseProperties.HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, HIVE_METASTORE_URIS, HIVE_METASTORE_URIS));
+            throw new DdlException(String.format(
+                    PROPERTY_MISSING_MSG, HMSBaseProperties.HIVE_METASTORE_URIS,
+                    HMSBaseProperties.HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(HIVE_METASTORE_URIS);
-        hiveProperties.put(HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        copiedProps.remove(HMSBaseProperties.HIVE_METASTORE_URIS);
+        hiveProperties.put(HMSBaseProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        // support multi hive version
+        String hiveVersion = copiedProps.get(HMSBaseProperties.HIVE_VERSION);
+        if (!Strings.isNullOrEmpty(hiveVersion)) {
+            copiedProps.remove(HMSBaseProperties.HIVE_VERSION);
+            hiveProperties.put(HMSBaseProperties.HIVE_VERSION, hiveVersion);
+        }
 
         // check auth type
-        String authType = copiedProps.get(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION);
+        String authType = copiedProps.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
         if (Strings.isNullOrEmpty(authType)) {
             authType = AuthType.SIMPLE.getDesc();
         }
         if (!AuthType.isSupportedAuthType(authType)) {
             throw new DdlException(String.format(PROPERTY_ERROR_MSG,
-                    BrokerUtil.HADOOP_SECURITY_AUTHENTICATION, authType));
+                CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, authType));
         }
-        copiedProps.remove(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION);
-        hiveProperties.put(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION, authType);
+        copiedProps.remove(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
+        hiveProperties.put(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, authType);
 
         if (AuthType.KERBEROS.getDesc().equals(authType)) {
             // check principal
-            String principal = copiedProps.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL);
+            String principal = copiedProps.get(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL);
             if (Strings.isNullOrEmpty(principal)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                        BrokerUtil.HADOOP_KERBEROS_PRINCIPAL, BrokerUtil.HADOOP_KERBEROS_PRINCIPAL));
+                        AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                        AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL));
             }
-            hiveProperties.put(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL, principal);
-            copiedProps.remove(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL);
+            hiveProperties.put(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, principal);
+            copiedProps.remove(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL);
             // check keytab
-            String keytabPath = copiedProps.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB);
+            String keytabPath = copiedProps.get(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
             if (Strings.isNullOrEmpty(keytabPath)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                        BrokerUtil.HADOOP_KERBEROS_KEYTAB, BrokerUtil.HADOOP_KERBEROS_KEYTAB));
-            }
-            if (!Strings.isNullOrEmpty(keytabPath)) {
-                hiveProperties.put(BrokerUtil.HADOOP_KERBEROS_KEYTAB, keytabPath);
-                copiedProps.remove(BrokerUtil.HADOOP_KERBEROS_KEYTAB);
+                        AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
+            } else {
+                hiveProperties.put(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, keytabPath);
+                copiedProps.remove(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
             }
         }
-        String hdfsUserName = copiedProps.get(BrokerUtil.HADOOP_USER_NAME);
+        String hdfsUserName = copiedProps.get(AuthenticationConfig.HADOOP_USER_NAME);
         if (!Strings.isNullOrEmpty(hdfsUserName)) {
-            hiveProperties.put(BrokerUtil.HADOOP_USER_NAME, hdfsUserName);
-            copiedProps.remove(BrokerUtil.HADOOP_USER_NAME);
+            hiveProperties.put(AuthenticationConfig.HADOOP_USER_NAME, hdfsUserName);
+            copiedProps.remove(AuthenticationConfig.HADOOP_USER_NAME);
         }
         if (!copiedProps.isEmpty()) {
             Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 String key = entry.getKey();
-                if (key.startsWith(HIVE_HDFS_PREFIX) || key.startsWith(S3_PROPERTIES_PREFIX)) {
+                if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX)
+                        || key.startsWith(S3Properties.S3_PREFIX)
+                        || key.startsWith(AWS_PROPERTIES_PREFIX)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }
@@ -161,33 +171,7 @@ public class HiveTable extends Table {
         }
 
         if (!copiedProps.isEmpty()) {
-            throw new DdlException("Unknown table properties: " + copiedProps.toString());
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Text.writeString(out, hiveDb);
-        Text.writeString(out, hiveTable);
-        out.writeInt(hiveProperties.size());
-        for (Map.Entry<String, String> entry : hiveProperties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        hiveDb = Text.readString(in);
-        hiveTable = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            hiveProperties.put(key, val);
+            throw new DdlException("Unknown table properties: " + copiedProps);
         }
     }
 

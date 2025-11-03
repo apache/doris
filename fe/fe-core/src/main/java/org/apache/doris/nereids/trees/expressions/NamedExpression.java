@@ -18,19 +18,18 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
-
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Expression in Nereids that having name.
  */
 public abstract class NamedExpression extends Expression {
 
-    public NamedExpression(NodeType type, Expression... children) {
-        super(type, children);
+    protected NamedExpression(List<Expression> children) {
+        super(children);
     }
 
     public Slot toSlot() throws UnboundException {
@@ -49,9 +48,8 @@ public abstract class NamedExpression extends Expression {
         throw new UnboundException("qualifier");
     }
 
-    @Override
-    public boolean isConstant() {
-        return false;
+    public String getJoinQualifier() {
+        return String.join(".", getQualifier());
     }
 
     /**
@@ -61,10 +59,14 @@ public abstract class NamedExpression extends Expression {
      * @throws UnboundException throw this exception if this expression is unbound
      */
     public String getQualifiedName() throws UnboundException {
-        String qualifiedName = "";
-        if (CollectionUtils.isNotEmpty(getQualifier())) {
-            qualifiedName = String.join(".", getQualifier()) + ".";
+        return Utils.qualifiedName(getQualifier(), getName());
+    }
+
+    @Override
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
         }
-        return qualifiedName + getName();
+        return this.exprName.get();
     }
 }

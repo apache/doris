@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.clone.ClusterLoadStatistic;
+import org.apache.doris.clone.LoadStatisticForTag;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
@@ -27,13 +27,13 @@ public class BackendLoadStatisticProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("PathHash").add("StorageMedium")
             .add("DataUsedCapacity").add("TotalCapacity").add("TotalUsedPct")
-            .add("Class").add("State")
+            .add("ClassInOneBE").add("ClassInAllBE").add("State")
             .build();
 
-    private final ClusterLoadStatistic statistic;
+    private final LoadStatisticForTag statistic;
     private final long beId;
 
-    public BackendLoadStatisticProcNode(ClusterLoadStatistic statistic, long beId) {
+    public BackendLoadStatisticProcNode(LoadStatisticForTag statistic, long beId) {
         this.statistic = statistic;
         this.beId = beId;
     }

@@ -15,22 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#define __IN_CONFIGBASE_CPP__
-#include "common/configbase.h"
-#undef __IN_CONFIGBASE_CPP__
-
 #include <gtest/gtest.h>
 
+#include "common/config.h"
 #include "common/status.h"
 
 namespace doris {
 using namespace config;
 
-CONF_mInt16(cfg_validator_1, "15");
-CONF_Validator(cfg_validator_1, [](int16_t config) -> bool { return 0 <= config && config <= 10; });
+DEFINE_mInt16(cfg_validator_1, "15");
+DEFINE_Validator(cfg_validator_1,
+                 [](int16_t config) -> bool { return 0 <= config && config <= 10; });
 
-CONF_mInt16(cfg_validator_2, "5");
-CONF_Validator(cfg_validator_2, [](int16_t config) -> bool { return 0 <= config && config <= 10; });
+DEFINE_mInt16(cfg_validator_2, "5");
+DEFINE_Validator(cfg_validator_2,
+                 [](int16_t config) -> bool { return 0 <= config && config <= 10; });
 
 TEST(ConfigValidatorTest, Validator) {
     EXPECT_FALSE(config::init(nullptr, true));

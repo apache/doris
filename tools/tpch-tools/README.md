@@ -24,24 +24,28 @@ follow the steps below:
 
 ### 1. build tpc-h dbgen tool.
 
-    ./build-tpch-dbgen.sh
+    ./bin/build-tpch-dbgen.sh
+
+    If the build failed in dbgen tools' compilation, update your GCC version or change download link used by wget in build-tpch-dbgen.sh from ".../TPC-H_Tools_v3.0.0new.zip" to ".../TPC-H_Tools_v3.0.0.zip"
 
 ### 2. generate tpc-h data. use -h for more infomations.
 
-    ./gen-tpch-data.sh -s 1
+    ./bin/gen-tpch-data.sh -s 1
 
-### 3. create tpc-h tables. modify `doris-cluster.conf` to specify doris info, then run script below.
+### 3. create tpc-h tables. modify `conf/doris-cluster.conf` to specify doris info, then run script below.
 
-    ./create-tpch-tables.sh
+    ./bin/create-tpch-tables.sh -s 1
 
 ### 4. load tpc-h data. use -h for help.
 
-    ./load-tpch-data.sh
+    ./bin/load-tpch-data.sh
 
 ### 5. run tpc-h queries.
 
-    ./run-tpch-queries.sh
+    ./bin/run-tpch-queries.sh -s 1
 
     NOTICE: At present, Doris's query optimizer and statistical information functions are not complete, so we rewrite some queries in TPC-H to adapt to Doris' execution framework, but it does not affect the correctness of the results. The rewritten SQL is marked with "Modified" in the corresponding .sql file.
 
     A new query optimizer will be released in subsequent releases.
+
+    Currently, differnt scales use the same suite of query sqls.

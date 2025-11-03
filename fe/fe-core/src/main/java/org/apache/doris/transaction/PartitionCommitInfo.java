@@ -17,49 +17,41 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public class PartitionCommitInfo implements Writable {
+public class PartitionCommitInfo {
 
     @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "range")
+    private String range;
     @SerializedName(value = "version")
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTime;
+    @SerializedName(value = "isTempPartition")
+    private boolean isTempPartition;
 
     public PartitionCommitInfo() {
 
     }
 
-    public PartitionCommitInfo(long partitionId, long version, long visibleTime) {
+    public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime,
+            boolean isTempPartition) {
         super();
         this.partitionId = partitionId;
+        this.range = partitionRange;
         this.version = version;
         this.versionTime = visibleTime;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static PartitionCommitInfo read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, PartitionCommitInfo.class);
+        this.isTempPartition = isTempPartition;
     }
 
     public long getPartitionId() {
         return partitionId;
+    }
+
+    public String getPartitionRange() {
+        return range;
     }
 
     public long getVersion() {
@@ -78,12 +70,17 @@ public class PartitionCommitInfo implements Writable {
         this.versionTime = versionTime;
     }
 
+    public boolean isTempPartition() {
+        return this.isTempPartition;
+    }
+
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("partitionid=");
+        StringBuilder sb = new StringBuilder("partitionId=");
         sb.append(partitionId);
         sb.append(", version=").append(version);
         sb.append(", versionTime=").append(versionTime);
+        sb.append(", isTemp=").append(isTempPartition);
         return sb.toString();
     }
 }

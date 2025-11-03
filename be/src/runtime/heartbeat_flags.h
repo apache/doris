@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include <atomic>
+#include <gen_cpp/HeartbeatService_constants.h>
 
-#include "gen_cpp/HeartbeatService_constants.h"
+#include <atomic>
 
 namespace doris {
 

@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 union TypeConverter {
     uint64_t u64;
@@ -37,7 +37,7 @@ union TypeConverter {
 };
 
 template <typename C0, typename C1, typename T0, typename T1>
-inline constexpr bool match_v = std::is_same_v<C0, C1>&& std::is_same_v<T0, T1>;
+constexpr bool match_v = std::is_same_v<C0, C1> && std::is_same_v<T0, T1>;
 
 union DecimalInt128Union {
     DecimalV2Value decimal;
@@ -48,104 +48,53 @@ union DecimalInt128Union {
 static_assert(sizeof(DecimalV2Value) == sizeof(PackedInt128));
 static_assert(sizeof(DecimalV2Value) == sizeof(__int128_t));
 
-// we need provide a destructor because DateTimeValue was not a pod type
-// DateTimeValue won't alloc any extra memory, so we don't have to call
-// DateTimeValue::~DateTimeValue()
-union DateTimeInt128Union {
-    DateTimeValue dt;
-    __int128_t i128;
-    ~DateTimeInt128Union() {}
-};
-
 union VecDateTimeInt64Union {
-    doris::vectorized::VecDateTimeValue dt;
+    doris::VecDateTimeValue dt;
     __int64_t i64;
     ~VecDateTimeInt64Union() {}
 };
 
 union DateV2UInt32Union {
-    doris::vectorized::DateV2Value dt;
+    DateV2Value<DateV2ValueType> dt;
     uint32_t ui32;
     ~DateV2UInt32Union() {}
 };
 
-// similar to reinterpret_cast but won't break strict-aliasing rules
+union DateTimeV2UInt64Union {
+    DateV2Value<DateTimeV2ValueType> dt;
+    uint64_t ui64;
+    ~DateTimeV2UInt64Union() {}
+};
+
+// similar to reinterpret_cast but won't break strict-aliasing rules. you can treat it as std::bit_cast with type checking
 template <typename From, typename To>
-To binary_cast(From from) {
+constexpr PURE To binary_cast(const From& from) {
     constexpr bool from_u64_to_db = match_v<From, uint64_t, To, double>;
     constexpr bool from_i64_to_db = match_v<From, int64_t, To, double>;
     constexpr bool from_db_to_i64 = match_v<From, double, To, int64_t>;
     constexpr bool from_db_to_u64 = match_v<From, double, To, uint64_t>;
-    constexpr bool from_decv2_to_packed128 = match_v<From, DecimalV2Value, To, PackedInt128>;
-    constexpr bool from_i128_to_dt = match_v<From, __int128_t, To, DateTimeValue>;
-    constexpr bool from_dt_to_i128 = match_v<From, DateTimeValue, To, __int128_t>;
-    constexpr bool from_i64_to_vec_dt =
-            match_v<From, __int64_t, To, doris::vectorized::VecDateTimeValue>;
-    constexpr bool from_vec_dt_to_i64 =
-            match_v<From, doris::vectorized::VecDateTimeValue, To, __int64_t>;
+    constexpr bool from_i64_to_vec_dt = match_v<From, __int64_t, To, doris::VecDateTimeValue>;
+    constexpr bool from_vec_dt_to_i64 = match_v<From, doris::VecDateTimeValue, To, __int64_t>;
     constexpr bool from_i128_to_decv2 = match_v<From, __int128_t, To, DecimalV2Value>;
     constexpr bool from_decv2_to_i128 = match_v<From, DecimalV2Value, To, __int128_t>;
+    constexpr bool from_decv2_to_i256 = match_v<From, DecimalV2Value, To, wide::Int256>;
 
-    constexpr bool from_ui32_to_date_v2 =
-            match_v<From, uint32_t, To, doris::vectorized::DateV2Value>;
+    constexpr bool from_ui32_to_date_v2 = match_v<From, uint32_t, To, DateV2Value<DateV2ValueType>>;
 
-    constexpr bool from_date_v2_to_ui32 =
-            match_v<From, doris::vectorized::DateV2Value, To, uint32_t>;
+    constexpr bool from_date_v2_to_ui32 = match_v<From, DateV2Value<DateV2ValueType>, To, uint32_t>;
+
+    constexpr bool from_ui64_to_datetime_v2 =
+            match_v<From, uint64_t, To, DateV2Value<DateTimeV2ValueType>>;
+
+    constexpr bool from_datetime_v2_to_ui64 =
+            match_v<From, DateV2Value<DateTimeV2ValueType>, To, uint64_t>;
 
     static_assert(from_u64_to_db || from_i64_to_db || from_db_to_i64 || from_db_to_u64 ||
-                  from_decv2_to_packed128 || from_i128_to_dt || from_dt_to_i128 ||
                   from_i64_to_vec_dt || from_vec_dt_to_i64 || from_i128_to_decv2 ||
-                  from_decv2_to_i128 || from_ui32_to_date_v2 || from_date_v2_to_ui32);
+                  from_decv2_to_i128 || from_decv2_to_i256 || from_ui32_to_date_v2 ||
+                  from_date_v2_to_ui32 || from_ui64_to_datetime_v2 || from_datetime_v2_to_ui64);
 
-    if constexpr (from_u64_to_db) {
-        TypeConverter conv;
-        conv.u64 = from;
-        return conv.dbl;
-    } else if constexpr (from_i64_to_db) {
-        TypeConverter conv;
-        conv.i64 = from;
-        return conv.dbl;
-    } else if constexpr (from_db_to_i64) {
-        TypeConverter conv;
-        conv.dbl = from;
-        return conv.i64;
-    } else if constexpr (from_db_to_u64) {
-        TypeConverter conv;
-        conv.dbl = from;
-        return conv.u64;
-    } else if constexpr (from_decv2_to_packed128) {
-        DecimalInt128Union conv;
-        conv.decimal = from;
-        return conv.packed128;
-    } else if constexpr (from_i128_to_dt) {
-        DateTimeInt128Union conv = {.i128 = from};
-        return conv.dt;
-    } else if constexpr (from_dt_to_i128) {
-        DateTimeInt128Union conv = {.dt = from};
-        return conv.i128;
-    } else if constexpr (from_i64_to_vec_dt) {
-        VecDateTimeInt64Union conv = {.i64 = from};
-        return conv.dt;
-    } else if constexpr (from_ui32_to_date_v2) {
-        DateV2UInt32Union conv = {.ui32 = from};
-        return conv.dt;
-    } else if constexpr (from_date_v2_to_ui32) {
-        DateV2UInt32Union conv = {.dt = from};
-        return conv.ui32;
-    } else if constexpr (from_vec_dt_to_i64) {
-        VecDateTimeInt64Union conv = {.dt = from};
-        return conv.i64;
-    } else if constexpr (from_i128_to_decv2) {
-        DecimalInt128Union conv;
-        conv.i128 = from;
-        return conv.decimal;
-    } else if constexpr (from_decv2_to_i128) {
-        DecimalInt128Union conv;
-        conv.decimal = from;
-        return conv.i128;
-    } else {
-        __builtin_unreachable();
-    }
+    return std::bit_cast<To>(from);
 }
 
 } // namespace doris

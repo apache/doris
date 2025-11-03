@@ -17,31 +17,38 @@
 
 #pragma once
 
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <thrift/Thrift.h>
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TSocket.h>
 
-#include <ostream>
+#include <memory>
 #include <sstream>
 #include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "util/thrift_server.h"
 
+namespace apache {
+namespace thrift {
+namespace transport {
+class TTransport;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
+
 namespace doris {
+
+#define THRIFT_MOVE_VALUES(thrift, member, value) \
+    thrift.__isset.member = true;                 \
+    thrift.member = std::move(value);
+
 // Super class for templatized thrift clients.
 class ThriftClientImpl {
 public:
     virtual ~ThriftClientImpl() { close(); }
     const std::string& ipaddress() { return _ipaddress; }
-    int port() { return _port; }
+    int port() const { return _port; }
 
     // Open the connection to the remote server. May be called
     // repeatedly, is idempotent unless there is a failure to connect.
@@ -69,7 +76,6 @@ protected:
               _port(port),
               _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {}
 
-protected:
     std::string _ipaddress;
     int _port;
 
@@ -106,7 +112,7 @@ ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port
 template <class InterfaceType>
 ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port,
                                           ThriftServer::ServerType server_type)
-        : ThriftClientImpl(ipaddress, port), _iface(new InterfaceType(_protocol)) {
+        : ThriftClientImpl(ipaddress, port) {
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));

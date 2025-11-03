@@ -18,24 +18,25 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Between predicate expression.
  */
 public class Between extends Expression implements TernaryExpression {
 
-    private Expression compareExpr;
-    private Expression lowerBound;
-    private Expression upperBound;
+    private final Expression compareExpr;
+    private final Expression lowerBound;
+    private final Expression upperBound;
+
     /**
      * Constructor of ComparisonPredicate.
      *
@@ -43,13 +44,21 @@ public class Between extends Expression implements TernaryExpression {
      * @param lowerBound     left child of between predicate
      * @param upperBound     right child of between predicate
      */
-
     public Between(Expression compareExpr, Expression lowerBound,
                    Expression upperBound) {
-        super(NodeType.BETWEEN, compareExpr, lowerBound, upperBound);
-        this.compareExpr = compareExpr;
-        this.lowerBound = lowerBound;
-        this.upperBound = upperBound;
+        this(ImmutableList.of(compareExpr, lowerBound, upperBound));
+    }
+
+    /**
+     * Constructor of ComparisonPredicate.
+     *
+     * @param children 3 children: compareExpr, lowerBound, upperBound
+     */
+    public Between(List<Expression> children) {
+        super(children);
+        this.compareExpr = children.get(0);
+        this.lowerBound = children.get(1);
+        this.upperBound = children.get(2);
     }
 
     @Override
@@ -58,18 +67,27 @@ public class Between extends Expression implements TernaryExpression {
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return lowerBound.nullable() || upperBound.nullable();
-    }
-
-    @Override
-    public String toSql() {
+    public String computeToSql() {
         return compareExpr.toSql() + " BETWEEN " + lowerBound.toSql() + " AND " + upperBound.toSql();
     }
 
     @Override
     public String toString() {
         return compareExpr + " BETWEEN " + lowerBound + " AND " + upperBound;
+    }
+
+    // nullable is true if any children is nullable,
+    // but between is not PropagateNullable,
+    // because FoldConstantRuleOnFE will fold a PropagateNullable expression to NULL if any children is NULL.
+    // but `4 BETWEEN NULL AND 3` should fold to FALSE, not NULL.
+    @Override
+    public boolean nullable() {
+        for (Expression child : children()) {
+            if (child.nullable()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
@@ -81,7 +99,7 @@ public class Between extends Expression implements TernaryExpression {
     }
 
     public Expression getLowerBound() {
-        return  lowerBound;
+        return lowerBound;
     }
 
     public Expression getUpperBound() {
@@ -89,27 +107,8 @@ public class Between extends Expression implements TernaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Between withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Between(children.get(0), children.get(1), children.get(2));
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        Between between = (Between) o;
-        return Objects.equals(compareExpr, between.compareExpr)
-                && Objects.equals(lowerBound, between.lowerBound)
-                && Objects.equals(upperBound, between.upperBound);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(compareExpr, lowerBound, upperBound);
+        return new Between(children);
     }
 }

@@ -17,20 +17,19 @@
 
 #include "olap/hll.h"
 
-#include <algorithm>
+#include <cmath>
 #include <map>
+#include <ostream>
 
 #include "common/logging.h"
-#include "runtime/string_value.h"
 #include "util/coding.h"
+#include "util/slice.h"
 
-using std::map;
-using std::nothrow;
 using std::string;
 using std::stringstream;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 HyperLogLog::HyperLogLog(const Slice& src) {
     // When deserialize return false, we make this object a empty
     if (!deserialize(src)) {
@@ -49,7 +48,7 @@ void HyperLogLog::_convert_explicit_to_register() {
         _update_registers(value);
     }
     // clear _hash_set
-    phmap::flat_hash_set<uint64_t>().swap(_hash_set);
+    vectorized::flat_hash_set<uint64_t>().swap(_hash_set);
 }
 
 // Change HLL_DATA_EXPLICIT to HLL_DATA_FULL directly, because HLL_DATA_SPARSE
@@ -195,7 +194,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
             encode_fixed32_le(ptr, num_non_zero_registers);
             ptr += 4;
 
-            for (uint32_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            for (uint16_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
                 if (_registers[i] == 0) {
                     continue;
                 }
@@ -326,27 +325,27 @@ int64_t HyperLogLog::estimate_cardinality() const {
     float alpha = 0;
 
     if (num_streams == 16) {
-        alpha = 0.673f;
+        alpha = 0.673F;
     } else if (num_streams == 32) {
-        alpha = 0.697f;
+        alpha = 0.697F;
     } else if (num_streams == 64) {
-        alpha = 0.709f;
+        alpha = 0.709F;
     } else {
-        alpha = 0.7213f / (1 + 1.079f / num_streams);
+        alpha = 0.7213F / (1 + 1.079F / num_streams);
     }
 
     float harmonic_mean = 0;
     int num_zero_registers = 0;
 
     for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-        harmonic_mean += powf(2.0f, -_registers[i]);
+        harmonic_mean += powf(2.0F, -_registers[i]);
 
         if (_registers[i] == 0) {
             ++num_zero_registers;
         }
     }
 
-    harmonic_mean = 1.0f / harmonic_mean;
+    harmonic_mean = 1.0F / harmonic_mean;
     double estimate = alpha * num_streams * num_streams * harmonic_mean;
     // according to HyperLogLog current correction, if E is cardinal
     // E =< num_streams * 2.5 , LC has higher accuracy.
@@ -355,7 +354,8 @@ int64_t HyperLogLog::estimate_cardinality() const {
     if (estimate <= num_streams * 2.5 && num_zero_registers != 0) {
         // Estimated cardinality is too low. Hll is too inaccurate here, instead use
         // linear counting.
-        estimate = num_streams * log(static_cast<float>(num_streams) / num_zero_registers);
+        estimate = num_streams *
+                   log(static_cast<double>(num_streams) / static_cast<double>(num_zero_registers));
     } else if (num_streams == 16384 && estimate < 72000) {
         // when Linear Couint change to HyperLogLog according to HyperLogLog Correction,
         // there are relatively large fluctuations, we fixed the problem refer to redis.
@@ -367,84 +367,5 @@ int64_t HyperLogLog::estimate_cardinality() const {
     }
     return (int64_t)(estimate + 0.5);
 }
-
-void HllSetResolver::parse() {
-    // skip LengthValueType
-    char* pdata = _buf_ref;
-    _set_type = (HllDataType)pdata[0];
-    char* sparse_data = nullptr;
-    switch (_set_type) {
-    case HLL_DATA_EXPLICIT:
-        // first byte : type
-        // second～five byte : hash values's number
-        // five byte later : hash value
-        _explicit_num = (ExplicitLengthValueType)(pdata[sizeof(SetTypeValueType)]);
-        _explicit_value =
-                (uint64_t*)(pdata + sizeof(SetTypeValueType) + sizeof(ExplicitLengthValueType));
-        break;
-    case HLL_DATA_SPARSE:
-        // first byte : type
-        // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
-        // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
-        _sparse_count = (SparseLengthValueType*)(pdata + sizeof(SetTypeValueType));
-        sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-        for (int i = 0; i < *_sparse_count; i++) {
-            SparseIndexType* index = (SparseIndexType*)sparse_data;
-            sparse_data += sizeof(SparseIndexType);
-            SparseValueType* value = (SparseValueType*)sparse_data;
-            _sparse_map[*index] = *value;
-            sparse_data += sizeof(SetTypeValueType);
-        }
-        break;
-    case HLL_DATA_FULL:
-        // first byte : type
-        // second byte later : hll register value
-        _full_value_position = pdata + sizeof(SetTypeValueType);
-        break;
-    default:
-        // HLL_DATA_EMPTY
-        break;
-    }
-}
-
-void HllSetHelper::set_sparse(char* result, const std::map<int, uint8_t>& index_to_value,
-                              int& len) {
-    result[0] = HLL_DATA_SPARSE;
-    len = sizeof(HllSetResolver::SetTypeValueType) + sizeof(HllSetResolver::SparseLengthValueType);
-    char* write_value_pos = result + len;
-    for (auto iter = index_to_value.begin(); iter != index_to_value.end(); ++iter) {
-        write_value_pos[0] = (char)(iter->first & 0xff);
-        write_value_pos[1] = (char)(iter->first >> 8 & 0xff);
-        write_value_pos[2] = iter->second;
-        write_value_pos += 3;
-    }
-    int registers_count = index_to_value.size();
-    len += registers_count *
-           (sizeof(HllSetResolver::SparseIndexType) + sizeof(HllSetResolver::SparseValueType));
-    *(int*)(result + 1) = registers_count;
-}
-
-void HllSetHelper::set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len) {
-    result[0] = HLL_DATA_EXPLICIT;
-    result[1] = (HllSetResolver::ExplicitLengthValueType)(hash_value_set.size());
-    len = sizeof(HllSetResolver::SetTypeValueType) +
-          sizeof(HllSetResolver::ExplicitLengthValueType);
-    char* write_pos = result + len;
-    for (auto iter = hash_value_set.begin(); iter != hash_value_set.end(); ++iter) {
-        uint64_t hash_value = *iter;
-        *(uint64_t*)write_pos = hash_value;
-        write_pos += 8;
-    }
-    len += sizeof(uint64_t) * hash_value_set.size();
-}
-
-void HllSetHelper::set_full(char* result, const std::map<int, uint8_t>& index_to_value,
-                            const int registers_len, int& len) {
-    result[0] = HLL_DATA_FULL;
-    for (auto iter = index_to_value.begin(); iter != index_to_value.end(); ++iter) {
-        result[1 + iter->first] = iter->second;
-    }
-    len = registers_len + sizeof(HllSetResolver::SetTypeValueType);
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -20,10 +20,13 @@
 
 #include "util/crc32c.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <string.h>
 
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "util/slice.h"
 
 namespace doris {

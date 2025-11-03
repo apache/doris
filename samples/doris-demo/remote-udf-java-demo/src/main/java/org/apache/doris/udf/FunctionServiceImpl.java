@@ -41,8 +41,8 @@ public class FunctionServiceImpl extends PFunctionServiceGrpc.PFunctionServiceIm
         // symbol is functionName
         String functionName = request.getFunctionName();
         logger.info("fnCall request=" + request);
-        FunctionService.PFunctionCallResponse res;
-        if ("add_int".equals(functionName)) {
+        FunctionService.PFunctionCallResponse res = null;
+        if ("add_int_two".equals(functionName)) {
             res = FunctionService.PFunctionCallResponse.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build())
                     .addResult(Types.PValues.newBuilder().setHasNull(false)
@@ -52,9 +52,26 @@ public class FunctionServiceImpl extends PFunctionServiceGrpc.PFunctionServiceIm
                                             .getInt32Value(i)).collect(Collectors.toList()))
                             .setType(Types.PGenericType.newBuilder().setId(Types.PGenericType.TypeId.INT32).build())
                             .build()).build();
-        } else {
+        } 
+        else if ("add_int_one".equals(functionName)) {
             res = FunctionService.PFunctionCallResponse.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build();
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build())
+                    .addResult(Types.PValues.newBuilder().setHasNull(false)
+                            .addAllInt32Value(IntStream.range(0, request.getArgs(0)
+                                            .getInt32ValueCount())
+                                    .mapToObj(i -> request.getArgs(0).getInt32Value(i) + 1).collect(Collectors.toList()))
+                            .setType(Types.PGenericType.newBuilder().setId(Types.PGenericType.TypeId.INT32).build())
+                            .build()).build();
+        }
+        else if ("add_string".equals(functionName)) {
+            res = FunctionService.PFunctionCallResponse.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build())
+                    .addResult(Types.PValues.newBuilder().setHasNull(false)
+                            .addAllStringValue(IntStream.range(0, request.getArgs(0)
+                                            .getStringValueCount())
+                                    .mapToObj(i -> request.getArgs(0).getStringValue(i) + "_rpc_test").collect(Collectors.toList()))
+                            .setType(Types.PGenericType.newBuilder().setId(Types.PGenericType.TypeId.STRING).build())
+                            .build()).build();
         }
         logger.info("fnCall res=" + res);
         ok(responseObserver, res);
@@ -66,9 +83,21 @@ public class FunctionServiceImpl extends PFunctionServiceGrpc.PFunctionServiceIm
         // symbol is functionName
         logger.info("checkFn request=" + request);
         int status = 0;
-        if ("add_int".equals(request.getFunction().getFunctionName())) {
+        if ("add_int_two".equals(request.getFunction().getFunctionName())) {
             // check inputs count
             if (request.getFunction().getInputsCount() != 2) {
+                status = -1;
+            }
+        }
+        if ("add_int_one".equals(request.getFunction().getFunctionName())) {
+            // check inputs count
+            if (request.getFunction().getInputsCount() != 1) {
+                status = -1;
+            }
+        }
+        if ("add_string".equals(request.getFunction().getFunctionName())) {
+            // check inputs count
+            if (request.getFunction().getInputsCount() != 1) {
                 status = -1;
             }
         }

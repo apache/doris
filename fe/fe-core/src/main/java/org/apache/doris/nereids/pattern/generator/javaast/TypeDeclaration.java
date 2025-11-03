@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-
 /** java's type declaration. */
 public abstract class TypeDeclaration implements JavaAstNode {
     public final Optional<QualifiedName> packageName;
@@ -48,9 +47,7 @@ public abstract class TypeDeclaration implements JavaAstNode {
 
     /** function to concat package name and type name. */
     public static String getFullQualifiedName(Optional<QualifiedName> packageName, String name) {
-        if (packageName.isPresent()) {
-            return Joiner.on(".").join(packageName.get().identifiers) + "." + name;
-        }
-        return name;
+        return packageName.map(qualifiedName -> Joiner.on(".").join(qualifiedName.identifiers) + "." + name)
+                .orElse(name);
     }
 }

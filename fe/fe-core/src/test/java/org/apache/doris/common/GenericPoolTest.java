@@ -18,22 +18,25 @@
 package org.apache.doris.common;
 
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentTaskRequest;
-import org.apache.doris.thrift.TCancelPlanFragmentParams;
-import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
+import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
+import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TDiskTrashInfo;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentResult;
-import org.apache.doris.thrift.TExportStatusResult;
-import org.apache.doris.thrift.TExportTaskRequest;
-import org.apache.doris.thrift.TFetchDataParams;
-import org.apache.doris.thrift.TFetchDataResult;
+import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
+import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
+import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
+import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
+import org.apache.doris.thrift.TIngestBinlogRequest;
+import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TPublishTopicResult;
+import org.apache.doris.thrift.TQueryIngestBinlogRequest;
+import org.apache.doris.thrift.TQueryIngestBinlogResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -44,10 +47,13 @@ import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
+import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
+import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletStatResult;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
-import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
+import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
+import org.apache.doris.thrift.TWarmUpTabletsRequest;
+import org.apache.doris.thrift.TWarmUpTabletsResponse;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
@@ -59,8 +65,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 
 public class GenericPoolTest {
@@ -114,30 +118,6 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TExecPlanFragmentResult execPlanFragment(TExecPlanFragmentParams params) {
-            return new TExecPlanFragmentResult();
-        }
-
-        @Override
-        public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) {
-            return new TCancelPlanFragmentResult();
-        }
-
-        @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) {
-            return new TTransmitDataResult();
-        }
-
-        @Override
-        public TFetchDataResult fetchData(TFetchDataParams params) {
-            TFetchDataResult result = new TFetchDataResult();
-            result.setPacketNum(123);
-            result.setResultBatch(new TResultBatch(new ArrayList<ByteBuffer>(), false, 0));
-            result.setEos(true);
-            return result;
-        }
-
-        @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             return null;
         }
@@ -153,25 +133,12 @@ public class GenericPoolTest {
         }
 
         @Override
+        public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
+            return null;
+        }
+
+        @Override
         public TAgentResult makeSnapshot(TSnapshotRequest snapshotRequest) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus submitExportTask(TExportTaskRequest request) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TExportStatusResult getExportStatus(TUniqueId taskId) throws TException {
-            // TODO Auto-generated method stub
-            return null;
-        }
-
-        @Override
-        public TStatus eraseExportTask(TUniqueId taskId) throws TException {
             // TODO Auto-generated method stub
             return null;
         }
@@ -222,26 +189,63 @@ public class GenericPoolTest {
         }
 
         @Override
-        public void cleanTrash() throws TException {
-            // TODO Auto-generated method stub
-        }
-
-        @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
         }
-    }
 
-    @Test
-    public void testNormal() throws Exception {
-        TNetworkAddress address = new TNetworkAddress(ip, port);
-        BackendService.Client object = backendService.borrowObject(address);
+        @Override
+        public TIngestBinlogResult ingestBinlog(TIngestBinlogRequest ingestBinlogRequest) throws TException {
+            return null;
+        }
 
-        TFetchDataResult result = object.fetchData(new TFetchDataParams(
-                PaloInternalServiceVersion.V1, new TUniqueId()));
-        Assert.assertEquals(result.getPacketNum(), 123);
+        @Override
+        public TQueryIngestBinlogResult queryIngestBinlog(TQueryIngestBinlogRequest queryIngestBinlogRequest)
+                throws TException {
+            return null;
+        }
 
-        backendService.returnObject(address, object);
+        @Override
+        public TWarmUpCacheAsyncResponse warmUpCacheAsync(TWarmUpCacheAsyncRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TCheckWarmUpCacheAsyncResponse checkWarmUpCacheAsync(TCheckWarmUpCacheAsyncRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TSyncLoadForTabletsResponse syncLoadForTablets(TSyncLoadForTabletsRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TGetTopNHotPartitionsResponse getTopNHotPartitions(TGetTopNHotPartitionsRequest request)
+                throws TException {
+            return null;
+        }
+
+        @Override
+        public TWarmUpTabletsResponse warmUpTablets(TWarmUpTabletsRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TGetRealtimeExecStatusResponse getRealtimeExecStatus(TGetRealtimeExecStatusRequest request)
+                throws TException {
+            return null;
+        }
+
+        @Override
+        public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
+            return null;
+        }
+
+        @Override
+        public org.apache.doris.thrift.TTestStorageConnectivityResponse testStorageConnectivity(
+                org.apache.doris.thrift.TTestStorageConnectivityRequest request) throws TException {
+            return null;
+        }
     }
 
     @Test

@@ -17,11 +17,12 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -61,10 +62,12 @@ public class AuditEventProcessorTest {
                 .setScanRows(200000)
                 .setReturnRows(1)
                 .setStmtId(1234)
+                .setStmtType("SELECT")
                 .setStmt("select * from tbl1").build();
 
         Assert.assertEquals("127.0.0.1", event.clientIp);
         Assert.assertEquals(200000, event.scanRows);
+        Assert.assertEquals("SELECT", event.stmtType);
     }
 
     @Test
@@ -98,7 +101,7 @@ public class AuditEventProcessorTest {
 
     @Test
     public void testAuditEventProcessor() throws IOException {
-        AuditEventProcessor processor = Catalog.getCurrentAuditEventProcessor();
+        AuditEventProcessor processor = Env.getCurrentAuditEventProcessor();
         long start = System.currentTimeMillis();
         for (int i = 0; i < 10000; i++) {
             AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)

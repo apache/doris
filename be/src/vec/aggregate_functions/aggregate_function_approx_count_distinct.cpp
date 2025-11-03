@@ -17,33 +17,27 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
-#include "vec/utils/template_helpers.hpp"
+#include "runtime/define_primitive_type.h"
+#include "vec/aggregate_functions/helpers.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
-        const std::string& name, const DataTypes& argument_types, const Array& parameters,
-        const bool result_is_nullable) {
-    AggregateFunctionPtr res = nullptr;
-    WhichDataType which(argument_types[0]->is_nullable()
-                                ? reinterpret_cast<const DataTypeNullable*>(argument_types[0].get())
-                                          ->get_nested_type()
-                                : argument_types[0]);
-
-    res.reset(create_class_with_type<AggregateFunctionApproxCountDistinct>(*argument_types[0],
-                                                                           argument_types));
-
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-    }
-
-    return res;
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    return creator_with_type_list<
+            TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
+            TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+            TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_IPV4,
+            TYPE_IPV6>::create<AggregateFunctionApproxCountDistinct>(argument_types,
+                                                                     result_is_nullable, attr);
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("approx_count_distinct",
-                              create_aggregate_function_approx_count_distinct);
+    factory.register_function_both("approx_count_distinct",
+                                   create_aggregate_function_approx_count_distinct);
     factory.register_alias("approx_count_distinct", "ndv");
 }
 

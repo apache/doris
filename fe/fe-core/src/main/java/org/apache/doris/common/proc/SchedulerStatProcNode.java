@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.common.AnalysisException;
 
@@ -30,7 +30,7 @@ public class SchedulerStatProcNode implements ProcNodeInterface {
     private TabletSchedulerStat stat;
 
     public SchedulerStatProcNode() {
-        this.stat = Catalog.getCurrentCatalog().getTabletScheduler().getStat().getLastSnapshot();
+        this.stat = Env.getCurrentEnv().getTabletScheduler().getStat().getLastSnapshot();
     }
 
     @Override

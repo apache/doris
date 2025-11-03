@@ -18,589 +18,349 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 #include <fmt/format.h>
-#include <fmt/ranges.h>
+#include <fmt/ranges.h> // IWYU pragma: keep
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
 #include <random>
 
-#include "runtime/client_cache.h"
-#include "runtime/dpp_sink_internal.h"
-#include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "exec/tablet_info.h"
+#include "pipeline/exec/exchange_sink_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "util/proto_util.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/sip_hash.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
-#include "vec/runtime/vpartition_info.h"
+#include "vec/sink/vrow_distribution.h"
+#include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-Status VDataStreamSender::Channel::init(RuntimeState* state) {
-    _be_number = state->be_number();
+Status Channel::init(RuntimeState* state) {
+    // only enable_local_exchange() is true and the destination address is localhost, then the channel is local
+    _is_local &= state->enable_local_exchange();
 
-    _capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
+    if (_is_local) {
+        return Status::OK();
+    }
 
+    RETURN_IF_ERROR(_init_brpc_stub(state));
+
+    return Status::OK();
+}
+
+Status Channel::_init_brpc_stub(RuntimeState* state) {
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
                         ", maybe version is not compatible.";
         return Status::InternalError("no brpc destination");
     }
 
-    // initialize brpc request
-    _finst_id.set_hi(_fragment_instance_id.hi);
-    _finst_id.set_lo(_fragment_instance_id.lo);
-    _brpc_request.set_allocated_finst_id(&_finst_id);
-
-    _query_id.set_hi(state->query_id().hi);
-    _query_id.set_lo(state->query_id().lo);
-    _brpc_request.set_allocated_query_id(&_query_id);
-
-    _brpc_request.set_node_id(_dest_node_id);
-    _brpc_request.set_sender_id(_parent->_sender_id);
-    _brpc_request.set_be_number(_be_number);
-
-    _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
-
+    auto network_address = _brpc_dest_addr;
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
+        network_address.hostname = "127.0.0.1";
     } else {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
     }
+
+    if (!_brpc_stub) {
+        std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                      _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+
+    if (config::enable_brpc_connection_check) {
+        state->get_query_ctx()->add_using_brpc_stub(_brpc_dest_addr, _brpc_stub);
+    }
+    return Status::OK();
+}
+
+Status Channel::open(RuntimeState* state) {
+    if (_is_local) {
+        RETURN_IF_ERROR(_find_local_recvr(state));
+    }
+    _be_number = state->be_number();
+    _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
+    _serializer.set_is_local(_is_local);
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
-    _state = state;
+
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::send_current_block(bool eos) {
-    // TODO: Now, local exchange will cause the performance problem is in a multi-threaded scenario
-    //  so this feature is turned off here. We need to re-examine this logic
-    //    if (is_local()) {
-    //        return send_local_block(eos);
-    //    }
-    auto block = _mutable_block->to_block();
-    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
-    block.clear_column_data();
-    _mutable_block->set_muatable_columns(block.mutate_columns());
-    RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
-    ch_roll_pb_block();
-    return Status::OK();
-}
-
-Status VDataStreamSender::Channel::send_local_block(bool eos) {
-    std::shared_ptr<VDataStreamRecvr> recvr =
-            _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
-                                                                    _dest_node_id);
-    if (recvr != nullptr) {
-        Block block = _mutable_block->to_block();
-        COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
-        recvr->add_block(&block, _parent->_sender_id, true);
-        if (eos) {
-            recvr->remove_sender(_parent->_sender_id, _be_number);
-        }
-    }
-    _mutable_block->clear();
-    return Status::OK();
-}
-
-Status VDataStreamSender::Channel::send_local_block(Block* block) {
-    std::shared_ptr<VDataStreamRecvr> recvr =
-            _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
-                                                                    _dest_node_id);
-    if (recvr != nullptr) {
-        COUNTER_UPDATE(_parent->_local_bytes_send_counter, block->bytes());
-        recvr->add_block(block, _parent->_sender_id, false);
+Status Channel::_find_local_recvr(RuntimeState* state) {
+    auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
+                                                                      _dest_node_id, &_local_recvr);
+    if (!st.ok()) {
+        // If could not find local receiver, then it means the channel is EOF.
+        // Maybe downstream task is finished already.
+        //if (_receiver_status.ok()) {
+        //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        //}
+        LOG(INFO) << "Query: " << print_id(state->query_id())
+                  << " recvr is not found, maybe downstream task is finished. error st is: "
+                  << st.to_string();
     }
     return Status::OK();
 }
-
-Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
-    if (_closure == nullptr) {
-        _closure = new RefCountClosure<PTransmitDataResult>();
-        _closure->ref();
-    } else {
-        RETURN_IF_ERROR(_wait_last_brpc());
-        _closure->cntl.Reset();
-    }
-    VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
-             << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
-             << " _packet_seq=" << _packet_seq << " row_desc=" << _row_desc.debug_string();
-    if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
-        auto statistic = _brpc_request.mutable_query_statistics();
-        _parent->_query_statistics->to_pb(statistic);
-    }
-
-    _brpc_request.set_eos(eos);
-    if (block != nullptr) {
-        _brpc_request.set_allocated_block(block);
-    }
-    _brpc_request.set_packet_seq(_packet_seq++);
-
-    _closure->ref();
-    _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
-
-    if (_parent->_transfer_large_data_by_brpc && _brpc_request.has_block() &&
-        _brpc_request.block().has_column_values() &&
-        _brpc_request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
-        Status st = request_embed_attachment_contain_block<PTransmitDataParams,
-                                                           RefCountClosure<PTransmitDataResult>>(
-                &_brpc_request, _closure);
-        RETURN_IF_ERROR(st);
-        std::string brpc_url =
-                fmt::format("http://{}:{}", _brpc_dest_addr.hostname, _brpc_dest_addr.port);
-        std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
-                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
-                                                                                          "http");
-        _closure->cntl.http_request().uri() =
-                brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
-        _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
-        _closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->transmit_block_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
-    } else {
-        _closure->cntl.http_request().Clear();
-        _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
-    }
-    if (block != nullptr) {
-        _brpc_request.release_block();
-    }
-    return Status::OK();
-}
-
-Status VDataStreamSender::Channel::add_row(Block* block, int row) {
+Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offset,
+                         const uint32_t size, bool eos) {
     if (_fragment_instance_id.lo == -1) {
         return Status::OK();
     }
 
-    if (_mutable_block.get() == nullptr) {
-        _mutable_block.reset(new MutableBlock(block->clone_empty()));
+    bool serialized = false;
+    if (_pblock == nullptr) {
+        _pblock = std::make_unique<PBlock>();
     }
-    _mutable_block->add_row(block, row);
+    int64_t old_channel_mem_usage = mem_usage();
+    Defer update_mem([&]() {
+        COUNTER_UPDATE(_parent->memory_used_counter(), mem_usage() - old_channel_mem_usage);
+    });
+    RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
+                                                      data, offset, size));
+    if (serialized) {
+        RETURN_IF_ERROR(_send_current_block(eos));
+    }
 
-    if (_mutable_block->rows() == _parent->state()->batch_size()) {
-        RETURN_IF_ERROR(send_current_block());
-    }
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>& rows) {
-    if (_fragment_instance_id.lo == -1) {
-        return Status::OK();
+std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
+    if (!_local_recvr) {
+        return nullptr;
     }
+    return _local_recvr->get_local_channel_dependency(_parent->sender_id());
+}
 
-    if (_mutable_block.get() == nullptr) {
-        _mutable_block.reset(new MutableBlock(block->clone_empty()));
-    }
+int64_t Channel::mem_usage() const {
+    return _serializer.mem_usage();
+}
 
-    int row_wait_add = rows.size();
-    int batch_size = _parent->state()->batch_size();
-    const int* begin = &rows[0];
+Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
+    COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
 
-    while (row_wait_add > 0) {
-        int row_add = 0;
-        int max_add = batch_size - _mutable_block->rows();
-        if (row_wait_add >= max_add) {
-            row_add = max_add;
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
         } else {
-            row_add = row_wait_add;
-        }
-
-        _mutable_block->add_rows(block, begin, begin + row_add);
-
-        row_wait_add -= row_add;
-        begin += row_add;
-
-        if (row_add == max_add) {
-            RETURN_IF_ERROR(send_current_block());
+            _eos_send = true;
         }
     }
-
+    if (eos || block->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block(this, {std::move(block), eos}));
+    }
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::close_wait(RuntimeState* state) {
-    if (_need_close) {
-        Status st = _wait_last_brpc();
-        if (!st.ok()) {
-            state->log_error(st.get_error_msg());
+Status Channel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos) {
+    COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
         }
-        _need_close = false;
-        return st;
+        _eos_send = true;
     }
-    _mutable_block.reset();
+    if (eos || block->get_block()->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block(this, {block, eos}));
+    }
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::close_internal() {
+Status Channel::_send_current_block(bool eos) {
+    if (is_local()) {
+        return _send_local_block(eos);
+    }
+    // here _pblock maybe nullptr , but we must send the eos to the receiver
+    return send_remote_block(std::move(_pblock), eos);
+}
+
+Status Channel::_send_local_block(bool eos) {
+    Block block;
+    if (_serializer.get_block() != nullptr) {
+        block = _serializer.get_block()->to_block();
+        _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
+    }
+
+    if (!block.empty() || eos) {
+        RETURN_IF_ERROR(send_local_block(&block, eos, true));
+    }
+    return Status::OK();
+}
+
+Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
+    SCOPED_TIMER(_parent->local_send_timer());
+
+    if (eos) {
+        if (_eos_send) {
+            return Status::OK();
+        } else {
+            _eos_send = true;
+        }
+    }
+
+    if (is_receiver_eof()) {
+        return _receiver_status;
+    }
+    auto receiver_status = _recvr_status();
+    // _local_recvr depdend on pipeline::ExchangeLocalState* _parent to do some memory counter settings
+    // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
+    // Lock the fragment context to ensure the runtime state and other objects are not deconstructed
+    TaskExecutionContextSPtr ctx_lock = nullptr;
+    if (receiver_status.ok() && _local_recvr != nullptr) {
+        ctx_lock = _local_recvr->task_exec_ctx();
+        // Do not return internal error, because when query finished, the downstream node
+        // may finish before upstream node. And the object maybe deconstructed. If return error
+        // then the upstream node may report error status to FE, the query is failed.
+        if (ctx_lock == nullptr) {
+            receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        }
+    }
+    if (receiver_status.ok()) {
+        COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
+        COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
+        COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
+
+        const auto sender_id = _parent->sender_id();
+        if (!block->empty()) [[likely]] {
+            _local_recvr->add_block(block, sender_id, can_be_moved);
+        }
+
+        if (eos) [[unlikely]] {
+            _local_recvr->remove_sender(sender_id, _be_number, Status::OK());
+            _parent->on_channel_finished(_fragment_instance_id.lo);
+        }
+        return Status::OK();
+    } else {
+        _receiver_status = std::move(receiver_status);
+        _parent->on_channel_finished(_fragment_instance_id.lo);
+        return _receiver_status;
+    }
+}
+
+std::string Channel::debug_string() const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "fragment_instance_id: {}, _dest_node_id: {}, _is_local: {}, _receiver_status: "
+                   "{}, _closed: {}, _need_close: {}, _be_number: {}, _eos_send: {}",
+                   print_id(_fragment_instance_id), _dest_node_id, _is_local,
+                   _receiver_status.to_string(), _closed, _need_close, _be_number, _eos_send);
+    if (_is_local) {
+        fmt::format_to(debug_string_buffer, "_local_recvr: {}", _local_recvr->debug_string());
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
+Status Channel::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    _closed = true;
+
     if (!_need_close) {
         return Status::OK();
     }
-    VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
-             << " dest_node=" << _dest_node_id
-             << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows());
-    if (_mutable_block != nullptr && _mutable_block->rows() > 0) {
-        RETURN_IF_ERROR(send_current_block(true));
+
+    if (is_receiver_eof()) {
+        _serializer.reset_block();
+        return Status::OK();
     } else {
-        RETURN_IF_ERROR(send_block(nullptr, true));
+        return _send_current_block(true);
     }
-    // Don't wait for the last packet to finish, left it to close_wait.
-    return Status::OK();
 }
 
-Status VDataStreamSender::Channel::close(RuntimeState* state) {
-    Status st = close_internal();
-    if (!st.ok()) {
-        state->log_error(st.get_error_msg());
-    }
-    return st;
-}
+BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local)
+        : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
-void VDataStreamSender::Channel::ch_roll_pb_block() {
-    _ch_cur_pb_block = (_ch_cur_pb_block == &_ch_pb_block1 ? &_ch_pb_block2 : &_ch_pb_block1);
-}
-
-VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                                     const TDataStreamSink& sink,
-                                     const std::vector<TPlanFragmentDestination>& destinations,
-                                     int per_channel_buffer_size,
-                                     bool send_query_statistics_with_every_batch)
-        : _sender_id(sender_id),
-          _pool(pool),
-          _row_desc(row_desc),
-          _current_channel_idx(0),
-          _part_type(sink.output_partition.type),
-          _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
-          _cur_pb_block(&_pb_block1),
-          _profile(nullptr),
-          _serialize_batch_timer(nullptr),
-          _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
-          _dest_node_id(sink.dest_node_id),
-          _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc) {
-    DCHECK_GT(destinations.size(), 0);
-    DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
-           sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
-           sink.output_partition.type == TPartitionType::RANDOM ||
-           sink.output_partition.type == TPartitionType::RANGE_PARTITIONED ||
-           sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
-    //
-    std::map<int64_t, int64_t> fragment_id_to_channel_index;
-
-    for (int i = 0; i < destinations.size(); ++i) {
-        // Select first dest as transfer chain.
-        bool is_transfer_chain = (i == 0);
-        const auto& fragment_instance_id = destinations[i].fragment_instance_id;
-        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
-            fragment_id_to_channel_index.end()) {
-            _channel_shared_ptrs.emplace_back(
-                    new Channel(this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                                sink.dest_node_id, per_channel_buffer_size, is_transfer_chain,
-                                send_query_statistics_with_every_batch));
-            fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
-                                                 _channel_shared_ptrs.size() - 1);
-            _channels.push_back(_channel_shared_ptrs.back().get());
-        } else {
-            _channel_shared_ptrs.emplace_back(
-                    _channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
-        }
-    }
-    _name = "VDataStreamSender";
-}
-
-VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                                     const std::vector<TPlanFragmentDestination>& destinations,
-                                     int per_channel_buffer_size,
-                                     bool send_query_statistics_with_every_batch)
-        : _sender_id(sender_id),
-          _pool(pool),
-          _row_desc(row_desc),
-          _current_channel_idx(0),
-          _ignore_not_found(true),
-          _cur_pb_block(&_pb_block1),
-          _profile(nullptr),
-          _serialize_batch_timer(nullptr),
-          _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
-          _dest_node_id(0) {
-    _name = "VDataStreamSender";
-}
-
-VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc,
-                                     int per_channel_buffer_size,
-                                     bool send_query_statistics_with_every_batch)
-        : _sender_id(0),
-          _pool(pool),
-          _row_desc(row_desc),
-          _current_channel_idx(0),
-          _ignore_not_found(true),
-          _cur_pb_block(&_pb_block1),
-          _profile(nullptr),
-          _serialize_batch_timer(nullptr),
-          _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
-          _dest_node_id(0) {
-    _name = "VDataStreamSender";
-}
-
-VDataStreamSender::~VDataStreamSender() {
-    _channel_shared_ptrs.clear();
-}
-
-Status VDataStreamSender::init(const TDataSink& tsink) {
-    RETURN_IF_ERROR(DataSink::init(tsink));
-    const TDataStreamSink& t_stream_sink = tsink.stream_sink;
-    if (_part_type == TPartitionType::HASH_PARTITIONED ||
-        _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
-    } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
-        // Range partition
-        // Partition Exprs
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
-        // Partition infos
-        int num_parts = t_stream_sink.output_partition.partition_infos.size();
-        if (num_parts == 0) {
-            return Status::InternalError("Empty partition info.");
-        }
-        for (int i = 0; i < num_parts; ++i) {
-            VPartitionInfo* info = _pool->add(new VPartitionInfo());
-            RETURN_IF_ERROR(VPartitionInfo::from_thrift(
-                    _pool, t_stream_sink.output_partition.partition_infos[i], info));
-            _partition_infos.push_back(info);
-        }
-        // partitions should be in ascending order
-        std::sort(_partition_infos.begin(), _partition_infos.end(),
-                  [](const VPartitionInfo* v1, const VPartitionInfo* v2) {
-                      return v1->range() < v2->range();
-                  });
-    } else {
-        // UNPARTITIONED
-    }
-    return Status::OK();
-}
-
-Status VDataStreamSender::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSink::prepare(state));
-    _state = state;
-
-    std::vector<std::string> instances;
-    for (const auto& channel : _channels) {
-        instances.emplace_back(channel->get_fragment_instance_id_str());
-    }
-    std::string title = fmt::format("VDataStreamSender (dst_id={}, dst_fragments=[{}])",
-                                    _dest_node_id, instances);
-    _profile = _pool->add(new RuntimeProfile(std::move(title)));
-    SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::create_tracker(
-            -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-
-    if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
-        std::random_device rd;
-        std::mt19937 g(rd());
-        shuffle(_channels.begin(), _channels.end(), g);
-    } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
-               _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
-    } else {
-        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
-        for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->prepare(state, _row_desc, _expr_mem_tracker));
-        }
+Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
+                                              bool* serialized, bool eos, const uint32_t* data,
+                                              const uint32_t offset, const uint32_t size) {
+    if (_mutable_block == nullptr) {
+        _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
-    _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
-    _uncompressed_bytes_counter = ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
-    _ignore_rows = ADD_COUNTER(profile(), "IgnoreRows", TUnit::UNIT);
-    _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
-    _overall_throughput = profile()->add_derived_counter(
-            "OverallThroughput", TUnit::BYTES_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                               profile()->total_time_counter()),
-            "");
-    _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
-    for (int i = 0; i < _channels.size(); ++i) {
-        RETURN_IF_ERROR(_channels[i]->init(state));
-    }
-    return Status::OK();
-}
-
-Status VDataStreamSender::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
-    DCHECK(state != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
-    for (auto iter : _partition_infos) {
-        RETURN_IF_ERROR(iter->open(state));
-    }
-    return Status::OK();
-}
-
-Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VOlapScanNode Node::get_next scalar");
-}
-
-Status VDataStreamSender::send(RuntimeState* state, Block* block) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
-    SCOPED_TIMER(_profile->total_time_counter());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
-    if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
-        // 1. serialize depends on it is not local exchange
-        // 2. send block
-        // 3. rollover block
-        int local_size = 0;
-        for (auto channel : _channels) {
-            if (channel->is_local()) local_size++;
-        }
-        if (local_size == _channels.size()) {
-            for (auto channel : _channels) {
-                RETURN_IF_ERROR(channel->send_local_block(block));
-            }
-        } else {
-            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
-            for (auto channel : _channels) {
-                if (channel->is_local()) {
-                    RETURN_IF_ERROR(channel->send_local_block(block));
-                } else {
-                    RETURN_IF_ERROR(channel->send_block(_cur_pb_block));
-                }
-            }
-            // rollover
-            _roll_pb_block();
-        }
-    } else if (_part_type == TPartitionType::RANDOM) {
-        // 1. select channel
-        Channel* current_channel = _channels[_current_channel_idx];
-        // 2. serialize, send and rollover block
-        if (current_channel->is_local()) {
-            RETURN_IF_ERROR(current_channel->send_local_block(block));
-        } else {
-            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
-            RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block()));
-            current_channel->ch_roll_pb_block();
-        }
-        _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
-    } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
-        // will only copy schema
-        // we don't want send temp columns
-        auto column_to_keep = block->columns();
-
-        int result_size = _partition_expr_ctxs.size();
-        int result[result_size];
-        RETURN_IF_ERROR(get_partition_column_result(block, result));
-
-        // vectorized calculate hash
-        int rows = block->rows();
-        // for each row, we have a siphash val
-        std::vector<SipHash> siphashs(rows);
-        // result[j] means column index, i means rows index
-        for (int j = 0; j < result_size; ++j) {
-            auto column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                column->update_hash_with_value(i, siphashs[i]);
-            }
-        }
-
-        // channel2rows' subscript means channel id
-        std::vector<vectorized::UInt64> hash_vals(rows);
-        for (int i = 0; i < rows; i++) {
-            hash_vals[i] = siphashs[i].get64();
-        }
-
-        Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(channel_add_rows(_channels, _channels.size(), hash_vals, rows, block));
-    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        // will only copy schema
-        // we don't want send temp columns
-        auto column_to_keep = block->columns();
-        // 1. calculate hash
-        // 2. dispatch rows to channel
-        int result_size = _partition_expr_ctxs.size();
-        int result[result_size];
-        RETURN_IF_ERROR(get_partition_column_result(block, result));
-
-        // vectorized calculate hash val
-        int rows = block->rows();
-        // for each row, we have a hash_val
-        std::vector<size_t> hash_vals(rows);
-
-        // result[j] means column index, i means rows index
-        for (int j = 0; j < result_size; ++j) {
-            auto& column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                auto val = column->get_data_at(i);
-                if (val.data == nullptr) {
-                    // nullptr is treat as 0 when hash
-                    static const int INT_VALUE = 0;
-                    static const TypeDescriptor INT_TYPE(TYPE_INT);
-                    hash_vals[i] = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_vals[i]);
-                } else {
-                    hash_vals[i] = RawValue::zlib_crc32(val.data, val.size,
-                                                        _partition_expr_ctxs[j]->root()->type(),
-                                                        hash_vals[i]);
-                }
-            }
-        }
-
-        Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(),
-                                         hash_vals, rows, block));
-    } else {
-        // Range partition
-        // 1. calculate range
-        // 2. dispatch rows to channel
-    }
-    return Status::OK();
-}
-
-Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
-    if (_closed) return Status::OK();
-
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::close");
-    Status final_st = Status::OK();
-    for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close(state);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
-        }
-    }
-    // wait all channels to finish
-    for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close_wait(state);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
-        }
-    }
-    for (auto iter : _partition_infos) {
-        iter->close(state);
-    }
-    VExpr::close(_partition_expr_ctxs, state);
-    DataSink::close(state, exec_status);
-    return final_st;
-}
-
-Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_receivers) {
     {
-        SCOPED_TIMER(_serialize_batch_timer);
-        dest->Clear();
-        size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
-                                       _transfer_large_data_by_brpc));
-        COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
-        COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
+        SCOPED_TIMER(_parent->merge_block_timer());
+        if (data) {
+            if (size > 0) {
+                RETURN_IF_ERROR(
+                        _mutable_block->add_rows(block, data + offset, data + offset + size));
+            }
+        } else if (!block->empty()) {
+            RETURN_IF_ERROR(_mutable_block->merge(*block));
+        }
+    }
+
+    if (_mutable_block->rows() >= _batch_size || eos ||
+        (_mutable_block->rows() > 0 && _mutable_block->allocated_bytes() > _buffer_mem_limit)) {
+        if (!_is_local) {
+            RETURN_IF_ERROR(_serialize_block(dest, num_receivers));
+        }
+        *serialized = true;
+    } else {
+        *serialized = false;
+    }
+    return Status::OK();
+}
+
+Status BlockSerializer::_serialize_block(PBlock* dest, size_t num_receivers) {
+    if (_mutable_block && _mutable_block->rows() > 0) {
+        auto block = _mutable_block->to_block();
+        RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
+        if (_parent->state()->low_memory_mode()) {
+            reset_block();
+        } else {
+            block.clear_column_data();
+            _mutable_block->set_mutable_columns(block.mutate_columns());
+        }
     }
 
     return Status::OK();
 }
 
-void VDataStreamSender::_roll_pb_block() {
-    _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
+Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t num_receivers) {
+    SCOPED_TIMER(_parent->_serialize_batch_timer);
+    dest->Clear();
+    size_t uncompressed_bytes = 0, compressed_bytes = 0;
+    RETURN_IF_ERROR(src->serialize(_parent->_state->be_exec_version(), dest, &uncompressed_bytes,
+                                   &compressed_bytes, _parent->compression_type(),
+                                   _parent->transfer_large_data_by_brpc()));
+    COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
+    COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
+    COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
+#ifndef BE_TEST
+    _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_bytes(
+            compressed_bytes * num_receivers);
+    _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_rows(
+            src->rows() * num_receivers);
+#endif
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

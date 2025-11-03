@@ -24,11 +24,9 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Hash Distribution Info.
@@ -36,8 +34,6 @@ import java.util.List;
 public class HashDistributionInfo extends DistributionInfo {
     @SerializedName(value = "distributionColumns")
     private List<Column> distributionColumns;
-    @SerializedName(value = "bucketNum")
-    private int bucketNum;
 
     public HashDistributionInfo() {
         super();
@@ -45,9 +41,13 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     public HashDistributionInfo(int bucketNum, List<Column> distributionColumns) {
-        super(DistributionInfoType.HASH);
+        super(DistributionInfoType.HASH, bucketNum);
         this.distributionColumns = distributionColumns;
-        this.bucketNum = bucketNum;
+    }
+
+    public HashDistributionInfo(int bucketNum, boolean autoBucket, List<Column> distributionColumns) {
+        super(DistributionInfoType.HASH, bucketNum, autoBucket);
+        this.distributionColumns = distributionColumns;
     }
 
     public List<Column> getDistributionColumns() {
@@ -64,46 +64,36 @@ public class HashDistributionInfo extends DistributionInfo {
         this.bucketNum = bucketNum;
     }
 
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        int columnCount = distributionColumns.size();
-        out.writeInt(columnCount);
-        for (Column column : distributionColumns) {
-            column.write(out);
-        }
-        out.writeInt(bucketNum);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int columnCount = in.readInt();
-        for (int i = 0; i < columnCount; i++) {
-            Column column = Column.read(in);
-            distributionColumns.add(column);
-        }
-        bucketNum = in.readInt();
-    }
-
-    public static DistributionInfo read(DataInput in) throws IOException {
-        DistributionInfo distributionInfo = new HashDistributionInfo();
-        distributionInfo.readFields(in);
-        return distributionInfo;
-    }
-
-    public boolean equals(DistributionInfo info) {
-        if (this == info) {
-            return true;
-        }
-
-        if (!(info instanceof HashDistributionInfo)) {
+    public boolean sameDistributionColumns(HashDistributionInfo other) {
+        if (distributionColumns.size() != other.distributionColumns.size()) {
             return false;
         }
+        for (int i = 0; i < distributionColumns.size(); ++i) {
+            if (!distributionColumns.get(i).equalsForDistribution(other.distributionColumns.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) info;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        HashDistributionInfo that = (HashDistributionInfo) o;
+        return bucketNum == that.bucketNum && sameDistributionColumns(that);
+    }
 
-        return type == hashDistributionInfo.type
-                && bucketNum == hashDistributionInfo.bucketNum
-                && distributionColumns.equals(hashDistributionInfo.distributionColumns);
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), distributionColumns, bucketNum);
     }
 
     @Override
@@ -112,23 +102,30 @@ public class HashDistributionInfo extends DistributionInfo {
         for (Column col : distributionColumns) {
             distriColNames.add(col.getName());
         }
-        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, distriColNames);
+        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, autoBucket, distriColNames);
         return distributionDesc;
     }
 
     @Override
-    public String toSql() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("DISTRIBUTED BY HASH(");
-
+    public String getColumnsName() {
         List<String> colNames = Lists.newArrayList();
         for (Column column : distributionColumns) {
             colNames.add("`" + column.getName() + "`");
         }
-        String colList = Joiner.on(", ").join(colNames);
-        builder.append(colList);
+        return Joiner.on(", ").join(colNames);
+    }
 
-        builder.append(") BUCKETS ").append(bucketNum);
+    @Override
+    public String toSql(boolean forSync) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("DISTRIBUTED BY HASH(");
+        builder.append(getColumnsName());
+
+        if (autoBucket && !forSync) {
+            builder.append(") BUCKETS AUTO");
+        } else {
+            builder.append(") BUCKETS ").append(bucketNum);
+        }
         return builder.toString();
     }
 
@@ -143,12 +140,20 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         builder.append("]; ");
 
-        builder.append("bucket num: ").append(bucketNum).append("; ");
+        if (autoBucket) {
+            builder.append("bucket num: auto;");
+        } else {
+            builder.append("bucket num: ").append(bucketNum).append(";");
+        }
 
         return builder.toString();
     }
 
     public RandomDistributionInfo toRandomDistributionInfo() {
         return new RandomDistributionInfo(bucketNum);
+    }
+
+    public void setDistributionColumns(List<Column> column) {
+        this.distributionColumns = column;
     }
 }

@@ -16,48 +16,76 @@
 // under the License.
 
 #pragma once
-#include "runtime/primitive_type.h"
+#include <gen_cpp/PaloInternalService_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/result_block_buffer.h"
+#include "runtime/result_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "util/runtime_profile.h"
-#include "vec/core/block.h"
-#include "vec/sink/vresult_writer.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
-class BufferControlBlock;
-class RowBatch;
-class MysqlRowBuffer;
-class TFetchDataResult;
+#include "common/compile_check_begin.h"
+class RuntimeState;
 
 namespace vectorized {
-class VExprContext;
+class Block;
 
-class VMysqlResultWriter final : public VResultWriter {
+class GetResultBatchCtx {
 public:
-    VMysqlResultWriter(BufferControlBlock* sinker,
-                       const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
-                       RuntimeProfile* parent_profile);
+    using ResultType = TFetchDataResult;
+    ENABLE_FACTORY_CREATOR(GetResultBatchCtx)
+    GetResultBatchCtx(PFetchDataResult* result, google::protobuf::Closure* done)
+            : _result(result), _done(done) {}
+#ifdef BE_TEST
+    GetResultBatchCtx() = default;
+#endif
+    MOCK_FUNCTION ~GetResultBatchCtx() = default;
+    MOCK_FUNCTION void on_failure(const Status& status);
+    MOCK_FUNCTION void on_close(int64_t packet_seq, int64_t returned_rows = 0);
+    MOCK_FUNCTION Status on_data(const std::shared_ptr<TFetchDataResult>& t_result,
+                                 int64_t packet_seq, ResultBlockBufferBase* buffer);
 
-    virtual Status init(RuntimeState* state) override;
+private:
+#ifndef BE_TEST
+    const int32_t _max_msg_size = std::numeric_limits<int32_t>::max();
+#else
+    int32_t _max_msg_size = std::numeric_limits<int32_t>::max();
+#endif
 
-    virtual Status append_row_batch(const RowBatch* batch) override;
+    PFetchDataResult* _result = nullptr;
+    google::protobuf::Closure* _done = nullptr;
+};
 
-    virtual Status append_block(Block& block) override;
+using MySQLResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
 
-    virtual Status close() override;
+template <bool is_binary_format = false>
+class VMysqlResultWriter final : public ResultWriter {
+public:
+    VMysqlResultWriter(std::shared_ptr<ResultBlockBufferBase> sinker,
+                       const VExprContextSPtrs& output_vexpr_ctxs, RuntimeProfile* parent_profile);
+
+    Status init(RuntimeState* state) override;
+
+    Status write(RuntimeState* state, Block& block) override;
+
+    Status close(Status status) override;
 
 private:
     void _init_profile();
+    Status _set_options(const TSerdeDialect::type& serde_dialect);
+    Status _write_one_block(RuntimeState* state, Block& block);
 
-    template <PrimitiveType type, bool is_nullable>
-    Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
-                           const DataTypePtr& nested_type_ptr = nullptr);
-    int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
-                      MysqlRowBuffer& buffer);
+    std::shared_ptr<MySQLResultBlockBuffer> _sinker = nullptr;
 
-private:
-    BufferControlBlock* _sinker;
-
-    const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs;
+    const VExprContextSPtrs& _output_vexpr_ctxs;
 
     RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
     // total time cost on append batch operation
@@ -68,6 +96,16 @@ private:
     RuntimeProfile::Counter* _result_send_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
+    // size of sent data
+    RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
+    // If true, no block will be sent
+    bool _is_dry_run = false;
+
+    uint64_t _bytes_sent = 0;
+
+    DataTypeSerDe::FormatOptions _options;
 };
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

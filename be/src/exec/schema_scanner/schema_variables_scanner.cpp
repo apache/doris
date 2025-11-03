@@ -17,31 +17,42 @@
 
 #include "exec/schema_scanner/schema_variables_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <string.h>
+
+#include <map>
+#include <string>
+#include <utility>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
-#include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-SchemaScanner::ColumnDesc SchemaVariablesScanner::_s_vars_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns = {
         //   name,       type,          size
-        {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringValue), false},
-};
+        {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DEFAULT_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CHANGED", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
-        : SchemaScanner(_s_vars_columns,
-                        sizeof(_s_vars_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _type(type) {}
+        : SchemaScanner(_s_vars_columns, TSchemaTableType::SCH_VARIABLES), _type(type) {}
 
 SchemaVariablesScanner::~SchemaVariablesScanner() {}
 
 Status SchemaVariablesScanner::start(RuntimeState* state) {
     TShowVariableRequest var_params;
     // Use db to save type
-    if (_param->db != nullptr) {
-        if (strcmp(_param->db->c_str(), "GLOBAL") == 0) {
+    if (_param->common_param->db != nullptr) {
+        if (strcmp(_param->common_param->db->c_str(), "GLOBAL") == 0) {
             var_params.__set_varType(TVarType::GLOBAL);
         } else {
             var_params.__set_varType(TVarType::SESSION);
@@ -49,60 +60,81 @@ Status SchemaVariablesScanner::start(RuntimeState* state) {
     } else {
         var_params.__set_varType(_type);
     }
-    var_params.__set_threadId(_param->thread_id);
+    var_params.__set_threadId(_param->common_param->thread_id);
 
-    if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::show_variables(*(_param->ip), _param->port, var_params,
-                                                     &_var_result));
+    if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
+        RETURN_IF_ERROR(SchemaHelper::show_variables(
+                *(_param->common_param->ip), _param->common_param->port, var_params, &_var_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
-    _begin = _var_result.variables.begin();
     return Status::OK();
 }
 
-Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
-    // variables names
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        int len = strlen(_begin->first.c_str());
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(str_slot->ptr, _begin->first.c_str(), len + 1);
-        str_slot->len = len;
-    }
-    // value
-    {
-        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        int len = strlen(_begin->second.c_str());
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("No Memory.");
-        }
-        memcpy(str_slot->ptr, _begin->second.c_str(), len + 1);
-        str_slot->len = len;
-    }
-    ++_begin;
-    return Status::OK();
-}
-
-Status SchemaVariablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaVariablesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("invalid parameter.");
     }
-    if (_begin == _var_result.variables.end()) {
-        *eos = true;
+
+    *eos = true;
+    if (_var_result.variables.empty()) {
         return Status::OK();
     }
-    *eos = false;
-    return fill_one_row(tuple, pool);
+    return _fill_block_impl(block);
+}
+
+Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = _var_result.variables.size();
+    std::vector<void*> datas(row_num);
+    // variables names
+    {
+        std::vector<StringRef> strs(row_num);
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it[0].c_str(), it[0].size());
+            datas[idx] = strs.data() + idx;
+            ++idx;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
+    }
+    // value
+    {
+        std::vector<StringRef> strs(row_num);
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it[1].c_str(), it[1].size());
+            datas[idx] = strs.data() + idx;
+            ++idx;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
+    }
+    // default value
+    {
+        std::vector<StringRef> strs(row_num);
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it[2].c_str(), it[2].size());
+            datas[idx] = strs.data() + idx;
+            ++idx;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
+    }
+    // changed
+    {
+        std::vector<StringRef> strs(row_num);
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it[3].c_str(), it[3].size());
+            datas[idx] = strs.data() + idx;
+            ++idx;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
+    }
+    return Status::OK();
 }
 
 } // namespace doris

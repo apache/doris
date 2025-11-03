@@ -26,8 +26,11 @@ public enum StatsType {
     NUM_NULLS("num_nulls"),
     MIN_VALUE("min_value"),
     MAX_VALUE("max_value"),
-    MAX_COL_LENS("max_col_lens"),
-    AVG_COL_LENS("avg_col_lens");
+    HISTOGRAM("histogram"),
+    HOT_VALUES("hot_values"),
+    // only for test
+    UNKNOWN("unknown");
+
     private final String value;
 
     StatsType(String value) {

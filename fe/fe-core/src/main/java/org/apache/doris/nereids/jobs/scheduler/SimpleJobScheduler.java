@@ -17,23 +17,28 @@
 
 package org.apache.doris.nereids.jobs.scheduler;
 
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.errors.QueryPlanningErrors;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.qe.SessionVariable;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * Single thread, serial scheduler.
  */
 public class SimpleJobScheduler implements JobScheduler {
     @Override
-    public void executeJob(Job job, PlannerContext context) {
-
-    }
-
-    @Override
-    public void executeJobPool(PlannerContext plannerContext) throws AnalysisException {
-        JobPool pool = plannerContext.getJobPool();
+    public void executeJobPool(ScheduleContext scheduleContext) {
+        JobPool pool = scheduleContext.getJobPool();
+        CascadesContext context = (CascadesContext) scheduleContext;
+        SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         while (!pool.isEmpty()) {
+            long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
+            if (sessionVariable.enableNereidsTimeout && elapsedS > sessionVariable.nereidsTimeoutSecond) {
+                throw QueryPlanningErrors.planTimeoutError(elapsedS, sessionVariable.nereidsTimeoutSecond,
+                        context.getConnectContext().getExecutor().getSummaryProfile());
+            }
             Job job = pool.pop();
             job.execute();
         }

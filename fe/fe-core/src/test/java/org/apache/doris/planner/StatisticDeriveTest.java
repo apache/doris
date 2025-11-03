@@ -29,6 +29,7 @@ public class StatisticDeriveTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         // create database
         createDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable(
                 "CREATE TABLE test.join1 (\n"
@@ -57,48 +58,6 @@ public class StatisticDeriveTest extends TestWithFeService {
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\"\n"
                         + ");");
-
-        createTable("create external table test.mysql_table\n"
-                + "(k1 int, k2 int)\n"
-                + "ENGINE=MYSQL\n"
-                + "PROPERTIES (\n"
-                + "\"host\" = \"127.0.0.1\",\n"
-                + "\"port\" = \"3306\",\n"
-                + "\"user\" = \"root\",\n"
-                + "\"password\" = \"123\",\n"
-                + "\"database\" = \"db1\",\n"
-                + "\"table\" = \"tbl1\"\n"
-                + ");");
-
-        createTable("create external table test.odbc_oracle\n"
-                + "(k1 float, k2 int)\n"
-                + "ENGINE=ODBC\n"
-                + "PROPERTIES (\n"
-                + "\"host\" = \"127.0.0.1\",\n"
-                + "\"port\" = \"3306\",\n"
-                + "\"user\" = \"root\",\n"
-                + "\"password\" = \"123\",\n"
-                + "\"database\" = \"db1\",\n"
-                + "\"table\" = \"tbl1\",\n"
-                + "\"driver\" = \"Oracle Driver\",\n"
-                + "\"odbc_type\" = \"oracle\"\n"
-                + ");");
-
-        createTable(
-                "create external table test.odbc_mysql\n"
-                        + "(k1 int, k2 int)\n"
-                        + "ENGINE=ODBC\n"
-                        + "PROPERTIES (\n"
-                        + "\"host\" = \"127.0.0.1\",\n"
-                        + "\"port\" = \"3306\",\n"
-                        + "\"user\" = \"root\",\n"
-                        + "\"password\" = \"123\",\n"
-                        + "\"database\" = \"db1\",\n"
-                        + "\"table\" = \"tbl1\",\n"
-                        + "\"driver\" = \"Oracle Driver\",\n"
-                        + "\"odbc_type\" = \"mysql\"\n"
-                        + ");");
-
     }
 
     @Test
@@ -120,7 +79,7 @@ public class StatisticDeriveTest extends TestWithFeService {
     @Test
     public void testAnalyticEvalStatsDerive() throws Exception {
         // contain SortNode/ExchangeNode/OlapScanNode
-        String sql = "select dt, min(id) OVER (PARTITION BY dt ORDER BY id) from test.join1";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ dt, min(id) OVER (PARTITION BY dt ORDER BY id) from test.join1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.setEnableJoinReorderBasedCost(true);
@@ -161,8 +120,7 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotNull(stmtExecutor.planner().getFragments());
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
-        assertSQLPlanOrErrorMsgContains(sql, "CROSS JOIN");
-        assertSQLPlanOrErrorMsgContains(sql, "ASSERT NUMBER OF ROWS");
+        assertSQLPlanOrErrorMsgContains(sql, "NESTED LOOP JOIN");
         assertSQLPlanOrErrorMsgContains(sql, "EXCHANGE");
         assertSQLPlanOrErrorMsgContains(sql, "AGGREGATE");
         assertSQLPlanOrErrorMsgContains(sql, "OlapScanNode");
@@ -212,36 +170,6 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
         assertSQLPlanOrErrorMsgContains(sql, "HASH JOIN");
-    }
-
-    @Test
-    public void testMysqlScanStatsDerive() throws Exception {
-        String sql = "select * from test.mysql_table";
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.setEnableJoinReorderBasedCost(true);
-        sessionVariable.setDisableJoinReorder(false);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
-        System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
-        assertSQLPlanOrErrorMsgContains(sql, "SCAN MYSQL");
-    }
-
-    @Test
-    public void testOdbcScanStatsDerive() throws Exception {
-        String sql = "select * from test.odbc_mysql";
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.setEnableJoinReorderBasedCost(true);
-        sessionVariable.setDisableJoinReorder(false);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
-        Assert.assertNotNull(stmtExecutor.planner().getFragments());
-        Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
-        System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
-        assertSQLPlanOrErrorMsgContains(sql, "SCAN ODBC");
     }
 
     @Test

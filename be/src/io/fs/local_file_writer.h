@@ -19,40 +19,35 @@
 
 #include <cstddef>
 
+#include "common/status.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 
-namespace doris {
-namespace io {
-
+namespace doris::io {
+struct FileCacheAllocatorBuilder;
 class LocalFileWriter final : public FileWriter {
 public:
-    LocalFileWriter(Path path, int fd);
+    LocalFileWriter(Path path, int fd, bool sync_data = true);
     ~LocalFileWriter() override;
 
-    Status close() override;
-
-    Status abort() override;
-
-    Status append(const Slice& data) override;
-
     Status appendv(const Slice* data, size_t data_cnt) override;
-
-    Status write_at(size_t offset, const Slice& data) override;
-
-    Status finalize() override;
-
-    size_t bytes_appended() const override { return _bytes_appended; }
+    const Path& path() const override { return _path; }
+    size_t bytes_appended() const override;
+    State state() const override { return _state; }
+    Status close(bool non_block = false) override;
 
 private:
+    Status _finalize();
+    void _abort();
     Status _close(bool sync);
 
-private:
+    Path _path;
     int _fd; // owned
-
-    size_t _bytes_appended = 0;
     bool _dirty = false;
-    bool _closed = false;
+    const bool _sync_data = true;
+    size_t _bytes_appended = 0;
+    State _state {State::OPENED};
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

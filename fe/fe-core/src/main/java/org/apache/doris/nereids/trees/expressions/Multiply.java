@@ -17,35 +17,78 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * Multiply Expression.
  */
-public class Multiply extends Arithmetic implements BinaryExpression {
+public class Multiply extends BinaryArithmetic implements PropagateNullable {
 
     public Multiply(Expression left, Expression right) {
-        super(ArithmeticOperator.MULTIPLY, left, right);
+        super(ImmutableList.of(left, right), Operator.MULTIPLY);
     }
 
-    @Override
-    public String toSql() {
-        return left().toSql() + ' ' + getArithmeticOperator().toString()
-                + ' ' + right().toSql();
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitMultiply(this, context);
+    public Multiply(List<Expression> children) {
+        super(children, Operator.MULTIPLY);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Multiply(children.get(0), children.get(1));
+        return new Multiply(children);
+    }
+
+    @Override
+    public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
+        int retPrecision = t1.getPrecision() + t2.getPrecision();
+        int retScale = t1.getScale() + t2.getScale();
+        boolean enableDecimal256 = false;
+        int defaultScale = 6;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+            defaultScale = connectContext.getSessionVariable().decimalOverflowScale;
+        }
+        if (!enableDecimal256 && retPrecision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
+            int integralPartBoundary = DecimalV3Type.MAX_DECIMAL128_PRECISION - defaultScale;
+            if (retPrecision - retScale < integralPartBoundary) {
+                // retains more int part
+                retScale = DecimalV3Type.MAX_DECIMAL128_PRECISION - (retPrecision - retScale);
+            } else if (retPrecision - retScale > integralPartBoundary && retScale < defaultScale) {
+                // retScale not change, retains more scale part
+            } else {
+                retScale = defaultScale;
+            }
+            retPrecision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        } else if (enableDecimal256 && retPrecision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
+            int integralPartBoundary = DecimalV3Type.MAX_DECIMAL256_PRECISION - defaultScale;
+            if (retPrecision - retScale < integralPartBoundary) {
+                // retains more int part
+                retScale = DecimalV3Type.MAX_DECIMAL256_PRECISION - (retPrecision - retScale);
+            } else if (retPrecision - retScale > integralPartBoundary && retScale < defaultScale) {
+                // retScale not change, retains more scale part
+            } else {
+                retScale = defaultScale;
+            }
+            retPrecision = DecimalV3Type.MAX_DECIMAL256_PRECISION;
+        }
+        Preconditions.checkState(retPrecision >= retScale,
+                "scale " + retScale + " larger than precision " + retPrecision
+                        + " in Multiply return type");
+        return DecimalV3Type.createDecimalV3Type(retPrecision, retScale);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitMultiply(this, context);
     }
 }

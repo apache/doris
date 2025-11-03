@@ -17,13 +17,13 @@
 
 #include "util/path_util.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <string>
 #include <vector>
 
-#include "common/config.h"
-#include "util/logging.h"
+#include "gtest/gtest_pred_impl.h"
 
 using std::string;
 using std::vector;
@@ -59,7 +59,11 @@ TEST(TestPathUtil, DirNameTest) {
     EXPECT_EQ(".", path_util::dir_name("."));
     EXPECT_EQ(".", path_util::dir_name(".."));
     EXPECT_EQ("/", path_util::dir_name("/"));
+#ifndef __APPLE__
     EXPECT_EQ("//", path_util::dir_name("//"));
+#else
+    EXPECT_EQ("/", path_util::dir_name("//"));
+#endif
     EXPECT_EQ(".", path_util::dir_name("a"));
     EXPECT_EQ(".", path_util::dir_name("ab"));
     EXPECT_EQ(".", path_util::dir_name("ab/"));
@@ -67,17 +71,6 @@ TEST(TestPathUtil, DirNameTest) {
     EXPECT_EQ("/", path_util::dir_name("/ab"));
     EXPECT_EQ("/", path_util::dir_name("/ab///"));
     EXPECT_EQ("/ab", path_util::dir_name("/ab/cd"));
-}
-
-TEST(TestPathUtil, SplitPathTest) {
-    using Vec = std::vector<string>;
-    EXPECT_EQ(Vec({"/"}), path_util::split_path("/"));
-    EXPECT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b"));
-    EXPECT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b/"));
-    EXPECT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a//b/"));
-    EXPECT_EQ(Vec({"a", "b"}), path_util::split_path("a/b"));
-    EXPECT_EQ(Vec({"."}), path_util::split_path("."));
-    EXPECT_EQ(Vec(), path_util::split_path(""));
 }
 
 TEST(TestPathUtil, file_extension_test) {

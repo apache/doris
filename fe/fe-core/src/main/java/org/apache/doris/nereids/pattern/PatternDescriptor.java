@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -31,16 +33,17 @@ import java.util.function.Predicate;
  * Define a descriptor to wrap a pattern tree to define a pattern shape.
  * It can support pattern generic type to MatchedAction.
  */
-public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends TreeNode<RULE_TYPE>> {
-    public final Pattern<INPUT_TYPE, RULE_TYPE> pattern;
+public class PatternDescriptor<INPUT_TYPE extends Plan> {
+    private static final Logger LOG = LogManager.getLogger(PatternDescriptor.class);
+    public final Pattern<INPUT_TYPE> pattern;
     public final RulePromise defaultPromise;
 
-    public PatternDescriptor(Pattern<INPUT_TYPE, RULE_TYPE> pattern, RulePromise defaultPromise) {
+    public PatternDescriptor(Pattern<INPUT_TYPE> pattern, RulePromise defaultPromise) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultPromise = Objects.requireNonNull(defaultPromise, "defaultPromise can not be null");
     }
 
-    public PatternDescriptor<INPUT_TYPE, RULE_TYPE> when(Predicate<INPUT_TYPE> predicate) {
+    public PatternDescriptor<INPUT_TYPE> when(Predicate<INPUT_TYPE> predicate) {
         List<Predicate<INPUT_TYPE>> predicates = ImmutableList.<Predicate<INPUT_TYPE>>builder()
                 .addAll(pattern.getPredicates())
                 .add(predicate)
@@ -48,13 +51,66 @@ public class PatternDescriptor<INPUT_TYPE extends RULE_TYPE, RULE_TYPE extends T
         return new PatternDescriptor<>(pattern.withPredicates(predicates), defaultPromise);
     }
 
-    public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> then(
-            Function<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
-        return new PatternMatcher<>(pattern, defaultPromise, ctx -> matchedAction.apply(ctx.root));
+    public PatternDescriptor<INPUT_TYPE> whenNot(Predicate<INPUT_TYPE> predicate) {
+        return when(predicate.negate());
     }
 
-    public <OUTPUT_TYPE extends RULE_TYPE> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> thenApply(
-            MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction) {
-        return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> then(
+            Function<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        MatchedAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedAction = ctx -> matchedAction.apply(ctx.root);
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedAction, matchedAction.getClass().getName());
+    }
+
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApply(
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        return new PatternMatcher<>(pattern, defaultPromise, matchedAction, matchedAction.getClass().getName());
+    }
+
+    /**
+     * Same as thenApply, but catch all exception and return null
+     */
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApplyNoThrow(
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        MatchedAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedAction = ctx -> {
+            try {
+                return matchedAction.apply(ctx);
+            } catch (Exception ex) {
+                LOG.warn("nereids apply rule failed, because {}", ex.getMessage(), ex);
+                return null;
+            }
+        };
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedAction, matchedAction.getClass().getName());
+    }
+
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenMulti(
+            Function<INPUT_TYPE, List<OUTPUT_TYPE>> matchedAction) {
+        MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedAction = ctx -> matchedAction.apply(ctx.root);
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedAction, matchedAction.getClass().getName());
+    }
+
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApplyMulti(
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        return new PatternMatcher<>(pattern, defaultPromise, matchedAction, matchedAction.getClass().getName());
+    }
+
+    /**
+     * Apply rule to return multi result, catch exception to make sure no influence on other rule
+     */
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApplyMultiNoThrow(
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedMultiAction) {
+        MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedMultiAction = ctx -> {
+            try {
+                return matchedMultiAction.apply(ctx);
+            } catch (Exception ex) {
+                LOG.warn("nereids apply rule failed, because {}", ex.getMessage(), ex);
+                return null;
+            }
+        };
+        return new PatternMatcher<>(pattern, defaultPromise,
+                adaptMatchedMultiAction, matchedMultiAction.getClass().getName());
+    }
+
+    public Pattern<INPUT_TYPE> getPattern() {
+        return pattern;
     }
 }

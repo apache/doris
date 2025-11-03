@@ -17,11 +17,13 @@
 
 #include "util/parse_util.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <string>
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -93,7 +95,7 @@ TEST(TestParseMemSpec, Bad) {
     for (const auto& value : bad_values) {
         bool is_percent = false;
         int64_t bytes = ParseUtil::parse_mem_spec(value, -1, MemInfo::_s_physical_mem, &is_percent);
-        EXPECT_EQ(-1, bytes);
+        EXPECT_EQ(-1, bytes) << ", value: " << value;
     }
 }
 

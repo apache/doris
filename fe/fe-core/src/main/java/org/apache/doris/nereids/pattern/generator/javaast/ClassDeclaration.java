@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-
 /** java's class declaration. */
 public class ClassDeclaration extends TypeDeclaration {
     public final Optional<TypeType> extendsType;
@@ -49,9 +48,7 @@ public class ClassDeclaration extends TypeDeclaration {
     @Override
     public String toString() {
         StringBuilder buffer = new StringBuilder();
-        if (packageName.isPresent()) {
-            buffer.append("package ").append(packageName.get()).append(";\n\n");
-        }
+        packageName.ifPresent(qualifiedName -> buffer.append("package ").append(qualifiedName).append(";\n\n"));
 
         if (!imports.isEmpty()) {
             for (ImportDeclaration importDeclaration : imports) {
@@ -65,13 +62,9 @@ public class ClassDeclaration extends TypeDeclaration {
             mod += " ";
         }
         buffer.append(mod).append("class ").append(name);
-        if (typeParameters.isPresent()) {
-            buffer.append(typeParameters.get());
-        }
+        typeParameters.ifPresent(buffer::append);
         buffer.append(" ");
-        if (extendsType.isPresent()) {
-            buffer.append("extends ").append(extendsType.get()).append(" ");
-        }
+        extendsType.ifPresent(typeType -> buffer.append("extends ").append(typeType).append(" "));
         if (!implementTypes.isEmpty()) {
             buffer.append("implements ").append(Joiner.on(", ").join(implementTypes)).append(" ");
         }

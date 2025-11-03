@@ -19,21 +19,34 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -50,8 +63,10 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /*
  * Repository represents a remote storage for backup to or restore from
@@ -78,7 +93,7 @@ import java.util.List;
  *                 * __10023_seg2.dat.DNW231dnklawd
  *                 * __10023.hdr.dnmwDDWI92dDko
  */
-public class Repository implements Writable {
+public class Repository implements Writable, GsonPostProcessable {
     public static final String PREFIX_REPO = "__palo_repository_";
     public static final String PREFIX_SNAPSHOT_DIR = "__ss_";
     public static final String PREFIX_DB = "__db_";
@@ -91,34 +106,46 @@ public class Repository implements Writable {
     public static final String FILE_REPO_INFO = "__repo_info";
     public static final String FILE_META_INFO = "__meta";
     public static final String DIR_SNAPSHOT_CONTENT = "__ss_content";
+    public static final String KEEP_ON_LOCAL_REPO_NAME = "__keep_on_local__";
+    public static final long KEEP_ON_LOCAL_REPO_ID = -1;
     private static final Logger LOG = LogManager.getLogger(Repository.class);
     private static final String PATH_DELIMITER = "/";
     private static final String CHECKSUM_SEPARATOR = ".";
 
+    @SerializedName("id")
     private long id;
+    @SerializedName("n")
     private String name;
     private String errMsg;
+    @SerializedName("ct")
     private long createTime;
 
     // If True, user can not backup data to this repo.
+    @SerializedName("iro")
     private boolean isReadOnly;
 
     // BOS location should start with "bos://your_bucket_name/"
     // and the specified bucket should exist.
+    @SerializedName("lo")
     private String location;
 
-    private BlobStorage storage;
+    @SerializedName("fs")
+    private PersistentFileSystem fileSystem;
+
+    public PersistentFileSystem getFileSystem() {
+        return fileSystem;
+    }
 
     private Repository() {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, BlobStorage storage) {
+    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
-        this.storage = storage;
+        this.fileSystem = fileSystem;
         this.createTime = System.currentTimeMillis();
     }
 
@@ -129,7 +156,7 @@ public class Repository implements Writable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss"));
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 
@@ -159,7 +186,7 @@ public class Repository implements Writable {
             return null;
         }
 
-        return Pair.create(fileName, md5sum);
+        return Pair.of(fileName, md5sum);
     }
 
     // in: /path/to/orig_file
@@ -169,9 +196,25 @@ public class Repository implements Writable {
     }
 
     public static Repository read(DataInput in) throws IOException {
-        Repository repo = new Repository();
-        repo.readFields(in);
-        return repo;
+        return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        try {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
+            this.fileSystem = FileSystemFactory.get(storageProperties);
+        } catch (RuntimeException exception) {
+            LOG.warn("File system initialization failed due to incompatible configuration parameters. "
+                            + "The system has reverted to BrokerFileSystem as a fallback. "
+                            + "However, the current configuration is not supported by this version and"
+                            + " cannot be used as is. "
+                            + "Please review the configuration and update it to match the supported parameter"
+                            + " format. Root cause: {}",
+                    ExceptionUtils.getRootCause(exception), exception);
+            BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
+            this.fileSystem = FileSystemFactory.get(brokerProperties);
+        }
     }
 
     public long getId() {
@@ -187,15 +230,26 @@ public class Repository implements Writable {
     }
 
     public String getLocation() {
-        return location;
+        if (null == fileSystem) {
+            return location;
+        }
+        try {
+            if (null == fileSystem.getStorageProperties()) {
+                return location;
+            } else {
+                return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public String getErrorMsg() {
         return errMsg;
     }
 
-    public BlobStorage getStorage() {
-        return storage;
+    public PersistentFileSystem getRemoteFileSystem() {
+        return fileSystem;
     }
 
     public long getCreateTime() {
@@ -204,10 +258,14 @@ public class Repository implements Writable {
 
     // create repository dir and repo info file
     public Status initRepository() {
+        if (FeConstants.runningUnitTest) {
+            return Status.OK;
+        }
+
         String repoInfoFilePath = assembleRepoInfoFilePath();
         // check if the repo is already exist in remote
         List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status st = storage.list(repoInfoFilePath, remoteFiles);
+        Status st = fileSystem.globList(repoInfoFilePath, remoteFiles);
         if (!st.ok()) {
             return st;
         }
@@ -218,9 +276,9 @@ public class Repository implements Writable {
             }
 
             // exist, download and parse the repo info file
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + System.currentTimeMillis();
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
             try {
-                st = storage.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
+                st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
                 if (!st.ok()) {
                     return st;
                 }
@@ -228,14 +286,19 @@ public class Repository implements Writable {
                 byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
                 String json = new String(bytes, StandardCharsets.UTF_8);
                 JSONObject root = (JSONObject) JSONValue.parse(json);
+                if (name.compareTo((String) root.get("name")) != 0) {
+                    return new Status(ErrCode.COMMON_ERROR,
+                            "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
+                                    + (String) root.get("name") + "' from " + repoInfoFilePath);
+                }
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
                 if (createTime == -1) {
                     return new Status(ErrCode.COMMON_ERROR,
                             "failed to parse create time of repository: " + root.get("create_time"));
                 }
-                return Status.OK;
 
+                return Status.OK;
             } catch (IOException e) {
                 return new Status(ErrCode.COMMON_ERROR, "failed to read repo info file: " + e.getMessage());
             } finally {
@@ -252,27 +315,27 @@ public class Repository implements Writable {
             root.put("name", name);
             root.put("create_time", TimeUtils.longToTimeString(createTime));
             String repoInfoContent = root.toString();
-            return storage.directUpload(repoInfoContent, repoInfoFilePath);
+            return fileSystem.directUpload(repoInfoContent, repoInfoFilePath);
         }
     }
 
     // eg: location/__palo_repository_repo_name/__repo_info
     public String assembleRepoInfoFilePath() {
-        return Joiner.on(PATH_DELIMITER).join(location,
+        return Joiner.on(PATH_DELIMITER).join(getLocation(),
                 joinPrefix(PREFIX_REPO, name),
                 FILE_REPO_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__meta
     public String assembleMetaInfoFilePath(String label) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 FILE_META_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__info_2018-01-01-08-00-00
     public String assembleJobInfoFilePath(String label, long createTime) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 jobInfoFileNameWithTimestamp(createTime));
     }
@@ -280,7 +343,7 @@ public class Repository implements Writable {
     // eg:
     // __palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10020/__10022/
     public String getRepoTabletPathBySnapshotInfo(String label, SnapshotInfo info) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 joinPrefix(PREFIX_DB, info.getDbId()),
@@ -299,7 +362,7 @@ public class Repository implements Writable {
     }
 
     public String getRepoPath(String label, String childPath) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 childPath);
@@ -315,12 +378,15 @@ public class Repository implements Writable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
         try {
             URI checkUri = new URI(path);
-            Status st = storage.checkPathExist(checkUri.normalize().toString());
+            Status st = fileSystem.exists(checkUri.normalize().toString());
             if (!st.ok()) {
                 errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + st.getErrMsg();
                 return false;
@@ -343,14 +409,16 @@ public class Repository implements Writable {
         String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
                 + "*";
         List<RemoteFile> result = Lists.newArrayList();
-        Status st = storage.list(listPath, result);
+        Status st = fileSystem.globList(listPath, result);
         if (!st.ok()) {
             return st;
         }
 
         for (RemoteFile remoteFile : result) {
             if (remoteFile.isFile()) {
-                LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get snapshot path{} which is not a dir", remoteFile);
+                }
                 continue;
             }
 
@@ -379,14 +447,16 @@ public class Repository implements Writable {
                 joinPrefix(PREFIX_IDX, info.getIndexId()),
                 joinPrefix(PREFIX_COMMON, info.getTabletId()),
                 joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
-        LOG.debug("get remote tablet snapshot path: {}", path);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get remote tablet snapshot path: {}", path);
+        }
         return path;
     }
 
     public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
         String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;
         File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "info_" + System.currentTimeMillis());
+                + "info_" + allocLocalFileSuffix());
         try {
             Status st = download(remoteInfoFilePath, localInfoFile.getPath());
             if (!st.ok()) {
@@ -408,7 +478,7 @@ public class Repository implements Writable {
     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "meta_" + System.currentTimeMillis());
+                + "meta_" + allocLocalFileSuffix());
 
         try {
             Status st = download(remoteMetaFilePath, localMetaFile.getAbsolutePath());
@@ -439,9 +509,9 @@ public class Repository implements Writable {
         // Preconditions.checkArgument(remoteFilePath.startsWith(location), remoteFilePath);
         // get md5usm of local file
         File file = new File(localFilePath);
-        String md5sum = null;
-        try {
-            md5sum = DigestUtils.md5Hex(new FileInputStream(file));
+        String md5sum;
+        try (FileInputStream fis = new FileInputStream(file)) {
+            md5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {
@@ -451,53 +521,45 @@ public class Repository implements Writable {
         String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
 
         Status st = Status.OK;
-        if (storage instanceof BrokerStorage) {
+        if (fileSystem instanceof BrokerFileSystem) {
             // this may be a retry, so we should first delete remote file
             String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
-                    localFilePath, tmpRemotePath, finalRemotePath);
-            st = storage.delete(tmpRemotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}",
+                        localFilePath, tmpRemotePath, finalRemotePath);
+            }
+            st = fileSystem.delete(tmpRemotePath);
             if (!st.ok()) {
                 return st;
             }
 
-            st = storage.delete(finalRemotePath);
+            st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
             }
 
             // upload tmp file
-            st = storage.upload(localFilePath, tmpRemotePath);
+            st = fileSystem.upload(localFilePath, tmpRemotePath);
             if (!st.ok()) {
                 return st;
             }
 
             // rename tmp file with checksum named file
-            st = storage.rename(tmpRemotePath, finalRemotePath);
+            st = fileSystem.rename(tmpRemotePath, finalRemotePath);
             if (!st.ok()) {
                 return st;
             }
-        } else if (storage instanceof S3Storage) {
-            LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
-            st = storage.delete(finalRemotePath);
-            if (!st.ok()) {
-                return st;
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             }
-
-            // upload final file
-            st = storage.upload(localFilePath, finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-        } else if (storage instanceof HdfsStorage) {
-            LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
-            st = storage.delete(finalRemotePath);
+            st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
                 return st;
             }
 
             // upload final file
-            st = storage.upload(localFilePath, finalRemotePath);
+            st = fileSystem.upload(localFilePath, finalRemotePath);
             if (!st.ok()) {
                 return st;
             }
@@ -511,7 +573,7 @@ public class Repository implements Writable {
     public Status download(String remoteFilePath, String localFilePath) {
         // 0. list to get to full name(with checksum)
         List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status status = storage.list(remoteFilePath + "*", remoteFiles);
+        Status status = fileSystem.globList(remoteFilePath + "*", remoteFiles);
         if (!status.ok()) {
             return status;
         }
@@ -525,7 +587,9 @@ public class Repository implements Writable {
 
         String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
                 remoteFiles.get(0).getName());
-        LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
+        }
 
         // 1. get checksum from remote file name
         Pair<String, String> pair = decodeFileNameWithChecksum(remoteFilePathWithChecksum);
@@ -539,15 +603,16 @@ public class Repository implements Writable {
         String md5sum = pair.second;
 
         // 2. download
-        status = storage.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath, remoteFiles.get(0).getSize());
+        status = fileSystem.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath,
+                remoteFiles.get(0).getSize());
         if (!status.ok()) {
             return status;
         }
 
         // 3. verify checksum
         String localMd5sum = null;
-        try {
-            localMd5sum = DigestUtils.md5Hex(new FileInputStream(localFilePath));
+        try (FileInputStream fis = new FileInputStream(localFilePath)) {
+            localMd5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {
@@ -562,15 +627,15 @@ public class Repository implements Writable {
         return Status.OK;
     }
 
-    public Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
+    public Status getBrokerAddress(Long beId, Env env, List<FsBroker> brokerAddrs) {
         // get backend
-        Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+        Backend be = Env.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
             return new Status(ErrCode.COMMON_ERROR, "backend " + beId + " is missing. "
                     + "failed to send upload snapshot task");
         }
         // only Broker storage backend need to get broker addr, other type return a fake one;
-        if (storage.getStorageType() != StorageBackend.StorageType.BROKER) {
+        if (fileSystem.getStorageType() != StorageBackend.StorageType.BROKER) {
             brokerAddrs.add(new FsBroker("127.0.0.1", 0));
             return Status.OK;
         }
@@ -578,15 +643,15 @@ public class Repository implements Writable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = catalog.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getHost());
+            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task: "
+                    + fileSystem.getName() + " when try to send upload snapshot task: "
                     + e.getMessage());
         }
         if (brokerAddr == null) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task");
+                    + fileSystem.getName() + " when try to send upload snapshot task");
         }
         brokerAddrs.add(brokerAddr);
         return Status.OK;
@@ -599,8 +664,8 @@ public class Repository implements Writable {
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(String.valueOf(isReadOnly));
         info.add(location);
-        info.add(storage.getType() != StorageBackend.StorageType.BROKER ? "-" : storage.getName());
-        info.add(storage.getStorageType().name());
+        info.add(fileSystem.getStorageType() != StorageBackend.StorageType.BROKER ? "-" : fileSystem.getName());
+        info.add(fileSystem.getStorageType().name());
         info.add(errMsg == null ? FeConstants.null_string : errMsg);
         return info;
     }
@@ -630,22 +695,55 @@ public class Repository implements Writable {
         return snapshotInfos;
     }
 
+    public String getCreateStatement() {
+        StringBuilder stmtBuilder = new StringBuilder();
+        stmtBuilder.append("CREATE ");
+        if (this.isReadOnly) {
+            stmtBuilder.append("READ ONLY ");
+        }
+        stmtBuilder.append("REPOSITORY ");
+        stmtBuilder.append(this.name);
+        stmtBuilder.append(" \nWITH ");
+        StorageBackend.StorageType storageType = this.fileSystem.getStorageType();
+        if (storageType == StorageBackend.StorageType.S3) {
+            stmtBuilder.append(" S3 ");
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            stmtBuilder.append(" HDFS ");
+        } else if (storageType == StorageBackend.StorageType.BROKER) {
+            stmtBuilder.append(" BROKER ");
+            stmtBuilder.append(this.fileSystem.getName());
+        } else {
+            // should never reach here
+            throw new UnsupportedOperationException(storageType.toString() + " backend is not implemented");
+        }
+        stmtBuilder.append(" \nON LOCATION \"");
+        stmtBuilder.append(this.location);
+        stmtBuilder.append("\"");
+
+        stmtBuilder.append("\nPROPERTIES\n(");
+        Map<String, String> properties = new HashMap();
+        properties.putAll(this.getRemoteFileSystem().getProperties());
+        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
+        stmtBuilder.append("\n)");
+        return stmtBuilder.toString();
+    }
+
     private List<String> getSnapshotInfo(String snapshotName, String timestamp) {
         List<String> info = Lists.newArrayList();
         if (Strings.isNullOrEmpty(timestamp)) {
             // get all timestamp
             // path eg: /location/__palo_repository_repo_name/__ss_my_snap/__info_*
             String infoFilePath = assembleJobInfoFilePath(snapshotName, -1);
-            LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
+            }
             List<RemoteFile> results = Lists.newArrayList();
-            Status st = storage.list(infoFilePath + "*", results);
+            Status st = fileSystem.globList(infoFilePath + "*", results);
             if (!st.ok()) {
                 info.add(snapshotName);
                 info.add(FeConstants.null_string);
                 info.add("ERROR: Failed to get info: " + st.getErrMsg());
             } else {
-                info.add(snapshotName);
-
                 List<String> tmp = Lists.newArrayList();
                 for (RemoteFile file : results) {
                     // __info_2018-04-18-20-11-00.Jdwnd9312sfdn1294343
@@ -657,13 +755,20 @@ public class Repository implements Writable {
                     }
                     tmp.add(disjoinPrefix(PREFIX_JOB_INFO, pureFileName.first));
                 }
-                info.add(Joiner.on("\n").join(tmp));
-                info.add(tmp.isEmpty() ? "ERROR: no snapshot" : "OK");
+                if (!tmp.isEmpty()) {
+                    info.add(snapshotName);
+                    info.add(Joiner.on("\n").join(tmp));
+                    info.add("OK");
+                } else {
+                    info.add(snapshotName);
+                    info.add(FeConstants.null_string);
+                    info.add("ERROR: No info file found");
+                }
             }
         } else {
-            // get specified timestamp
-            // path eg: /path/to/backup/__info_2081-04-19-12-59-11
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/" + Repository.PREFIX_JOB_INFO + timestamp;
+            // get specified timestamp, different repos might have snapshots with same timestamp.
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/"
+                    + Repository.PREFIX_JOB_INFO + allocLocalFileSuffix();
             try {
                 String remoteInfoFilePath = assembleJobInfoFilePath(snapshotName, -1) + timestamp;
                 Status st = download(remoteInfoFilePath, localFilePath);
@@ -701,22 +806,13 @@ public class Repository implements Writable {
         return info;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        Text.writeString(out, name);
-        out.writeBoolean(isReadOnly);
-        Text.writeString(out, location);
-        storage.write(out);
-        out.writeLong(createTime);
+    // Allocate an unique suffix.
+    private String allocLocalFileSuffix() {
+        return System.currentTimeMillis() + UUID.randomUUID().toString().replace("-", "_");
     }
 
-    public void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        name = Text.readString(in);
-        isReadOnly = in.readBoolean();
-        location = Text.readString(in);
-        storage = BlobStorage.read(in);
-        createTime = in.readLong();
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }

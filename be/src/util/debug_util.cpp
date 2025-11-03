@@ -17,27 +17,20 @@
 
 #include "util/debug_util.h"
 
+#include <bvar/bvar.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stdint.h>
+
+#include <cstring>
 #include <iomanip>
-#include <sstream>
+#include <map>
+#include <sstream> // IWYU pragma: keep
+#include <utility>
 
-#include "common/logging.h"
-#include "gen_cpp/Opcodes_types.h"
-#include "gen_cpp/types.pb.h"
-#include "gen_cpp/version.h"
-#include "util/cpu_info.h"
-
-#define PRECISION 2
-#define KILOBYTE (1024)
-#define MEGABYTE (1024 * 1024)
-#define GIGABYTE (1024 * 1024 * 1024)
-
-#define SECOND (1000)
-#define MINUTE (1000 * 60)
-#define HOUR (1000 * 60 * 60)
-
-#define THOUSAND (1000)
-#define MILLION (THOUSAND * 1000)
-#define BILLION (MILLION * 1000)
+#include "common/version_internal.h"
+#include "fmt/core.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -54,24 +47,50 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 
 std::string get_build_version(bool compact) {
     std::stringstream ss;
-    ss << DORIS_BUILD_VERSION
+    // clang-format off
+    ss << version::doris_build_version()
+#if defined(__x86_64__) || defined(_M_X64)
+#ifdef __AVX2__
+       << "(AVX2)"
+#else
+       << "(SSE4.2)"
+#endif
+#elif defined(__aarch64__)
+       << "(AArch64)"
+#endif
 #ifdef NDEBUG
        << " RELEASE"
 #else
        << " DEBUG"
+#if defined(ADDRESS_SANITIZER)
+       << " with ASAN"
+#elif defined(LEAK_SANITIZER)
+       << " with LSAN"
+#elif defined(THREAD_SANITIZER)
+       << " with TSAN"
+#elif defined(UNDEFINED_BEHAVIOR_SANITIZER)
+       << " with UBSAN"
+#elif defined(MEMORY_SANITIZER)
+       << " with MSAN"
+#elif defined(BLACKLIST_SANITIZER)
+       << " with BLSAN"
 #endif
-       << " (build " << DORIS_BUILD_HASH << ")";
+#endif
+       << (version::doris_feature_list().empty() ? "" : " features: " + version::doris_feature_list())
+       << " (build " << version::doris_build_hash() << ")";
+    // clang-format on
 
     if (!compact) {
-        ss << std::endl << "Built on " << DORIS_BUILD_TIME << " by " << DORIS_BUILD_INFO;
+        ss << std::endl
+           << "Built on " << version::doris_build_time() << " by " << version::doris_build_info();
     }
 
     return ss.str();
 }
 
 std::string get_short_version() {
-    static std::string short_version(std::string(DORIS_BUILD_VERSION) + "-" +
-                                     DORIS_BUILD_SHORT_HASH);
+    static std::string short_version(std::string(version::doris_build_version()) + "-" +
+                                     version::doris_build_short_hash());
     return short_version;
 }
 
@@ -88,6 +107,44 @@ std::string hexdump(const char* buf, int len) {
         ss << std::setfill('0') << std::setw(2) << ((uint16_t)buf[i] & 0xff);
     }
     return ss.str();
+}
+
+bvar::Status<uint64_t> be_version_metrics("doris_be_version", [] {
+    std::stringstream ss;
+    ss << version::doris_build_version_major() << 0 << version::doris_build_version_minor() << 0
+       << version::doris_build_version_patch();
+    if (version::doris_build_version_hotfix() > 0) {
+        ss << 0 << version::doris_build_version_hotfix();
+    }
+    return std::strtoul(ss.str().c_str(), nullptr, 10);
+}());
+
+std::string PrintThriftNetworkAddress(const TNetworkAddress& add) {
+    std::stringstream ss;
+    add.printTo(ss);
+    return ss.str();
+}
+
+std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos) {
+    std::stringstream ss;
+    const size_t count = fe_infos.size();
+
+    for (int i = 0; i < count; ++i) {
+        fe_infos[i].printTo(ss);
+        ss << ' ';
+    }
+
+    return ss.str();
+}
+
+std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
+    std::stringstream ss;
+    fe_info.printTo(ss);
+    return ss.str();
+}
+
+std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid) {
+    return fmt::format("{}|{}", print_id(qid), print_id(iid));
 }
 
 } // namespace doris

@@ -17,60 +17,65 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 
-import java.util.Objects;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * string regex expression.
  * Such as: like, regexp
  */
-public abstract class StringRegexPredicate extends Expression implements BinaryExpression {
-    /**
-     * Constructor of StringRegexPredicate.
-     *
-     * @param nodeType node type of expression
-     * @param left     left child of string regex
-     * @param right    right child of string regex
-     */
-    public StringRegexPredicate(NodeType nodeType, Expression left, Expression right) {
-        super(nodeType, left, right);
+public abstract class StringRegexPredicate extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+    );
+
+    protected StringRegexPredicate(String name, List<Expression> children) {
+        this(name, children, false);
+    }
+
+    protected StringRegexPredicate(String name, List<Expression> children, boolean inferred) {
+        super(name, children, inferred);
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        return BooleanType.INSTANCE;
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 
     @Override
-    public String toSql() {
-        String nodeType = getType().toString();
-        return left().toSql() + ' ' + nodeType + ' ' + right().toSql();
+    public String computeToSql() {
+        return '(' + left().toSql() + ' ' + getName() + ' ' + right().toSql() + ')';
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " " + getName() + " " + right() + ")";
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(left().toDigest())
+                .append(' ')
+                .append(getName())
+                .append(' ')
+                .append(right().toDigest());
+        return sb.toString();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitStringRegexPredicate(this, context);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(type, left(), right());
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        StringRegexPredicate other = (StringRegexPredicate) o;
-        return (type == other.getType()) && Objects.equals(left(), other.left())
-                && Objects.equals(right(), other.right());
     }
 }

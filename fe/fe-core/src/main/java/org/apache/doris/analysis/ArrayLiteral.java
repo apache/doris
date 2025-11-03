@@ -18,46 +18,38 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class ArrayLiteral extends LiteralExpr {
 
     public ArrayLiteral() {
-        type = new ArrayType(Type.NULL, false);
+        type = new ArrayType(Type.NULL);
         children = new ArrayList<>();
     }
 
-    public ArrayLiteral(LiteralExpr... v) {
-        Type itemType = Type.NULL;
-        boolean containsNull = false;
-        for (LiteralExpr expr : v) {
-            if (itemType == Type.NULL || expr.type.getSlotSize() > itemType.getSlotSize()) {
-                itemType = expr.type;
-            }
-            if (expr.isNullable()) {
-                containsNull = true;
-            }
-        }
-        type = new ArrayType(itemType, containsNull);
-        children = new ArrayList<>(v.length);
-        children.addAll(Arrays.asList(v));
+    public ArrayLiteral(Type type, LiteralExpr... exprs) {
+        this.type = type;
+        children = new ArrayList<>(Arrays.asList(exprs));
+        analysisDone();
     }
 
     protected ArrayLiteral(ArrayLiteral other) {
         super(other);
     }
+
 
     @Override
     public boolean isMinValue() {
@@ -66,7 +58,14 @@ public class ArrayLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        int size = Math.min(expr.getChildren().size(), this.children.size());
+        for (int i = 0; i < size; i++) {
+            if (((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i))) != 0) {
+                return ((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i)));
+            }
+        }
+        return this.children.size() > expr.getChildren().size() ? 1 :
+                (this.children.size() == expr.getChildren().size() ? 0 : -1);
     }
 
     @Override
@@ -74,7 +73,16 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl()));
 
-        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
+
+        return "[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override
@@ -82,15 +90,25 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toDigestImpl()));
 
-        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
+        return "[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(((LiteralExpr) v).getStringValue()));
+        children.forEach(v -> list.add(v.getStringValue()));
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
 
-        return "ARRAY[" + StringUtils.join(list, ", ") + "]";
+    @Override
+    public String getStringValueForQuery(FormatOptions options) {
+        List<String> list = new ArrayList<>(children.size());
+        ++options.level;
+        children.forEach(v -> {
+            list.add(v.getStringValueInComplexTypeForQuery(options));
+        });
+        --options.level;
+        return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
 
     @Override
@@ -100,28 +118,20 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(children.size());
-        for (Expr e : children) {
-            Expr.writeTo(e, out);
-        }
+    public int hashCode() {
+        return Objects.hashCode(children);
     }
 
     @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int size = in.readInt();
-        children = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            children.add(Expr.readIn(in));
+    public boolean equals(Object o) {
+        if (!(o instanceof ArrayLiteral)) {
+            return false;
         }
-    }
-
-    public static ArrayLiteral read(DataInput in) throws IOException {
-        ArrayLiteral literal = new ArrayLiteral();
-        literal.readFields(in);
-        return literal;
+        if (this == o) {
+            return true;
+        }
+        ArrayLiteral that = (ArrayLiteral) o;
+        return Objects.equals(children, that.children);
     }
 
     @Override
@@ -130,16 +140,9 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!targetType.isArrayType()) {
-            return super.uncheckedCastTo(targetType);
+    public void checkValueValid() throws AnalysisException {
+        for (Expr e : children) {
+            e.checkValueValid();
         }
-        ArrayLiteral literal = new ArrayLiteral(this);
-        for (int i = 0; i < children.size(); ++ i) {
-            Expr child = children.get(i);
-            literal.children.set(i, child.uncheckedCastTo(((ArrayType) targetType).getItemType()));
-        }
-        literal.setType(targetType);
-        return literal;
     }
 }

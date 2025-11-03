@@ -61,8 +61,13 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
     }
 
     public void write(short op, Writable writable) throws IOException {
-        write(op);
+        bufCurrent.writeShort(op);
         writable.write(bufCurrent);
+    }
+
+    public void write(short op, byte[] data) throws IOException {
+        bufCurrent.writeShort(op);
+        bufCurrent.write(data);
     }
 
     // Create empty edits logs file.
@@ -99,7 +104,7 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
      */
     public void setReadyToFlush() throws IOException {
         assert bufReady.size() == 0 : "previous data is not flushed yet";
-        write(OperationType.OP_INVALID); // insert end-of-file marker
+        write(OperationType.OP_LOCAL_EOF); // insert end-of-file marker
         DataOutputBuffer tmp = bufReady;
         bufReady = bufCurrent;
         bufCurrent = tmp;

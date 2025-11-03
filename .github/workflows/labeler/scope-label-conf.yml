@@ -16,40 +16,15 @@
 # under the License.
 #
 
-kind/docs:
-  - docs/**/*
-  - README.md
-  - ./**/README.md
-  - CONTRIBUTING.md
-  - CODE_OF_CONDUCT.md
-  - CODE_OF_CONDUCT_CN.md
+meta-change:
+  - fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java
+  - fe/fe-core/src/main/java/org/apache/doris/persist/OperationType.java
+  - fe/fe-core/src/main/java/org/apache/doris/persist/meta/PersistMetaModules.java
+  - fe/fe-core/src/main/java/org/apache/doris/persist/EditLog.java
+  - gensrc/thrift/*
+  - gensrc/proto/*
 
-kind/test:
-  - regression-test/**/*.groovy
-  - regression-test/**/*.sql
-
-area/vectorization:
-  - be/src/vec/**/*
-
-area/nereids:
-  - fe/fe-core/src/main/java/org/apache/doris/nereids/**/*
-  - fe/fe-core/src/test/java/org/apache/doris/nereids/**/*
-
-area/planner:
-  - fe/fe-core/src/main/java/org/apache/doris/planner/**/*
-  - fe/fe-core/src/main/java/org/apache/doris/analysis/**/*
-
-area/load:
-  - fe/fe-core/src/main/java/org/apache/doris/load/*
-  - fe/fe-core/src/main/java/org/apache/doris/load/**/*
-
-area/routine load:
-  - fe/fe-core/src/main/java/org/apache/doris/load/routineload/*
-
-area/sql/function:
-  - fe/fe-core/src/main/java/org/apache/doris/rewrite/FEFunctions.java
-  - gensrc/script/doris_builtins_functions.py
-  - be/src/vec/functions/*
-
-area/spark-load:
-  - fe/fe-core/src/main/java/org/apache/doris/load/loadv2/SparkLoad*.java
+doing:
+  - base-branch: 'master'
+  - changed-files:
+    - any-glob-to-any-file: '**'

@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 
-import java.util.Objects;
-
 /**
  * UUID for Expression in Nereids.
  */
@@ -31,42 +29,37 @@ public class ExprId extends Id<ExprId> {
         super(id);
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        ExprId exprId = (ExprId) o;
-        return id == exprId.id;
+    /**
+     * Should be only called by {@link StatementScopeIdGenerator}.
+     */
+    public static IdGenerator<ExprId> createGenerator() {
+        return createGenerator(0);
     }
 
     /**
-     * Should be only called by {@link org.apache.doris.nereids.trees.expressions.NamedExpressionUtil}.
+     * for ut test only
      */
-    public static IdGenerator<ExprId> createGenerator() {
+    public static IdGenerator<ExprId> createGenerator(int initialId) {
         return new IdGenerator<ExprId>() {
             @Override
             public ExprId getNextId() {
                 return new ExprId(nextId++);
             }
-
-            @Override
-            public ExprId getMaxId() {
-                return new ExprId(nextId++);
-            }
-        };
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
+        }.resetId(initialId);
     }
 
     @Override
     public String toString() {
         return "" + id;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return super.equals(obj);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

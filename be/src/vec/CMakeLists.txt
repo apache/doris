@@ -19,204 +19,41 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
-set(VEC_FILES
-  aggregate_functions/aggregate_function_window_funnel.cpp
-  aggregate_functions/aggregate_function_avg.cpp
-  aggregate_functions/aggregate_function_collect.cpp
-  aggregate_functions/aggregate_function_count.cpp
-  aggregate_functions/aggregate_function_distinct.cpp
-  aggregate_functions/aggregate_function_sum.cpp
-  aggregate_functions/aggregate_function_min_max.cpp
-  aggregate_functions/aggregate_function_min_max_by.cpp
-  aggregate_functions/aggregate_function_null.cpp
-  aggregate_functions/aggregate_function_uniq.cpp
-  aggregate_functions/aggregate_function_hll_union_agg.cpp
-  aggregate_functions/aggregate_function_bitmap.cpp
-  aggregate_functions/aggregate_function_reader.cpp
-  aggregate_functions/aggregate_function_window.cpp
-  aggregate_functions/aggregate_function_stddev.cpp
-  aggregate_functions/aggregate_function_topn.cpp
-  aggregate_functions/aggregate_function_approx_count_distinct.cpp
-  aggregate_functions/aggregate_function_group_concat.cpp
-  aggregate_functions/aggregate_function_percentile_approx.cpp
-  aggregate_functions/aggregate_function_simple_factory.cpp
-  aggregate_functions/aggregate_function_java_udaf.h
-  aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
-  columns/column.cpp
-  columns/column_array.cpp
-  columns/column_const.cpp
-  columns/column_decimal.cpp
-  columns/column_nullable.cpp
-  columns/column_string.cpp
-  columns/column_vector.cpp
-  columns/columns_common.cpp
-  common/demangle.cpp
-  common/exception.cpp
-  common/mremap.cpp
-  common/pod_array.cpp
-  common/string_utils/string_utils.cpp
-  core/block.cpp
-  core/block_info.cpp
-  core/column_with_type_and_name.cpp
-  core/field.cpp
-  core/field.cpp
-  core/sort_block.cpp
-  core/materialize_block.cpp
-  data_types/data_type.cpp
-  data_types/data_type_array.cpp
-  data_types/data_type_bitmap.cpp
-  data_types/data_type_factory.cpp
-  data_types/data_type_hll.cpp
-  data_types/data_type_nothing.cpp
-  data_types/data_type_nothing.cpp
-  data_types/data_type_nullable.cpp
-  data_types/data_type_nullable.cpp
-  data_types/data_type_number_base.cpp
-  data_types/data_type_string.cpp
-  data_types/data_type_decimal.cpp
-  data_types/get_least_supertype.cpp
-  data_types/nested_utils.cpp
-  data_types/data_type_date.cpp
-  data_types/data_type_date_time.cpp
-  data_types/data_type_time_v2.cpp
-  exec/vaggregation_node.cpp
-  exec/varrow_scanner.cpp
-  exec/ves_http_scan_node.cpp
-  exec/ves_http_scanner.cpp
-  exec/volap_scan_node.cpp
-  exec/vsort_node.cpp
-  exec/vsort_exec_exprs.cpp
-  exec/volap_scanner.cpp
-  exec/vexchange_node.cpp
-  exec/vset_operation_node.cpp
-  exec/vunion_node.cpp
-  exec/vintersect_node.cpp
-  exec/vexcept_node.cpp
-  exec/vselect_node.cpp
-  exec/vblocking_join_node.cpp
-  exec/vcross_join_node.cpp
-  exec/vodbc_scan_node.cpp
-  exec/vmysql_scan_node.cpp
-  exec/vschema_scan_node.cpp
-  exec/vempty_set_node.cpp
-  exec/vanalytic_eval_node.cpp
-  exec/vassert_num_rows_node.cpp
-  exec/vrepeat_node.cpp
-  exec/vtable_function_node.cpp
-  exec/vbroker_scan_node.cpp
-  exec/vbroker_scanner.cpp
-  exec/vjson_scanner.cpp
-  exec/vparquet_scanner.cpp
-  exec/vorc_scanner.cpp
-  exec/join/vhash_join_node.cpp
-  exec/tablefunction/vnumbers_tbf.cpp
-  exec/vtable_valued_function_scannode.cpp
-  exprs/vectorized_agg_fn.cpp
-  exprs/vectorized_fn_call.cpp
-  exprs/vexpr.cpp
-  exprs/vexpr_context.cpp
-  exprs/vliteral.cpp
-  exprs/varray_literal.cpp
-  exprs/vin_predicate.cpp
-  exprs/vbloom_predicate.cpp
-  exprs/vruntimefilter_wrapper.cpp
-  exprs/vtuple_is_null_predicate.cpp
-  exprs/vslot_ref.cpp
-  exprs/vcast_expr.cpp
-  exprs/vcase_expr.cpp
-  exprs/vinfo_func.cpp
-  exprs/table_function/vexplode.cpp
-  exprs/table_function/vexplode_split.cpp
-  exprs/table_function/vexplode_numbers.cpp
-  exprs/table_function/vexplode_bitmap.cpp
-  functions/array/function_array_index.cpp
-  functions/array/function_array_element.cpp
-  functions/array/function_array_register.cpp
-  functions/array/function_array_size.cpp
-  functions/array/function_array_aggregation.cpp
-  functions/array/function_array_utils.cpp
-  functions/array/function_arrays_overlap.cpp
-  exprs/table_function/vexplode_json_array.cpp
-  functions/math.cpp
-  functions/function_bitmap.cpp
-  functions/function_bitmap_variadic.cpp
-  functions/comparison.cpp
-  functions/comparison_less.cpp
-  functions/comparison_equals.cpp
-  functions/comparison_greater.cpp
-  functions/function.cpp
-  functions/function_helpers.cpp
-  functions/function_hash.cpp
-  functions/functions_logical.cpp
-  functions/function_case.cpp
-  functions/function_cast.cpp
-  functions/function_conv.cpp
-  functions/function_encryption.cpp
-  functions/function_regexp.cpp
-  functions/function_hex.cpp
-  functions/function_string.cpp
-  functions/function_timestamp.cpp
-  functions/function_utility.cpp
-  functions/comparison_equal_for_null.cpp
-  functions/function_json.cpp
-  functions/function_datetime_floor_ceil.cpp
-  functions/functions_geo.cpp
-  functions/hll_cardinality.cpp
-  functions/hll_empty.cpp
-  functions/hll_hash.cpp
-  functions/plus.cpp
-  functions/modulo.cpp
-  functions/multiply.cpp
-  functions/minus.cpp
-  functions/int_div.cpp
-  functions/divide.cpp
-  functions/function_bit.cpp
-  functions/is_null.cpp
-  functions/is_not_null.cpp
-  functions/in.cpp
-  functions/like.cpp
-  functions/to_time_function.cpp
-  functions/time_of_function.cpp
-  functions/if.cpp
-  functions/function_ifnull.cpp
-  functions/nullif.cpp
-  functions/random.cpp
-  functions/function_coalesce.cpp
-  functions/function_date_or_datetime_computation.cpp
-  functions/function_date_or_datetime_to_string.cpp
-  functions/function_datetime_string_to_string.cpp
-  functions/function_grouping.cpp
-  functions/function_java_udf.cpp
-  functions/function_rpc.cpp
-  functions/function_convert_tz.cpp
-  functions/least_greast.cpp
-  functions/function_fake.cpp
-  olap/vgeneric_iterators.cpp
-  olap/vcollect_iterator.cpp
-  olap/block_reader.cpp
-  olap/olap_data_convertor.cpp
-  sink/vmysql_result_writer.cpp
-  sink/vresult_sink.cpp
-  sink/vdata_stream_sender.cpp
-  sink/vtablet_sink.cpp
-  sink/vmysql_table_writer.cpp
-  sink/vmysql_table_sink.cpp
-  sink/vresult_file_sink.cpp
-  runtime/vdatetime_value.cpp
-  runtime/week_of_year.data
-  runtime/week.data
-  runtime/year_week.data
-  runtime/vdata_stream_recvr.cpp
-  runtime/vdata_stream_mgr.cpp
-  runtime/vfile_result_writer.cpp
-  runtime/vpartition_info.cpp
-  utils/arrow_column_to_doris_column.cpp
-  runtime/vsorted_run_merger.cpp
-  exec/file_arrow_scanner.cpp
-  exec/file_scanner.cpp
-  exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp)
+file(GLOB_RECURSE VEC_FILES CONFIGURE_DEPENDS *.cpp)
+
+list(FILTER VEC_FILES EXCLUDE REGEX ".*exec/executor/tools/simulator/.*")
 
 add_library(Vec STATIC
-    ${VEC_FILES}
+        ${VEC_FILES}
 )
+
+target_link_libraries(Vec PUBLIC faiss)
+pch_reuse(Vec)
+
+if (${BUILD_TASK_EXECUTOR_SIMULATOR} STREQUAL "ON")
+    file(GLOB_RECURSE SIMULATOR_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/exec/executor/tools/simulator/*.cpp"
+    )
+    message(STATUS "Add Task Executor Simulator To Build")
+    add_executable(task_executor_simulator ${SIMULATOR_FILES})
+
+
+    pch_reuse(task_executor_simulator)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(task_executor_simulator PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(task_executor_simulator
+            ${DORIS_LINK_LIBS}
+            )
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS task_executor_simulator DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET task_executor_simulator POST_BUILD
+            COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:task_executor_simulator> $<TARGET_FILE:task_executor_simulator>.dbg
+            COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:task_executor_simulator>
+            COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:task_executor_simulator>.dbg $<TARGET_FILE:task_executor_simulator>
+            )
+
+endif()

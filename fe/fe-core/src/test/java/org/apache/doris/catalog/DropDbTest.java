@@ -17,13 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -68,85 +71,100 @@ public class DropDbTest {
     }
 
     private static void createDb(String sql) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropDb(String sql) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
     public void testNormalDropDb() throws Exception {
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test1");
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropDbSql = "drop database test1";
         dropDb(dropDbSql);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
-        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
-        Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        NereidsParser nereidsParser = new NereidsParser();
+        RecoverDatabaseCommand command = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
+        command.run(connectContext, null);
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
-        Assert.assertEquals("default_cluster:test1", db.getFullName());
+        Assert.assertEquals("test1", db.getFullName());
         table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
 
         dropDbSql = "drop schema test1";
         dropDb(dropDbSql);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
-        Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        command.run(connectContext, null);
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
 
         dropDbSql = "drop schema if exists test1";
         dropDb(dropDbSql);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test1");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
     }
 
     @Test
     public void testForceDropDb() throws Exception {
         String dropDbSql = "drop database test2 force";
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test2");
-        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
-        Partition partition = table.getAllPartitions().iterator().next();
-        long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         dropDb(dropDbSql);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test2");
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test2");
         Assert.assertNull(db);
-        Assert.assertTrue(replicaList.isEmpty());
+        // After unify force and non-force drop db, the replicas will be recycled eventually.
+        //
+        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test2");
+        // OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
+        // Partition partition = table.getAllPartitions().iterator().next();
+        // long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
+        // ...
+        // List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        // Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover database test2";
-        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        NereidsParser nereidsParser = new NereidsParser();
+        RecoverDatabaseCommand command = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test2'",
-                () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt));
-
+                "Unknown database 'test2' or database id '-1'",
+                () -> command.run(connectContext, null));
         dropDbSql = "drop schema test3 force";
-        db = Catalog.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test3");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test3");
         Assert.assertNotNull(db);
         dropDb(dropDbSql);
-        db = Catalog.getCurrentInternalCatalog().getDbNullable("default_cluster:test3");
+        db = Env.getCurrentInternalCatalog().getDbNullable("test3");
         Assert.assertNull(db);
         recoverDbSql = "recover database test3";
-        RecoverDbStmt recoverDbStmt2 = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        RecoverDatabaseCommand command2 = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test3'",
-                () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt2));
+                "Unknown database 'test3'",
+                () -> command2.run(connectContext, null));
 
         dropDbSql = "drop schema if exists test3 force";
         dropDb(dropDbSql);

@@ -18,10 +18,21 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/ColumnWithTypeAndName.cpp
 // and modified by Doris
 
-#include <ostream>
-#include <sstream>
+#include "vec/core/column_with_type_and_name.h"
 
-#include "vec/core/columns_with_type_and_name.h"
+#include <gen_cpp/data.pb.h>
+#include <stddef.h>
+
+#include <memory>
+#include <sstream>
+#include <string>
+
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
@@ -47,17 +58,23 @@ bool ColumnWithTypeAndName::operator==(const ColumnWithTypeAndName& other) const
 }
 
 void ColumnWithTypeAndName::dump_structure(std::ostream& out) const {
-    out << name;
+    if (name.empty()) {
+        out << "[Anonymous Column]";
+    } else {
+        out << name;
+    }
 
-    if (type)
-        out << " ";
-    else
+    if (type) {
+        out << " " << type->get_name();
+    } else {
         out << " nullptr";
+    }
 
-    if (column)
-        out << ' ' << column->dump_structure();
-    else
+    if (column) {
+        out << ' ' << column->dump_structure() << "(use_count=" << column->use_count() << ')';
+    } else {
         out << " nullptr";
+    }
 }
 
 String ColumnWithTypeAndName::dump_structure() const {
@@ -75,4 +92,60 @@ void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     type->to_pb_column_meta(col_meta);
 }
 
+ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
+        bool replace_null_data_to_default) const {
+    if (type->is_nullable()) {
+        auto nested_type =
+                assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
+                        ->get_nested_type();
+        ColumnPtr nested_column = column;
+        if (column) {
+            // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
+            auto [column_ptr, is_const] = unpack_if_const(column);
+            const auto* source_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            column_ptr.get());
+            if (is_const) {
+                nested_column =
+                        ColumnConst::create(source_column->get_nested_column_ptr(), column->size());
+            } else {
+                nested_column = source_column->get_nested_column_ptr();
+            }
+
+            if (replace_null_data_to_default) {
+                const auto& null_map = source_column->get_null_map_data();
+                // only need to mutate nested column, avoid to copy nullmap
+                auto mutable_nested_col = (*std::move(nested_column)).mutate();
+                mutable_nested_col->replace_column_null_data(null_map.data());
+
+                return {std::move(mutable_nested_col), nested_type, ""};
+            }
+        }
+        return {nested_column, nested_type, ""};
+    } else {
+        return {column, type, ""};
+    }
+}
+
+Status ColumnWithTypeAndName::check_type_and_column_match() const {
+    if (!type) {
+        return Status::InternalError("ColumnWithTypeAndName type is nullptr");
+    }
+    if (!column) {
+        return Status::InternalError("ColumnWithTypeAndName column is nullptr");
+    }
+
+    if (check_and_get_column<ColumnNothing>(column.get())) {
+        return Status::OK();
+    }
+
+    auto st = type->check_column(*column);
+    if (!st.ok()) {
+        return Status::InternalError(
+                "ColumnWithTypeAndName check column type failed, column name: {}, type: {},  "
+                "column: {} , error: {}",
+                name, type->get_name(), column->get_name(), st.to_string());
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

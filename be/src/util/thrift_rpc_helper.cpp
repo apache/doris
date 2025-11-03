@@ -17,18 +17,34 @@
 
 #include "util/thrift_rpc_helper.h"
 
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <thrift/Thrift.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <sstream>
 #include <thread>
 
 #include "common/status.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
 #include "runtime/client_cache.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include "runtime/exec_env.h" // IWYU pragma: keep
+#include "util/debug_points.h"
 #include "util/network_util.h"
-#include "util/runtime_profile.h"
-#include "util/thrift_util.h"
+
+namespace apache {
+namespace thrift {
+namespace protocol {
+class TProtocol;
+} // namespace protocol
+namespace transport {
+class TBufferedTransport;
+class TSocket;
+class TTransport;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 
@@ -38,7 +54,7 @@ using apache::thrift::transport::TSocket;
 using apache::thrift::transport::TTransport;
 using apache::thrift::transport::TBufferedTransport;
 
-ExecEnv* ThriftRpcHelper::_s_exec_env;
+ExecEnv* ThriftRpcHelper::_s_exec_env = nullptr;
 
 void ThriftRpcHelper::setup(ExecEnv* exec_env) {
     _s_exec_env = exec_env;
@@ -49,37 +65,47 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
                             std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
     TNetworkAddress address = make_network_address(ip, port);
     Status status;
+    DBUG_EXECUTE_IF("thriftRpcHelper.rpc.error", { timeout_ms = 30000; });
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
-        LOG(WARNING) << "Connect frontend failed, address=" << address
-                     << ", status=" << status.get_error_msg();
+#ifndef ADDRESS_SANITIZER
+        LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
+#endif
         return status;
     }
     try {
         try {
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
+            std::cerr << "thrift error, reason=" << e.what();
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "retrying call frontend service after "
                          << config::thrift_client_retry_interval_ms << " ms, address=" << address
                          << ", reason=" << e.what();
+#endif
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "client reopen failed. address=" << address
-                             << ", status=" << status.get_error_msg();
+                             << ", status=" << status;
+#endif
                 return status;
             }
             callback(client);
         }
     } catch (apache::thrift::TException& e) {
+#ifndef ADDRESS_SANITIZER
         LOG(WARNING) << "call frontend service failed, address=" << address
                      << ", reason=" << e.what();
+#endif
         std::this_thread::sleep_for(
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
-        client.reopen(timeout_ms);
-        return Status::ThriftRpcError("failed to call frontend service");
+        static_cast<void>(client.reopen(timeout_ms));
+        return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}", ip,
+                                port, e.what());
     }
     return Status::OK();
 }

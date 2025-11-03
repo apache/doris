@@ -22,32 +22,32 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
+/** used to generate pattern for PhysicalBinary. */
+public class PhysicalBinaryPatternGenerator extends PlanPatternGenerator {
 
-/** used to generate pattern for PhysicalBinaryOperator. */
-public class PhysicalBinaryPatternGenerator extends PatternGenerator {
-
-    public PhysicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
-        super(analyzer, opType, parentClass);
+    public PhysicalBinaryPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
+        super(analyzer, opType, parentClass, isMemoPattern);
     }
 
     @Override
     public String genericType() {
-        return "<PhysicalBinaryPlan<" + opType.name + ", GroupPlan, GroupPlan>, Plan>";
+        return "<" + opType.name + "<" + childType() + ", " + childType() + ">>";
     }
 
     @Override
     public String genericTypeWithChildren() {
-        return "<PhysicalBinaryPlan<" + opType.name + ", C1, C2>, Plan>";
+        return "<" + opType.name + "<C1, C2>>";
     }
 
     @Override
     public Set<String> getImports() {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
-        imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
+        if (isMemoPattern) {
+            imports.add("org.apache.doris.nereids.trees.plans.GroupPlan");
+        }
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.physical.PhysicalBinaryPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

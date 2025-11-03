@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
@@ -32,14 +32,13 @@ import java.util.Objects;
  * Define a class combine Pattern and MatchedAction.
  * It also Provided a function to convert to a rule.
  */
-public class PatternMatcher<
-        INPUT_TYPE extends RULE_TYPE,
-        OUTPUT_TYPE extends RULE_TYPE,
-        RULE_TYPE extends TreeNode<RULE_TYPE>> {
+public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
 
-    public final Pattern<INPUT_TYPE, RULE_TYPE> pattern;
+    public final Pattern<INPUT_TYPE> pattern;
     public final RulePromise defaultRulePromise;
-    public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction;
+    public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction;
+    public final MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedMultiAction;
+    public final String ruleName;
 
     /**
      * PatternMatcher wrap a pattern, defaultRulePromise and matchedAction.
@@ -48,15 +47,28 @@ public class PatternMatcher<
      * @param defaultRulePromise defaultRulePromise
      * @param matchedAction matched callback function
      */
-    public PatternMatcher(Pattern<INPUT_TYPE, RULE_TYPE> pattern, RulePromise defaultRulePromise,
-            MatchedAction<INPUT_TYPE, OUTPUT_TYPE, RULE_TYPE> matchedAction) {
+    public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction, String ruleName) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultRulePromise = Objects.requireNonNull(
                 defaultRulePromise, "defaultRulePromise can not be null");
         this.matchedAction = Objects.requireNonNull(matchedAction, "matchedAction can not be null");
+        this.matchedMultiAction = null;
+        this.ruleName = Objects.requireNonNull(ruleName, "ruleName can not be null");
     }
 
-    public Rule<RULE_TYPE> toRule(RuleType ruleType) {
+    /** PatternMatcher */
+    public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction, String ruleName) {
+        this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
+        this.defaultRulePromise = Objects.requireNonNull(
+                defaultRulePromise, "defaultRulePromise can not be null");
+        this.matchedMultiAction = Objects.requireNonNull(matchedAction, "matchedMultiAction can not be null");
+        this.matchedAction = null;
+        this.ruleName = Objects.requireNonNull(ruleName, "ruleName can not be null");
+    }
+
+    public Rule toRule(RuleType ruleType) {
         return toRule(ruleType, defaultRulePromise);
     }
 
@@ -67,14 +79,28 @@ public class PatternMatcher<
      * @param rulePromise what priority of the new rule?
      * @return Rule
      */
-    public Rule<RULE_TYPE> toRule(RuleType ruleType, RulePromise rulePromise) {
-        return new Rule<RULE_TYPE>(ruleType, pattern, rulePromise) {
+    public Rule toRule(RuleType ruleType, RulePromise rulePromise) {
+        return new Rule(ruleType, pattern, rulePromise) {
             @Override
-            public List<RULE_TYPE> transform(RULE_TYPE originPlan, PlannerContext context) {
-                MatchingContext<INPUT_TYPE, RULE_TYPE> matchingContext =
-                        new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
-                OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
-                return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
+            public List<Plan> transform(Plan originPlan, CascadesContext context) {
+                if (matchedMultiAction != null) {
+                    MatchingContext<INPUT_TYPE> matchingContext =
+                            new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
+                    List<OUTPUT_TYPE> replacePlans = matchedMultiAction.apply(matchingContext);
+                    return replacePlans == null || replacePlans.isEmpty()
+                            ? ImmutableList.of(originPlan)
+                            : ImmutableList.copyOf(replacePlans);
+                } else {
+                    MatchingContext<INPUT_TYPE> matchingContext =
+                            new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
+                    OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
+                    return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
+                }
+            }
+
+            @Override
+            public String ruleName() {
+                return ruleName;
             }
         };
     }

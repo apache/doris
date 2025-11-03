@@ -25,13 +25,17 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCondition;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import org.apache.logging.log4j.LogManager;
@@ -39,6 +43,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class PushTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PushTask.class);
@@ -69,11 +74,20 @@ public class PushTask extends AgentTask {
     private TBrokerScanRange tBrokerScanRange;
     private TDescriptorTable tDescriptorTable;
 
-    public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
-                    long indexId, long tabletId, long replicaId, int schemaHash, long version,
-                    String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
-                    List<Predicate> conditions, boolean needDecompress, TPriority priority, TTaskType taskType,
-                    long transactionId, long signature) {
+    // for light schema change
+    private int schemaVersion;
+    private List<TColumn> columnsDesc = null;
+    private List<TOlapTableIndex> indexList = null;
+
+    private String vaultId;
+    private Map<String, TColumn> colNameToColDesc;
+
+    public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId, long indexId,
+            long tabletId, long replicaId, int schemaHash, long version, String filePath, long fileSize,
+            int timeoutSecond, long loadJobId, TPushType pushType, List<Predicate> conditions, boolean needDecompress,
+            TPriority priority, TTaskType taskType, long transactionId, long signature, List<TColumn> columnsDesc,
+            Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion,
+            List<TOlapTableIndex> tIndexList) {
         super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
@@ -92,17 +106,21 @@ public class PushTask extends AgentTask {
         this.transactionId = transactionId;
         this.tBrokerScanRange = null;
         this.tDescriptorTable = null;
+        this.columnsDesc = columnsDesc;
+        this.colNameToColDesc = colNameToColDesc;
+        this.vaultId = vaultId;
+        this.schemaVersion = schemaVersion;
+        this.indexList = tIndexList;
     }
 
     // for load v2 (SparkLoadJob)
     public PushTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                    long replicaId, int schemaHash, int timeoutSecond, long loadJobId, TPushType pushType,
-                    TPriority priority, long transactionId, long signature,
-                    TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable) {
-        this(null, backendId, dbId, tableId, partitionId, indexId,
-                tabletId, replicaId, schemaHash, -1, null,
-                0, timeoutSecond, loadJobId, pushType, null, false,
-                priority, TTaskType.REALTIME_PUSH, transactionId, signature);
+            long replicaId, int schemaHash, int timeoutSecond, long loadJobId, TPushType pushType, TPriority priority,
+            long transactionId, long signature, TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable,
+            List<TColumn> columnsDesc, Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion) {
+        this(null, backendId, dbId, tableId, partitionId, indexId, tabletId, replicaId, schemaHash, -1, null, 0,
+                timeoutSecond, loadJobId, pushType, null, false, priority, TTaskType.REALTIME_PUSH, transactionId,
+                signature, columnsDesc, colNameToColDesc, vaultId, schemaVersion, null);
         this.tBrokerScanRange = tBrokerScanRange;
         this.tDescriptorTable = tDescriptorTable;
     }
@@ -127,30 +145,31 @@ public class PushTask extends AgentTask {
                 for (Predicate condition : conditions) {
                     TCondition tCondition = new TCondition();
                     ArrayList<String> conditionValues = new ArrayList<String>();
+                    SlotRef slotRef = (SlotRef) condition.getChild(0);
+                    TColumn column = colNameToColDesc.get(slotRef.getColumnName());
+                    tCondition.setColumnName(column.getColumnName());
+                    int uniqueId = column.getColUniqueId();
+                    if (uniqueId >= 0) {
+                        tCondition.setColumnUniqueId(uniqueId);
+                    }
                     if (condition instanceof BinaryPredicate) {
                         BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                        String columnName = ((SlotRef) binaryPredicate.getChild(0)).getColumnName();
                         String value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
                         Operator op = binaryPredicate.getOp();
-                        tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op.toString());
                         conditionValues.add(value);
                     } else if (condition instanceof IsNullPredicate) {
                         IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
-                        String columnName = ((SlotRef) isNullPredicate.getChild(0)).getColumnName();
                         String op = "IS";
                         String value = "NULL";
                         if (isNullPredicate.isNotNull()) {
                             value = "NOT NULL";
                         }
-                        tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op);
                         conditionValues.add(value);
                     } else if (condition instanceof InPredicate) {
                         InPredicate inPredicate = (InPredicate) condition;
-                        String columnName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
                         String op = inPredicate.isNotIn() ? "!*=" : "*=";
-                        tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op);
                         for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                             conditionValues.add(inPredicate.getChild(i).getStringValue());
@@ -171,7 +190,10 @@ public class PushTask extends AgentTask {
                 LOG.warn("unknown push type. type: " + pushType.name());
                 break;
         }
-
+        request.setColumnsDesc(columnsDesc);
+        request.setStorageVaultId(this.vaultId);
+        request.setSchemaVersion(schemaVersion);
+        request.setIndexList(indexList);
         return request;
     }
 
@@ -182,8 +204,20 @@ public class PushTask extends AgentTask {
     public void countDownLatch(long backendId, long tabletId) {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
-                LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}",
-                         latch.getCount(), backendId, tabletId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}", latch.getCount(), backendId,
+                            tabletId);
+                }
+            }
+        }
+    }
+
+    // call this always means one of tasks is failed. count down to zero to finish entire task
+    public void countDownToZero(TStatusCode code, String errMsg) {
+        if (this.latch != null) {
+            latch.countDownToZero(new Status(code, errMsg));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("PushTask count down to zero. error msg: {}", errMsg);
             }
         }
     }

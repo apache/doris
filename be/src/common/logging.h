@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 // GLOG defines this based on the system but doesn't check if it's already
 // been defined.  undef it first to avoid warnings.
 // glog MUST be included before gflags.  Instead of including them,
@@ -24,7 +26,7 @@
 #undef _XOPEN_SOURCE
 // This is including a glog internal file.  We want this to expose the
 // function to get the stack trace.
-#include <glog/logging.h>
+#include <glog/logging.h> // IWYU pragma: export
 #undef MutexLock
 
 // Define VLOG levels.  We want display per-row info less than per-file which
@@ -57,3 +59,79 @@
                    << static_cast<int>(b) << " ]"
 
 #include <fmt/format.h>
+
+#include "util/uid_util.h"
+
+namespace doris {
+
+// glog doesn't allow multiple invocations of InitGoogleLogging. This method conditionally
+// calls InitGoogleLogging only if it hasn't been called before.
+bool init_glog(const char* basename);
+
+// Shuts down the google logging library. Call before exit to ensure that log files are
+// flushed. May only be called once.
+void shutdown_logging();
+
+void update_logging(const std::string& name, const std::string& value);
+
+class TaggableLogger {
+public:
+    TaggableLogger(const char* file, int line, google::LogSeverity severity)
+            : _msg(file, line, severity) {}
+
+    template <typename... Args>
+    TaggableLogger& operator()(const std::string_view& fmt, Args&&... args) {
+        if constexpr (sizeof...(args) == 0) {
+            _msg.stream() << fmt;
+        } else {
+            _msg.stream() << fmt::format(fmt, std::forward<Args&&>(args)...);
+        }
+        return *this;
+    }
+
+    template <typename V>
+    TaggableLogger& tag(std::string_view key, V&& value) {
+        _msg.stream() << '|' << key << '=';
+        if constexpr (std::is_same_v<V, TUniqueId> || std::is_same_v<V, PUniqueId>) {
+            _msg.stream() << print_id(value);
+        } else {
+            _msg.stream() << value;
+        }
+        return *this;
+    }
+
+    template <typename E>
+    TaggableLogger& error(E&& error) {
+        _msg.stream() << "|error=" << error;
+        return *this;
+    }
+
+private:
+    google::LogMessage _msg;
+};
+
+// Very very important!!!!
+// Never define LOG_DEBUG or LOG_TRACE. because the tagged logging method will
+// always generated string and then check the log level, its performane is bad.
+// glog's original method will first check log level if it is not satisfied,
+// the log message is not generated.
+#define LOG_INFO TaggableLogger(__FILE__, __LINE__, google::GLOG_INFO)
+#define LOG_WARNING TaggableLogger(__FILE__, __LINE__, google::GLOG_WARNING)
+#define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)
+#define LOG_FATAL TaggableLogger(__FILE__, __LINE__, google::GLOG_FATAL)
+
+// Avoid the printed log message is truncated by the glog max log size limit
+#define LOG_LONG_STRING(severity, long_log_str)                                \
+    do {                                                                       \
+        constexpr size_t max_log_size = 30000 - 100;                           \
+        size_t pos = 0;                                                        \
+        size_t total_size = long_log_str.size();                               \
+        size_t tmp_size = std::min(max_log_size, total_size);                  \
+        while (pos < total_size) {                                             \
+            tmp_size = std::min(max_log_size, total_size - pos);               \
+            LOG(severity) << std::string(long_log_str.data() + pos, tmp_size); \
+            pos += tmp_size;                                                   \
+        }                                                                      \
+    } while (0)
+
+} // namespace doris

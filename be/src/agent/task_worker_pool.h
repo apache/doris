@@ -18,232 +18,193 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <deque>
+#include <functional>
 #include <memory>
-#include <utility>
-#include <vector>
+#include <mutex>
+#include <string>
+#include <string_view>
 
-#include "agent/utils.h"
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "olap/data_dir.h"
-#include "olap/tablet.h"
-#include "util/countdown_latch.h"
 
 namespace doris {
 
 class ExecEnv;
+class StorageEngine;
+class CloudStorageEngine;
+class Thread;
 class ThreadPool;
+class TReportRequest;
+class TTabletInfo;
+class TAgentTaskRequest;
+class ClusterInfo;
 
-class TaskWorkerPool {
+class TaskWorkerPoolIf {
 public:
-    // You need to modify the content in TYPE_STRING at the same time,
-    enum TaskWorkerType {
-        CREATE_TABLE,
-        DROP_TABLE,
-        PUSH,
-        REALTIME_PUSH,
-        PUBLISH_VERSION,
-        // Deprecated
-        CLEAR_ALTER_TASK [[deprecated]],
-        CLEAR_TRANSACTION_TASK,
-        DELETE,
-        ALTER_TABLE,
-        // Deprecated
-        QUERY_SPLIT_KEY [[deprecated]],
-        CLONE,
-        STORAGE_MEDIUM_MIGRATE,
-        CHECK_CONSISTENCY,
-        REPORT_TASK,
-        REPORT_DISK_STATE,
-        REPORT_OLAP_TABLE,
-        UPLOAD,
-        DOWNLOAD,
-        MAKE_SNAPSHOT,
-        RELEASE_SNAPSHOT,
-        MOVE,
-        RECOVER_TABLET,
-        UPDATE_TABLET_META_INFO,
-        SUBMIT_TABLE_COMPACTION,
-        REFRESH_STORAGE_POLICY,
-        UPDATE_STORAGE_POLICY
-    };
+    virtual ~TaskWorkerPoolIf() = default;
 
-    enum ReportType { TASK, DISK, TABLET };
+    virtual Status submit_task(const TAgentTaskRequest& task) = 0;
+};
 
-    enum class ThreadModel {
-        SINGLE_THREAD, // Only 1 thread allowed in the pool
-        MULTI_THREADS  // 1 or more threads allowed in the pool
-    };
+class TaskWorkerPool : public TaskWorkerPoolIf {
+public:
+    TaskWorkerPool(std::string_view name, int worker_count,
+                   std::function<void(const TAgentTaskRequest&)> callback);
 
-    const std::string TYPE_STRING(TaskWorkerType type) {
-        switch (type) {
-        case CREATE_TABLE:
-            return "CREATE_TABLE";
-        case DROP_TABLE:
-            return "DROP_TABLE";
-        case PUSH:
-            return "PUSH";
-        case REALTIME_PUSH:
-            return "REALTIME_PUSH";
-        case PUBLISH_VERSION:
-            return "PUBLISH_VERSION";
-        case CLEAR_TRANSACTION_TASK:
-            return "CLEAR_TRANSACTION_TASK";
-        case DELETE:
-            return "DELETE";
-        case ALTER_TABLE:
-            return "ALTER_TABLE";
-        case CLONE:
-            return "CLONE";
-        case STORAGE_MEDIUM_MIGRATE:
-            return "STORAGE_MEDIUM_MIGRATE";
-        case CHECK_CONSISTENCY:
-            return "CHECK_CONSISTENCY";
-        case REPORT_TASK:
-            return "REPORT_TASK";
-        case REPORT_DISK_STATE:
-            return "REPORT_DISK_STATE";
-        case REPORT_OLAP_TABLE:
-            return "REPORT_OLAP_TABLE";
-        case UPLOAD:
-            return "UPLOAD";
-        case DOWNLOAD:
-            return "DOWNLOAD";
-        case MAKE_SNAPSHOT:
-            return "MAKE_SNAPSHOT";
-        case RELEASE_SNAPSHOT:
-            return "RELEASE_SNAPSHOT";
-        case MOVE:
-            return "MOVE";
-        case RECOVER_TABLET:
-            return "RECOVER_TABLET";
-        case UPDATE_TABLET_META_INFO:
-            return "UPDATE_TABLET_META_INFO";
-        case SUBMIT_TABLE_COMPACTION:
-            return "SUBMIT_TABLE_COMPACTION";
-        case REFRESH_STORAGE_POLICY:
-            return "REFRESH_STORAGE_POLICY";
-        case UPDATE_STORAGE_POLICY:
-            return "UPDATE_STORAGE_POLICY";
-        default:
-            return "Unknown";
-        }
-    }
+    ~TaskWorkerPool() override;
 
-    const std::string TYPE_STRING(ReportType type) {
-        switch (type) {
-        case TASK:
-            return "TASK";
-        case DISK:
-            return "DISK";
-        case TABLET:
-            return "TABLET";
-        default:
-            return "Unknown";
-        }
-    }
+    void stop();
 
-    TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
-                   const TMasterInfo& master_info, ThreadModel thread_model);
-    virtual ~TaskWorkerPool();
+    Status submit_task(const TAgentTaskRequest& task) override;
 
-    // Start the task worker thread pool
-    virtual void start();
+protected:
+    std::atomic_bool _stopped {false};
+    std::unique_ptr<ThreadPool> _thread_pool;
+    std::function<void(const TAgentTaskRequest&)> _callback;
+};
 
-    // Stop the task worker
-    virtual void stop();
+class PublishVersionWorkerPool final : public TaskWorkerPool {
+public:
+    PublishVersionWorkerPool(StorageEngine& engine);
 
-    // Submit task to task pool
-    //
-    // Input parameters:
-    // * task: the task need callback thread to do
-    virtual void submit_task(const TAgentTaskRequest& task);
-
-    // notify the worker. currently for task/disk/tablet report thread
-    void notify_thread();
+    ~PublishVersionWorkerPool() override;
 
 private:
-    bool _register_task_info(const TTaskType::type task_type, int64_t signature);
-    void _remove_task_info(const TTaskType::type task_type, int64_t signature);
-    void _finish_task(const TFinishTaskRequest& finish_task_request);
-    uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
-                                  TPriority::type priority);
+    void publish_version_callback(const TAgentTaskRequest& task);
 
-    void _create_tablet_worker_thread_callback();
-    void _drop_tablet_worker_thread_callback();
-    void _push_worker_thread_callback();
-    void _publish_version_worker_thread_callback();
-    void _clear_transaction_task_worker_thread_callback();
-    void _alter_tablet_worker_thread_callback();
-    void _clone_worker_thread_callback();
-    void _storage_medium_migrate_worker_thread_callback();
-    void _check_consistency_worker_thread_callback();
-    void _report_task_worker_thread_callback();
-    void _report_disk_state_worker_thread_callback();
-    void _report_tablet_worker_thread_callback();
-    void _upload_worker_thread_callback();
-    void _download_worker_thread_callback();
-    void _make_snapshot_thread_callback();
-    void _release_snapshot_thread_callback();
-    void _move_dir_thread_callback();
-    void _update_tablet_meta_worker_thread_callback();
-    void _submit_table_compaction_worker_thread_callback();
-    void _storage_refresh_storage_policy_worker_thread_callback();
-    void _storage_update_storage_policy_worker_thread_callback();
+    StorageEngine& _engine;
+};
 
-    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
-                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
-    void _handle_report(TReportRequest& request, ReportType type);
+class PriorTaskWorkerPool final : public TaskWorkerPoolIf {
+public:
+    PriorTaskWorkerPool(const std::string& name, int normal_worker_count,
+                        int high_prior_worker_count,
+                        std::function<void(const TAgentTaskRequest& task)> callback);
 
-    Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                            int64_t signature, TTabletInfo* tablet_info);
+    ~PriorTaskWorkerPool() override;
 
-    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
-                     bool overwrite);
+    void stop();
 
-    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                  DataDir** dest_store);
+    Status submit_task(const TAgentTaskRequest& task) override;
 
-    // random sleep 1~second seconds
-    void _random_sleep(int second);
+    Status submit_high_prior_and_cancel_low(const TAgentTaskRequest& task);
+
+private:
+    void normal_loop();
+
+    void high_prior_loop();
+
+    bool _stopped {false};
+
+    std::mutex _mtx;
+    std::condition_variable _normal_condv;
+    std::deque<std::unique_ptr<TAgentTaskRequest>> _normal_queue;
+    std::condition_variable _high_prior_condv;
+    std::deque<std::unique_ptr<TAgentTaskRequest>> _high_prior_queue;
+
+    std::vector<std::shared_ptr<Thread>> _workers;
+
+    std::function<void(const TAgentTaskRequest&)> _callback;
+};
+
+class ReportWorker {
+public:
+    ReportWorker(std::string name, const ClusterInfo* cluster_info, int report_interval_s,
+                 std::function<void()> callback);
+
+    ~ReportWorker();
+
+    std::string_view name() const { return _name; }
+
+    // Notify the worker to report immediately
+    void notify();
+
+    void stop();
 
 private:
     std::string _name;
+    std::shared_ptr<Thread> _thread;
 
-    // Reference to the ExecEnv::_master_info
-    const TMasterInfo& _master_info;
-    TBackend _backend;
-    std::unique_ptr<AgentUtils> _agent_utils;
-    std::unique_ptr<MasterServerClient> _master_client;
-    ExecEnv* _env;
+    std::mutex _mtx;
+    std::condition_variable _condv;
+    bool _stopped {false};
+    bool _signal {false};
+};
 
-    // Protect task queue
-    std::mutex _worker_thread_lock;
-    std::condition_variable _worker_thread_condition_variable;
-    CountDownLatch _stop_background_threads_latch;
-    bool _is_work;
-    ThreadModel _thread_model;
-    std::unique_ptr<ThreadPool> _thread_pool;
-    // Only meaningful when _thread_model is MULTI_THREADS
-    std::deque<TAgentTaskRequest> _tasks;
-    // Only meaningful when _thread_model is SINGLE_THREAD
-    std::atomic<bool> _is_doing_work;
+void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
-    std::shared_ptr<MetricEntity> _metric_entity;
-    UIntGauge* agent_task_queue_size;
+void alter_cloud_index_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
-    // Always 1 when _thread_model is SINGLE_THREAD
-    uint32_t _worker_count;
-    TaskWorkerType _task_worker_type;
+void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
-    static FrontendServiceClientCache _master_service_client_cache;
-    static std::atomic_ulong _s_report_version;
+void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
-    static std::mutex _s_task_signatures_lock;
-    static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
+void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
-    DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
-}; // class TaskWorkerPool
+void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
+void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
+void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
+void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void push_index_policy_callback(const TAgentTaskRequest& req);
+
+void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void push_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
+                    const TAgentTaskRequest& req);
+
+void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void clean_udf_cache_callback(const TAgentTaskRequest& req);
+
+void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void report_task_callback(const ClusterInfo* cluster_info);
+
+void report_disk_callback(StorageEngine& engine, const ClusterInfo* cluster_info);
+
+void report_disk_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
+
+void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_info);
+
+void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
+
+void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void report_index_policy_callback(const ClusterInfo* cluster_info);
+
 } // namespace doris

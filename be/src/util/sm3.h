@@ -19,7 +19,8 @@
 
 #define SM3_DIGEST_LENGTH 32
 
-#include <openssl/evp.h>
+#include <openssl/ossl_typ.h>
+#include <stddef.h>
 
 #include <string>
 
@@ -35,8 +36,8 @@ public:
     const std::string& hex() const { return _hex; }
 
 private:
-    EVP_MD_CTX* _ctx;
-    const EVP_MD* _md;
+    EVP_MD_CTX* _ctx = nullptr;
+    const EVP_MD* _md = nullptr;
 
     std::string _hex;
 };

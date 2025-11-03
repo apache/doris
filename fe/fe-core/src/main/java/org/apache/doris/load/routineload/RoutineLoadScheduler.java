@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -42,7 +42,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
     @VisibleForTesting
     public RoutineLoadScheduler() {
         super();
-        routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
     }
 
     public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {
@@ -73,6 +73,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
         if (!routineLoadJobList.isEmpty()) {
             LOG.info("there are {} job need schedule", routineLoadJobList.size());
         }
+
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
             RoutineLoadJob.JobState errorJobState = null;
             UserException userException = null;
@@ -83,9 +84,9 @@ public class RoutineLoadScheduler extends MasterDaemon {
                 if (desiredConcurrentTaskNum <= 0) {
                     // the job will be rescheduled later.
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("msg", "the current concurrent num is less than or equal to zero, "
-                                             + "job will be rescheduled later")
-                                     .build());
+                            .add("msg", "the current concurrent num is less than or equal to zero, "
+                                    + "job will be rescheduled later")
+                            .build());
                     continue;
                 }
                 // check state and divide job into tasks
@@ -112,10 +113,10 @@ public class RoutineLoadScheduler extends MasterDaemon {
                     routineLoadJob.updateState(errorJobState, reason, false);
                 } catch (UserException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("current_state", routineLoadJob.getState())
-                                     .add("desired_state", errorJobState)
-                                     .add("warn_msg", "failed to change state to desired state")
-                                     .build(), e);
+                            .add("current_state", routineLoadJob.getState())
+                            .add("desired_state", errorJobState)
+                            .add("warn_msg", "failed to change state to desired state")
+                            .build(), e);
                 }
             }
         }
@@ -124,11 +125,12 @@ public class RoutineLoadScheduler extends MasterDaemon {
         routineLoadManager.processTimeoutTasks();
 
         routineLoadManager.cleanOldRoutineLoadJobs();
+
+        routineLoadManager.cleanOverLimitRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {
         return routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
     }
-
 
 }

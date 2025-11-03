@@ -18,18 +18,21 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+
+import java.util.Objects;
 
 /**
  * Represents the order key of a statement.
  */
 public class OrderKey {
 
-    private Expression expr;
+    private final Expression expr;
 
     // Order is ascending.
-    private boolean isAsc;
+    private final boolean isAsc;
 
-    private boolean nullFirst;
+    private final boolean nullFirst;
 
     /**
      * Constructor of OrderKey.
@@ -63,8 +66,50 @@ public class OrderKey {
         return nullFirst;
     }
 
+    public OrderKey withExpression(Expression expr) {
+        return new OrderKey(expr, isAsc, nullFirst);
+    }
+
+    public String toSql() {
+        return expr.toSql() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
+    }
+
     @Override
     public String toString() {
-        return expr.toSql();
+        return expr.toString() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
+    }
+
+    /**
+     * generate digest for order by key
+     *
+     * @return String
+     */
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (expr instanceof Literal) {
+            sb.append(expr.toString());
+        } else {
+            sb.append(expr.toDigest());
+        }
+        sb.append(isAsc ? " ASC" : " DESC");
+        sb.append(nullFirst ? " NULLS FIRST" : "");
+        return sb.toString();
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(expr, isAsc, nullFirst);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        OrderKey that = (OrderKey) o;
+        return isAsc == that.isAsc() && nullFirst == that.isNullFirst() && expr.equals(that.getExpr());
     }
 }

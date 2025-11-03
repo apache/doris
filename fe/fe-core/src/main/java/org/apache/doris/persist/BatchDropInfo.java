@@ -26,6 +26,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -39,13 +40,19 @@ public class BatchDropInfo implements Writable {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName; // not used in equals and hashCode
     @SerializedName(value = "indexIdSet")
     private Set<Long> indexIdSet;
+    @SerializedName(value = "indexNameMap")
+    private Map<Long, String> indexNameMap; // not used in equals and hashCode
 
-    public BatchDropInfo(long dbId, long tableId, Set<Long> indexIdSet) {
+    public BatchDropInfo(long dbId, long tableId, String tableName, Map<Long, String> indexNameMap) {
         this.dbId = dbId;
         this.tableId = tableId;
-        this.indexIdSet = indexIdSet;
+        this.tableName = tableName;
+        this.indexIdSet = indexNameMap.keySet();
+        this.indexNameMap = indexNameMap;
     }
 
     @Override
@@ -79,6 +86,14 @@ public class BatchDropInfo implements Writable {
         return indexIdSet;
     }
 
+    public boolean hasIndexNameMap() {
+        return indexNameMap != null;
+    }
+
+    public Map<Long, String> getIndexNameMap() {
+        return indexNameMap;
+    }
+
     public long getDbId() {
         return dbId;
     }
@@ -87,4 +102,11 @@ public class BatchDropInfo implements Writable {
         return tableId;
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
 }

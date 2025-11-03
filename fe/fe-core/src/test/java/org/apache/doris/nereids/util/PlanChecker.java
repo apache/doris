@@ -1,0 +1,895 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.util;
+
+import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlanProcess;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.executor.Optimizer;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
+import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
+import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.pattern.GroupExpressionMatching;
+import org.apache.doris.nereids.pattern.MatchingContext;
+import org.apache.doris.nereids.pattern.PatternDescriptor;
+import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.processor.post.Validator;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.FilteredRules;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.Assertions;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+
+/**
+ * Utility to apply rules to plan and check output plan matches the expected pattern.
+ */
+public class PlanChecker {
+    private final ConnectContext connectContext;
+    private CascadesContext cascadesContext;
+
+    private PhysicalPlan physicalPlan;
+
+    public PlanChecker(ConnectContext connectContext) {
+        this.connectContext = connectContext;
+    }
+
+    public PlanChecker(CascadesContext cascadesContext) {
+        this.connectContext = cascadesContext.getConnectContext();
+        this.cascadesContext = cascadesContext;
+    }
+
+    public static PlanChecker from(ConnectContext connectContext) {
+        return new PlanChecker(connectContext);
+    }
+
+    public static PlanChecker from(ConnectContext connectContext, Plan initPlan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, initPlan);
+        return new PlanChecker(cascadesContext);
+    }
+
+    public static PlanChecker from(CascadesContext cascadesContext) {
+        return new PlanChecker(cascadesContext);
+    }
+
+    public PlanChecker checkParse(String sql, Consumer<PlanParseChecker> consumer) {
+        PlanParseChecker checker = new PlanParseChecker(sql);
+        consumer.accept(checker);
+        checker.parsedSupplier.get();
+        return this;
+    }
+
+    public AbstractInsertExecutor getInsertExecutor(String sql) throws Exception {
+        StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
+        LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parsedPlan;
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(parsedPlan, statementContext);
+        return insertIntoTableCommand.initPlan(connectContext,
+                new StmtExecutor(connectContext, logicalPlanAdapter));
+    }
+
+    public PlanChecker parse(String sql) {
+        this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker setIsQuery() {
+        this.cascadesContext.getConnectContext().getState().setIsQuery(true);
+        return this;
+    }
+
+    public PlanChecker analyze() {
+        this.cascadesContext.newTableCollector(true).collect();
+        this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.setCteContext(new CTEContext());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker analyze(Plan plan) {
+        this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.newTableCollector(true).collect();
+        this.cascadesContext.setCteContext(new CTEContext());
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
+        this.cascadesContext.newAnalyzer().analyze();
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker analyze(String sql) {
+        this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.newTableCollector(true).collect();
+        this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.setCteContext(new CTEContext());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker customRewrite(CustomRewriter customRewriter) {
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
+                .execute();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker disableNereidsRules(String rules) {
+        connectContext.getSessionVariable().setDisableNereidsRules(rules);
+        return this;
+    }
+
+    public PlanChecker printPlanProcess(String sql) {
+        List<PlanProcess> planProcesses = explainPlanProcess(sql);
+        for (PlanProcess row : planProcesses) {
+            System.out.println("RULE: " + row.ruleName + "\nBEFORE:\n"
+                    + row.beforeShape + "\nafter:\n" + row.afterShape);
+        }
+        return this;
+    }
+
+    public List<PlanProcess> explainPlanProcess() {
+        NereidsPlanner planner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement("", 0)));
+        planner.planWithLock((LogicalPlan) cascadesContext.getRewritePlan(), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        this.cascadesContext = planner.getCascadesContext();
+        return cascadesContext.getPlanProcesses();
+    }
+
+    public List<PlanProcess> explainPlanProcess(String sql) {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan command = parser.parseSingle(sql);
+        NereidsPlanner planner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        planner.planWithLock(command, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        this.cascadesContext = planner.getCascadesContext();
+        return cascadesContext.getPlanProcesses();
+    }
+
+    public PlanChecker applyTopDown(RuleFactory ruleFactory) {
+        PlanChecker planChecker = applyTopDown(ruleFactory.buildRules());
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return planChecker;
+    }
+
+    public PlanChecker applyTopDown(List<Rule> rule) {
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
+                .execute();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker applyCustom(CustomRewriter customRewriter) {
+        CustomRewriteJob customRewriteJob = new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE);
+        customRewriteJob.execute(cascadesContext.getCurrentJobContext());
+        cascadesContext.toMemo();
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    /**
+     * apply a top down rewrite rule if you not care the ruleId
+     *
+     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
+     * @return this checker, for call chaining of follow-up check
+     */
+    public PlanChecker applyTopDownInMemo(PatternMatcher patternMatcher) {
+        cascadesContext.topDownRewrite(new OneRewriteRuleFactory() {
+            @Override
+            public Rule build() {
+                return patternMatcher.toRule(RuleType.TEST_REWRITE);
+            }
+        });
+        MemoValidator.validate(cascadesContext.getMemo());
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker applyBottomUp(RuleFactory rule) {
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(Rewriter.bottomUp(rule)))
+                .execute();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker applyBottomUp(List<Rule> rule) {
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
+                .execute();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return this;
+    }
+
+    /**
+     * apply a bottom up rewrite rule if you not care the ruleId
+     *
+     * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
+     * @return this checker, for call chaining of follow-up check
+     */
+    public PlanChecker applyBottomUpInMemo(PatternMatcher patternMatcher) {
+        cascadesContext.bottomUpRewrite(new OneRewriteRuleFactory() {
+            @Override
+            public Rule build() {
+                return patternMatcher.toRule(RuleType.TEST_REWRITE);
+            }
+        });
+        MemoValidator.validate(cascadesContext.getMemo());
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker rewrite() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        try {
+            cascadesContext.withPlanProcess(true, () -> {
+                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                cascadesContext.toMemo();
+                cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                        PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+                collectTableInfoAndInitHook(cascadesContext);
+            });
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when rewrite");
+            }
+        }
+        return this;
+    }
+
+    private static void collectTableInfoAndInitHook(CascadesContext cascadesContext) {
+        if (cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+            for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+                MaterializedViewUtils.collectTableUsedPartitions(plan, cascadesContext);
+            }
+        } else {
+            MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(),
+                    cascadesContext);
+        }
+        // init materialization context for mv rewrite
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(cascadesContext));
+    }
+
+    public PlanChecker preMvRewrite() {
+        if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+            return this;
+        }
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        List<Plan> plansWhichContainMv = new ArrayList<>();
+        for (Plan planForRewrite : tmpPlansForMvRewrite) {
+            // pre rewrite
+            Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
+            Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childOptContext -> {
+                        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
+                        return childOptContext.getRewritePlan();
+                    }, rewrittenPlan, planForRewrite, false);
+            if (ruleOptimizedPlan == null) {
+                continue;
+            }
+            plansWhichContainMv.add(ruleOptimizedPlan);
+        }
+        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+        this.cascadesContext.getStatementContext().setPreMvRewritten(true);
+        if (plansWhichContainMv.isEmpty()) {
+            return this;
+        }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
+        plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
+        return this;
+    }
+
+    public PlanChecker optimize() {
+        cascadesContext.setJobContext(PhysicalProperties.GATHER);
+        double now = System.currentTimeMillis();
+        try {
+            new Optimizer(cascadesContext).execute();
+        } finally {
+            // Mv rewrite add lock manually, so need release manually
+            cascadesContext.getStatementContext().releasePlannerResources();
+        }
+        System.out.println("cascades:" + (System.currentTimeMillis() - now));
+        return this;
+    }
+
+    public NereidsPlanner plan(String sql) {
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
+        LogicalPlanAdapter parsedPlanAdaptor = new LogicalPlanAdapter(parsedPlan, statementContext);
+        statementContext.setParsedStatement(parsedPlanAdaptor);
+
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            planner.plan(parsedPlanAdaptor);
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when explain");
+            }
+        }
+        return planner;
+    }
+
+    public PlanChecker dpHypOptimize() {
+        double now = System.currentTimeMillis();
+        cascadesContext.getStatementContext().setDpHyp(true);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer = true;
+        Group root = cascadesContext.getMemo().getRoot();
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.pushJob(new DeriveStatsJob(root.getLogicalExpression(),
+                cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        optimize();
+        System.out.println("DPhyp:" + (System.currentTimeMillis() - now));
+        return this;
+    }
+
+    public PlanChecker implement() {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
+        Assertions.assertTrue(plan instanceof PhysicalPlan);
+        if (plan instanceof PhysicalQuickSort && !((PhysicalQuickSort) plan).getSortPhase().isLocal()) {
+            PhysicalQuickSort<? extends Plan> sort = (PhysicalQuickSort) plan;
+            plan = sort.withChildren(new PhysicalDistribute<>(
+                    DistributionSpecGather.INSTANCE,
+                    plan.child(0)));
+        }
+        physicalPlan = ((PhysicalPlan) plan);
+        return this;
+    }
+
+    public PhysicalPlan getPhysicalPlan() {
+        return physicalPlan;
+    }
+
+    private Plan transformToPhysicalPlan(Group group) {
+        PhysicalPlan current = null;
+        loop:
+        for (Rule rule : RuleSet.IMPLEMENTATION_RULES) {
+            GroupExpressionMatching matching = new GroupExpressionMatching(rule.getPattern(),
+                    group.getLogicalExpression());
+            for (Plan plan : matching) {
+                Plan after = rule.transform(plan, cascadesContext).get(0);
+                if (after instanceof PhysicalPlan) {
+                    current = (PhysicalPlan) after;
+                    break loop;
+                }
+            }
+        }
+        Assertions.assertNotNull(current);
+        return flatGroupPlan(current);
+    }
+
+    private Plan flatGroupPlan(Plan plan) {
+        if (plan instanceof GroupPlan) {
+            return transformToPhysicalPlan(((GroupPlan) plan).getGroup());
+        }
+        List<Plan> newChildren = new ArrayList<>();
+        for (Plan child : plan.children()) {
+            newChildren.add(flatGroupPlan(child));
+        }
+        return plan.withChildren(newChildren);
+
+    }
+
+    public PlanChecker transform(PatternMatcher patternMatcher) {
+        return transform(cascadesContext.getMemo().getRoot(), patternMatcher);
+    }
+
+    public PlanChecker transform(Group group, PatternMatcher patternMatcher) {
+        // copy groupExpressions can prevent ConcurrentModificationException
+        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
+            transform(logicalExpression, patternMatcher);
+        }
+
+        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
+            transform(physicalExpression, patternMatcher);
+        }
+        return this;
+    }
+
+    public PlanChecker transform(GroupExpression groupExpression, PatternMatcher patternMatcher) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(patternMatcher.pattern, groupExpression);
+
+        for (Plan before : matchResult) {
+            Plan after = patternMatcher.matchedAction.apply(
+                    new MatchingContext(before, patternMatcher.pattern, cascadesContext));
+            if (before != after) {
+                cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+            }
+        }
+
+        for (Group childGroup : groupExpression.children()) {
+            transform(childGroup, patternMatcher);
+        }
+        return this;
+    }
+
+    // Exploration Rule.
+    public PlanChecker applyExploration(Rule rule) {
+        return applyExploration(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    public PlanChecker applyExploration(List<Rule> rules) {
+        rules.forEach(rule -> applyExploration(cascadesContext.getMemo().getRoot(), rule));
+        return this;
+    }
+
+    private PlanChecker applyExploration(Group group, Rule rule) {
+        // copy children expression, because group may be changed after apply rule.
+        List<GroupExpression> logicalExpressions = Lists.newArrayList(group.getLogicalExpressions());
+        // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+        // get the child to make we can get child at the time we use child.
+        // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+        // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
+        for (int i = 0; i < logicalExpressions.size(); i++) {
+            final int childIdx = i;
+            applyExploration(() -> logicalExpressions.get(childIdx), rule);
+        }
+
+        List<GroupExpression> physicalExpressions = Lists.newArrayList(group.getPhysicalExpressions());
+        for (int i = 0; i < physicalExpressions.size(); i++) {
+            final int childIdx = i;
+            applyExploration(() -> physicalExpressions.get(childIdx), rule);
+        }
+        return this;
+    }
+
+    private void applyExploration(Supplier<GroupExpression> groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression.get());
+
+        List<Group> childrenGroup = new ArrayList<>(groupExpression.get().children());
+        for (Plan before : matchResult) {
+            Plan after = rule.transform(before, cascadesContext).get(0);
+            if (before != after) {
+                cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+            }
+        }
+
+        for (Group childGroup : childrenGroup) {
+            applyExploration(childGroup, rule);
+        }
+    }
+
+    public PlanChecker applyImplementation(Rule rule) {
+        return applyImplementation(cascadesContext.getMemo().getRoot(), rule);
+    }
+
+    private PlanChecker applyImplementation(Group group, Rule rule) {
+        // copy groupExpressions can prevent ConcurrentModificationException
+        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
+            applyImplementation(logicalExpression, rule);
+        }
+
+        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
+            applyImplementation(physicalExpression, rule);
+        }
+        return this;
+    }
+
+    private PlanChecker applyImplementation(GroupExpression groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+
+        for (Plan before : matchResult) {
+            List<Plan> afters = rule.transform(before, cascadesContext);
+            for (Plan after : afters) {
+                if (before != after) {
+                    cascadesContext.getMemo().copyIn(after, before.getGroupExpression().get().getOwnerGroup(), false);
+                }
+            }
+        }
+
+        for (Group childGroup : groupExpression.children()) {
+            for (GroupExpression logicalExpression : childGroup.getLogicalExpressions()) {
+                applyImplementation(logicalExpression, rule);
+            }
+
+            for (GroupExpression physicalExpression : childGroup.getPhysicalExpressions()) {
+                applyImplementation(physicalExpression, rule);
+            }
+        }
+        return this;
+    }
+
+    public PlanChecker deriveStats() {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
+                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpression()).iterator().hasNext());
+        return this;
+    }
+
+    public PlanChecker notMatchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> !(new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpression()).iterator().hasNext()));
+        return this;
+    }
+
+    public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker anyMatches(PatternDescriptor<? extends Plan> patternDesc) {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        Set<Boolean> matchResult = new HashSet<>();
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        matchResult.add(MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatches(memo, () -> matchResult.contains(true));
+        return this;
+    }
+
+    public PlanChecker nonMatch(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> !MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    // TODO: remove it.
+    public PlanChecker matchesNotCheck(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker matchesExploration(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        Supplier<Boolean> asserter = () -> new GroupExpressionMatching(patternDesc.pattern,
+                memo.getRoot().getLogicalExpressions().get(1)).iterator().hasNext();
+        Assertions.assertTrue(asserter.get(),
+                () -> "pattern not match, plan :\n"
+                        + memo.getRoot().getLogicalExpressions().get(1).getPlan().treeString()
+                        + "\n");
+        return this;
+    }
+
+    private void checkSlotFromChildren(Memo memo) {
+        Validator validator = new Validator();
+        memo.getGroupExpressions().forEach((key, value) -> validator.visit(value.getPlan(), null));
+    }
+
+    private PlanChecker assertMatches(Memo memo, Supplier<Boolean> asserter) {
+        Assertions.assertTrue(asserter.get(),
+                () -> "pattern not match, plan :\n"
+                        + memo.copyOut().treeString()
+                        + "\n"
+        );
+        return this;
+    }
+
+    public PlanChecker checkGroupNum(int expectGroupNum) {
+        Assertions.assertEquals(expectGroupNum, cascadesContext.getMemo().getGroups().size());
+        return this;
+    }
+
+    public PlanChecker checkGroupExpressionNum(int expectGroupExpressionNum) {
+        Assertions.assertEquals(expectGroupExpressionNum, cascadesContext.getMemo().getGroupExpressions().size());
+        return this;
+    }
+
+    public PlanChecker checkFirstRootLogicalPlan(Plan expectPlan) {
+        Assertions.assertEquals(expectPlan, cascadesContext.getMemo().getRoot().getLogicalExpression().getPlan());
+        return this;
+    }
+
+    public PlanChecker checkMemo(Consumer<Memo> memoChecker) {
+        memoChecker.accept(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker setMaxInvokeTimesPerRule(int maxInvokeTime) {
+        JobContext originJobContext = cascadesContext.getCurrentJobContext();
+        cascadesContext.setCurrentJobContext(
+                new JobContext(cascadesContext,
+                        originJobContext.getRequiredProperties(), originJobContext.getCostUpperBound()) {
+                    @Override
+                    public void onInvokeRule(RuleType ruleType) {
+                        // add invoke times
+                        super.onInvokeRule(ruleType);
+
+                        Integer invokeTimes = ruleInvokeTimes.get(ruleType);
+                        if (invokeTimes > maxInvokeTime) {
+                            throw new IllegalStateException(ruleType + " invoke too many times: " + maxInvokeTime);
+                        }
+                    }
+                }
+        );
+        return this;
+    }
+
+    public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
+        adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            nereidsPlanner.plan(adapter);
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when explain");
+            }
+        }
+        consumer.accept(nereidsPlanner);
+        return this;
+    }
+
+    public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when plan");
+            }
+        }
+        consumer.accept(nereidsPlanner);
+        return this;
+    }
+
+    /**
+     * Check nereids planner could plan the input SQL without any exception.
+     */
+    public PlanChecker checkPlannerResult(String sql) {
+        return checkPlannerResult(sql, planner -> {
+        });
+    }
+
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
+    }
+
+    public Plan getPlan() {
+        return cascadesContext.getMemo().copyOut();
+    }
+
+    public List<Plan> getAllPlan() {
+        return cascadesContext.getMemo().copyOutAll();
+    }
+
+    private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) {
+        GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
+                () -> new AnalysisException("lowestCostPlans with physicalProperties("
+                        + physicalProperties + ") doesn't exist in root group")).second;
+        List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+        }
+
+        Plan plan = groupExpression.getPlan().withChildren(planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("Result plan must be PhysicalPlan");
+        }
+
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                groupExpression.getOutputProperties(physicalProperties),
+                groupExpression.getOwnerGroup().getStatistics());
+        return physicalPlan;
+    }
+
+    public PhysicalPlan getBestPlanTree() {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.GATHER);
+    }
+
+    public PhysicalPlan getBestPlanTree(PhysicalProperties properties) {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), properties);
+    }
+
+    public PlanChecker printlnBestPlanTree() {
+        System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
+        System.out.println("-----------------------------");
+        return this;
+    }
+
+    public PlanChecker printlnTree() {
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+        System.out.println("-----------------------------");
+        return this;
+    }
+
+    public PlanChecker printlnAllTree() {
+        System.out.println("--------------------------------");
+        for (Plan plan : cascadesContext.getMemo().copyOutAll()) {
+            System.out.println(plan.treeString());
+            System.out.println("--------------------------------");
+        }
+        return this;
+    }
+
+    public String getExplainFragments() {
+        PhysicalPlan plan = getBestPlanTree();
+        PhysicalPlanTranslator t = new PhysicalPlanTranslator();
+        PlanTranslatorContext ctx = new PlanTranslatorContext();
+        plan.accept(t, ctx);
+
+        StringBuilder str = new StringBuilder();
+        List<PlanFragment> fragments = ctx.getPlanFragments();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            if (i > 0) {
+                // a blank line between plan fragments
+                str.append("\n");
+            }
+            str.append("PLAN FRAGMENT " + i + "\n");
+            str.append(fragment.getExplainString(org.apache.doris.thrift.TExplainLevel.NORMAL));
+        }
+        return str.toString();
+    }
+
+    public int plansNumber() {
+        return cascadesContext.getMemo().copyOutAll().size();
+    }
+
+    public PlanChecker printlnExploration() {
+        System.out.println(
+                cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(1), false)
+                        .treeString());
+        return this;
+    }
+
+    public PlanChecker printlnOrigin() {
+        System.out.println(
+                cascadesContext.getMemo().copyOut(cascadesContext.getMemo().getRoot().logicalExpressionsAt(0), false)
+                        .treeString());
+        return this;
+    }
+
+    public static boolean isPlanEqualWithoutID(Plan plan1, Plan plan2) {
+        if (plan1.arity() != plan2.arity()
+                || !plan1.getOutput().equals(plan2.getOutput()) || plan1.getClass() != plan2.getClass()) {
+            System.out.println(plan1);
+            System.out.println(plan2);
+            return false;
+        }
+        for (int i = 0; i < plan1.arity(); i++) {
+            if (!isPlanEqualWithoutID(plan1.child(i), plan2.child(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+}

@@ -17,25 +17,35 @@
 
 #pragma once
 
-#include <rapidjson/prettywriter.h>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <future>
-#include <sstream>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/FrontendService_types.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "service/backend_options.h"
-#include "util/string_util.h"
+#include "runtime/thread_context.h"
+#include "util/byte_buffer.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
+namespace io {
+class StreamLoadPipe;
+} // namespace io
 
 // kafka related info
 class KafkaLoadInfo {
@@ -81,8 +91,10 @@ public:
 class MessageBodySink;
 
 class StreamLoadContext {
+    ENABLE_FACTORY_CREATOR(StreamLoadContext);
+
 public:
-    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env), _refs(0) {
+    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
     }
 
@@ -91,9 +103,9 @@ public:
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
         }
-
-        _exec_env->load_stream_mgr()->remove(id);
     }
+
+    std::string data_saved_path;
 
     std::string to_json() const;
 
@@ -109,13 +121,23 @@ public:
     // also print the load source info if detail is set to true
     std::string brief(bool detail = false) const;
 
-    void ref() { _refs.fetch_add(1); }
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
+    bool is_mow_table() const;
+
+    Status allocate_schema_buffer() {
+        if (_schema_buffer == nullptr) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->stream_load_pipe_tracker());
+            return ByteBuffer::allocate(config::stream_tvf_buffer_size, &_schema_buffer);
+        }
+        return Status::OK();
+    }
+
+    ByteBufferPtr schema_buffer() { return _schema_buffer; }
 
 public:
-    // load type, eg: ROUTINE LOAD/MANUL LOAD
-    TLoadType::type load_type;
+    static const int default_txn_id = -1;
+    // load type, eg: ROUTINE LOAD/MANUAL LOAD
+    TLoadType::type load_type = TLoadType::type::MANUL_LOAD;
     // load data source: eg: KAFKA/RAW
     TLoadSourceType::type load_src_type;
 
@@ -128,20 +150,26 @@ public:
 
     std::string db;
     int64_t db_id = -1;
+    int64_t wal_id = -1;
     std::string table;
+    int64_t table_id = -1;
+    int64_t schema_version = -1;
     std::string label;
+    std::string sql_str;
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;
     int32_t timeout_second = -1;
     AuthInfo auth;
     bool two_phase_commit = false;
+    std::string load_comment;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.
-    int64_t max_interval_s = 5;
-    int64_t max_batch_rows = 100000;
-    int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
+    // same as values set in fe/fe-core/src/main/java/org/apache/doris/load/routineload/RoutineLoadJob.java
+    int64_t max_interval_s = 60;
+    int64_t max_batch_rows = 20000000;
+    int64_t max_batch_size = 1024 * 1024 * 1024; // 1GB
 
     // for parse json-data
     std::string data_format = "";
@@ -151,8 +179,12 @@ public:
     // only used to check if we receive whole body
     size_t body_bytes = 0;
     size_t receive_bytes = 0;
+    bool is_chunked_transfer = false;
 
-    int64_t txn_id = -1;
+    int64_t txn_id = default_txn_id;
+
+    // http stream
+    bool is_read_schema = true;
 
     std::string txn_operation = "";
 
@@ -161,10 +193,14 @@ public:
     // otherwise we save source data to file first, then process it.
     bool use_streaming = false;
     TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
+    TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
+    bool group_commit = false;
 
     std::shared_ptr<MessageBodySink> body_sink;
+    std::shared_ptr<io::StreamLoadPipe> pipe;
 
     TStreamLoadPutResult put_result;
+    TStreamLoadMultiTablePutResult multi_table_put_result;
 
     std::vector<TTabletCommitInfo> commit_infos;
 
@@ -187,8 +223,11 @@ public:
     int64_t pre_commit_txn_cost_nanos = 0;
     int64_t read_data_cost_nanos = 0;
     int64_t write_data_cost_nanos = 0;
+    int64_t receive_and_read_data_cost_nanos = 0;
+    int64_t begin_receive_and_read_data_cost_nanos = 0;
 
     std::string error_url = "";
+    std::string first_error_msg = "";
     // if label already be used, set existing job's status here
     // should be RUNNING or FINISHED
     std::string existing_job_status = "";
@@ -199,18 +238,30 @@ public:
     // to identified a specified data consumer.
     int64_t consumer_id;
 
-    // If this is an tranactional insert operation, this will be true
+    // If this is an transactional insert operation, this will be true
     bool need_commit_self = false;
 
     // csv with header type
     std::string header_type = "";
 
+    // is this load single-stream-multi-table?
+    bool is_multi_table = false;
+
+    // for single-stream-multi-table, we have table list
+    std::vector<std::string> table_list;
+
+    bool memtable_on_sink_node = false;
+
+    // use for cloud cluster mode
+    std::string qualified_user;
+    std::string cloud_cluster;
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
-    ExecEnv* _exec_env;
-    std::atomic<int> _refs;
+    ExecEnv* _exec_env = nullptr;
+    ByteBufferPtr _schema_buffer;
 };
 
 } // namespace doris

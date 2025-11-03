@@ -38,29 +38,35 @@ public:
 public:
     virtual MutableColumnPtr clone_dummy(size_t s_) const = 0;
 
-    MutableColumnPtr clone_resized(size_t s) const override { return clone_dummy(s); }
+    MutableColumnPtr clone_resized(size_t size) const override { return clone_dummy(size); }
     size_t size() const override { return s; }
+    void resize(size_t _s) override { s = _s; }
     void insert_default() override { ++s; }
     void pop_back(size_t n) override { s -= n; }
     size_t byte_size() const override { return 0; }
     size_t allocated_bytes() const override { return 0; }
+    bool has_enough_capacity(const IColumn& src) const override { return false; }
     int compare_at(size_t, size_t, const IColumn&, int) const override { return 0; }
 
     [[noreturn]] Field operator[](size_t) const override {
-        LOG(FATAL) << "Cannot get value from " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot get value from {}", get_name());
+        __builtin_unreachable();
     }
 
     void get(size_t, Field&) const override {
-        LOG(FATAL) << "Cannot get value from " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot get value from {}", get_name());
     }
 
     void insert(const Field&) override {
-        LOG(FATAL) << "Cannot insert element into " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Cannot insert element into {}",
+                               get_name());
     }
 
     StringRef get_data_at(size_t) const override { return {}; }
 
     void insert_data(const char*, size_t) override { ++s; }
+
+    void clear() override { s = 0; }
 
     StringRef serialize_value_into_arena(size_t /*n*/, Arena& arena,
                                          char const*& begin) const override {
@@ -72,16 +78,14 @@ public:
         return pos;
     }
 
-    void update_hash_with_value(size_t /*n*/, SipHash& /*hash*/) const override {}
-
     void insert_from(const IColumn&, size_t) override { ++s; }
 
     void insert_range_from(const IColumn& /*src*/, size_t /*start*/, size_t length) override {
         s += length;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         s += (indices_end - indices_begin);
     }
 
@@ -89,9 +93,17 @@ public:
         return clone_dummy(count_bytes_in_filter(filt));
     }
 
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override {
+    size_t filter(const Filter& filter) override {
+        const auto result_size = count_bytes_in_filter(filter);
+        s = result_size;
+        return result_size;
+    }
+
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override {
         if (s != perm.size()) {
-            LOG(FATAL) << "Size of permutation doesn't match size of column.";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of permutation doesn't match size of column.");
+            __builtin_unreachable();
         }
 
         return clone_dummy(limit ? std::min(s, limit) : s);
@@ -103,41 +115,58 @@ public:
         for (size_t i = 0; i < s; ++i) res[i] = i;
     }
 
-    ColumnPtr replicate(const Offsets& offsets) const override {
-        if (s != offsets.size()) {
-            LOG(FATAL) << "Size of offsets doesn't match size of column.";
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {}, is larger than size of column:{}",
+                                   selector.size(), num_rows);
         }
 
-        return clone_dummy(offsets.back());
+        res->reserve(num_rows);
+
+        for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
     }
 
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
-        if (s != selector.size()) {
-            LOG(FATAL) << "Size of selector doesn't match size of column.";
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {}, is larger than size of column:{}",
+                                   selector.size(), num_rows);
         }
 
-        std::vector<size_t> counts(num_columns);
-        for (auto idx : selector) ++counts[idx];
+        res->reserve(num_rows);
 
-        MutableColumns res(num_columns);
-        for (size_t i = 0; i < num_columns; ++i) res[i] = clone_resized(counts[i]);
-
-        return res;
+        for (size_t i = begin; i < end; ++i) res->insert_from(*this, selector[i]);
     }
-
-    void get_extremes(Field&, Field&) const override {}
 
     void addSize(size_t delta) { s += delta; }
 
-    bool is_dummy() const override { return true; }
-
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column dummy";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "should not call the method in column dummy");
+        __builtin_unreachable();
     }
 
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column dummy";
-    }
+    void update_hash_with_value(size_t n, SipHash& hash) const override {}
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override {}
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {}
+
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
+                                const uint8_t* __restrict null_data) const override {}
+
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override {}
 
 protected:
     size_t s;

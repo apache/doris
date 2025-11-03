@@ -21,11 +21,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.planner.normalize.Normalizer;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
@@ -33,23 +37,25 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
 public class SlotRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(SlotRef.class);
-    private TableName tblName;
+    @SerializedName("tn")
+    private TableNameInfo tableNameInfo;
+    private TableIf table = null;
+    private TupleId tupleId = null;
+    @SerializedName("col")
     private String col;
     // Used in toSql
     private String label;
+    private List<String> subColPath;
 
     // results of analysis
     protected SlotDescriptor desc;
@@ -59,35 +65,59 @@ public class SlotRef extends Expr {
         super();
     }
 
-    public SlotRef(TableName tblName, String col) {
+    public SlotRef(TableNameInfo tableNameInfo, String col) {
         super();
-        this.tblName = tblName;
+        this.tableNameInfo = tableNameInfo;
         this.col = col;
         this.label = "`" + col + "`";
+    }
+
+    public SlotRef(TableNameInfo tableNameInfo, String col, List<String> subColPath) {
+        super();
+        this.tableNameInfo = tableNameInfo;
+        this.col = col;
+        this.label = "`" + col + "`";
+        this.subColPath = subColPath;
     }
 
     // C'tor for a "pre-analyzed" ref to slot that doesn't correspond to
     // a table's column.
     public SlotRef(SlotDescriptor desc) {
         super();
-        this.tblName = null;
-        this.col = null;
+        this.tableNameInfo = null;
+        this.col = desc.getColumn() != null ? desc.getColumn().getName() : null;
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
-        this.label = null;
+        this.label = desc.getLabel();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
+        this.subColPath = desc.getSubColLables();
         analysisDone();
+    }
+
+    // nereids use this constructor to build aggFnParam
+    public SlotRef(Type type, boolean nullable) {
+        super();
+        // tuple id and slot id is meaningless here, nereids just use type and nullable
+        // to build the TAggregateExpr.param_types
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
+        tupleDescriptor.addSlot(desc);
+        desc.setIsNullable(nullable);
+        desc.setType(type);
+        this.type = type;
     }
 
     protected SlotRef(SlotRef other) {
         super(other);
-        tblName = other.tblName;
+        tableNameInfo = other.tableNameInfo;
         col = other.col;
         label = other.label;
         desc = other.desc;
+        tupleId = other.tupleId;
+        subColPath = other.subColPath;
     }
 
     @Override
@@ -96,8 +126,6 @@ public class SlotRef extends Expr {
     }
 
     public SlotDescriptor getDesc() {
-        Preconditions.checkState(isAnalyzed);
-        Preconditions.checkNotNull(desc);
         return desc;
     }
 
@@ -117,77 +145,12 @@ public class SlotRef extends Expr {
 
     // NOTE: this is used to set tblName to null,
     // so we can to get the only column name when calling toSql
-    public void setTblName(TableName name) {
-        this.tblName = name;
+    public void setTableNameInfo(TableNameInfo name) {
+        this.tableNameInfo = name;
     }
 
     public void setDesc(SlotDescriptor desc) {
         this.desc = desc;
-    }
-
-    public boolean columnEqual(Expr srcExpr) {
-        Preconditions.checkState(srcExpr instanceof SlotRef);
-        SlotRef srcSlotRef = (SlotRef) srcExpr;
-        if (desc != null && srcSlotRef.desc != null) {
-            return desc.getId().equals(srcSlotRef.desc.getId());
-        }
-        TableName srcTableName = srcSlotRef.tblName;
-        if (srcTableName == null && srcSlotRef.desc != null) {
-            srcTableName = srcSlotRef.getTableName();
-        }
-        TableName thisTableName = tblName;
-        if (thisTableName == null && desc != null) {
-            thisTableName = getTableName();
-        }
-        if ((thisTableName == null) != (srcTableName == null)) {
-            return false;
-        }
-        if (thisTableName != null && !thisTableName.equals(srcTableName)) {
-            return false;
-        }
-        String srcColumnName = srcSlotRef.getColumnName();
-        if (srcColumnName == null && srcSlotRef.desc != null && srcSlotRef.getDesc().getColumn() != null) {
-            srcColumnName = srcSlotRef.desc.getColumn().getName();
-        }
-        String thisColumnName = getColumnName();
-        if (thisColumnName == null && desc != null && desc.getColumn() != null) {
-            thisColumnName = desc.getColumn().getName();
-        }
-        if ((thisColumnName == null) != (srcColumnName == null)) {
-            return false;
-        }
-        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
-            return false;
-        }
-        return true;
-    }
-
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        computeOutputColumn(analyzer);
-    }
-
-    @Override
-    public void computeOutputColumn(Analyzer analyzer) {
-        outputColumn = desc.getSlotOffset();
-        LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerColumnRef(tblName, col);
-        type = desc.getType();
-        if (this.type.equals(Type.CHAR)) {
-            this.type = Type.VARCHAR;
-        }
-        if (!type.isSupported()) {
-            throw new AnalysisException(
-                    "Unsupported type '" + type.toString() + "' in '" + toSql() + "'.");
-        }
-        numDistinctValues = desc.getStats().getNumDistinctValues();
-        if (type.equals(Type.BOOLEAN)) {
-            selectivity = DEFAULT_SELECTIVITY;
-        }
     }
 
     @Override
@@ -195,21 +158,39 @@ public class SlotRef extends Expr {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         helper.add("slotDesc", desc != null ? desc.debugString() : "null");
         helper.add("col", col);
+        helper.add("type", type.toSql());
         helper.add("label", label);
-        helper.add("tblName", tblName != null ? tblName.toSql() : "null");
+        helper.add("tblName", tableNameInfo != null ? tableNameInfo.toSql() : "null");
+        helper.add("subColPath", subColPath);
         return helper.toString();
     }
 
     @Override
     public String toSqlImpl() {
         StringBuilder sb = new StringBuilder();
-
-        if (tblName != null) {
-            return tblName.toSql() + "." + label + sb.toString();
+        String subColumnPaths = "";
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
+        }
+        if (tableNameInfo != null) {
+            return tableNameInfo.toSql() + "." + label + subColumnPaths;
         } else if (label != null) {
-            return label + sb.toString();
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getState().isNereids()
+                    && !ConnectContext.get().getState().isQuery()
+                    && ConnectContext.get().getSessionVariable() != null
+                    && desc != null) {
+                return label + "[#" + desc.getId().asInt() + "]";
+            } else {
+                return label;
+            }
+        } else if (desc == null) {
+            // virtual slot of an alias function
+            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
+            // is null, and we just need the name of col.
+            return "`" + col + "`";
         } else if (desc.getSourceExprs() != null) {
-            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+            if ((ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
                     sb.append("<slot " + desc.getId().asInt() + ">");
                 }
@@ -225,29 +206,91 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public String toMySql() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf inputTable) {
+        if (needExternalSql) {
+            return toExternalSqlImpl(tableType, inputTable);
+        }
+
+        if (disableTableName && label != null) {
+            return label;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        String subColumnPaths = "";
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
+        }
+        if (tableNameInfo != null) {
+            return tableNameInfo.toSql() + "." + label + subColumnPaths;
+        } else if (label != null) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getState().isNereids()
+                    && !ConnectContext.get().getState().isQuery()
+                    && ConnectContext.get().getSessionVariable() != null
+                    && desc != null) {
+                return label + "[#" + desc.getId().asInt() + "]";
+            } else {
+                return label;
+            }
+        } else if (desc == null) {
+            // virtual slot of an alias function
+            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
+            // is null, and we just need the name of col.
+            return "`" + col + "`";
+        } else if (desc.getSourceExprs() != null) {
+            if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
+                if (desc.getId().asInt() != 1) {
+                    sb.append("<slot " + desc.getId().asInt() + ">");
+                }
+            }
+            for (Expr expr : desc.getSourceExprs()) {
+                if (!disableTableName) {
+                    sb.append(" ");
+                }
+                sb.append(disableTableName ? expr.toSqlWithoutTbl() : expr.toSql());
+            }
+            return sb.toString();
+        } else {
+            return "<slot " + desc.getId().asInt() + ">" + sb.toString();
+        }
+    }
+
+    private String toExternalSqlImpl(TableType tableType, TableIf inputTable) {
         if (col != null) {
-            return col;
+            if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
+                    .equals(TableType.ODBC)) {
+                if (inputTable instanceof JdbcTable) {
+                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
+                            ((JdbcTable) inputTable).getJdbcTableType(), col);
+                } else if (inputTable instanceof OdbcTable) {
+                    return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);
+                } else {
+                    return col;
+                }
+            } else {
+                return col;
+            }
         } else {
             return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
         }
     }
 
-    public TableName getTableName() {
-        Preconditions.checkState(isAnalyzed);
-        Preconditions.checkNotNull(desc);
-        if (tblName == null) {
+    public TableNameInfo getTableName() {
+        if (tableNameInfo == null) {
+            Preconditions.checkState(isAnalyzed);
+            Preconditions.checkNotNull(desc);
             Preconditions.checkNotNull(desc.getParent());
             if (desc.getParent().getRef() == null) {
                 return null;
             }
-            return desc.getParent().getRef().getName();
+            return desc.getParent().getRef().getTableNameInfo();
         }
-        return tblName;
+        return tableNameInfo;
     }
 
-    public TableName getOriginTableName() {
-        return tblName;
+    public TableNameInfo getOriginTableName() {
+        return tableNameInfo;
     }
 
     @Override
@@ -256,17 +299,32 @@ public class SlotRef extends Expr {
         return col;
     }
 
+    @Override
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(toColumnLabel());
+        }
+        return this.exprName.get();
+    }
 
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
-        msg.setOutputColumn(outputColumn);
+        msg.slot_ref.setColUniqueId(desc.getUniqueId());
+        msg.slot_ref.setIsVirtualSlot(desc.getVirtualColumn() != null);
+        msg.setLabel(label);
     }
 
     @Override
-    public void markAgg() {
-        desc.setIsAgg(true);
+    protected void normalize(TExprNode msg, Normalizer normalizer) {
+        msg.node_type = TExprNodeType.SLOT_REF;
+        // we should eliminate the different tuple id to reuse query cache
+        msg.slot_ref = new TSlotRef(
+                normalizer.normalizeSlotId(desc.getId().asInt()),
+                0
+        );
+        msg.slot_ref.setColUniqueId(desc.getUniqueId());
     }
 
     @Override
@@ -274,7 +332,14 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        if (subColPath == null || subColPath.isEmpty()) {
+            return Objects.hashCode((tableNameInfo == null ? "" : tableNameInfo.toSql() + "." + label).toLowerCase());
+        }
+        int result = Objects.hashCode((tableNameInfo == null ? "" : tableNameInfo.toSql() + "." + label).toLowerCase());
+        for (String sublabel : subColPath) {
+            result = 31 * result + Objects.hashCode(sublabel);
+        }
+        return result;
     }
 
     @Override
@@ -291,15 +356,16 @@ public class SlotRef extends Expr {
         return notCheckDescIdEquals(obj);
     }
 
+    @Override
     public boolean notCheckDescIdEquals(Object obj) {
         if (!super.equals(obj)) {
             return false;
         }
         SlotRef other = (SlotRef) obj;
-        if ((tblName == null) != (other.tblName == null)) {
+        if ((tableNameInfo == null) != (other.tableNameInfo == null)) {
             return false;
         }
-        if (tblName != null && !tblName.equals(other.tblName)) {
+        if (tableNameInfo != null && !tableNameInfo.equals(other.tableNameInfo)) {
             return false;
         }
         if ((col == null) != (other.col == null)) {
@@ -308,19 +374,37 @@ public class SlotRef extends Expr {
         if (col != null && !col.equalsIgnoreCase(other.col)) {
             return false;
         }
+        if ((subColPath == null) != (other.subColPath == null)) {
+            return false;
+        }
+        if (subColPath != null
+                && subColPath.equals(other.subColPath)) {
+            return false;
+        }
         return true;
     }
 
     @Override
     protected boolean isConstantImpl() {
+        if (desc != null) {
+            List<Expr> exprs = desc.getSourceExprs();
+            return CollectionUtils.isNotEmpty(exprs) && exprs.stream().allMatch(Expr::isConstant);
+        }
         return false;
+    }
+
+    public TupleId getTupleId() {
+        return tupleId;
     }
 
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
-        Preconditions.checkState(desc != null);
+        Preconditions.checkState(desc != null || tupleId != null);
+        if (desc != null) {
+            tupleId = desc.getParent().getId();
+        }
         for (TupleId tid : tids) {
-            if (tid.equals(desc.getParent().getId())) {
+            if (tid.equals(tupleId)) {
                 return true;
             }
         }
@@ -364,10 +448,10 @@ public class SlotRef extends Expr {
 
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-        Preconditions.checkState(desc != null);
-        if (!desc.isMaterialized()) {
+        if (desc == null) {
             return;
         }
+
         if (col == null) {
             for (Expr expr : desc.getSourceExprs()) {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);
@@ -388,9 +472,8 @@ public class SlotRef extends Expr {
         }
     }
 
-    public TableIf getTable() {
-        Preconditions.checkState(desc != null);
-        return desc.getParent().getTable();
+    public void setTable(TableIf table) {
+        this.table = table;
     }
 
     public void setLabel(String label) {
@@ -398,42 +481,14 @@ public class SlotRef extends Expr {
     }
 
     public String getColumnName() {
+        if (subColPath != null && !subColPath.isEmpty()) {
+            return col + "." + String.join(".", subColPath);
+        }
         return col;
     }
 
     public void setCol(String col) {
         this.col = col;
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // TableName
-        if (tblName == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            tblName.write(out);
-        }
-        Text.writeString(out, col);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            tblName = new TableName();
-            tblName.readFields(in);
-        }
-        col = Text.readString(in);
-    }
-
-    public static SlotRef read(DataInput in) throws IOException {
-        SlotRef slotRef = new SlotRef();
-        slotRef.readFields(in);
-        return slotRef;
     }
 
     @Override
@@ -443,7 +498,14 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        if (tableNameInfo != null) {
+            builder.append(tableNameInfo).append(".");
+        }
+        if (label != null) {
+            builder.append(label);
+        }
+        return builder.toString();
     }
 }

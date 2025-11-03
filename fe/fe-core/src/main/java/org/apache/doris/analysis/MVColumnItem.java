@@ -20,10 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
-import com.google.common.base.Preconditions;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * This is a result of semantic analysis for AddMaterializedViewClause.
@@ -39,22 +43,50 @@ public class MVColumnItem {
     private AggregateType aggregationType;
     private boolean isAggregationTypeImplicit;
     private Expr defineExpr;
-    private String baseColumnName;
+    private Set<String> baseColumnNames;
 
-    public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr, String baseColumnName) {
+    public MVColumnItem(String name, Type type, AggregateType aggregateType, Expr defineExpr) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
-        this.isAggregationTypeImplicit = isAggregationTypeImplicit;
+        this.isAggregationTypeImplicit = false;
         this.defineExpr = defineExpr;
-        this.baseColumnName = baseColumnName;
+
+        Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
+
+        if (tableIdToColumnNames.size() == 1) {
+            for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
+                baseColumnNames = entry.getValue();
+            }
+        } else {
+            baseColumnNames = new HashSet<>();
+        }
     }
 
-    public MVColumnItem(String name, Type type) {
+    public MVColumnItem(Expr defineExpr) throws AnalysisException {
+        this(defineExpr.toSqlWithoutTbl(), defineExpr);
+    }
+
+    public MVColumnItem(String name, Expr defineExpr) {
         this.name = name;
-        this.type = type;
-        this.baseColumnName = name;
+        this.isAggregationTypeImplicit = false;
+        this.defineExpr = defineExpr;
+
+        this.type = defineExpr.getType();
+        if (this.type instanceof ScalarType && this.type.isStringType()) {
+            this.type = new ScalarType(type.getPrimitiveType());
+            ((ScalarType) this.type).setMaxLength();
+        }
+
+        Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
+
+        if (tableIdToColumnNames.size() == 1) {
+            for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
+                baseColumnNames = entry.getValue();
+            }
+        } else {
+            baseColumnNames = new HashSet<>();
+        }
     }
 
     public String getName() {
@@ -86,37 +118,39 @@ public class MVColumnItem {
         return aggregationType;
     }
 
-    public boolean isAggregationTypeImplicit() {
-        return isAggregationTypeImplicit;
-    }
-
     public Expr getDefineExpr() {
         return defineExpr;
     }
 
-    public void setDefineExpr(Expr defineExpr) {
-        this.defineExpr = defineExpr;
-    }
-
-    public String getBaseColumnName() {
-        return baseColumnName;
+    public Set<String> getBaseColumnNames() {
+        return baseColumnNames;
     }
 
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
         Column baseColumn = olapTable.getBaseColumn(name);
-        if (baseColumn == null) {
-            Preconditions.checkNotNull(defineExpr != null);
-            Column result = new Column(name, type, isKey, aggregationType, ColumnDef.DefaultValue.ZERO, "");
-            result.setDefineExpr(defineExpr);
-            return result;
-        } else {
-            Column result = new Column(baseColumn);
-            result.setIsKey(isKey);
-            // If the mv column type is inconsistent with the base column type, the daily test will core.
-            // So, I comment this line firstly.
-            // result.setType(type);
-            result.setAggregationType(aggregationType, isAggregationTypeImplicit);
-            return result;
+        Column result;
+        if (baseColumn == null && defineExpr == null) {
+            // Some mtmv column have name diffrent with base column
+            baseColumn = olapTable.getBaseColumn(baseColumnNames.iterator().next());
         }
+        if (baseColumn != null) {
+            result = new Column(baseColumn);
+            if (result.getType() == null) {
+                throw new DdlException("base column's type is null, column=" + result.getName());
+            }
+            result.setIsKey(isKey);
+        } else {
+            if (type == null) {
+                throw new DdlException("MVColumnItem type is null");
+            }
+            result = new Column(name, type, isKey, aggregationType, null, "");
+            if (defineExpr != null) {
+                result.setIsAllowNull(defineExpr.isNullable());
+            }
+        }
+        result.setName(name);
+        result.setAggregationType(aggregationType, isAggregationTypeImplicit);
+        result.setDefineExpr(defineExpr);
+        return result;
     }
 }

@@ -46,7 +46,7 @@ public class PartitionRenameClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(partitionName)) {
             throw new AnalysisException("Partition name is not set");
         }
@@ -61,6 +61,16 @@ public class PartitionRenameClause extends AlterTableClause {
     @Override
     public Map<String, String> getProperties() {
         return null;
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

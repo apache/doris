@@ -17,22 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
@@ -44,7 +41,7 @@ import java.util.stream.Stream;
  * the higher segment can't be a wildcard. The following examples are not allowed:
  * "ctl1.*.table1", "*.*.table2", "*.db1.*", ...
  */
-public class TablePattern implements Writable {
+public class TablePattern implements Writable, GsonPostProcessable {
     @SerializedName(value = "ctl")
     private String ctl;
     @SerializedName(value = "db")
@@ -58,7 +55,7 @@ public class TablePattern implements Writable {
     static {
         ALL = new TablePattern("*", "*", "*");
         try {
-            ALL.analyze("");
+            ALL.analyze();
         } catch (AnalysisException e) {
             // will not happen
         }
@@ -106,55 +103,26 @@ public class TablePattern implements Writable {
         }
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (ctl == null) {
-            analyze(analyzer.getDefaultCatalog(), analyzer.getClusterName());
-        } else {
-            analyze(analyzer.getClusterName());
-        }
-    }
-
-    private void analyze(String catalogName, String clusterName) throws AnalysisException {
+    private void analyze(String catalogName) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
-        this.ctl = Strings.isNullOrEmpty(catalogName) ? InternalDataSource.INTERNAL_DS_NAME : catalogName;
+        this.ctl = Strings.isNullOrEmpty(catalogName) ? InternalCatalog.INTERNAL_CATALOG_NAME : catalogName;
         if ((!tbl.equals("*") && (db.equals("*") || ctl.equals("*")))
                 || (!db.equals("*") && ctl.equals("*"))) {
             throw new AnalysisException("Do not support format: " + toString());
         }
-
-        if (!ctl.equals("*")) {
-            FeNameFormat.checkCatalogName(ctl);
-        }
-
-        if (!db.equals("*")) {
-            FeNameFormat.checkDbName(db);
-            db = ClusterNamespace.getFullName(clusterName, db);
-        }
-
-        if (!tbl.equals("*")) {
-            FeNameFormat.checkTableName(tbl);
-        }
         isAnalyzed = true;
     }
 
-    public void analyze(String clusterName) throws AnalysisException {
-        analyze(ctl, clusterName);
+    public void analyze() throws AnalysisException {
+        analyze(ctl);
     }
 
-    public static TablePattern read(DataInput in) throws IOException {
-        TablePattern tablePattern;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_111) {
-            tablePattern = GsonUtils.GSON.fromJson(Text.readString(in), TablePattern.class);
-        } else {
-            String ctl = InternalDataSource.INTERNAL_DS_NAME;
-            String db = Text.readString(in);
-            String tbl = Text.readString(in);
-            tablePattern = new TablePattern(ctl, db, tbl);
+    private void removeClusterPrefix() {
+        if (db != null) {
+            db = ClusterNamespace.getNameFromFullName(db);
         }
-        tablePattern.isAnalyzed = true;
-        return tablePattern;
     }
 
     @Override
@@ -183,5 +151,11 @@ public class TablePattern implements Writable {
         Preconditions.checkState(isAnalyzed);
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
+        isAnalyzed = true;
     }
 }

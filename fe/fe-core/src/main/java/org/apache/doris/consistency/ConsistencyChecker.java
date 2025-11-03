@@ -17,15 +17,14 @@
 
 package org.apache.doris.consistency;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaObject;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -88,8 +87,8 @@ public class ConsistencyChecker extends MasterDaemon {
     }
 
     private boolean initWorkTime() {
-        Date startDate = TimeUtils.getTimeAsDate(Config.consistency_check_start_time);
-        Date endDate = TimeUtils.getTimeAsDate(Config.consistency_check_end_time);
+        Date startDate = TimeUtils.getHourAsDate(Config.consistency_check_start_time);
+        Date endDate = TimeUtils.getHourAsDate(Config.consistency_check_end_time);
 
         if (startDate == null || endDate == null) {
             return false;
@@ -181,8 +180,10 @@ public class ConsistencyChecker extends MasterDaemon {
         }
 
         if (!isTime) {
-            LOG.debug("current time is {}:00, waiting to {}:00 to {}:00",
-                      currentTime, startTime, endTime);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("current time is {}:00, waiting to {}:00 to {}:00",
+                          currentTime, startTime, endTime);
+            }
         }
 
         return isTime;
@@ -190,7 +191,9 @@ public class ConsistencyChecker extends MasterDaemon {
 
     private void clearJob(CheckConsistencyJob job) {
         job.clear();
-        LOG.debug("tablet[{}] consistency checking job is cleared", job.getTabletId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("tablet[{}] consistency checking job is cleared", job.getTabletId());
+        }
     }
 
     private boolean addJob(CheckConsistencyJob job) {
@@ -232,13 +235,13 @@ public class ConsistencyChecker extends MasterDaemon {
      *  chose a tablet which has the smallest 'lastCheckTime'.
      */
     private List<Long> chooseTablets() {
-        Catalog catalog = Catalog.getCurrentCatalog();
+        Env env = Env.getCurrentEnv();
         MetaObject chosenOne = null;
 
         List<Long> chosenTablets = Lists.newArrayList();
 
         // sort dbs
-        List<Long> dbIds = catalog.getInternalDataSource().getDbIds();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
         if (dbIds.isEmpty()) {
             return chosenTablets;
         }
@@ -248,7 +251,7 @@ public class ConsistencyChecker extends MasterDaemon {
                 // skip 'information_schema' database
                 continue;
             }
-            Database db = catalog.getInternalDataSource().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -264,7 +267,7 @@ public class ConsistencyChecker extends MasterDaemon {
                 // sort tables
                 Queue<MetaObject> tableQueue = new PriorityQueue<>(Math.max(tables.size(), 1), COMPARATOR);
                 for (Table table : tables) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
                     tableQueue.add(table);
@@ -281,14 +284,18 @@ public class ConsistencyChecker extends MasterDaemon {
                             // check partition's replication num. if 1 replication. skip
                             if (table.getPartitionInfo().getReplicaAllocation(
                                     partition.getId()).getTotalReplicaNum() == (short) 1) {
-                                LOG.debug("partition[{}]'s replication num is 1. ignore", partition.getId());
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("partition[{}]'s replication num is 1. ignore", partition.getId());
+                                }
                                 continue;
                             }
 
                             // check if this partition has no data
                             if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION) {
-                                LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
-                                        Partition.PARTITION_INIT_VERSION);
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
+                                            Partition.PARTITION_INIT_VERSION);
+                                }
                                 continue;
                             }
                             partitionQueue.add(partition);
@@ -323,8 +330,10 @@ public class ConsistencyChecker extends MasterDaemon {
                                     // check if version has already been checked
                                     if (partition.getVisibleVersion() == tablet.getCheckedVersion()) {
                                         if (tablet.isConsistent()) {
-                                            LOG.debug("tablet[{}]'s version[{}] has been checked. ignore",
-                                                    chosenTabletId, tablet.getCheckedVersion());
+                                            if (LOG.isDebugEnabled()) {
+                                                LOG.debug("tablet[{}]'s version[{}] has been checked. ignore",
+                                                        chosenTabletId, tablet.getCheckedVersion());
+                                            }
                                         }
                                     } else {
                                         LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
@@ -364,8 +373,8 @@ public class ConsistencyChecker extends MasterDaemon {
         job.handleFinishedReplica(backendId, checksum);
     }
 
-    public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Catalog catalog) throws MetaNotFoundException {
-        Database db = catalog.getInternalDataSource().getDbOrMetaException(info.getDbId());
+    public void replayFinishConsistencyCheck(ConsistencyCheckInfo info, Env env) throws MetaNotFoundException {
+        Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
         OlapTable table = (OlapTable) db.getTableOrMetaException(info.getTableId());
         table.writeLock();
         try {

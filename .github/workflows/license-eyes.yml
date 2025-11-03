@@ -18,17 +18,36 @@
 ---
 name: License Check
 on:
-  pull_request:
+  pull_request_target:
   push:
     branches:
       - master
+  workflow_dispatch:
+  issue_comment:
+    types: [ created ]
+
 jobs:
   license-check:
     name: "License Check"
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.body == 'run buildall' &&
+       github.actor == 'doris-robot' &&
+       github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v2
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: actions/checkout@v3
+
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
       - name: Check License
         uses: apache/skywalking-eyes@v0.2.0
         env:

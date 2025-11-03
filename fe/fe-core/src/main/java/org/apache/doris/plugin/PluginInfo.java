@@ -25,7 +25,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +52,8 @@ public class PluginInfo implements Writable {
     public enum PluginType {
         AUDIT,
         IMPORT,
-        STORAGE;
+        STORAGE,
+        DIALECT;
 
         public static int MAX_PLUGIN_TYPE_SIZE = PluginType.values().length;
     }

@@ -17,17 +17,21 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Queues;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -44,19 +48,33 @@ public class AuditEventProcessor {
     private List<Plugin> auditPlugins;
     private long lastUpdateTime = 0;
 
-    private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque(10000);
+    private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque();
     private Thread workerThread;
 
     private volatile boolean isStopped = false;
+
+    private Set<String> skipAuditUsers = Sets.newHashSet();
 
     public AuditEventProcessor(PluginMgr pluginMgr) {
         this.pluginMgr = pluginMgr;
     }
 
     public void start() {
+        initSkipAuditUsers();
         workerThread = new Thread(new Worker(), "AuditEventProcessor");
         workerThread.setDaemon(true);
         workerThread.start();
+    }
+
+    private void initSkipAuditUsers() {
+        if (Strings.isNullOrEmpty(Config.skip_audit_user_list)) {
+            return;
+        }
+        String[] users = Config.skip_audit_user_list.replaceAll(" ", "").split(",");
+        for (String user : users) {
+            skipAuditUsers.add(user);
+        }
+        LOG.info("skip audit users: {}", skipAuditUsers);
     }
 
     public void stop() {
@@ -70,12 +88,26 @@ public class AuditEventProcessor {
         }
     }
 
-    public void handleAuditEvent(AuditEvent auditEvent) {
-        try {
-            eventQueue.add(auditEvent);
-        } catch (Exception e) {
-            LOG.warn("encounter exception when handle audit event, ignore", e);
+    public boolean handleAuditEvent(AuditEvent auditEvent) {
+        if (skipAuditUsers.contains(auditEvent.user)) {
+            // return true to ignore this event
+            return true;
         }
+        boolean isAddSucc = true;
+        try {
+            if (eventQueue.size() >= Config.audit_event_log_queue_size) {
+                isAddSucc = false;
+                LOG.warn("the audit event queue is full with size {}, discard the audit event: {}",
+                        eventQueue.size(), auditEvent.queryId);
+            } else {
+                eventQueue.add(auditEvent);
+            }
+        } catch (Exception e) {
+            isAddSucc = false;
+            LOG.warn("encounter exception when handle audit event {}, discard the event",
+                    auditEvent.queryId, e);
+        }
+        return isAddSucc;
     }
 
     public class Worker implements Runnable {
@@ -84,11 +116,13 @@ public class AuditEventProcessor {
             AuditEvent auditEvent;
             while (!isStopped) {
                 // update audit plugin list every UPDATE_PLUGIN_INTERVAL_MS.
-                // because some of plugins may be installed or uninstalled at runtime.
+                // because some plugins may be installed or uninstalled at runtime.
                 if (auditPlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
                     auditPlugins = pluginMgr.getActivePluginList(PluginType.AUDIT);
                     lastUpdateTime = System.currentTimeMillis();
-                    LOG.debug("update audit plugins. num: {}", auditPlugins.size());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("update audit plugins. num: {}", auditPlugins.size());
+                    }
                 }
 
                 try {
@@ -97,7 +131,7 @@ public class AuditEventProcessor {
                         continue;
                     }
                 } catch (InterruptedException e) {
-                    LOG.debug("encounter exception when getting audit event from queue, ignore", e);
+                    LOG.warn("encounter exception when getting audit event from queue, ignore", e);
                     continue;
                 }
 
@@ -108,7 +142,7 @@ public class AuditEventProcessor {
                         }
                     }
                 } catch (Exception e) {
-                    LOG.debug("encounter exception when processing audit event.", e);
+                    LOG.warn("encounter exception when processing audit events. ignore", e);
                 }
             }
         }

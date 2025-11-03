@@ -17,73 +17,63 @@
 
 #pragma once
 
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/data_dir.h"
-#include "olap/storage_engine.h"
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+
+#include <functional>
+#include <optional>
+
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
 class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
+class DataDir;
+class Tablet;
+class FileWriterCreator;
+class SegmentCollector;
+namespace vectorized::schema_util {
+class LocalSchemaChangeRecorder;
+}
 
 struct RowsetWriterContext {
-    RowsetWriterContext()
-            : tablet_id(0),
-              tablet_schema_hash(0),
-              partition_id(0),
-              rowset_type(ALPHA_ROWSET),
-              tablet_schema(nullptr),
-              rowset_state(PREPARED),
-              version(Version(0, 0)),
-              txn_id(0),
-              tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN) {
+    RowsetWriterContext() : schema_lock(new std::mutex) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
 
-    static RowsetWriterContext create(const Version& version, TabletSharedPtr new_tablet,
-                                      RowsetTypePB new_rowset_type,
-                                      SegmentsOverlapPB segments_overlap) {
-        RowsetWriterContext context;
-        context.rowset_id = StorageEngine::instance()->next_rowset_id();
-        context.tablet_uid = new_tablet->tablet_uid();
-        context.tablet_id = new_tablet->tablet_id();
-        context.partition_id = new_tablet->partition_id();
-        context.tablet_schema_hash = new_tablet->schema_hash();
-        context.rowset_type = new_rowset_type;
-        context.tablet_path = new_tablet->tablet_path();
-        context.tablet_schema = &(new_tablet->tablet_schema());
-        context.data_dir = new_tablet->data_dir();
-        context.rowset_state = VISIBLE;
-        context.version = version;
-        context.segments_overlap = segments_overlap;
-
-        return context;
-    }
-
     RowsetId rowset_id;
-    int64_t tablet_id;
-    int64_t tablet_schema_hash;
-    int64_t partition_id;
-    RowsetTypePB rowset_type;
-    std::string tablet_path;
-    const TabletSchema* tablet_schema;
+    int64_t tablet_id {0};
+    int32_t tablet_schema_hash {0};
+    int64_t index_id {0};
+    int64_t partition_id {0};
+    RowsetTypePB rowset_type {BETA_ROWSET};
+
+    TabletSchemaSPtr tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
-    RowsetStatePB rowset_state;
+    RowsetStatePB rowset_state {PREPARED};
     // properties for non-pending rowset
-    Version version;
+    Version version {0, 0};
 
     // properties for pending rowset
-    int64_t txn_id;
+    int64_t txn_id {0};
+    int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
-    TabletUid tablet_uid;
+    TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
-    SegmentsOverlapPB segments_overlap;
+    SegmentsOverlapPB segments_overlap {OVERLAP_UNKNOWN};
     // segment file use uint32 to represent row number, therefore the maximum is UINT32_MAX.
     // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.
     // test cases can change this value to control flush timing
@@ -94,8 +84,103 @@ struct RowsetWriterContext {
     // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
     DataDir* data_dir = nullptr;
 
-    int64_t oldest_write_timestamp;
-    int64_t newest_write_timestamp;
+    int64_t newest_write_timestamp = -1;
+    bool enable_unique_key_merge_on_write = false;
+    // store column_unique_id to do index compaction
+    std::set<int32_t> columns_to_do_index_compaction;
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    // need to figure out the sub type of compaction
+    ReaderType compaction_type = ReaderType::UNKNOWN;
+    BaseTabletSPtr tablet = nullptr;
+
+    std::shared_ptr<MowContext> mow_context;
+    std::shared_ptr<FileWriterCreator> file_writer_creator;
+    std::shared_ptr<SegmentCollector> segment_collector;
+
+    // memtable_on_sink_support_index_v2 = true, we will create SinkFileWriter to send inverted index file
+    bool memtable_on_sink_support_index_v2 = false;
+
+    /// begin file cache opts
+    bool write_file_cache = false;
+    bool is_hot_data = false;
+    uint64_t file_cache_ttl_sec = 0;
+    uint64_t approximate_bytes_to_write = 0;
+    /// end file cache opts
+
+    // segcompaction for this RowsetWriter, only enabled when importing data
+    bool enable_segcompaction = false;
+
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+
+    bool is_transient_rowset_writer = false;
+
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+
+    // TODO(lihangyu) remove this lock
+    // In semi-structure senario tablet_schema will be updated concurrently,
+    // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
+    std::shared_ptr<std::mutex> schema_lock;
+
+    int64_t compaction_level = 0;
+
+    // For local rowset
+    std::string tablet_path;
+
+    // For remote rowset
+    std::optional<StorageResource> storage_resource;
+
+    std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
+
+    bool is_local_rowset() const { return !storage_resource; }
+
+    std::string segment_path(int seg_id) const {
+        if (is_local_rowset()) {
+            return local_segment_path(tablet_path, rowset_id.to_string(), seg_id);
+        } else {
+            return storage_resource->remote_segment_path(tablet_id, rowset_id.to_string(), seg_id);
+        }
+    }
+
+    io::FileSystemSPtr fs() {
+        auto fs = [this]() -> io::FileSystemSPtr {
+            if (is_local_rowset()) {
+                return io::global_local_filesystem();
+            } else {
+                return storage_resource->fs;
+            }
+        }();
+
+        if (!encrypt_algorithm.has_value()) {
+#ifndef BE_TEST
+            constexpr std::string_view msg =
+                    "RowsetWriterContext::determine_encryption is not called when creating this "
+                    "RowsetWriterContext, it will result in encrypted rowsets left unencrypted";
+            auto st = Status::InternalError(msg);
+
+            LOG(WARNING) << st;
+            DCHECK(false) << st;
+#else
+            encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
+#endif
+            return fs;
+        }
+        return io::make_file_system(fs, encrypt_algorithm.value());
+    }
+
+    io::FileSystem& fs_ref() { return *fs(); }
+
+    io::FileWriterOptions get_file_writer_options() {
+        io::FileWriterOptions opts {
+                .write_file_cache = write_file_cache,
+                .is_cold_data = is_hot_data,
+                .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
+                                                 ? newest_write_timestamp + file_cache_ttl_sec
+                                                 : 0,
+                .approximate_bytes_to_write = approximate_bytes_to_write};
+
+        return opts;
+    }
 };
 
 } // namespace doris

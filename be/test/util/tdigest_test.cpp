@@ -17,10 +17,13 @@
 
 #include "util/tdigest.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <memory>
 #include <random>
 
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
 
 namespace doris {

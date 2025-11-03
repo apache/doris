@@ -1,0 +1,6 @@
+[
+{"id":1,"k1":true,"k2":true,"k3":true,"k4":true},
+{"id":2,"k1":false,"k2":false,"k3":false,"k4":false},
+{"id":3,"k1":100,"k2":100,"k3":100,"k4":100},
+{"id":4,"k1":null,"k2":null,"k3":null,"k4":null}
+]

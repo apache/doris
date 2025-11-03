@@ -17,13 +17,25 @@
 
 #include "olap/schema.h"
 
-#include "olap/row_block2.h"
-#include "olap/uint24.h"
-#include "vec/columns/column_complex.h"
+#include <glog/logging.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+#include <unordered_set>
+#include <utility>
+
+#include "common/config.h"
+#include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
+#include "util/trace.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -54,7 +66,7 @@ void Schema::_copy_from(const Schema& other) {
     }
 }
 
-void Schema::_init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
+void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                    size_t num_key_columns) {
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
@@ -68,7 +80,7 @@ void Schema::_init(const std::vector<TabletColumn>& cols, const std::vector<Colu
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
-        _cols[cid] = FieldFactory::create(cols[cid]);
+        _cols[cid] = FieldFactory::create(*cols[cid]);
 
         _col_offsets[cid] = offset;
         // Plus 1 byte for null byte
@@ -114,65 +126,99 @@ vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
     return vectorized::DataTypeFactory::instance().create_data_type(field);
 }
 
-vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(FieldType type,
-                                                                          bool is_null) {
-    vectorized::IColumn::MutablePtr ptr = Schema::get_predicate_column_ptr(type);
-    if (is_null) {
+vectorized::IColumn::MutablePtr Schema::get_column_by_field(const Field& field) {
+    return get_data_type_ptr(field)->create_column();
+}
+
+vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type,
+                                                                 bool is_nullable,
+                                                                 const ReaderType reader_type) {
+    vectorized::IColumn::MutablePtr ptr = nullptr;
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_BOOLEAN>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_TINYINT>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_SMALLINT>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_INT:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_INT>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_FLOAT>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DOUBLE>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_BIGINT>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_LARGEINT>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DATE>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DATEV2>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIMEV2>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIME>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+        if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
+            ptr = doris::vectorized::ColumnDictI32::create(type);
+        } else {
+            ptr = doris::vectorized::PredicateColumnType<TYPE_CHAR>::create();
+        }
+        break;
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
+        if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
+            ptr = doris::vectorized::ColumnDictI32::create(type);
+        } else {
+            ptr = doris::vectorized::PredicateColumnType<TYPE_STRING>::create();
+        }
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMALV2>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL32>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL64>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL256>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV4>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV6>::create();
+        break;
+    default:
+        throw Exception(
+                ErrorCode::SCHEMA_SCHEMA_FIELD_INVALID,
+                fmt::format("Unexpected type when choosing predicate column, type={}", int(type)));
+    }
+
+    if (is_nullable) {
         return doris::vectorized::ColumnNullable::create(std::move(ptr),
                                                          doris::vectorized::ColumnUInt8::create());
     }
     return ptr;
-}
-
-vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type) {
-    switch (type) {
-    case OLAP_FIELD_TYPE_BOOL:
-        return doris::vectorized::PredicateColumnType<bool>::create();
-
-    case OLAP_FIELD_TYPE_TINYINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int8>::create();
-
-    case OLAP_FIELD_TYPE_SMALLINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int16>::create();
-
-    case OLAP_FIELD_TYPE_INT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int32>::create();
-
-    case OLAP_FIELD_TYPE_FLOAT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Float32>::create();
-
-    case OLAP_FIELD_TYPE_DOUBLE:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Float64>::create();
-
-    case OLAP_FIELD_TYPE_BIGINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int64>::create();
-
-    case OLAP_FIELD_TYPE_LARGEINT:
-        return doris::vectorized::PredicateColumnType<doris::vectorized::Int128>::create();
-
-    case OLAP_FIELD_TYPE_DATE:
-        return doris::vectorized::PredicateColumnType<uint32_t>::create();
-
-    case OLAP_FIELD_TYPE_DATEV2:
-        return doris::vectorized::PredicateColumnType<uint32_t>::create();
-
-    case OLAP_FIELD_TYPE_DATETIME:
-        return doris::vectorized::PredicateColumnType<uint64_t>::create();
-
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_STRING:
-        if (config::enable_low_cardinality_optimize) {
-            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(type);
-        }
-        return doris::vectorized::PredicateColumnType<StringValue>::create();
-
-    case OLAP_FIELD_TYPE_DECIMAL:
-        return doris::vectorized::PredicateColumnType<decimal12_t>::create();
-
-    default:
-        LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << type;
-    }
 }
 
 } // namespace doris

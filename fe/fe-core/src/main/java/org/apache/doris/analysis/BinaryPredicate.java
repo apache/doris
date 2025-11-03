@@ -21,15 +21,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -37,19 +36,15 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Objects;
 
 /**
  * Most predicates with two operands..
  */
-public class BinaryPredicate extends Predicate implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BinaryPredicate.class);
+public class BinaryPredicate extends Predicate {
 
     // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
     private boolean isInferred = false;
@@ -63,8 +58,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         GT(">", "gt", TExprOpcode.GT),
         EQ_FOR_NULL("<=>", "eq_for_null", TExprOpcode.EQ_FOR_NULL);
 
+        @SerializedName("desc")
         private final String description;
+        @SerializedName("name")
         private final String name;
+        @SerializedName("opcode")
         private final TExprOpcode opcode;
 
         Operator(String description,
@@ -109,31 +107,6 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        public Operator converse() {
-            switch (this) {
-                case EQ:
-                    return EQ;
-                case NE:
-                    return NE;
-                case LE:
-                    return GE;
-                case GE:
-                    return LE;
-                case LT:
-                    return GT;
-                case GT:
-                    return LT;
-                case EQ_FOR_NULL:
-                    return EQ_FOR_NULL;
-                // case DISTINCT_FROM: return DISTINCT_FROM;
-                // case NOT_DISTINCT: return NOT_DISTINCT;
-                // case NULL_MATCHING_EQ:
-                // throw new IllegalStateException("Not implemented");
-                default:
-                    throw new IllegalStateException("Invalid operator");
-            }
-        }
-
         public boolean isEquivalence() {
             return this == EQ || this == EQ_FOR_NULL;
         }
@@ -147,6 +120,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    @SerializedName("op")
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
@@ -154,6 +128,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     // for restoring
     public BinaryPredicate() {
         super();
+        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
@@ -164,6 +139,20 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+        printSqlInParens = true;
+    }
+
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+        super();
+        this.op = op;
+        this.opcode = op.opcode;
+        Preconditions.checkNotNull(e1);
+        children.add(e1);
+        Preconditions.checkNotNull(e2);
+        children.add(e2);
+        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
+                false, true, nullableMode);
+        printSqlInParens = true;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -171,14 +160,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         op = other.op;
         slotIsleft = other.slotIsleft;
         isInferred = other.isInferred;
-    }
-
-    public boolean isInferred() {
-        return isInferred;
-    }
-
-    public void setIsInferred() {
-        isInferred = true;
+        printSqlInParens = true;
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
@@ -214,6 +196,13 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     public void setOp(Operator op) {
         this.op = op;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(children.get(0)).append(" ").append(op).append(" ").append(children.get(1));
+        return builder.toString();
     }
 
     @Override
@@ -258,6 +247,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
+                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
+    }
+
+    @Override
     public String toDigestImpl() {
         return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
     }
@@ -266,175 +262,36 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
         msg.setOpcode(opcode);
-        msg.setVectorOpcode(vectorOpcode);
         msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
     }
 
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        super.vectorizedAnalyze(analyzer);
-        Function match = null;
-
-        //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
-        //        op.toFilterFunctionOp(), true, true, cmpType, cmpType);
-        try {
-            match = getBuiltinFunction(op.name, collectChildReturnTypes(),
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } catch (AnalysisException e) {
-            Preconditions.checkState(false);
-        }
-        Preconditions.checkState(match != null);
-        Preconditions.checkState(match.getReturnType().getPrimitiveType() == PrimitiveType.BOOLEAN);
-        //todo(dhc): should add oppCode
-        //this.vectorOpcode = match.opcode;
-        LOG.debug(debugString() + " opcode: " + vectorOpcode);
-    }
-
-    private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
-        if (t1.isDateType()) {
-            if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else if (t2.isDateType()) {
-            if (t1.isStringType() || t1.isIntegerType()) {
-                return true;
-            }
-            return false;
-        } else {
-            return false;
-        }
-    }
-
-    private Type getCmpType() throws AnalysisException {
-        PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
-        PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
-
-        for (Expr e : getChildren()) {
-            if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
-                throw new AnalysisException("Hll type dose not support operand: " + toSql());
-            }
-            if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
-                throw new AnalysisException("Bitmap type dose not support operand: " + toSql());
-            }
-        }
-
-        if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
-            return Type.DATETIME;
-        }
-
-        // Following logical is compatible with MySQL:
-        //    Cast to DOUBLE by default, because DOUBLE has the largest range of values.
-        if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
-            return Type.VARCHAR;
-        }
-        if (t1 == PrimitiveType.STRING && t2 == PrimitiveType.STRING
-                || t1 == PrimitiveType.STRING && t2 == PrimitiveType.VARCHAR
-                || t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.STRING) {
-            return Type.STRING;
-        }
-        if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
-        }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
-            return Type.DECIMALV2;
-        }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
-            return Type.LARGEINT;
-        }
-
-        // Implicit conversion affects query performance.
-        // For a common example datekey='20200825' which datekey is int type.
-        // If we up conversion to double type directly.
-        // PartitionPruner will not take effect. Then it will scan all partitions.
-        // When int column compares with string, Mysql will convert string to int.
-        // So it is also compatible with Mysql.
-
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) {
-            Expr rightChild = getChild(1);
-            Long parsedLong = Type.tryParseToLong(rightChild);
-            if (parsedLong != null) {
-                return Type.BIGINT;
-            }
-        }
-        if ((t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
-            Expr leftChild = getChild(0);
-            Long parsedLong = Type.tryParseToLong(leftChild);
-            if (parsedLong != null) {
-                return Type.BIGINT;
-            }
-        }
-
-        return Type.DOUBLE;
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-
-        for (Expr expr : children) {
-            if (expr instanceof Subquery) {
-                Subquery subquery = (Subquery) expr;
-                if (!subquery.returnsScalarColumn()) {
-                    String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
-                    throw new AnalysisException(msg);
-                }
-                /**
-                 * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
-                 * Add assert: The stmt of subquery is added an assert condition (return error if row count > 1).
-                 * Input params:
-                 *     expr: k1=(select k1 from t2)
-                 *     subquery stmt: select k1 from t2
-                 * Output params:
-                 *     new expr: k1 = (select k1 from t2 (assert row count: return error if row count > 1 ))
-                 *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
-                 */
-                if (!subquery.getType().isScalarType()) {
-                    subquery.getStatement().setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.LE);
+    public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {
+        for (Expr partExpr : partitionExprs) {
+            if (partExpr instanceof FunctionCallExpr) {
+                FunctionCallExpr function = (FunctionCallExpr) partExpr.clone();
+                ArrayList<Expr> children = function.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        // when create partition have check only support one slotRef
+                        function.setChild(i, paramExpr);
+                        return ExpressionFunctions.INSTANCE.evalExpr(function);
+                    }
                 }
             }
         }
-
-        // if children has subquery, it will be rewritten and reanalyzed in the future.
-        if (contains(Subquery.class)) {
-            return;
-        }
-
-        Type cmpType = getCmpType();
-        // Ignore return value because type is always bool for predicates.
-        castBinaryOp(cmpType);
-
-        this.opcode = op.getOpcode();
-        String opName = op.getName();
-        fn = getBuiltinFunction(opName, collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-        if (fn == null) {
-            Preconditions.checkState(false, String.format(
-                    "No match for '%s' with operand types %s and %s", toSql()));
-        }
-
-        // determine selectivity
-        Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
-        if (op == Operator.EQ && isSingleColumnPredicate(slotRefRef, null)
-                && slotRefRef.getRef().getNumDistinctValues() > 0) {
-            Preconditions.checkState(slotRefRef.getRef() != null);
-            selectivity = 1.0 / slotRefRef.getRef().getNumDistinctValues();
-            selectivity = Math.max(0, Math.min(1, selectivity));
-        } else {
-            // TODO: improve using histograms, once they show up
-            selectivity = Expr.DEFAULT_SELECTIVITY;
-        }
-
-        // vectorizedAnalyze(analyzer);
+        return null;
     }
 
     /**
      * If predicate is of the form "<slotref> <op> <expr>", returns expr,
      * otherwise returns null. Slotref may be wrapped in a CastExpr.
+     * now, when support auto create partition by function(column), so need check the "<function(column)> <op> <expr>"
+     * because import data use function result to create partition,
+     * so when have a SQL of query, prune partition also need use this function
      */
-    public Expr getSlotBinding(SlotId id) {
+    public Expr getSlotBinding(SlotId id, ArrayList<Expr> partitionExprs) {
         SlotRef slotRef = null;
+        boolean isFunctionCallExpr = false;
         // check left operand
         if (getChild(0) instanceof SlotRef) {
             slotRef = (SlotRef) getChild(0);
@@ -442,9 +299,25 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (((CastExpr) getChild(0)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(0).getChild(0);
             }
+        } else if (getChild(0) instanceof FunctionCallExpr) {
+            FunctionCallExpr left = (FunctionCallExpr) getChild(0);
+            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
+                ArrayList<Expr> children = left.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        slotRef = (SlotRef) children.get(i);
+                        isFunctionCallExpr = true;
+                        break;
+                    }
+                }
+            }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = true;
+            if (isFunctionCallExpr) {
+                return invokeFunctionExpr(partitionExprs, getChild(1));
+            }
             return getChild(1);
         }
 
@@ -455,10 +328,25 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (((CastExpr) getChild(1)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
+        } else if (getChild(1) instanceof FunctionCallExpr) {
+            FunctionCallExpr left = (FunctionCallExpr) getChild(1);
+            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
+                ArrayList<Expr> children = left.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        slotRef = (SlotRef) children.get(i);
+                        isFunctionCallExpr = true;
+                        break;
+                    }
+                }
+            }
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false;
+            if (isFunctionCallExpr) {
+                return invokeFunctionExpr(partitionExprs, getChild(0));
+            }
             return getChild(0);
         }
 
@@ -493,7 +381,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (rhs == null) {
             return null;
         }
-        return new Pair<SlotId, SlotId>(lhs.getSlotId(), rhs.getSlotId());
+        return Pair.of(lhs.getSlotId(), rhs.getSlotId());
     }
 
 
@@ -503,9 +391,9 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     public Range<LiteralExpr> convertToRange() {
-        Preconditions.checkState(getChild(0) instanceof SlotRef);
-        Preconditions.checkState(getChild(1) instanceof LiteralExpr);
-        LiteralExpr literalExpr = (LiteralExpr) getChild(1);
+        Preconditions.checkState(getChildWithoutCast(0) instanceof SlotRef);
+        Preconditions.checkState(getChildWithoutCast(1) instanceof LiteralExpr);
+        LiteralExpr literalExpr = (LiteralExpr) getChildWithoutCast(1);
         switch (op) {
             case EQ:
                 return Range.singleton(literalExpr);
@@ -521,142 +409,6 @@ public class BinaryPredicate extends Predicate implements Writable {
             default:
                 return null;
         }
-    }
-
-    //    public static enum Operator2 {
-    //        EQ("=", FunctionOperator.EQ, FunctionOperator.FILTER_EQ),
-    //        NE("!=", FunctionOperator.NE, FunctionOperator.FILTER_NE),
-    //        LE("<=", FunctionOperator.LE, FunctionOperator.FILTER_LE),
-    //        GE(">=", FunctionOperator.GE, FunctionOperator.FILTER_GE),
-    //        LT("<", FunctionOperator.LT, FunctionOperator.FILTER_LT),
-    //        GT(">", FunctionOperator.GT, FunctionOperator.FILTER_LE);
-    //
-    //        private final String           description;
-    //        private final FunctionOperator functionOp;
-    //        private final FunctionOperator filterFunctionOp;
-    //
-    //        private Operator(String description,
-    //                         FunctionOperator functionOp,
-    //                         FunctionOperator filterFunctionOp) {
-    //            this.description = description;
-    //            this.functionOp = functionOp;
-    //            this.filterFunctionOp = filterFunctionOp;
-    //        }
-    //
-    //        @Override
-    //        public String toString() {
-    //            return description;
-    //        }
-    //
-    //        public FunctionOperator toFunctionOp() {
-    //            return functionOp;
-    //        }
-    //
-    //        public FunctionOperator toFilterFunctionOp() {
-    //            return filterFunctionOp;
-    //        }
-    //    }
-
-    /*
-     * the follow persistence code is only for TableFamilyDeleteInfo.
-     * Maybe useless
-     */
-    @Override
-    public void write(DataOutput out) throws IOException {
-        boolean isWritable = true;
-        Expr left = this.getChild(0);
-        if (!(left instanceof SlotRef)) {
-            isWritable = false;
-        }
-
-        Expr right = this.getChild(1);
-        if (!(right instanceof StringLiteral)) {
-            isWritable = false;
-        }
-
-        if (isWritable) {
-            out.writeInt(1);
-            // write op
-            Text.writeString(out, op.name());
-            // write left
-            Text.writeString(out, ((SlotRef) left).getColumnName());
-            // write right
-            Text.writeString(out, ((StringLiteral) right).getStringValue());
-        } else {
-            out.writeInt(0);
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int isWritable = in.readInt();
-        if (isWritable == 0) {
-            return;
-        }
-
-        // read op
-        Operator op = Operator.valueOf(Text.readString(in));
-        // read left
-        SlotRef left = new SlotRef(null, Text.readString(in));
-        // read right
-        StringLiteral right = new StringLiteral(Text.readString(in));
-
-        this.op = op;
-        this.addChild(left);
-        this.addChild(right);
-    }
-
-    public static BinaryPredicate read(DataInput in) throws IOException {
-        BinaryPredicate binaryPredicate = new BinaryPredicate();
-        binaryPredicate.readFields(in);
-        return binaryPredicate;
-    }
-
-    @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
-        final Expr leftChildValue = getChild(0);
-        final Expr rightChildValue = getChild(1);
-        if (!(leftChildValue instanceof LiteralExpr)
-                || !(rightChildValue instanceof LiteralExpr)) {
-            return this;
-        }
-        return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
-    }
-
-    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        final boolean isFirstNull = (first instanceof NullLiteral);
-        final boolean isSecondNull = (second instanceof NullLiteral);
-        if (op == Operator.EQ_FOR_NULL) {
-            if (isFirstNull && isSecondNull) {
-                return new BoolLiteral(true);
-            } else if (isFirstNull || isSecondNull) {
-                return new BoolLiteral(false);
-            }
-        } else  {
-            if (isFirstNull || isSecondNull) {
-                return new NullLiteral();
-            }
-        }
-
-        final int compareResult = first.compareLiteral(second);
-        switch (op) {
-            case EQ:
-            case EQ_FOR_NULL:
-                return new BoolLiteral(compareResult == 0);
-            case GE:
-                return new BoolLiteral(compareResult == 1 || compareResult == 0);
-            case GT:
-                return new BoolLiteral(compareResult == 1);
-            case LE:
-                return new BoolLiteral(compareResult == -1 || compareResult == 0);
-            case LT:
-                return new BoolLiteral(compareResult == -1);
-            case NE:
-                return new BoolLiteral(compareResult != 0);
-            default:
-                Preconditions.checkState(false, "No defined binary operator.");
-        }
-        return this;
     }
 
     @Override
@@ -695,11 +447,5 @@ public class BinaryPredicate extends Predicate implements Writable {
             return false;
         }
         return hasNullableChild();
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
-        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
     }
 }

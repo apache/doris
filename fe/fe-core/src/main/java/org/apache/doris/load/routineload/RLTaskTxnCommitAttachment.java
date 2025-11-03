@@ -17,14 +17,13 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import com.google.gson.annotations.SerializedName;
 
 // {"progress": "", "backendId": "", "taskSignature": "", "numOfErrorData": "",
 // "numOfTotalData": "", "taskId": "", "jobId": ""}
@@ -32,11 +31,17 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     private long jobId;
     private TUniqueId taskId;
+    @SerializedName(value = "fr")
     private long filteredRows;
+    @SerializedName(value = "lr")
     private long loadedRows;
+    @SerializedName(value = "ur")
     private long unselectedRows;
+    @SerializedName(value = "rb")
     private long receivedBytes;
+    @SerializedName(value = "tet")
     private long taskExecutionTimeMs;
+    @SerializedName(value = "pro")
     private RoutineLoadProgress progress;
     private String errorLogUrl;
 
@@ -65,6 +70,23 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         if (rlTaskTxnCommitAttachment.isSetErrorLogUrl()) {
             this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
         }
+    }
+
+    public RLTaskTxnCommitAttachment(RLTaskTxnCommitAttachmentPB rlTaskTxnCommitAttachment) {
+        super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
+        this.jobId = rlTaskTxnCommitAttachment.getJobId();
+        this.taskId = new TUniqueId(rlTaskTxnCommitAttachment.getTaskId().getHi(),
+                                    rlTaskTxnCommitAttachment.getTaskId().getLo());
+        this.filteredRows = rlTaskTxnCommitAttachment.getFilteredRows();
+        this.loadedRows = rlTaskTxnCommitAttachment.getLoadedRows();
+        this.unselectedRows = rlTaskTxnCommitAttachment.getUnselectedRows();
+        this.receivedBytes = rlTaskTxnCommitAttachment.getReceivedBytes();
+        this.taskExecutionTimeMs = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
+
+        KafkaProgress progress = new KafkaProgress(rlTaskTxnCommitAttachment.getProgress().getPartitionToOffset());
+
+        this.progress = progress;
+        this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
     }
 
     public long getJobId() {
@@ -117,26 +139,5 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
                 + ", taskId=" + taskId
                 + ", jobId=" + jobId
                 + ", progress=" + progress.toString() + "]";
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        out.writeLong(unselectedRows);
-        out.writeLong(receivedBytes);
-        out.writeLong(taskExecutionTimeMs);
-        progress.write(out);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        filteredRows = in.readLong();
-        loadedRows = in.readLong();
-        unselectedRows = in.readLong();
-        receivedBytes = in.readLong();
-        taskExecutionTimeMs = in.readLong();
-        progress = RoutineLoadProgress.read(in);
     }
 }

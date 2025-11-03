@@ -18,34 +18,28 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.SystemInfoService;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 
 import java.io.IOException;
-import java.io.StringReader;
-import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -68,14 +62,18 @@ public class DorisAssert {
     }
 
     public DorisAssert withDatabase(String dbName) throws Exception {
-        CreateDbStmt createDbStmt =
-                (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + dbName + ";", ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        String createDbStmtStr = "create database " + dbName;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
+        }
         return this;
     }
 
     public DorisAssert useDatabase(String dbName) {
-        ctx.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+        ctx.setDatabase(dbName);
         return this;
     }
 
@@ -85,8 +83,12 @@ public class DorisAssert {
     }
 
     public DorisAssert withTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(ctx, stmtExecutor);
+        }
         return this;
     }
 
@@ -95,46 +97,54 @@ public class DorisAssert {
     }
 
     public DorisAssert dropTable(String tableName, boolean isForce) throws Exception {
-        DropTableStmt dropTableStmt =
-                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + tableName + (isForce ? " force" : "") + ";", ctx);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop table " + tableName + (isForce ? " force" : "") + ";");
+        if (logicalPlan instanceof DropTableCommand) {
+            ((DropTableCommand) logicalPlan).run(ctx, null);
+        }
+
         return this;
     }
 
     public DorisAssert withView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        if (parsed instanceof CreateViewCommand) {
+            ((CreateViewCommand) parsed).run(ctx, stmtExecutor);
+        }
         return this;
     }
 
     public DorisAssert dropView(String tableName) throws Exception {
-        DropTableStmt dropTableStmt =
-                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
-        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop view " + tableName + ";");
+        if (logicalPlan instanceof DropViewCommand) {
+            ((DropViewCommand) logicalPlan).run(ctx, null);
+        }
+
         return this;
     }
 
     public DorisAssert dropDB(String dbName) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + dbName + ";", ctx);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        String sql = "drop database " + dbName;
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(ctx, null);
+        }
         return this;
     }
 
     // Add materialized view to the schema
     public DorisAssert withMaterializedView(String sql) throws Exception {
-        CreateMaterializedViewStmt createMaterializedViewStmt =
-                (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().createMaterializedView(createMaterializedViewStmt);
-        checkAlterJob();
-        // waiting table state to normal
-        Thread.sleep(100);
-        return this;
-    }
-
-    // Add rollup
-    public DorisAssert withRollup(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        if (parsed instanceof CreateMaterializedViewCommand) {
+            ((CreateMaterializedViewCommand) parsed).run(ctx, stmtExecutor);
+        }
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
@@ -147,7 +157,7 @@ public class DorisAssert {
 
     private void checkAlterJob() throws InterruptedException {
         // check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getDbId()
@@ -169,11 +179,12 @@ public class DorisAssert {
 
         public QueryAssert(ConnectContext connectContext, String sql) {
             this.connectContext = connectContext;
+            this.connectContext.getState().setIsQuery(true);
             this.sql = sql;
         }
 
         public void explainContains(String... keywords) throws Exception {
-            Assert.assertTrue(Stream.of(keywords).allMatch(explainQuery()::contains));
+            Assert.assertTrue(explainQuery(), Stream.of(keywords).allMatch(explainQuery()::contains));
         }
 
         public void explainContains(String keywords, int count) throws Exception {
@@ -204,19 +215,9 @@ public class DorisAssert {
                 }
             }
             Planner planner = stmtExecutor.planner();
-            String explainString = planner.getExplainString(new ExplainOptions(false, false));
+            String explainString = planner.getExplainString(new ExplainOptions(false, false, false));
             System.out.println(explainString);
             return explainString;
-        }
-
-        public Planner internalExecuteOneAndGetPlan() throws Exception {
-            SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
-            SqlParser parser = new SqlParser(input);
-            List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, stmts.get(0));
-            stmtExecutor.execute();
-
-            return stmtExecutor.planner();
         }
     }
 }

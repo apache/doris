@@ -22,35 +22,17 @@ import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** used to generate pattern for LogicalLeafOperator. */
-public class LogicalLeafPatternGenerator extends PatternGenerator {
+/** used to generate pattern for LogicalLeaf. */
+public class LogicalLeafPatternGenerator extends PlanPatternGenerator {
 
-    public LogicalLeafPatternGenerator(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
-        super(analyzer, opType, parentClass);
-    }
-
-    @Override
-    public String generate() {
-        String opClassName = opType.name;
-        String methodName = getPatternMethodName();
-
-        String patternParam = "<LogicalLeafPlan<" + opClassName + ">, Plan>";
-
-        generateTypePattern(methodName, opClassName, patternParam, "", false);
-
-        for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
-            String predicate = ".when(p -> p.operator." + info.enumInstanceGetter + "() == "
-                    + info.enumType + "." + info.enumInstance + ")";
-            generateTypePattern(info.patternName, opClassName, patternParam, predicate, false);
-        }
-
-        return generatePatterns();
+    public LogicalLeafPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
+        super(analyzer, opType, parentClass, isMemoPattern);
     }
 
     @Override
     public String genericType() {
-        return  "<LogicalLeafPlan<" + opType.name + ">, Plan>";
+        return "<" + opType.name + ">";
     }
 
     @Override
@@ -63,7 +45,6 @@ public class LogicalLeafPatternGenerator extends PatternGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add(opType.getFullQualifiedName());
         imports.add("org.apache.doris.nereids.trees.plans.Plan");
-        imports.add("org.apache.doris.nereids.trees.plans.logical.LogicalLeafPlan");
         enumFieldPatternInfos.stream()
                 .map(info -> info.enumFullName)
                 .forEach(imports::add);

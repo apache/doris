@@ -17,14 +17,18 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -49,7 +53,7 @@ public class ColocateTableTest {
 
     private static ConnectContext connectContext;
     private static String dbName = "testDb";
-    private static String fullDbName = "default_cluster:" + dbName;
+    private static String fullDbName = "" + dbName;
     private static String tableName1 = "t1";
     private static String tableName2 = "t2";
     private static String groupName = "group1";
@@ -73,26 +77,45 @@ public class ColocateTableTest {
     @Before
     public void createDb() throws Exception {
         String createDbStmtStr = "create database " + dbName;
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        Catalog.getCurrentCatalog().setColocateTableIndex(new ColocateTableIndex());
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+        Env.getCurrentEnv().setColocateTableIndex(new ColocateTableIndex());
     }
 
     @After
     public void dropDb() throws Exception {
         String dropDbStmtStr = "drop database " + dbName;
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().dropDb(dropDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        DropDatabaseCommand command = (DropDatabaseCommand) logicalPlan;
+        DropDatabaseInfo dropDatabaseInfo = command.getDropDatabaseInfo();
+        Env.getCurrentEnv().dropDb(
+                dropDatabaseInfo.getCatalogName(),
+                dropDatabaseInfo.getDatabaseName(),
+                dropDatabaseInfo.isIfExists(),
+                dropDatabaseInfo.isForce());
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void alterTable(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
@@ -109,8 +132,8 @@ public class ColocateTableTest {
                 + " \"colocate_with\" = \"" + groupName + "\"\n"
                 + ");");
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long tableId = db.getTableOrMetaException(tableName1).getId();
 
         Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
@@ -129,7 +152,7 @@ public class ColocateTableTest {
         Map<Tag, List<List<Long>>> backendIds = index.getBackendsPerBucketSeq(groupId);
         Assert.assertEquals(1, backendIds.get(Tag.DEFAULT_BACKEND_TAG).get(0).size());
 
-        String fullGroupName = dbId + "_" + groupName;
+        String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
         Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));
         ColocateGroupSchema groupSchema = index.getGroupSchema(fullGroupName);
         Assert.assertNotNull(groupSchema);
@@ -164,8 +187,8 @@ public class ColocateTableTest {
                 + " \"colocate_with\" = \"" + groupName + "\"\n"
                 + ");");
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long firstTblId = db.getTableOrMetaException(tableName1).getId();
         long secondTblId = db.getTableOrMetaException(tableName2).getId();
 
@@ -222,7 +245,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same bucket num: 1");
+        expectedEx.expectMessage("Colocate tables must have same bucket num: 2 should be 1");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"
@@ -252,7 +275,8 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same replication allocation: tag.location.default: 1");
+        expectedEx.expectMessage("Colocate tables must have same replication allocation: { tag.location.default: 2 }"
+                + " should be { tag.location.default: 1 }");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"
@@ -281,7 +305,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables distribution columns size must be same : 2");
+        expectedEx.expectMessage("Colocate tables distribution columns size must be same: 1 should be 2");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"
@@ -310,7 +334,7 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2 should be INT");
+        expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2(varchar(10)) should be int");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"
@@ -339,8 +363,8 @@ public class ColocateTableTest {
                 + " \"colocate_with\" = \"" + groupName + "\"\n"
                 + ");");
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         long tableId = db.getTableOrMetaException(tableName1).getId();
         GroupId groupId1 = index.getGroup(tableId);
 

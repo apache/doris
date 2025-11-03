@@ -108,21 +108,21 @@ public class PatternMatcherTest {
         try {
             PatternMatcher.createMysqlPattern("^abc", false);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             System.out.println(e.getMessage());
         }
 
         try {
             PatternMatcher.createMysqlPattern("\\\\(abc", false);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             System.out.println(e.getMessage());
         }
 
         try {
             PatternMatcher.createMysqlPattern("\\*abc", false);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             System.out.println(e.getMessage());
         }
     }

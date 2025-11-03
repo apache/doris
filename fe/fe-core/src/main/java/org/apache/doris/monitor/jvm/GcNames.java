@@ -46,16 +46,4 @@ public class GcNames {
         }
         return defaultName;
     }
-
-    public static String getByGcName(String gcName, String defaultName) {
-        if ("Copy".equals(gcName) || "PS Scavenge".equals(gcName) || "ParNew".equals(gcName)
-                || "G1 Young Generation".equals(gcName)) {
-            return YOUNG;
-        }
-        if ("MarkSweepCompact".equals(gcName) || "PS MarkSweep".equals(gcName)
-                || "ConcurrentMarkSweep".equals(gcName) || "G1 Old Generation".equals(gcName)) {
-            return OLD;
-        }
-        return defaultName;
-    }
 }

@@ -17,13 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Map;
 
@@ -38,12 +39,19 @@ import java.util.Map;
 //   "spark.yarn.queue" = "queue0"
 // )
 public class ResourceDesc {
+    @SerializedName("nm")
     protected String name;
+    @SerializedName("prop")
     protected Map<String, String> properties;
+    /**
+     * TODO(tsy): transfer to LoadType
+     */
     protected EtlJobType etlJobType;
 
+    protected LoadType loadType;
+
     // Only used for recovery
-    private ResourceDesc() {
+    public ResourceDesc() {
     }
 
     public ResourceDesc(String name, Map<String, String> properties) {
@@ -69,12 +77,12 @@ public class ResourceDesc {
 
     public void analyze() throws AnalysisException {
         // check resource exist or not
-        Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(getName());
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(getName());
         if (resource == null) {
             throw new AnalysisException("Resource does not exist. name: " + getName());
         }
         if (resource.getType() == Resource.ResourceType.SPARK) {
-            etlJobType = EtlJobType.SPARK;
+            throw new AnalysisException("Spark Resource is no longer supported");
         }
     }
 

@@ -17,19 +17,19 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -39,32 +39,26 @@ import org.junit.Test;
 
 public class SetPasswordTest {
 
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
-    public Catalog catalog;
-    @Mocked
-    private Analyzer analyzer;
+    public Env env;
     @Mocked
     private EditLog editLog;
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
-        auth = new PaloAuth();
+        auth = new Auth();
         new Expectations() {
             {
-                analyzer.getClusterName();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = SystemInfoService.DEFAULT_CLUSTER;
+                result = env;
 
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getAuth();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
@@ -79,69 +73,67 @@ public class SetPasswordTest {
     }
 
     @Test
-    public void test() throws DdlException {
-        UserIdentity userIdentity = new UserIdentity("default_cluster:cmy", "%");
+    public void test() throws DdlException, AnalysisException {
+        UserIdentity userIdentity = new UserIdentity("cmy", "%");
         userIdentity.setIsAnalyzed();
-        CreateUserStmt stmt = new CreateUserStmt(new UserDesc(userIdentity));
-        auth.createUser(stmt);
+        CreateUserCommand createUserCommand = new CreateUserCommand(new CreateUserInfo(new UserDesc(userIdentity)));
+        auth.createUser(createUserCommand.getInfo());
 
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         // set password for 'cmy'@'%'
-        UserIdentity currentUser1 = new UserIdentity("default_cluster:cmy", "%");
+        UserIdentity currentUser1 = new UserIdentity("cmy", "%");
         currentUser1.setIsAnalyzed();
         ctx.setCurrentUserIdentity(currentUser1);
         ctx.setThreadLocalInfo();
 
-        UserIdentity user1 = new UserIdentity("default_cluster:cmy", "%");
+        UserIdentity user1 = new UserIdentity("cmy", "%");
         user1.setIsAnalyzed();
-        SetPassVar setPassVar = new SetPassVar(user1, null);
+        SetPassVarOp setPassVarOp = new SetPassVarOp(user1, null);
         try {
-            setPassVar.analyze(analyzer);
-        } catch (AnalysisException e) {
+            setPassVarOp.validate(ctx);
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         // set password without for
-        SetPassVar setPassVar2 = new SetPassVar(null, null);
+        SetPassVarOp setPassVarOp2 = new SetPassVarOp(null, null);
         try {
-            setPassVar2.analyze(analyzer);
-        } catch (AnalysisException e) {
+            setPassVarOp2.validate(ctx);
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         // create user cmy2@'192.168.1.1'
-        UserIdentity userIdentity2 = new UserIdentity("default_cluster:cmy2", "192.168.1.1");
+        UserIdentity userIdentity2 = new UserIdentity("cmy2", "192.168.1.1");
         userIdentity2.setIsAnalyzed();
-        stmt = new CreateUserStmt(new UserDesc(userIdentity2));
-        auth.createUser(stmt);
+        CreateUserCommand createUserCommand1 = new CreateUserCommand(new CreateUserInfo(new UserDesc(userIdentity2)));
+        auth.createUser(createUserCommand1.getInfo());
 
-        UserIdentity currentUser2 = new UserIdentity("default_cluster:cmy2", "192.168.1.1");
+        UserIdentity currentUser2 = new UserIdentity("cmy2", "192.168.1.1");
         currentUser2.setIsAnalyzed();
         ctx.setCurrentUserIdentity(currentUser2);
         ctx.setThreadLocalInfo();
 
         // set password without for
-        SetPassVar setPassVar3 = new SetPassVar(null, null);
+        SetPassVarOp setPassVarOp3 = new SetPassVarOp(null, null);
         try {
-            setPassVar3.analyze(analyzer);
-        } catch (AnalysisException e) {
+            setPassVarOp3.validate(ctx);
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         // set password for cmy2@'192.168.1.1'
-        UserIdentity user2 = new UserIdentity("default_cluster:cmy2", "192.168.1.1");
+        UserIdentity user2 = new UserIdentity("cmy2", "192.168.1.1");
         user2.setIsAnalyzed();
-        SetPassVar setPassVar4 = new SetPassVar(user2, null);
+        SetPassVarOp setPassVarOp4 = new SetPassVarOp(user2, null);
         try {
-            setPassVar4.analyze(analyzer);
-        } catch (AnalysisException e) {
+            setPassVarOp4.validate(ctx);
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
-
     }
-
 }

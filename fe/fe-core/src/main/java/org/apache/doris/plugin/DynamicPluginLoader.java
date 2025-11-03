@@ -17,7 +17,8 @@
 
 package org.apache.doris.plugin;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 
 import org.apache.commons.io.FileUtils;
@@ -112,14 +113,15 @@ public class DynamicPluginLoader extends PluginLoader {
 
         movePlugin();
 
-        plugin = dynamicLoadPlugin(true);
-
-        pluginInstallValid();
-
-        pluginContext.setPluginPath(installPath.toString());
         try {
+            plugin = dynamicLoadPlugin(true);
+
+            pluginInstallValid();
+
+            pluginContext.setPluginPath(installPath.toString());
+
             plugin.init(pluginInfo, pluginContext);
-        } catch (Error e) {
+        } catch (Throwable e) {
             throw new UserException(e.getMessage());
         }
     }
@@ -157,7 +159,11 @@ public class DynamicPluginLoader extends PluginLoader {
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
-        if (Catalog.isCheckpointThread()) {
+        if (Config.enable_check_compatibility_mode) {
+            return;
+        }
+
+        if (Env.isCheckpointThread()) {
             /*
              * No need to reload the plugin when this is a checkpoint thread.
              * Because this reload() method will create a new instance of plugin and try to start it.

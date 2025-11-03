@@ -17,14 +17,23 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
@@ -32,15 +41,19 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 
 public class DbsProcDirTest {
     private Database db1;
     private Database db2;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
-    private InternalDataSource ds;
+    private InternalCatalog catalog;
+
+    @Mocked
+    GlobalTransactionMgr transactionMgr;
 
     // construct test case
     //  catalog
@@ -55,46 +68,46 @@ public class DbsProcDirTest {
 
     @After
     public void tearDown() {
-        catalog = null;
+        env = null;
     }
 
     @Test
     public void testRegister() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         Assert.assertFalse(dir.register("db1", new BaseProcDir()));
     }
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNullable("db1");
+                catalog.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable("db2");
+                catalog.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable("db3");
+                catalog.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                ds.getDbNullable(db1.getId());
+                catalog.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable(db2.getId());
+                catalog.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -103,7 +116,7 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcNodeInterface node;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         try {
             node = dir.lookup(String.valueOf(db1.getId()));
             Assert.assertNotNull(node);
@@ -112,7 +125,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         try {
             node = dir.lookup(String.valueOf(db2.getId()));
             Assert.assertNotNull(node);
@@ -121,7 +134,7 @@ public class DbsProcDirTest {
             Assert.fail();
         }
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         node = dir.lookup("10002");
         Assert.assertNull(node);
     }
@@ -130,7 +143,7 @@ public class DbsProcDirTest {
     public void testLookupInvalid() {
         DbsProcDir dir;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         try {
             dir.lookup(null);
         } catch (AnalysisException e) {
@@ -148,37 +161,49 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNames();
+                env.getGlobalTransactionMgr();
+                minTimes = 0;
+                result = transactionMgr;
+
+                transactionMgr.getRunningTxnNums(db1.getId());
+                minTimes = 0;
+                result = 10;
+
+                transactionMgr.getRunningTxnNums(db2.getId());
+                minTimes = 0;
+                result = 20;
+
+                catalog.getDbNames();
                 minTimes = 0;
                 result = Lists.newArrayList("db1", "db2");
 
-                ds.getDbNullable("db1");
+                catalog.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable("db2");
+                catalog.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable("db3");
+                catalog.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                ds.getDbNullable(db1.getId());
+                catalog.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                ds.getDbNullable(db2.getId());
+                catalog.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                ds.getDbNullable(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -187,29 +212,31 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
 
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
-                    "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota"),
-                result.getColumnNames());
+                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
+                "LastUpdateTime"), result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "1024.000 TB", FeConstants.null_string, "0", "1073741824"));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "1024.000 TB", FeConstants.null_string, "0", "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "8388608.000 TB",
+                FeConstants.null_string, "0", "1073741824", "10", String.valueOf(Config.max_running_txn_num_per_db), FeConstants.null_string));
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "8388608.000 TB",
+                FeConstants.null_string, "0", "1073741824", "20", String.valueOf(Config.max_running_txn_num_per_db), FeConstants.null_string));
         Assert.assertEquals(rows, result.getRows());
     }
 
     @Test
     public void testFetchResultInvalid() throws AnalysisException {
-        new Expectations(catalog, ds) {
+        new Expectations(env, catalog) {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
+                result = catalog;
 
-                ds.getDbNames();
+                catalog.getDbNames();
                 minTimes = 0;
                 result = null;
             }
@@ -218,19 +245,53 @@ public class DbsProcDirTest {
         DbsProcDir dir;
         ProcResult result;
 
-        dir = new DbsProcDir(null, ds);
+        dir = new DbsProcDir(null, catalog);
         try {
             result = dir.fetchResult();
         } catch (NullPointerException e) {
             e.printStackTrace();
         }
 
-        dir = new DbsProcDir(catalog, ds);
+        dir = new DbsProcDir(env, catalog);
         result = dir.fetchResult();
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Size", "Quota",
-                    "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota"),
-                            result.getColumnNames());
+                "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
+                "LastUpdateTime"),
+                result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         Assert.assertEquals(rows, result.getRows());
+    }
+
+    @Test
+    public void testListTableNameFailed() throws AnalysisException {
+        HashMap<String, String> props = new HashMap<>();
+        props.put("warehouse", "file:///tmp");
+        IcebergHadoopExternalCatalog ctlg = new IcebergHadoopExternalCatalog(1, "iceberg", "iceberg", props, null);
+        new MockUp<ExternalCatalog>(ExternalCatalog.class) {
+            @Mock
+            public List<String> getDbNames() {
+                return Lists.newArrayList("db1");
+            }
+
+            @Mock
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+                return new IcebergExternalDatabase(ctlg, 3L, "db1", "db1");
+            }
+        };
+
+        new MockUp<ExternalDatabase>(ExternalDatabase.class) {
+            @Mock
+            public List getTables() {
+                throw new RuntimeException("list table failed");
+            }
+        };
+        DbsProcDir dbsProcDir = new DbsProcDir(env, ctlg);
+        ProcResult procResult = dbsProcDir.fetchResult();
+        List<List<String>> rows = procResult.getRows();
+        Assert.assertEquals(1, rows.size());
+        List<String> strings = rows.get(0);
+        Assert.assertEquals("3", strings.get(0));  // id
+        Assert.assertEquals("db1", strings.get(1)); // name
+        Assert.assertEquals("-1", strings.get(2)); // tableNum
     }
 }

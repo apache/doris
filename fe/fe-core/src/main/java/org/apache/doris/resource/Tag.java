@@ -23,11 +23,13 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 import java.util.Objects;
 
 /*
@@ -53,29 +55,50 @@ public class Tag implements Writable {
     public static final String TYPE_ROLE = "role";
     public static final String TYPE_FUNCTION = "function";
     public static final String TYPE_LOCATION = "location";
-
     public static final String VALUE_FRONTEND = "frontend";
     public static final String VALUE_BACKEND = "backend";
     public static final String VALUE_BROKER = "broker";
     public static final String VALUE_REMOTE_STORAGE = "remote_storage";
     public static final String VALUE_STORE = "store";
     public static final String VALUE_COMPUTATION = "computation";
+    public static final String VALUE_MIX = "mix";
     public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
     public static final String VALUE_DEFAULT_TAG = "default";
     public static final String VALUE_INVALID_TAG = "invalid";
+
+    public static final String CLOUD_CLUSTER_NAME = "cloud_cluster_name";
+    public static final String CLOUD_CLUSTER_ID = "cloud_cluster_id";
+    public static final String CLOUD_UNIQUE_ID = "cloud_unique_id";
+    public static final String CLOUD_CLUSTER_STATUS = "cloud_cluster_status";
+    public static final String CLOUD_CLUSTER_PUBLIC_ENDPOINT = "cloud_cluster_public_endpoint";
+    public static final String CLOUD_CLUSTER_PRIVATE_ENDPOINT = "cloud_cluster_private_endpoint";
+
+    public static final String PUBLIC_ENDPOINT = "public_endpoint";
+    public static final String PRIVATE_ENDPOINT = "private_endpoint";
+
+    public static final String COMPUTE_GROUP_NAME = "compute_group_name";
+
+    public static final String VALUE_DEFAULT_COMPUTE_GROUP_NAME = "default_compute_group";
+
+    public static final String WORKLOAD_GROUP = "workload_group";
 
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
             TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
     public static final ImmutableSet<String> RESERVED_TAG_VALUES = ImmutableSet.of(
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
-            VALUE_DEFAULT_CLUSTER);
-    private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+            VALUE_MIX, VALUE_DEFAULT_CLUSTER);
+    private static final String TAG_TYPE_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+    private static final String TAG_VALUE_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
+    private static final String ENDPOINT_REGEX = "^[a-zA-Z0-9.-]+(:[0-9]+)?$";
+
 
     public static final Tag DEFAULT_BACKEND_TAG;
+    public static final Tag DEFAULT_NODE_ROLE_TAG;
     public static final Tag INVALID_TAG;
 
     static {
         DEFAULT_BACKEND_TAG = new Tag(TYPE_LOCATION, VALUE_DEFAULT_TAG);
+        DEFAULT_NODE_ROLE_TAG = new Tag(TYPE_ROLE, VALUE_MIX);
         INVALID_TAG = new Tag(TYPE_LOCATION, VALUE_INVALID_TAG);
     }
 
@@ -85,19 +108,43 @@ public class Tag implements Writable {
     public String value;
 
     private Tag(String type, String val) {
-        this.type = type.toLowerCase();
-        this.value = val.toLowerCase();
+        this.type = type;
+        this.value = val;
     }
 
     public static Tag create(String type, String value) throws AnalysisException {
-        if (!type.matches(TAG_REGEX) || !value.matches(TAG_REGEX)) {
-            throw new AnalysisException("Invalid tag format: " + type + ":" + value);
+        if (!type.matches(TAG_TYPE_REGEX)) {
+            throw new AnalysisException("Invalid tag type format: " + type);
+        }
+
+        // if type is an endpoint type, value must be a valid endpoint
+        if (type.equalsIgnoreCase(PUBLIC_ENDPOINT) || type.equalsIgnoreCase(PRIVATE_ENDPOINT)) {
+            if (!value.matches(ENDPOINT_REGEX)) {
+                throw new AnalysisException("Invalid " + type + " value format: " + value);
+            }
+        } else if (!value.matches(TAG_VALUE_REGEX)) {
+            throw new AnalysisException("Invalid tag value format: " + value);
         }
         return new Tag(type, value);
     }
 
+    public static Tag createNotCheck(String type, String value) {
+        return new Tag(type, value);
+    }
+
+    // only support be and cn node role tag for be.
+    public static boolean validNodeRoleTag(String value) {
+        return value != null && (value.equals(VALUE_MIX) || value.equals(VALUE_COMPUTATION));
+    }
+
     public String toKey() {
         return type + "_" + value;
+    }
+
+    public Map<String, String> toMap() {
+        Map<String, String> map = Maps.newHashMap();
+        map.put(type, value);
+        return map;
     }
 
     @Override

@@ -27,14 +27,35 @@ import org.apache.doris.common.DdlException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // to describe the key range partition's information in create table stmt
 public class RangePartitionDesc extends PartitionDesc {
 
     public RangePartitionDesc(List<String> partitionColNames,
-                              List<SinglePartitionDesc> singlePartitionDescs) {
-        super(partitionColNames, singlePartitionDescs);
+                              List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        super(partitionColNames, allPartitionDescs);
         type = org.apache.doris.catalog.PartitionType.RANGE;
+        this.partitionExprs = new ArrayList<>(partitionColNames.stream()
+            .map(col -> new SlotRef(null, col))
+            .collect(Collectors.toList()));
+        this.isAutoCreatePartitions = false;
+    }
+
+    public RangePartitionDesc(ArrayList<Expr> exprs, List<String> partitionColNames,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        this.partitionExprs = exprs;
+        this.partitionColNames = partitionColNames;
+        this.singlePartitionDescs = handleAllPartitionDesc(allPartitionDescs);
+        this.type = org.apache.doris.catalog.PartitionType.RANGE;
+        this.isAutoCreatePartitions = true;
+    }
+
+    // for parse auto partition
+    public static RangePartitionDesc createRangePartitionDesc(ArrayList<Expr> exprs,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        List<String> colNames = getColNamesFromExpr(exprs, false, true);
+        return new RangePartitionDesc(exprs, colNames, allPartitionDescs);
     }
 
     @Override
@@ -84,6 +105,10 @@ public class RangePartitionDesc extends PartitionDesc {
             boolean find = false;
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
+                    if (column.getType().isComplexType()) {
+                        throw new DdlException("Complex type column can't be partition column: "
+                                + column.getType().toString());
+                    }
                     try {
                         RangePartitionInfo.checkPartitionColumn(column);
                     } catch (AnalysisException e) {
@@ -93,10 +118,6 @@ public class RangePartitionDesc extends PartitionDesc {
                     partitionColumns.add(column);
                     find = true;
                     break;
-                }
-                if (column.getType().isComplexType()) {
-                    throw new DdlException("Complex type column can't be partition column: "
-                            + column.getType().toString());
                 }
             }
             if (!find) {
@@ -116,7 +137,8 @@ public class RangePartitionDesc extends PartitionDesc {
          * [ {10,  100, 1000},    {50,  500, MIN } )
          * [ {50,  500, MIN },    {80,  MIN, MIN } )
          */
-        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
+        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(this.isAutoCreatePartitions, this.partitionExprs,
+                partitionColumns);
         for (SinglePartitionDesc desc : singlePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
             rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);

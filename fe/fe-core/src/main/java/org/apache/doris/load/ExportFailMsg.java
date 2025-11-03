@@ -20,7 +20,8 @@ package org.apache.doris.load;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
-import java.io.DataInput;
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -33,13 +34,10 @@ public class ExportFailMsg implements Writable {
         UNKNOWN
     }
 
+    @SerializedName("cancelType")
     private CancelType cancelType;
+    @SerializedName("msg")
     private String msg;
-
-    public ExportFailMsg() {
-        this.cancelType = CancelType.UNKNOWN;
-        this.msg = "";
-    }
 
     public ExportFailMsg(CancelType cancelType, String msg) {
         this.cancelType = cancelType;
@@ -50,16 +48,8 @@ public class ExportFailMsg implements Writable {
         return cancelType;
     }
 
-    public void setCancelType(CancelType cancelType) {
-        this.cancelType = cancelType;
-    }
-
     public String getMsg() {
         return msg;
-    }
-
-    public void setMsg(String msg) {
-        this.msg = msg;
     }
 
     @Override
@@ -71,11 +61,6 @@ public class ExportFailMsg implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, cancelType.name());
         Text.writeString(out, msg);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        cancelType = CancelType.valueOf(Text.readString(in));
-        msg = Text.readString(in);
     }
 
     @Override

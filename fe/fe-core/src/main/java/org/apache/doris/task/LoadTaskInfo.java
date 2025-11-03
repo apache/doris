@@ -19,13 +19,17 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
@@ -40,7 +44,7 @@ public interface LoadTaskInfo {
 
     String getTimezone();
 
-    PartitionNames getPartitions();
+    PartitionNamesInfo getPartitionNamesInfo();
 
     LoadTask.MergeType getMergeType();
 
@@ -53,6 +57,8 @@ public interface LoadTaskInfo {
     TFileType getFileType();
 
     TFileFormatType getFormatType();
+
+    TFileCompressType getCompressType();
 
     String getJsonPaths();
 
@@ -68,6 +74,10 @@ public interface LoadTaskInfo {
 
     String getPath();
 
+    default long getFileSize() {
+        return 0;
+    }
+
     double getMaxFilterRatio();
 
     ImportColumnDescs getColumnExprDescs();
@@ -82,14 +92,82 @@ public interface LoadTaskInfo {
 
     Separator getLineDelimiter();
 
+    /**
+     * only for csv
+     */
+    byte getEnclose();
+
+    /**
+     * only for csv
+     */
+    byte getEscape();
+
     int getSendBatchParallelism();
 
     boolean isLoadToSingleTablet();
 
     String getHeaderType();
 
+    List<String> getHiddenColumns();
+
+    boolean isFixedPartialUpdate();
+
+    default TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return TUniqueKeyUpdateMode.UPSERT;
+    }
+
+    default boolean isFlexiblePartialUpdate() {
+        return false;
+    }
+
+    default TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return TPartialUpdateNewRowPolicy.APPEND;
+    }
+
+    default boolean getTrimDoubleQuotes() {
+        return false;
+    }
+
+    default int getSkipLines() {
+        return 0;
+    }
+
+    default boolean getEnableProfile() {
+        return false;
+    }
+
+    default boolean isMemtableOnSinkNode() {
+        return false;
+    }
+
+    default int getStreamPerNode() {
+        return 2;
+    }
+
     class ImportColumnDescs {
+        @SerializedName("des")
         public List<ImportColumnDesc> descs = Lists.newArrayList();
+        @SerializedName("icdr")
         public boolean isColumnDescsRewrited = false;
+
+        public List<String> getFileColNames() {
+            List<String> colNames = Lists.newArrayList();
+            for (ImportColumnDesc desc : descs) {
+                if (desc.isColumn()) {
+                    colNames.add(desc.getColumnName());
+                }
+            }
+            return colNames;
+        }
+
+        public List<Expr> getColumnMappingList() {
+            List<Expr> exprs = Lists.newArrayList();
+            for (ImportColumnDesc desc : descs) {
+                if (!desc.isColumn()) {
+                    exprs.add(desc.toBinaryPredicate());
+                }
+            }
+            return exprs;
+        }
     }
 }

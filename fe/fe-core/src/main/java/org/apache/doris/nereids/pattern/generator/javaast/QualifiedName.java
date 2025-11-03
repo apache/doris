@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-
 /** java's qualified name. */
 public class QualifiedName implements JavaAstNode {
     public final List<String> identifiers;

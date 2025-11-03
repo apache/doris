@@ -20,9 +20,10 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -31,19 +32,18 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Internal representation of partition-related metadata.
  */
-public class Partition extends MetaObject implements Writable {
+public class Partition extends MetaObject {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
+    // Every partition starts from version 1, version 1 has no data
     public static final long PARTITION_INIT_VERSION = 1L;
 
     public enum PartitionState {
@@ -57,24 +57,24 @@ public class Partition extends MetaObject implements Writable {
 
     @SerializedName(value = "id")
     private long id;
-    @SerializedName(value = "name")
+    @SerializedName(value = "nm", alternate = {"name"})
     private String name;
-    @SerializedName(value = "state")
+    @SerializedName(value = "st", alternate = {"state"})
     private PartitionState state;
-    @SerializedName(value = "baseIndex")
+    @SerializedName(value = "bi", alternate = {"baseIndex"})
     private MaterializedIndex baseIndex;
     /**
      * Visible rollup indexes are indexes which are visible to user.
      * User can do query on them, show them in related 'show' stmt.
      */
-    @SerializedName(value = "idToVisibleRollupIndex")
+    @SerializedName(value = "ivr", alternate = {"idToVisibleRollupIndex"})
     private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
     /**
      * Shadow indexes are indexes which are not visible to user.
      * Query will not run on these shadow indexes, and user can not see them neither.
      * But load process will load data into these shadow indexes.
      */
-    @SerializedName(value = "idToShadowIndex")
+    @SerializedName(value = "isi", alternate = {"idToShadowIndex"})
     private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
 
     /**
@@ -85,24 +85,24 @@ public class Partition extends MetaObject implements Writable {
 
     // not have committedVersion because committedVersion = nextVersion - 1
     @Deprecated
-    @SerializedName(value = "committedVersionHash")
+    @SerializedName(value = "cvh", alternate = {"committedVersionHash"})
     private long committedVersionHash;
-    @SerializedName(value = "visibleVersion")
+    @SerializedName(value = "vv", alternate = {"visibleVersion"})
     private long visibleVersion;
-    @SerializedName(value = "visibleVersionTime")
+    @SerializedName(value = "vvt", alternate = {"visibleVersionTime"})
     private long visibleVersionTime;
     @Deprecated
-    @SerializedName(value = "visibleVersionHash")
+    @SerializedName(value = "vvh", alternate = {"visibleVersionHash"})
     private long visibleVersionHash;
-    @SerializedName(value = "nextVersion")
-    private long nextVersion;
+    @SerializedName(value = "nv", alternate = {"nextVersion"})
+    protected long nextVersion;
     @Deprecated
-    @SerializedName(value = "nextVersionHash")
+    @SerializedName(value = "nvh", alternate = {"nextVersionHash"})
     private long nextVersionHash;
-    @SerializedName(value = "distributionInfo")
+    @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
 
-    private Partition() {
+    protected Partition() {
     }
 
     public Partition(long id, String name,
@@ -148,8 +148,8 @@ public class Partition extends MetaObject implements Writable {
     public void updateVersionForRestore(long visibleVersion) {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {
@@ -160,6 +160,13 @@ public class Partition extends MetaObject implements Writable {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
+    /* fromCache is only used in CloudPartition
+     * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
+     */
+    public long getCachedVisibleVersion() {
+        return visibleVersion;
+    }
+
     public long getVisibleVersion() {
         return visibleVersion;
     }
@@ -168,8 +175,28 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersionTime;
     }
 
+    public static List<Long> getVisibleVersions(List<? extends Partition> partitions) throws RpcException {
+        if (Config.isCloudMode()) {
+            return CloudPartition.getSnapshotVisibleVersion((List<CloudPartition>) partitions);
+        } else {
+            return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+        }
+    }
+
+    /**
+     * if visibleVersion is 1, do not return creation time but 0
+     *
+     * @return
+     */
+    public long getVisibleVersionTimeIgnoreInit() {
+        if (visibleVersion == 1) {
+            return 0L;
+        }
+        return visibleVersionTime;
+    }
+
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
-    private void setVisibleVersion(long visibleVersion) {
+    protected void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = System.currentTimeMillis();
     }
@@ -197,8 +224,10 @@ public class Partition extends MetaObject implements Writable {
 
     public MaterializedIndex deleteRollupIndex(long indexId) {
         if (this.idToVisibleRollupIndex.containsKey(indexId)) {
+            LOG.info("delete visible rollup index {} in partition {}-{}", indexId, id, name);
             return idToVisibleRollupIndex.remove(indexId);
         } else {
+            LOG.info("delete shadow rollup index {} in partition {}-{}", indexId, id, name);
             return idToShadowIndex.remove(indexId);
         }
     }
@@ -251,17 +280,38 @@ public class Partition extends MetaObject implements Writable {
         return indices;
     }
 
-    public long getDataSize() {
+    public long getAllDataSize(boolean singleReplica) {
+        return getDataSize(singleReplica) + getRemoteDataSize();
+    }
+
+    // this is local data size
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
-            dataSize += mIndex.getDataSize();
+            dataSize += mIndex.getDataSize(singleReplica, false);
         }
         return dataSize;
+    }
+
+    public long getRemoteDataSize() {
+        long remoteDataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            remoteDataSize += mIndex.getRemoteDataSize();
+        }
+        return remoteDataSize;
     }
 
     public long getReplicaCount() {
         long replicaCount = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            replicaCount += mIndex.getReplicaCount();
+        }
+        return replicaCount;
+    }
+
+    public long getAllReplicaCount() {
+        long replicaCount = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL)) {
             replicaCount += mIndex.getReplicaCount();
         }
         return replicaCount;
@@ -295,85 +345,6 @@ public class Partition extends MetaObject implements Writable {
         return true;
     }
 
-    public static Partition read(DataInput in) throws IOException {
-        Partition partition = new Partition();
-        partition.readFields(in);
-        return partition;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, name);
-        Text.writeString(out, state.name());
-
-        baseIndex.write(out);
-
-        int rollupCount = (idToVisibleRollupIndex != null) ? idToVisibleRollupIndex.size() : 0;
-        out.writeInt(rollupCount);
-        if (idToVisibleRollupIndex != null) {
-            for (Map.Entry<Long, MaterializedIndex> entry : idToVisibleRollupIndex.entrySet()) {
-                entry.getValue().write(out);
-            }
-        }
-
-        out.writeInt(idToShadowIndex.size());
-        for (MaterializedIndex shadowIndex : idToShadowIndex.values()) {
-            shadowIndex.write(out);
-        }
-
-        out.writeLong(visibleVersion);
-        out.writeLong(visibleVersionTime);
-        out.writeLong(visibleVersionHash);
-
-        out.writeLong(nextVersion);
-        out.writeLong(nextVersionHash);
-        out.writeLong(committedVersionHash);
-
-        Text.writeString(out, distributionInfo.getType().name());
-        distributionInfo.write(out);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        name = Text.readString(in);
-        state = PartitionState.valueOf(Text.readString(in));
-
-        baseIndex = MaterializedIndex.read(in);
-
-        int rollupCount = in.readInt();
-        for (int i = 0; i < rollupCount; ++i) {
-            MaterializedIndex rollupTable = MaterializedIndex.read(in);
-            idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
-        }
-
-        int shadowIndexCount = in.readInt();
-        for (int i = 0; i < shadowIndexCount; i++) {
-            MaterializedIndex shadowIndex = MaterializedIndex.read(in);
-            idToShadowIndex.put(shadowIndex.getId(), shadowIndex);
-        }
-
-        visibleVersion = in.readLong();
-        visibleVersionTime = in.readLong();
-        visibleVersionHash = in.readLong();
-        nextVersion = in.readLong();
-        nextVersionHash = in.readLong();
-        committedVersionHash = in.readLong();
-        DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
-        if (distriType == DistributionInfoType.HASH) {
-            distributionInfo = HashDistributionInfo.read(in);
-        } else if (distriType == DistributionInfoType.RANDOM) {
-            distributionInfo = RandomDistributionInfo.read(in);
-        } else {
-            throw new IOException("invalid distribution type: " + distriType);
-        }
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -383,25 +354,17 @@ public class Partition extends MetaObject implements Writable {
             return false;
         }
 
-        Partition partition = (Partition) obj;
-        if (idToVisibleRollupIndex != partition.idToVisibleRollupIndex) {
-            if (idToVisibleRollupIndex.size() != partition.idToVisibleRollupIndex.size()) {
-                return false;
-            }
-            for (Entry<Long, MaterializedIndex> entry : idToVisibleRollupIndex.entrySet()) {
-                long key = entry.getKey();
-                if (!partition.idToVisibleRollupIndex.containsKey(key)) {
-                    return false;
-                }
-                if (!entry.getValue().equals(partition.idToVisibleRollupIndex.get(key))) {
-                    return false;
-                }
-            }
-        }
+        Partition other = (Partition) obj;
 
-        return (visibleVersion == partition.visibleVersion)
-                && (baseIndex.equals(partition.baseIndex)
-                && distributionInfo.equals(partition.distributionInfo));
+        return (visibleVersion == other.visibleVersion)
+                && baseIndex.equals(other.baseIndex)
+                && distributionInfo.equals(other.distributionInfo)
+                && idToVisibleRollupIndex.equals(other.idToVisibleRollupIndex);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(visibleVersion, baseIndex, idToVisibleRollupIndex, distributionInfo);
     }
 
     @Override
@@ -433,5 +396,36 @@ public class Partition extends MetaObject implements Writable {
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
             distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
+    }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false, false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false, false);
+    }
+
+    public long getDataSizeExcludeEmptyReplica(boolean singleReplica) {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            dataSize += mIndex.getDataSize(singleReplica, true);
+        }
+        return dataSize + getRemoteDataSize();
     }
 }

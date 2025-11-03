@@ -17,10 +17,12 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
 
@@ -46,7 +48,8 @@ public class SimpleSchedulerTest {
 
     @BeforeClass
     public static void setUp() {
-        FeConstants.heartbeat_interval_second = 2;
+        SimpleScheduler.init();
+        Config.heartbeat_interval_second = 2;
         be1 = new Backend(1000L, "192.168.100.0", 9050);
         be2 = new Backend(1001L, "192.168.100.1", 9050);
         be3 = new Backend(1002L, "192.168.100.2", 9050);
@@ -107,8 +110,8 @@ public class SimpleSchedulerTest {
             @Override
             public void run() {
                 try {
-                    Set<String> resBackends = Sets.newHashSet();
                     long start = System.currentTimeMillis();
+                    Set<String> resBackends = Sets.newHashSet();
                     for (int i = 0; i < 1000; i++) {
                         TNetworkAddress address = SimpleScheduler.getHost(backends, ref);
                         Assert.assertNotNull(address);
@@ -125,20 +128,29 @@ public class SimpleSchedulerTest {
         Thread t3 = new Thread(new Runnable() {
             @Override
             public void run() {
-                SimpleScheduler.addToBlacklist(be1.getId(), "test");
+                for (int i = 0; i < 100; i++) {
+                    SimpleScheduler.addToBlacklist(be1.getId(), "test");
+                }
             }
         });
 
+        SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
+        be1.setAlive(false);
+        clusterInfoService.addBackend(be1);
         t3.start();
+        t3.join();
+
+        // When t1 and t2 starts, be1 has already been in blacklist.
         t1.start();
         t2.start();
 
         t1.join();
         t2.join();
-        t3.join();
 
         Assert.assertFalse(SimpleScheduler.isAvailable(be1));
-        Thread.sleep((FeConstants.heartbeat_interval_second + 5) * 1000);
+        be1.setAlive(true);
+        // Sleep 5s so that UpdateBlacklistThread will remove be1 from blacklist
+        Thread.sleep(1000 * 5L);
         Assert.assertTrue(SimpleScheduler.isAvailable(be1));
     }
 
@@ -181,11 +193,14 @@ public class SimpleSchedulerTest {
         scanRangeLocation5.setBackendId(be5.getId());
         locations.add(scanRangeLocation5);
 
-        SimpleScheduler.addToBlacklist(be1.getId(), "test");
-        SimpleScheduler.addToBlacklist(be2.getId(), "test");
-        SimpleScheduler.addToBlacklist(be3.getId(), "test");
-        SimpleScheduler.addToBlacklist(be4.getId(), "test");
-        SimpleScheduler.addToBlacklist(be5.getId(), "test");
+        for (int i = 0; i <= Config.do_add_backend_black_list_threshold_count; i++) {
+            SimpleScheduler.addToBlacklist(be1.getId(), "test");
+            SimpleScheduler.addToBlacklist(be2.getId(), "test");
+            SimpleScheduler.addToBlacklist(be3.getId(), "test");
+            SimpleScheduler.addToBlacklist(be4.getId(), "test");
+            SimpleScheduler.addToBlacklist(be5.getId(), "test");
+        }
+
         try {
             SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
             Assert.fail();
@@ -193,7 +208,7 @@ public class SimpleSchedulerTest {
             System.out.println(e.getMessage());
         }
 
-        Thread.sleep((FeConstants.heartbeat_interval_second + 5) * 1000);
+        Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
         Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }
 }

@@ -50,7 +50,7 @@ public class ModifyEngineClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(engine)) {
             throw new AnalysisException("Engine name is missing");
         }
@@ -62,6 +62,16 @@ public class ModifyEngineClause extends AlterTableClause {
         if (properties == null || !properties.containsKey(OdbcTable.ODBC_DRIVER)) {
             throw new AnalysisException("Need specify 'driver' property");
         }
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

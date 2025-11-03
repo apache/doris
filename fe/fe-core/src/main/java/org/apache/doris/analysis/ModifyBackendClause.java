@@ -18,19 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
 
 public class ModifyBackendClause extends BackendClause {
-    protected Map<String, String> properties = Maps.newHashMap();
+    protected Map<String, String> properties;
     protected Map<String, String> analyzedProperties = Maps.newHashMap();
-    private Tag tag = null;
+    @Getter
+    private Map<String, String> tagMap = null;
     private Boolean isQueryDisabled = null;
     private Boolean isLoadDisabled = null;
 
@@ -39,16 +44,41 @@ public class ModifyBackendClause extends BackendClause {
         this.properties = properties;
     }
 
+    public ModifyBackendClause(List<String> ids, List<HostInfo> hostPorts,
+            Map<String, String> properties, Map<String, String> tagMap,
+            Map<String, String> analyzedProperties,
+            Boolean isLoadDisabled, Boolean isQueryDisabled) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
+        this.properties = properties;
+        this.tagMap = tagMap;
+        this.analyzedProperties = analyzedProperties;
+        this.isLoadDisabled = isLoadDisabled;
+        this.isQueryDisabled = isQueryDisabled;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        super.analyze(analyzer);
-        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, null);
+    public void analyze() throws AnalysisException {
+        super.analyze();
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, null);
         isQueryDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
                 PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);
         isLoadDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
                 PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, null);
-        if (tag != null) {
-            analyzedProperties.put(tag.type, tag.value);
+        if (!tagMap.isEmpty()) {
+            if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
+                throw new AnalysisException(NEED_LOCATION_TAG_MSG);
+            }
+            if (!Config.enable_multi_tags && tagMap.size() > 1) {
+                throw new AnalysisException(MUTLI_TAG_DISABLED_MSG);
+            }
+            // TODO:
+            //  here we can add some privilege check so that only authorized user can modify specified type of tag.
+            //  For example, only root user can set tag with type 'computation'
+            for (Map.Entry<String, String> entry : tagMap.entrySet()) {
+                analyzedProperties.put("tag." + entry.getKey(), entry.getValue());
+            }
         }
         if (isQueryDisabled != null) {
             analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, String.valueOf(isQueryDisabled));
@@ -57,13 +87,9 @@ public class ModifyBackendClause extends BackendClause {
             analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, String.valueOf(isLoadDisabled));
         }
         if (!properties.isEmpty()) {
-            throw new AnalysisException("unknown properties setting for key ("
-                    + StringUtils.join(properties.keySet(), ",") + ")");
+            throw new AnalysisException(
+                    "unknown properties setting for key (" + StringUtils.join(properties.keySet(), ",") + ")");
         }
-    }
-
-    public Tag getTag() {
-        return tag;
     }
 
     public Boolean isQueryDisabled() {
@@ -78,9 +104,9 @@ public class ModifyBackendClause extends BackendClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY BACKEND ");
-        for (int i = 0; i < hostPorts.size(); i++) {
-            sb.append("\"").append(hostPorts.get(i)).append("\"");
-            if (i != hostPorts.size() - 1) {
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
                 sb.append(", ");
             }
         }

@@ -25,80 +25,85 @@
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
-build_version="trunk"
+set -eo pipefail
 
+build_version_prefix="${DORIS_BUILD_VERSION_PREFIX-doris}"
+build_version_major="${DORIS_BUILD_VERSION_MAJOR-0}"
+build_version_minor="${DORIS_BUILD_VERSION_MINOR-0}"
+build_version_patch="${DORIS_BUILD_VERSION_PATCH-0}"
+build_version_hotfix="${DORIS_BUILD_VERSION_HOTFIX-0}"
+build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-""}"
+
+build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
+if [[ ${build_version_hotfix} -gt 0 ]]; then
+    build_version+=".${build_version_hotfix}"
+fi
+if [[ -n "${build_version_rc_version}" ]]; then
+    build_version+="-${build_version_rc_version}"
+fi
+
+doris_feature_list="${DORIS_FEATURE_LIST-""}"
+# This version is used to check FeMetaVersion is not changed during release
+build_fe_meta_version=0
 unset LANG
 unset LC_CTYPE
 
-user=$(whoami)
-date=$(date +"%a, %d %b %Y %H:%M:%S %Z")
-hostname=$(hostname)
+date="$(date +"%a, %d %b %Y %H:%M:%S %Z")"
+hostname="$(hostname)"
 
-cwd=$(pwd)
+cwd="$(pwd)"
 
-if [ -z ${DORIS_HOME+x} ]; then
-    ROOT=$(dirname "$0")
-    ROOT=$(
-        cd "$ROOT"
-        pwd
-    )
-    DORIS_HOME=${ROOT}/../..
+if [[ -z "${DORIS_HOME}" ]]; then
+    ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+    DORIS_HOME="${ROOT}/../.."
     echo "DORIS_HOME: ${DORIS_HOME}"
 fi
 
-if [[ -z ${DORIS_TEST_BINARY_DIR} ]]; then
-    if [ -e ${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common/Version.java \
-        -a -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then
+if [[ -z "${DORIS_TEST_BINARY_DIR}" ]]; then
+    if [[ -e "${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common/Version.java" && -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" && -e "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h" ]]; then
         exit
     fi
 fi
 
-cd ${DORIS_HOME}
-if [ -d .svn ]; then
-    revision=$(svn info | sed -n -e 's/Last Changed Rev: \(.*\)/\1/p')
-    short_revision="${revision}"
-    url=$(svn info | sed -n -e 's/^URL: \(.*\)/\1/p')
-    if echo ${url} | grep '\/tags\/' > /dev/null; then
-        build_version="$(echo ${url} | sed 's/.*_\([0-9-]\+\)_PD_BL.*/\1/g' | sed 's/-/\./g')"
-    fi
-elif [ -d .git ]; then
-    revision=$(git log -1 --pretty=format:"%H")
-    short_revision=$(git log -1 --pretty=format:"%h")
-    url="git://${hostname}${DORIS_HOME}"
+cd "${DORIS_HOME}"
+
+if [[ -d '.git' ]]; then
+    revision="$(git log -1 --pretty=format:"%H")"
+    short_revision="$(git log -1 --pretty=format:"%h")"
+    url="git://${hostname}"
 else
     revision="Unknown"
     short_revision="${revision}"
-    url="file://${DORIS_HOME}"
+    url="file://${hostname}"
 fi
 
-cd ${cwd}
+cd "${cwd}"
 
 build_hash="${url}@${revision}"
 build_short_hash="${short_revision}"
 build_time="${date}"
-build_info="${user}@${hostname}"
+build_info="${hostname}"
 
-if [ -z "$JAVA_HOME" ]; then
-    java_cmd=$(which java)
+if [[ -z "${JAVA_HOME}" ]]; then
+    java_cmd="$(command -v java)"
 else
-    java_cmd="$JAVA_HOME/bin/java"
+    java_cmd="${JAVA_HOME}/bin/java"
 fi
 
-if [ ! -x "$java_cmd" ]; then
+if [[ ! -x "${java_cmd}" ]]; then
     echo "The JAVA_HOME environment variable is not defined correctly"
     echo "This environment variable is needed to run this program"
     echo "NB: JAVA_HOME should point to a JDK not a JRE"
     exit 1
 fi
-java_version_str=$($java_cmd -fullversion 2>&1)
-java_version_str=$(echo $java_version_str | sed -e 's/"/\\"/g')
+java_version_str="$("${java_cmd}" -fullversion 2>&1 | sed -e 's/"/\\"/g')"
 
-echo "get java cmd: $java_cmd"
-echo "get java version: $java_version_str"
+echo "get java cmd: ${java_cmd}"
+echo "get java version: ${java_version_str}"
 
 VERSION_PACKAGE="${DORIS_HOME}/fe/fe-core/target/generated-sources/build/org/apache/doris/common"
-mkdir -p ${VERSION_PACKAGE}
-cat > "${VERSION_PACKAGE}/Version.java" << EOF
+mkdir -p "${VERSION_PACKAGE}"
+cat >"${VERSION_PACKAGE}/Version.java" <<EOF
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -124,14 +129,30 @@ package org.apache.doris.common;
 
 public class Version {
 
+  public static final String DORIS_BUILD_VERSION_PREFIX = "${build_version_prefix}";
+  public static final int DORIS_BUILD_VERSION_MAJOR = ${build_version_major};
+  public static final int DORIS_BUILD_VERSION_MINOR = ${build_version_minor};
+  public static final int DORIS_BUILD_VERSION_PATCH = ${build_version_patch};
+  public static final int DORIS_BUILD_VERSION_HOTFIX = ${build_version_hotfix};
+  public static final String DORIS_BUILD_VERSION_RC_VERSION = "${build_version_rc_version}";
+  public static final String DORIS_FEATURE_LIST = "${doris_feature_list}";
+
   public static final String DORIS_BUILD_VERSION = "${build_version}";
   public static final String DORIS_BUILD_HASH = "${build_hash}";
   public static final String DORIS_BUILD_SHORT_HASH = "${build_short_hash}";
   public static final String DORIS_BUILD_TIME = "${build_time}";
   public static final String DORIS_BUILD_INFO = "${build_info}";
   public static final String DORIS_JAVA_COMPILE_VERSION = "${java_version_str}";
+  public static final int DORIS_FE_META_VERSION = ${build_fe_meta_version};
 
   public static void main(String[] args) {
+    System.out.println("doris_build_version_prefix: " + DORIS_BUILD_VERSION_PREFIX);
+    System.out.println("doris_build_version_major: " + DORIS_BUILD_VERSION_MAJOR);
+    System.out.println("doris_build_version_minor: " + DORIS_BUILD_VERSION_MINOR);
+    System.out.println("doris_build_version_patch: " + DORIS_BUILD_VERSION_PATCH);
+    System.out.println("doris_build_version_rc_version: " + DORIS_BUILD_VERSION_RC_VERSION);
+    System.out.println("doris_feature_list: " + DORIS_FEATURE_LIST);
+
     System.out.println("doris_build_version: " + DORIS_BUILD_VERSION);
     System.out.println("doris_build_hash: " + DORIS_BUILD_HASH);
     System.out.println("doris_build_short_hash: " + DORIS_BUILD_SHORT_HASH);
@@ -143,9 +164,9 @@ public class Version {
 }
 EOF
 
-GEN_CPP_DIR=${DORIS_HOME}/gensrc/build/gen_cpp/
-mkdir -p ${GEN_CPP_DIR}
-cat > "${GEN_CPP_DIR}/version.h" << EOF
+GEN_CPP_DIR="${DORIS_HOME}/gensrc/build/gen_cpp"
+mkdir -p "${GEN_CPP_DIR}"
+cat >"${GEN_CPP_DIR}/version.h" <<EOF
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -172,13 +193,89 @@ cat > "${GEN_CPP_DIR}/version.h" << EOF
 
 namespace doris {
 
-#define DORIS_BUILD_VERSION    "${build_version}"
-#define DORIS_BUILD_HASH       "${build_hash}"
-#define DORIS_BUILD_SHORT_HASH "${build_short_hash}"
-#define DORIS_BUILD_TIME       "${build_time}"
-#define DORIS_BUILD_INFO       "${build_info}"
+#define DORIS_BUILD_VERSION_PREFIX      "${build_version_prefix}";
+#define DORIS_BUILD_VERSION_MAJOR       ${build_version_major};
+#define DORIS_BUILD_VERSION_MINOR       ${build_version_minor};
+#define DORIS_BUILD_VERSION_PATCH       ${build_version_patch};
+#define DORIS_BUILD_VERSION_HOTFIX      ${build_version_hotfix};
+#define DORIS_BUILD_VERSION_RC_VERSION  "${build_version_rc_version}";
+
+#define DORIS_BUILD_VERSION             "${build_version}"
+#define DORIS_BUILD_HASH                "${build_hash}"
+#define DORIS_BUILD_SHORT_HASH          "${build_short_hash}"
+#define DORIS_BUILD_TIME                "${build_time}"
+#define DORIS_BUILD_INFO                "${build_info}"
+#define DORIS_FEATURE_LIST              "${doris_feature_list}"
 
 } // namespace doris
 
 #endif
+EOF
+
+################################################################################
+#                      doris cloud version info
+################################################################################
+
+# build_version_prefix="doris_cloud"
+# build_version_major=0
+# build_version_minor=0
+# build_version_patch=0
+# build_version_hotfix=0
+# build_version_rc_version=""
+
+if [[ -f /etc/os-release ]]; then
+    build_os_version=$(head -n2 </etc/os-release | tr '\n' ' ')
+else
+    build_os_version="unknown-os-version"
+fi
+
+build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
+
+if [[ ${build_version_hotfix} -gt 0 ]]; then
+    build_version+=".${build_version_hotfix}"
+fi
+
+if [[ "${build_version_rc_version}" != "" ]]; then
+    build_version=${build_version}"-${build_version_rc_version}"
+fi
+
+build_hash=${revision}
+build_short_hash=${short_revision}
+build_time=$(date +"%Y-%m-%d %H:%M:%S %z")
+if [[ -d '.git' ]]; then
+    build_revision_time=$(git log -1 --pretty=format:"%ad")
+else
+    build_revision_time=${build_time}
+fi
+
+build_initiator="$(whoami)@${hostname}"
+
+GEN_CPP_DIR="${DORIS_HOME}/gensrc/build/gen_cpp"
+mkdir -p "${GEN_CPP_DIR}"
+cat >"${GEN_CPP_DIR}/cloud_version.h" <<EOF
+// This is a generated file, DO NOT EDIT IT.
+// To change this file, see gensrc/script/gen_build_version.sh
+// the file should be placed in gensrc/build/gen_cpp/cloud_version.h
+
+#pragma once
+
+namespace doris::cloud {
+
+#define DORIS_CLOUD_BUILD_VERSION_PREFIX      R"(${build_version_prefix})"
+#define DORIS_CLOUD_BUILD_VERSION_MAJOR       ${build_version_major}
+#define DORIS_CLOUD_BUILD_VERSION_MINOR       ${build_version_minor}
+#define DORIS_CLOUD_BUILD_VERSION_PATCH       ${build_version_patch}
+#define DORIS_CLOUD_BUILD_VERSION_HOTFIX      ${build_version_hotfix}
+#define DORIS_CLOUD_BUILD_VERSION_RC_VERSION  R"(${build_version_rc_version})"
+#define DORIS_CLOUD_FEATURE_LIST              R"(${doris_feature_list})"
+
+#define DORIS_CLOUD_BUILD_VERSION             R"(${build_version})"
+#define DORIS_CLOUD_BUILD_HASH                R"(${build_hash})"
+#define DORIS_CLOUD_BUILD_SHORT_HASH          R"(${build_short_hash})"
+#define DORIS_CLOUD_BUILD_TIME                R"(${build_time})"
+#define DORIS_CLOUD_BUILD_VERSION_TIME        R"(${build_revision_time})"
+#define DORIS_CLOUD_BUILD_INITIATOR           R"(${build_initiator})"
+#define DORIS_CLOUD_BUILD_OS_VERSION          R"#(${build_os_version})#"
+
+} // namespace doris::cloud
 EOF

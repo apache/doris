@@ -17,22 +17,27 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <map>
 #include <mutex>
+#include <string>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class ExecEnv;
+class StorageEngine;
+class HttpRequest;
 
-class RestoreTabletAction : public HttpHandler {
+class RestoreTabletAction : public HttpHandlerWithAuth {
 public:
-    RestoreTabletAction(ExecEnv* exec_env);
+    RestoreTabletAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                        TPrivilegeType::type type);
 
-    virtual ~RestoreTabletAction() {}
+    ~RestoreTabletAction() override = default;
 
     void handle(HttpRequest* req) override;
 
@@ -55,12 +60,13 @@ private:
     Status _create_hard_link_recursive(const std::string& src, const std::string& dst);
 
 private:
-    ExecEnv* _exec_env;
     std::mutex _tablet_restore_lock;
     // store all current restoring tablet_id + schema_hash
     // key: tablet_id + schema_hash
     // value: "" or tablet path in trash
     std::map<std::string, std::string> _tablet_path_map;
+
+    StorageEngine& _engine;
 }; // end class RestoreTabletAction
 
 } // end namespace doris

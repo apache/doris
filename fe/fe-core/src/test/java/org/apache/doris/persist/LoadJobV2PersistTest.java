@@ -18,15 +18,15 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
@@ -51,21 +51,21 @@ public class LoadJobV2PersistTest {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(1L, "label", brokerDesc, originStatement,
                 UserIdentity.ADMIN);
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(LoadStmt.LOAD_PARALLELISM, "5");
+        jobProperties.put(LoadCommand.LOAD_PARALLELISM, "5");
         brokerLoadJob.setJobProperties(jobProperties);
         return brokerLoadJob;
     }
 
     @Test
-    public void testBrokerLoadJob(@Mocked Catalog catalog, @Mocked InternalDataSource ds, @Injectable Database database,
+    public void testBrokerLoadJob(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
             @Injectable Table table) throws Exception {
 
         new Expectations() {
             {
-                catalog.getInternalDataSource();
+                env.getInternalCatalog();
                 minTimes = 0;
-                result = ds;
-                ds.getDbNullable(anyLong);
+                result = catalog;
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 database.getTableNullable(anyLong);
@@ -74,7 +74,7 @@ public class LoadJobV2PersistTest {
                 table.getName();
                 minTimes = 0;
                 result = "tablename";
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeMetaVersion.VERSION_CURRENT;
             }

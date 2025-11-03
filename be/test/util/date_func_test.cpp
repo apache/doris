@@ -17,63 +17,35 @@
 
 #include "util/date_func.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
+#include "gtest/gtest_pred_impl.h"
+#include "olap/uint24.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
 class DateFuncTest : public testing::Test {
 public:
-    DateFuncTest() {}
-    virtual ~DateFuncTest() {}
+    DateFuncTest() = default;
+    ~DateFuncTest() override = default;
 };
 
 TEST_F(DateFuncTest, convert_string_to_int) {
-    uint64_t result1 = timestamp_from_datetime(std::string("2021-06-08 15:21:18"));
+    uint64_t result1 =
+            timestamp_from_datetime(std::string("2021-06-08 15:21:18")).to_olap_datetime();
     EXPECT_EQ(20210608152118, result1);
 
-    uint64_t abnormal_result1 = timestamp_from_datetime(std::string("2021-22-08 15:21:18"));
+    uint64_t abnormal_result1 =
+            timestamp_from_datetime(std::string("2021-22-08 15:21:18")).to_olap_datetime();
     EXPECT_EQ(14000101000000, abnormal_result1);
 
-    uint24_t result2 = timestamp_from_date(std::string("2021-09-08"));
+    uint24_t result2 = timestamp_from_date(std::string("2021-09-08")).to_olap_date();
     EXPECT_EQ(std::string("2021-09-08"), result2.to_string());
 
-    uint24_t abnormal_result2 = timestamp_from_date(std::string("2021-25-08"));
+    uint24_t abnormal_result2 = timestamp_from_date(std::string("2021-25-08")).to_olap_date();
     EXPECT_EQ(std::string("1400-01-01"), abnormal_result2.to_string());
-}
-
-TEST_F(DateFuncTest, convert_double_to_string) {
-    char buffer[100];
-    int len = time_to_buffer_from_double(211331.21212, buffer);
-    EXPECT_EQ(std::string("58:42:11"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(-331.21212, buffer);
-    EXPECT_EQ(std::string("-00:05:31"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(-331, buffer);
-    EXPECT_EQ(std::string("-00:05:31"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(331, buffer);
-    EXPECT_EQ(std::string("00:05:31"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(0, buffer);
-    EXPECT_EQ(std::string("00:00:00"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(0.3131, buffer);
-    EXPECT_EQ(std::string("00:00:00"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(13020399, buffer);
-    EXPECT_EQ(std::string("838:59:59"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(-3020399, buffer);
-    EXPECT_EQ(std::string("-838:59:59"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(13020399, buffer);
-    EXPECT_EQ(std::string("838:59:59"), std::string(buffer, len));
-
-    len = time_to_buffer_from_double(-13020399, buffer);
-    EXPECT_EQ(std::string("-838:59:59"), std::string(buffer, len));
 }
 
 } // namespace doris

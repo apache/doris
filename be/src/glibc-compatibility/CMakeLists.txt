@@ -35,6 +35,7 @@ if (GLIBC_COMPATIBILITY)
         list (APPEND glibc_compatibility_sources musl/aarch64/syscall.s musl/aarch64/longjmp.s)
         set (musl_arch_include_dir musl/aarch64)
         set (MEMCPY_SOURCE memcpy/memcpy_aarch64.cpp)
+        list(REMOVE_ITEM glibc_compatibility_sources musl/getauxval.c)
     elseif (ARCH_AMD64)
         list (APPEND glibc_compatibility_sources musl/x86_64/syscall.s musl/x86_64/longjmp.s)
         set (musl_arch_include_dir musl/x86_64)
@@ -61,11 +62,27 @@ if (GLIBC_COMPATIBILITY)
     add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c ${MEMCPY_SOURCE})
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
-
+    target_compile_options(
+        glibc-compatibility
+        PRIVATE
+        -Wno-undef
+        -Wno-unused-but-set-variable
+    )
     if (COMPILER_CLANG)
-        target_compile_options(glibc-compatibility PRIVATE -Wno-unused-command-line-argument)
+        target_compile_options(
+            glibc-compatibility
+            PRIVATE
+            -Wno-unused-command-line-argument
+            -Wno-unused-macros
+            -Wno-conversion
+        )
     elseif (COMPILER_GCC)
-        target_compile_options(glibc-compatibility PRIVATE -Wno-unused-but-set-variable)
+        target_compile_options(
+            glibc-compatibility
+            PRIVATE
+            -Wno-implicit-fallthrough
+            -Wno-maybe-uninitialized
+        )
     endif ()
 
     target_include_directories(glibc-compatibility PRIVATE ${musl_arch_include_dir})

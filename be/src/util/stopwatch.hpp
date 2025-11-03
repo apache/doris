@@ -33,10 +33,15 @@ namespace doris {
 template <clockid_t Clock>
 class CustomStopWatch {
 public:
-    CustomStopWatch() {
+    CustomStopWatch(bool auto_start = false) {
         _total_time = 0;
         _running = false;
+        if (auto_start) {
+            start();
+        }
     }
+
+    timespec start_time() const { return _start; }
 
     void start() {
         if (!_running) {
@@ -73,6 +78,20 @@ public:
         clock_gettime(Clock, &end);
         return (end.tv_sec - _start.tv_sec) * 1000L * 1000L * 1000L +
                (end.tv_nsec - _start.tv_nsec);
+    }
+
+    // Return time in microseconds
+    uint64_t elapsed_time_microseconds() const { return elapsed_time() / 1000; }
+
+    // Return time in milliseconds
+    uint64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
+
+    // Returns time in nanosecond.
+    int64_t elapsed_time_seconds(timespec end) const {
+        if (!_running) {
+            return _total_time / 1000L / 1000L / 1000L;
+        }
+        return end.tv_sec - _start.tv_sec;
     }
 
 private:

@@ -17,140 +17,146 @@
 
 #include "olap/tablet_schema_helper.h"
 
+#include <string.h>
+
+#include "olap/tablet_schema.h"
+#include "util/slice.h"
+#include "vec/common/arena.h"
+
 namespace doris {
 
-TabletColumn create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
-                            bool has_bitmap_index) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_INT;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 4;
-    column._index_length = 4;
-    column._is_bf_column = is_bf_column;
-    column._has_bitmap_index = has_bitmap_index;
+TabletColumnPtr create_int_key(int32_t id, bool is_nullable, bool is_bf_column,
+                               bool has_bitmap_index) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_INT;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 4;
+    column->_index_length = 4;
+    column->_is_bf_column = is_bf_column;
+    column->_has_bitmap_index = has_bitmap_index;
     return column;
 }
 
-TabletColumn create_int_value(int32_t id, FieldAggregationMethod agg_method, bool is_nullable,
-                              const std::string default_value, bool is_bf_column,
-                              bool has_bitmap_index) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_INT;
-    column._is_key = false;
-    column._aggregation = agg_method;
-    column._is_nullable = is_nullable;
-    column._length = 4;
-    column._index_length = 4;
+TabletColumnPtr create_int_value(int32_t id, FieldAggregationMethod agg_method, bool is_nullable,
+                                 const std::string default_value, bool is_bf_column,
+                                 bool has_bitmap_index) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_INT;
+    column->_is_key = false;
+    column->_aggregation = agg_method;
+    column->_is_nullable = is_nullable;
+    column->_length = 4;
+    column->_index_length = 4;
     if (default_value != "") {
-        column._has_default_value = true;
-        column._default_value = default_value;
+        column->_has_default_value = true;
+        column->_default_value = default_value;
     }
-    column._is_bf_column = is_bf_column;
-    column._has_bitmap_index = has_bitmap_index;
+    column->_is_bf_column = is_bf_column;
+    column->_has_bitmap_index = has_bitmap_index;
     return column;
 }
 
-TabletColumn create_char_key(int32_t id, bool is_nullable) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_CHAR;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 8;
-    column._index_length = 1;
+TabletColumnPtr create_char_key(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_CHAR;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 8;
+    column->_index_length = 1;
     return column;
 }
 
-TabletColumn create_varchar_key(int32_t id, bool is_nullable) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_VARCHAR;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 65533;
-    column._index_length = 4;
+TabletColumnPtr create_varchar_key(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 65533;
+    column->_index_length = 4;
     return column;
 }
 
-TabletColumn create_string_key(int32_t id, bool is_nullable) {
-    TabletColumn column;
-    column._unique_id = id;
-    column._col_name = std::to_string(id);
-    column._type = OLAP_FIELD_TYPE_STRING;
-    column._is_key = true;
-    column._is_nullable = is_nullable;
-    column._length = 2147483643;
-    column._index_length = 4;
+TabletColumnPtr create_string_key(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = FieldType::OLAP_FIELD_TYPE_STRING;
+    column->_is_key = true;
+    column->_is_nullable = is_nullable;
+    column->_length = 2147483643;
+    column->_index_length = 4;
     return column;
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool,
+void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena& arena,
                               size_t _length) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+    if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         std::string s = std::to_string(src);
         const char* src_value = s.c_str();
         int src_len = s.size();
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = _length;
-        dest_slice->data = (char*)pool->allocate(dest_slice->size);
+        dest_slice->data = arena.alloc(dest_slice->size);
         memcpy(dest_slice->data, src_value, src_len);
         memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         std::string s = std::to_string(src);
         const char* src_value = s.c_str();
         int src_len = s.size();
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = src_len;
-        dest_slice->data = (char*)pool->allocate(src_len);
+        dest_slice->data = arena.alloc(src_len);
         memcpy(dest_slice->data, src_value, src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_STRING) {
         std::string s = std::to_string(src);
         const char* src_value = s.c_str();
         int src_len = s.size();
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = src_len;
-        dest_slice->data = (char*)pool->allocate(src_len);
+        dest_slice->data = arena.alloc(src_len);
         memcpy(dest_slice->data, src_value, src_len);
     } else {
         *(int*)target = src;
     }
 }
 void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
-                              MemPool* pool, size_t _length) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+                              vectorized::Arena& arena, size_t _length) {
+    if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         const char* src_value = src.c_str();
         int src_len = src.size();
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = _length;
-        dest_slice->data = (char*)pool->allocate(dest_slice->size);
+        dest_slice->data = arena.alloc(dest_slice->size);
         memcpy(dest_slice->data, src_value, src_len);
         memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         const char* src_value = src.c_str();
         int src_len = src.size();
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = src_len;
-        dest_slice->data = (char*)pool->allocate(src_len);
+        dest_slice->data = arena.alloc(src_len);
         memcpy(dest_slice->data, src_value, src_len);
-    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_STRING) {
         const char* src_value = src.c_str();
         int src_len = src.size();
 
         auto* dest_slice = (Slice*)target;
         dest_slice->size = src_len;
-        dest_slice->data = (char*)pool->allocate(src_len);
+        dest_slice->data = arena.alloc(src_len);
         memcpy(dest_slice->data, src_value, src_len);
     } else {
         *(int*)target = std::stoi(src);

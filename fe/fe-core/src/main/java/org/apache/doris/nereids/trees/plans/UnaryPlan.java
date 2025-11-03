@@ -17,15 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.trees.UnaryNode;
 
 /**
  * interface for all plan node that have one child.
  */
-public interface UnaryPlan<CHILD_TYPE extends Plan>
-        extends Plan, UnaryNode<Plan, CHILD_TYPE> {
-
-    @Override
-    UnaryPlanOperator getOperator();
+public interface UnaryPlan<CHILD_TYPE extends Plan> extends Plan, UnaryNode<Plan, CHILD_TYPE> {
 }

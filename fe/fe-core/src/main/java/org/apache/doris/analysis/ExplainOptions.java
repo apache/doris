@@ -17,21 +17,51 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+
 public class ExplainOptions {
 
     private boolean isVerbose;
-    private boolean isGraph;
 
-    public ExplainOptions(boolean isVerbose, boolean isGraph) {
+    private boolean isTree;
+    private boolean isGraph;
+    private boolean showPlanProcess;
+
+    private ExplainCommand.ExplainLevel explainLevel;
+
+    public ExplainOptions(ExplainCommand.ExplainLevel explainLevel, boolean showPlanProcess) {
+        this.explainLevel = explainLevel;
+        this.showPlanProcess = showPlanProcess;
+    }
+
+    public ExplainOptions(boolean isVerbose, boolean isTree, boolean isGraph) {
         this.isVerbose = isVerbose;
+        this.isTree = isTree;
         this.isGraph = isGraph;
     }
 
     public boolean isVerbose() {
-        return isVerbose;
+        return explainLevel == ExplainLevel.VERBOSE || isVerbose;
+    }
+
+    public boolean isTree() {
+        return explainLevel == ExplainLevel.TREE || isTree;
     }
 
     public boolean isGraph() {
-        return isGraph;
+        return explainLevel == ExplainLevel.GRAPH || isGraph;
+    }
+
+    public boolean hasExplainLevel() {
+        return explainLevel != null;
+    }
+
+    public ExplainLevel getExplainLevel() {
+        return explainLevel;
+    }
+
+    public boolean showPlanProcess() {
+        return showPlanProcess;
     }
 }

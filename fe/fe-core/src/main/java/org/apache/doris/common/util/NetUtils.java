@@ -17,11 +17,16 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.system.SystemInfoService;
+
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
@@ -41,7 +46,11 @@ public class NetUtils {
     public static final String QUERY_PORT_SUGGESTION = "Please change the 'query_port' in fe.conf and try again.";
     public static final String HTTP_PORT_SUGGESTION = "Please change the 'http_port' in fe.conf and try again. "
             + "But you need to make sure that ALL FEs http_port are same.";
+    public static final String HTTPS_PORT_SUGGESTION = "Please change the 'https_port' in fe.conf and try again. "
+            + "But you need to make sure that ALL FEs https_port are same.";
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
+    public static final String ARROW_FLIGHT_SQL_SUGGESTION =
+            "Please change the 'arrow_flight_sql_port' in fe.conf and try again.";
 
     // Target format is "host:port"
     public static InetSocketAddress createSocketAddr(String target) {
@@ -87,6 +96,21 @@ public class NetUtils {
         return hostName;
     }
 
+    public static String getIpByHost(String host, int retryTimes) throws UnknownHostException {
+        InetAddress inetAddress;
+        while (true) {
+            try {
+                inetAddress = InetAddress.getByName(host);
+                return inetAddress.getHostAddress();
+            } catch (UnknownHostException e) {
+                LOG.warn("Get IP by host failed, hostname: {}, remaining retryTimes: {}", host, retryTimes, e);
+                if (retryTimes-- <= 0) {
+                    throw e;
+                }
+            }
+        }
+    }
+
     // This is the implementation is inspired by Apache camel project:
     public static boolean isPortAvailable(String host, int port, String portName, String suggestion) {
         ServerSocket ss = null;
@@ -113,5 +137,56 @@ public class NetUtils {
             }
         }
         return false;
+    }
+
+    // assemble an accessible HostPort str, the addr maybe an ipv4/ipv6/FQDN
+    // if ip is ipv6 return: [$addr}]:$port
+    // if ip is ipv4 or FQDN return: $addr:$port
+    public static String getHostPortInAccessibleFormat(String addr, int port) {
+        if (InetAddressValidator.getInstance().isValidInet6Address(addr)) {
+            return "[" + addr + "]:" + port;
+        }
+        return addr + ":" + port;
+    }
+
+    public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) throws AnalysisException {
+        String[] pair;
+        if (hostPort.charAt(0) == '[') {
+            pair = hostPort.substring(1).split("]:");
+        } else {
+            pair = hostPort.split(":");
+        }
+        if (pair.length != 2) {
+            throw new AnalysisException("invalid host port: " + hostPort);
+        }
+        return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+    }
+
+    /**
+     * Convert IPv4 address to long
+     * @param inet4Address IPv4 address
+     * @return The corresponding long value
+     */
+    public static long inet4AddressToLong(Inet4Address inet4Address) {
+        byte[] bytes = inet4Address.getAddress();
+        long result = 0;
+        for (byte b : bytes) {
+            result = result << 8 | (b & 0xFF);
+        }
+        return result;
+    }
+
+    /**
+     * Convert long value back to IPv4 address
+     * @param value IP address as a long value
+     * @return The corresponding IPv4 address
+     */
+    public static Inet4Address longToInet4Address(long value) throws Exception {
+        byte[] bytes = new byte[4];
+        bytes[0] = (byte) ((value >> 24) & 0xFF);
+        bytes[1] = (byte) ((value >> 16) & 0xFF);
+        bytes[2] = (byte) ((value >> 8) & 0xFF);
+        bytes[3] = (byte) (value & 0xFF);
+        return (Inet4Address) Inet4Address.getByAddress(bytes);
     }
 }

@@ -15,11 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -78,7 +87,7 @@ TEST_F(BlockBloomFilterTest, Normal) {
     EXPECT_TRUE(bf2->test_bytes(nullptr, 1));
 
     bf->reset();
-    char* data = bf->data();
+    const char* data = bf->data();
     // data is reset to 0
     for (int i = 0; i < bf->size(); ++i) {
         EXPECT_EQ(*data, 0);
@@ -106,13 +115,13 @@ TEST_F(BlockBloomFilterTest, SP) {
     EXPECT_TRUE(bf2->size() > 0);
 
     int num = _expected_num;
-    int32_t values[num];
+    std::vector<int32_t> values(num);
     for (int32_t i = 0; i < num; ++i) {
         values[i] = i * 10 + 1;
         bf->add_bytes((char*)&values[i], sizeof(int32_t));
     }
 
-    int32_t values2[num];
+    std::vector<int32_t> values2(num);
     for (int32_t i = 0; i < num; ++i) {
         values2[i] = 15360 + i * 10 + 1;
         bf2->add_bytes((char*)&values2[i], sizeof(int32_t));
@@ -172,6 +181,35 @@ TEST_F(BlockBloomFilterTest, slice) {
     std::string value_not_exist = "char_value_not_exist";
     Slice s = Slice(value_not_exist);
     EXPECT_FALSE(bf->test_bytes(s.data, s.size));
+}
+
+// Test contains
+TEST_F(BlockBloomFilterTest, contains) {
+    std::unique_ptr<BloomFilter> bf1;
+    auto st1 = BloomFilter::create(NGRAM_BLOOM_FILTER, &bf1, 512);
+    ASSERT_TRUE(st1.ok());
+    ASSERT_NE(nullptr, bf1);
+    ASSERT_TRUE(st1.ok());
+    ASSERT_TRUE(bf1->size() > 0);
+
+    std::unique_ptr<BloomFilter> bf2;
+    auto st2 = BloomFilter::create(NGRAM_BLOOM_FILTER, &bf2, 512);
+    ASSERT_TRUE(st2.ok());
+    ASSERT_NE(nullptr, bf2);
+    ASSERT_TRUE(st2.ok());
+    ASSERT_TRUE(bf2->size() > 0);
+
+    std::vector<std::string> str_list = {"abc", "csx", "d2", "csxx", "vaa"};
+    for (int i = 0; i < str_list.size(); ++i) {
+        auto str = str_list[i];
+        bf1->add_bytes(str.data(), str.size());
+        if (1 == i % 2) {
+            bf2->add_bytes(str.data(), str.size());
+        }
+    }
+
+    ASSERT_TRUE(bf1->contains(*bf2));
+    ASSERT_FALSE(bf2->contains(*bf1));
 }
 
 } // namespace segment_v2

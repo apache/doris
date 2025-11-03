@@ -17,22 +17,28 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_concat.h"
 
-namespace doris::vectorized {
+#include <fmt/format.h>
+#include <glog/logging.h>
 
-const std::string AggregateFunctionGroupConcatImplStr::separator = ", ";
+#include "vec/aggregate_functions/helpers.h"
+
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+const std::string AggregateFunctionGroupConcatImplStr::separator = ",";
 
 AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& name,
                                                             const DataTypes& argument_types,
-                                                            const Array& parameters,
-                                                            const bool result_is_nullable) {
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
-        return AggregateFunctionPtr(
-                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>(
-                        argument_types));
+        return creator_without_type::create<
+                AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>>(
+                argument_types, result_is_nullable, attr);
     } else if (argument_types.size() == 2) {
-        return AggregateFunctionPtr(
-                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>(
-                        argument_types));
+        return creator_without_type::create<
+                AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>>(
+                argument_types, result_is_nullable, attr);
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
@@ -41,6 +47,6 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
 }
 
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("group_concat", create_aggregate_function_group_concat);
+    factory.register_function_both("group_concat", create_aggregate_function_group_concat);
 }
 } // namespace doris::vectorized

@@ -34,6 +34,7 @@ public class ExceptionChecker {
         try {
             runnable.run();
         } catch (Throwable e) {
+            e.printStackTrace();
             throw new AssertionFailedError(e.getMessage());
         }
     }
@@ -66,13 +67,13 @@ public class ExceptionChecker {
         try {
             runnable.run();
         } catch (Throwable e) {
-            e.printStackTrace();
             if (expectedType.isInstance(e)) {
                 if (!Strings.isNullOrEmpty(exceptionMsg)) {
                     if (!e.getMessage().contains(exceptionMsg)) {
                         AssertionFailedError assertion = new AssertionFailedError(
                                 "expected msg: " + exceptionMsg + ", actual: " + e.getMessage());
                         assertion.initCause(e);
+                        assertion.printStackTrace();
                         throw assertion;
                     }
                 }

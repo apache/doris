@@ -17,19 +17,50 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class GeoShape;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-template <typename Impl, typename ReturnType = DataTypeString>
+struct StConstructState {
+    StConstructState() : is_null(false) {}
+    ~StConstructState() {}
+
+    bool is_null;
+    std::string encoded_buf;
+};
+
+struct StContainsState {
+    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
+    ~StContainsState() {}
+    bool is_null;
+    std::vector<std::shared_ptr<GeoShape>> shapes;
+};
+
+template <typename Impl>
 class GeoFunction : public IFunction {
 public:
     static constexpr auto name = Impl::NAME;
-    static FunctionPtr create() { return std::make_shared<GeoFunction<Impl, ReturnType>>(); }
+    using ReturnType = typename Impl::Type;
+    static FunctionPtr create() { return std::make_shared<GeoFunction<Impl>>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
     bool is_variadic() const override { return false; }
@@ -37,32 +68,10 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<ReturnType>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::execute(context, block, arguments, result);
-        } else {
-            return Impl::execute(block, arguments, result);
-        }
-    }
-
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::prepare(context, scope);
-        } else {
-            return Status::OK();
-        }
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::close(context, scope);
-        } else {
-            return Status::OK();
-        }
+                        uint32_t result, size_t input_rows_count) const override {
+        return Impl::execute(block, arguments, result);
     }
 };
 

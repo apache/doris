@@ -19,17 +19,20 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.datasource.InternalDataSource;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.DataInput;
@@ -38,14 +41,22 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import java.util.Objects;
+import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
 public class Util {
@@ -74,14 +85,36 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "json");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
-        TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d, %d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d, %d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL64, "decimal(%d, %d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL128, "decimal(%d, %d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL256, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
         TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE, "quantile_state");
-        TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "Array<%s>");
+        TYPE_STRING_MAP.put(PrimitiveType.AGG_STATE, "agg_state");
+        TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "array<%s>");
+        TYPE_STRING_MAP.put(PrimitiveType.VARIANT, "variant");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
+    }
+
+    public static LongUnaryOperator overflowSafeIncrement() {
+        return original -> {
+            if (original == Long.MAX_VALUE) {
+                return Long.MAX_VALUE;
+            }
+            long r = original + 1;
+            if (r == Long.MAX_VALUE || ((original ^ r) & (1 ^ r)) < 0) {
+                // unbounded reached
+                return Long.MAX_VALUE;
+            } else {
+                return r;
+            }
+        };
     }
 
     private static class CmdWorker extends Thread {
@@ -233,7 +266,7 @@ public class Util {
     }
 
     public static int generateSchemaHash() {
-        return Math.abs(new Random().nextInt());
+        return Math.abs(new SecureRandom().nextInt());
     }
 
     /**
@@ -295,6 +328,7 @@ public class Util {
         StringBuilder sb = new StringBuilder();
         InputStream stream = null;
         try {
+            SecurityChecker.getInstance().startSSRFChecking(urlStr);
             URL url = new URL(urlStr);
             URLConnection conn = url.openConnection();
             if (encodedAuthInfo != null) {
@@ -322,8 +356,11 @@ public class Util {
                     return null;
                 }
             }
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
-        LOG.debug("get result from url {}: {}", urlStr, sb.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get result from url {}: {}", urlStr, sb.toString());
+        }
         return sb.toString();
     }
 
@@ -351,15 +388,15 @@ public class Util {
         return result;
     }
 
-    public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
+    public static double getDoublePropertyOrDefault(String valStr, double defaultVal, Predicate<Double> pred,
                                                 String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
 
-        float result = defaultVal;
+        double result = defaultVal;
         try {
-            result = Float.valueOf(valStr);
+            result = Double.parseDouble(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
@@ -386,10 +423,6 @@ public class Util {
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
-    }
-
-    public static void stdoutWithTime(String msg) {
-        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
     }
 
     // not support encode negative value now
@@ -441,18 +474,32 @@ public class Util {
     // If no auth info, pass a null.
     public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
             int readTimeoutMs) throws IOException {
-        URL url = new URL(urlStr);
-        URLConnection conn = url.openConnection();
-        if (encodedAuthInfo != null) {
-            conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+        boolean needSecurityCheck = !(urlStr.startsWith("/") || urlStr.startsWith("file://"));
+        try {
+            if (needSecurityCheck) {
+                SecurityChecker.getInstance().startSSRFChecking(urlStr);
+            }
+            URL url = new URL(urlStr);
+            URLConnection conn = url.openConnection();
+            if (encodedAuthInfo != null) {
+                conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+            }
+            conn.setConnectTimeout(connectTimeoutMs);
+            conn.setReadTimeout(readTimeoutMs);
+            return conn.getInputStream();
+        } catch (Exception e) {
+            throw new IOException(e);
+        } finally {
+            if (needSecurityCheck) {
+                SecurityChecker.getInstance().stopSSRFChecking();
+            }
         }
-        conn.setConnectTimeout(connectTimeoutMs);
-        conn.setReadTimeout(readTimeoutMs);
-        return conn.getInputStream();
     }
 
     public static boolean showHiddenColumns() {
-        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
+        return ConnectContext.get() != null && (
+            ConnectContext.get().getSessionVariable().showHiddenColumns()
+            || ConnectContext.get().getSessionVariable().skipStorageEngineMerge());
     }
 
     public static String escapeSingleRegex(String s) {
@@ -464,33 +511,285 @@ public class Util {
     }
 
     /**
-     * Multi-catalog feature is in experiment, and should be enabled by user manually.
-     */
-    public static void checkCatalogEnabled() throws AnalysisException {
-        if (!Config.enable_multi_catalog) {
-            throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
-        }
-    }
-
-    /**
      * Check all rules of catalog.
      */
     public static void checkCatalogAllRules(String catalog) throws AnalysisException {
-        checkCatalogEnabled();
-
         if (Strings.isNullOrEmpty(catalog)) {
             throw new AnalysisException("Catalog name is empty.");
         }
 
-        if (!catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (!catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             FeNameFormat.checkCommonName("catalog", catalog);
         }
     }
 
     public static void prohibitExternalCatalog(String catalog, String msg) throws AnalysisException {
-        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalDataSource.INTERNAL_DS_NAME)) {
+        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
         }
+    }
+
+    private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
+
+    public static String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+
+
+    @NotNull
+    public static TFileFormatType getFileFormatTypeFromPath(String path) {
+        String lowerCasePath = path.toLowerCase();
+        if (lowerCasePath.contains(".parquet") || lowerCasePath.contains(".parq")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerCasePath.contains(".orc")) {
+            return TFileFormatType.FORMAT_ORC;
+        } else if (lowerCasePath.contains(".json")) {
+            return TFileFormatType.FORMAT_JSON;
+        } else {
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        }
+    }
+
+    public static TFileFormatType getFileFormatTypeFromName(String formatName) {
+        String lowerFileFormat = Objects.requireNonNull(formatName).toLowerCase();
+        if (lowerFileFormat.equals(FileFormatConstants.FORMAT_PARQUET)) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ORC)) {
+            return TFileFormatType.FORMAT_ORC;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_JSON)) {
+            return TFileFormatType.FORMAT_JSON;
+            // csv/csv_with_name/csv_with_names_and_types treat as csv format
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV)
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+            return TFileFormatType.FORMAT_TEXT;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_WAL)) {
+            return TFileFormatType.FORMAT_WAL;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
+            return TFileFormatType.FORMAT_ARROW;
+        } else {
+            return TFileFormatType.FORMAT_UNKNOWN;
+        }
+    }
+
+    /**
+     * Infer {@link TFileCompressType} from file name.
+     *
+     * @param path of file to be inferred.
+     */
+
+    @NotNull
+    public static TFileCompressType inferFileCompressTypeByPath(String path) {
+        String lowerCasePath = path.toLowerCase();
+        if (lowerCasePath.endsWith(".gz")) {
+            return TFileCompressType.GZ;
+        } else if (lowerCasePath.endsWith(".bz2")) {
+            return TFileCompressType.BZ2;
+        } else if (lowerCasePath.endsWith(".lz4")) {
+            return TFileCompressType.LZ4FRAME;
+        } else if (lowerCasePath.endsWith(".lzo")) {
+            return TFileCompressType.LZOP;
+        } else if (lowerCasePath.endsWith(".lzo_deflate")) {
+            return TFileCompressType.LZO;
+        } else if (lowerCasePath.endsWith(".deflate")) {
+            return TFileCompressType.DEFLATE;
+        } else if (lowerCasePath.endsWith(".snappy")) {
+            return TFileCompressType.SNAPPYBLOCK;
+        } else if (lowerCasePath.endsWith(".zst") || lowerCasePath.endsWith(".zstd")) {
+            return TFileCompressType.ZSTD;
+        } else {
+            return TFileCompressType.PLAIN;
+        }
+    }
+
+    public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {
+        if (Strings.isNullOrEmpty(compressType)) {
+            return TFileCompressType.UNKNOWN;
+        }
+        final String upperCaseType = compressType.toUpperCase();
+        try {
+            // for compatibility, convert lz4 to lz4frame
+            if (upperCaseType.equals("LZ4")) {
+                return TFileCompressType.LZ4FRAME;
+            }
+            return TFileCompressType.valueOf(upperCaseType);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unknown compression type: " + compressType);
+        }
+    }
+
+    /**
+     * Pass through the compressType if it is not {@link TFileCompressType#UNKNOWN}. Otherwise, return the
+     * inferred type from path.
+     */
+    public static TFileCompressType getOrInferCompressType(TFileCompressType compressType, String path) {
+        return compressType == TFileCompressType.UNKNOWN
+                ? inferFileCompressTypeByPath(path.toLowerCase()) : compressType;
+    }
+
+    public static boolean isCsvFormat(TFileFormatType fileFormatType) {
+        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
+                || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
+                || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4BLOCK
+                || fileFormatType == TFileFormatType.FORMAT_CSV_SNAPPYBLOCK
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {
+        logger.warn(msg, e);
+        throw new RuntimeException(msg, e);
+    }
+
+    public static String getRootCauseMessage(Throwable t) {
+        String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
+        }
+        return rootCause;
+    }
+
+    public static String getRootCauseWithSuppressedMessage(Throwable t) {
+        String rootCause;
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+        }
+        StringBuilder msg = new StringBuilder(rootCause);
+        Throwable[] suppressed = p.getSuppressed();
+        for (int i = 0; i < suppressed.length; i++) {
+            msg.append(" With suppressed").append("[").append(i).append("]:").append(suppressed[i].getMessage());
+        }
+        return msg.toString();
+    }
+
+    // Return the stack of the root cause
+    public static String getRootCauseStack(Throwable t) {
+        String rootStack = "unknown";
+        if (t == null) {
+            return rootStack;
+        }
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        p.printStackTrace(pw);
+        return sw.toString();
+    }
+
+    public static Throwable getRootCause(Throwable t) {
+        Throwable p = t;
+        Throwable r = t;
+        while (p != null) {
+            r = p;
+            p = p.getCause();
+        }
+        return r;
+    }
+
+    public static long sha256long(String str) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(str.getBytes(StandardCharsets.UTF_8));
+            ByteBuffer buffer = ByteBuffer.wrap(hash);
+            long result = buffer.getLong();
+            // Handle Long.MIN_VALUE case to ensure non-negative ID generation
+            if (result == Long.MIN_VALUE) {
+                return str.hashCode();
+            }
+            return result;
+        } catch (NoSuchAlgorithmException e) {
+            return str.hashCode();
+        }
+    }
+
+    // Only used for external db/table's id generation
+    // And the db/table's id must >=0, see DescriptorTable.toThrift()
+    public static long genIdByName(String... names) {
+        return Math.abs(sha256long(String.join(".", names)));
+    }
+
+    public static String generateTempTableInnerName(String tableName) {
+        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+            return tableName;
+        }
+
+        ConnectContext ctx = ConnectContext.get();
+        // when replay edit log, no need to generate temp table name
+        return ctx == null ? tableName : ctx.getSessionId() + FeNameFormat.TEMPORARY_TABLE_SIGN + tableName;
+    }
+
+    public static String getTempTableDisplayName(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
+            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[1] : tableName;
+    }
+
+    public static String getTempTableSessionId(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
+            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[0] : "";
+    }
+
+    public static boolean isTempTable(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1;
+    }
+
+    public static boolean isTempTableInCurrentSession(String tableName) {
+        return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
+    }
+
+    // randomly return the Long from given long arrays
+    public static Long getRandomLong(long... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the Long from given long arrays
+    public static Integer getRandomInt(int... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the String from given String arrays
+    public static String getRandomString(String... strs) {
+        if (strs == null || strs.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * strs.length);
+        return strs[index];
     }
 }

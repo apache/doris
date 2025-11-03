@@ -43,6 +43,12 @@ public class BaseProcResult implements ProcResult {
         rows.add(row);
     }
 
+    public void addRows(List<List<String>> rows) {
+        for (List<String> row : rows) {
+            addRow(row);
+        }
+    }
+
     public void setRows(List<List<String>> rows) {
         this.rows = rows;
     }

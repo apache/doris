@@ -80,9 +80,9 @@ public class PartitionLoadInfoTest {
         Assert.assertEquals(sources1.get(1).getFileUrls().size(), 30);
         Assert.assertEquals(sources1.get(1).getColumnNames().size(), 30);
 
-        Assert.assertTrue(partitionLoadInfo1.equals(partitionLoadInfo));
-        Assert.assertTrue(rPartitionLoadInfo0.equals(partitionLoadInfo0));
-        Assert.assertFalse(partitionLoadInfo0.equals(partitionLoadInfo1));
+        Assert.assertEquals(partitionLoadInfo1, partitionLoadInfo);
+        Assert.assertEquals(rPartitionLoadInfo0, partitionLoadInfo0);
+        Assert.assertNotEquals(partitionLoadInfo0, partitionLoadInfo1);
 
         dis.close();
         file.delete();

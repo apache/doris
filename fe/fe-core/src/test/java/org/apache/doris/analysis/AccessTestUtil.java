@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -33,10 +33,10 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.DataSourceMgr;
-import org.apache.doris.datasource.InternalDataSource;
-import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -59,48 +59,54 @@ public class AccessTestUtil {
         return clusterInfo;
     }
 
-    public static PaloAuth fetchAdminAccess() {
-        PaloAuth auth = new PaloAuth();
+    public static AccessControllerManager fetchAdminAccess() {
+        Auth auth = new Auth();
+        AccessControllerManager accessManager = new AccessControllerManager(auth);
         try {
             new Expectations(auth) {
                 {
-                    auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                    auth.setPassword((UserIdentity) any, (byte[]) any);
+                    minTimes = 0;
+                }
+            };
+
+            new Expectations(accessManager) {
+                {
+                    accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                     minTimes = 0;
                     result = true;
 
-                    auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                    accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                     minTimes = 0;
                     result = true;
 
-                    auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                    accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
+                            (PrivPredicate) any);
                     minTimes = 0;
                     result = true;
 
-                    auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
+                    accessManager.getAuth();
                     minTimes = 0;
-                    result = true;
-
-                    auth.setPassword((SetPassVar) any);
-                    minTimes = 0;
+                    result = auth;
                 }
             };
         } catch (DdlException e) {
             e.printStackTrace();
         }
-        return auth;
+        return accessManager;
     }
 
-    public static Catalog fetchAdminCatalog() {
+    public static Env fetchAdminCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
 
-            PaloAuth paloAuth = fetchAdminAccess();
+            AccessControllerManager accessManager = fetchAdminAccess();
 
             fakeEditLog = new FakeEditLog();
             EditLog editLog = new EditLog("name");
-            catalog.setEditLog(editLog);
+            env.setEditLog(editLog);
 
-            Database db = new Database(50000L, "testCluster:testDb");
+            Database db = new Database(50000L, "testDb");
             MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
             RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
             Partition partition = new Partition(20000L, "testTbl", baseIndex, distributionInfo);
@@ -113,97 +119,89 @@ public class AccessTestUtil {
                     KeysType.AGG_KEYS);
             table.addPartition(partition);
             table.setBaseIndexId(baseIndex.getId());
-            db.createTable(table);
+            db.registerTable(table);
 
-            InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
-            new Expectations(ds) {
+            InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
+            new Expectations(catalog) {
                 {
-                    ds.getDbNullable(50000L);
+                    catalog.getDbNullable(50000L);
                     minTimes = 0;
                     result = db;
 
-                    ds.getDbNullable("testCluster:testDb");
+                    catalog.getDbNullable("testDb");
                     minTimes = 0;
                     result = db;
 
-                    ds.getDbNullable("testCluster:emptyDb");
+                    catalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    ds.getDbNullable(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    ds.getDbNames();
+                    catalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
-
-                    ds.getClusterDbNames("testCluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
+                    result = Lists.newArrayList("testDb");
                 }
             };
 
-            DataSourceMgr dsMgr = new DataSourceMgr();
+            CatalogMgr dsMgr = new CatalogMgr();
             new Expectations(dsMgr) {
                 {
                     dsMgr.getCatalog((String) any);
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
                     dsMgr.getCatalogOrException((String) any, (Function) any);
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
                     dsMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
                 }
             };
 
-            new Expectations(catalog, ds) {
+            new Expectations(env, catalog) {
                 {
-                    catalog.getAuth();
+                    env.getAccessManager();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = accessManager;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentCatalog();
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
-                    catalog.getInternalDataSource();
+                    env.getInternalCatalog();
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
-                    catalog.getEditLog();
+                    env.getEditLog();
                     minTimes = 0;
                     result = editLog;
 
-                    catalog.getLoadInstance();
-                    minTimes = 0;
-                    result = new Load();
-
-                    ds.getClusterDbNames("testCluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
-
-                    catalog.changeDb((ConnectContext) any, "blockDb");
+                    env.changeDb((ConnectContext) any, "blockDb");
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
 
-                    catalog.getBrokerMgr();
+                    env.getBrokerMgr();
                     minTimes = 0;
                     result = new BrokerMgr();
 
-                    catalog.getDataSourceMgr();
+                    env.getCatalogMgr();
                     minTimes = 0;
                     result = dsMgr;
+
+                    env.isCheckpointThread();
+                    minTimes = 0;
+                    result = false;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -211,24 +209,25 @@ public class AccessTestUtil {
         }
     }
 
-    public static PaloAuth fetchBlockAccess() {
-        PaloAuth auth = new PaloAuth();
-        new Expectations(auth) {
+    public static AccessControllerManager fetchBlockAccess() {
+        Auth auth = new Auth();
+        AccessControllerManager accessManager = new AccessControllerManager(auth);
+        new Expectations(accessManager) {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
             }
         };
-        return auth;
+        return accessManager;
     }
 
     public static OlapTable mockTable(String name) {
@@ -332,315 +331,95 @@ public class AccessTestUtil {
         return db;
     }
 
-    public static Catalog fetchBlockCatalog() {
+    public static Env fetchBlockCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+            Env env = Deencapsulation.newInstance(Env.class);
 
-            PaloAuth paloAuth = fetchBlockAccess();
-            Database db = mockDb("testCluster:testDb");
+            AccessControllerManager accessManager = fetchBlockAccess();
+            Database db = mockDb("testDb");
 
-            InternalDataSource ds = Deencapsulation.newInstance(InternalDataSource.class);
-            new Expectations(ds) {
+            InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
+            new Expectations(catalog) {
                 {
-                    ds.getDbNullable("testCluster:testDb");
+                    catalog.getDbNullable("testDb");
                     minTimes = 0;
                     result = db;
 
-                    ds.getDbNullable("testCluster:testdb");
+                    catalog.getDbNullable("testdb");
                     minTimes = 0;
                     result = db;
 
-                    ds.getDbOrAnalysisException("testdb");
+                    catalog.getDbOrAnalysisException("testdb");
                     minTimes = 0;
                     result = db;
 
-                    ds.getDbNullable("testCluster:emptyDb");
+                    catalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    ds.getDbNullable(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    ds.getDbNames();
+                    catalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
+                    result = Lists.newArrayList("testDb");
 
-                    ds.getClusterDbNames("testCluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
-
-                    ds.getDbNullable("emptyCluster");
+                    catalog.getDbNullable("emptyCluster");
                     minTimes = 0;
                     result = null;
                 }
             };
 
-            DataSourceMgr dsMgr = new DataSourceMgr();
-            new Expectations(dsMgr) {
+            CatalogMgr ctlMgr = new CatalogMgr();
+            new Expectations(ctlMgr) {
                 {
-                    dsMgr.getCatalog((String) any);
+                    ctlMgr.getCatalog((String) any);
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
-                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    ctlMgr.getCatalogOrException((String) any, (Function) any);
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
-                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    ctlMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
                 }
             };
 
-            new Expectations(catalog) {
+            new Expectations(env) {
                 {
-                    catalog.getAuth();
+                    env.getAccessManager();
                     minTimes = 0;
-                    result = paloAuth;
+                    result = accessManager;
 
-                    catalog.changeDb((ConnectContext) any, anyString);
+                    env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.getInternalDataSource();
+                    env.getInternalCatalog();
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
-                    catalog.getCurrentDataSource();
+                    env.getCurrentCatalog();
                     minTimes = 0;
-                    result = ds;
+                    result = catalog;
 
-                    catalog.getDataSourceMgr();
+                    env.getCatalogMgr();
                     minTimes = 0;
-                    result = dsMgr;
+                    result = ctlMgr;
+
+                    env.isCheckpointThread();
+                    minTimes = 0;
+                    result = false;
                 }
             };
-            return catalog;
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
             return null;
         }
-    }
-
-    public static Analyzer fetchAdminAnalyzer(boolean withCluster) {
-        final String prefix = "testCluster:";
-
-        Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext(null));
-        new Expectations(analyzer) {
-            {
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
-
-                analyzer.getDefaultDb();
-                minTimes = 0;
-                result = withCluster ? prefix + "testDb" : "testDb";
-
-                analyzer.getQualifiedUser();
-                minTimes = 0;
-                result = withCluster ? prefix + "testUser" : "testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-
-                analyzer.incrementCallDepth();
-                minTimes = 0;
-                result = 1;
-
-                analyzer.decrementCallDepth();
-                minTimes = 0;
-                result = 0;
-
-                analyzer.getCallDepth();
-                minTimes = 0;
-                result = 1;
-            }
-        };
-        return analyzer;
-    }
-
-    public static Analyzer fetchBlockAnalyzer() throws AnalysisException {
-        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
-        new Expectations(analyzer) {
-            {
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
-
-                analyzer.getDefaultDb();
-                minTimes = 0;
-                result = "testCluster:testDb";
-
-                analyzer.getQualifiedUser();
-                minTimes = 0;
-                result = "testCluster:testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-            }
-        };
-        return analyzer;
-    }
-
-    public static Analyzer fetchEmptyDbAnalyzer() {
-        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
-        new Expectations(analyzer) {
-            {
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
-
-                analyzer.getDefaultDb();
-                minTimes = 0;
-                result = "";
-
-                analyzer.getQualifiedUser();
-                minTimes = 0;
-                result = "testCluster:testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-            }
-        };
-        return analyzer;
-    }
-
-    public static Analyzer fetchTableAnalyzer() throws AnalysisException {
-        Column column1 = new Column("k1", PrimitiveType.VARCHAR);
-        Column column2 = new Column("k2", PrimitiveType.VARCHAR);
-        Column column3 = new Column("k3", PrimitiveType.VARCHAR);
-        Column column4 = new Column("k4", PrimitiveType.BIGINT);
-
-        MaterializedIndex index = new MaterializedIndex();
-        new Expectations(index) {
-            {
-                index.getId();
-                minTimes = 0;
-                result = 30000L;
-            }
-        };
-
-        Partition partition = Deencapsulation.newInstance(Partition.class);
-        new Expectations(partition) {
-            {
-                partition.getBaseIndex();
-                minTimes = 0;
-                result = index;
-
-                partition.getIndex(30000L);
-                minTimes = 0;
-                result = index;
-            }
-        };
-
-        OlapTable table = new OlapTable();
-        new Expectations(table) {
-            {
-                table.getBaseSchema();
-                minTimes = 0;
-                result = Lists.newArrayList(column1, column2, column3, column4);
-
-                table.getPartition(40000L);
-                minTimes = 0;
-                result = partition;
-
-                table.getColumn("k1");
-                minTimes = 0;
-                result = column1;
-
-                table.getColumn("k2");
-                minTimes = 0;
-                result = column2;
-
-                table.getColumn("k3");
-                minTimes = 0;
-                result = column3;
-
-                table.getColumn("k4");
-                minTimes = 0;
-                result = column4;
-            }
-        };
-
-        Database db = new Database();
-
-        new Expectations(db) {
-            {
-                db.getTableNullable("t");
-                minTimes = 0;
-                result = table;
-
-                db.getTableNullable("emptyTable");
-                minTimes = 0;
-                result = null;
-
-                db.getTableNamesWithLock();
-                minTimes = 0;
-                result = Sets.newHashSet("t");
-
-                db.getTables();
-                minTimes = 0;
-                result = Lists.newArrayList(table);
-
-                db.readLock();
-                minTimes = 0;
-
-                db.readUnlock();
-                minTimes = 0;
-
-                db.getFullName();
-                minTimes = 0;
-                result = "testDb";
-            }
-        };
-
-        Catalog catalog = fetchBlockCatalog();
-        Analyzer analyzer = new Analyzer(catalog, new ConnectContext(null));
-        new Expectations(analyzer) {
-            {
-                analyzer.getDefaultCatalog();
-                minTimes = 0;
-                result = InternalDataSource.INTERNAL_DS_NAME;
-
-                analyzer.getDefaultDb();
-                minTimes = 0;
-                result = "testDb";
-
-                analyzer.getQualifiedUser();
-                minTimes = 0;
-                result = "testUser";
-
-                analyzer.getCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-
-                analyzer.incrementCallDepth();
-                minTimes = 0;
-                result = 1;
-
-                analyzer.decrementCallDepth();
-                minTimes = 0;
-                result = 0;
-
-                analyzer.getCallDepth();
-                minTimes = 0;
-                result = 1;
-
-                analyzer.getContext();
-                minTimes = 0;
-                result = new ConnectContext(null);
-
-            }
-        };
-        return analyzer;
     }
 }

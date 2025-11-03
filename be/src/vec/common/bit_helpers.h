@@ -15,46 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/BitHelpers.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/BitHelpers.h.h
 // and modified by Doris
 
 #pragma once
 
-#include <cstddef>
-#include <type_traits>
-
-/** Returns log2 of number, rounded down.
-  * Compiles to single 'bsr' instruction on x86.
-  * For zero argument, result is unspecified.
-  */
-inline unsigned int bit_scan_reverse(unsigned int x) {
-    return sizeof(unsigned int) * 8 - 1 - __builtin_clz(x);
-}
-
-/** For zero argument, result is zero.
-  * For arguments with most significand bit set, result is zero.
-  * For other arguments, returns value, rounded up to power of two.
-  */
-inline size_t round_up_to_power_of_two_or_zero(size_t n) {
-    --n;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    n |= n >> 32;
-    ++n;
-
-    return n;
-}
+namespace doris::vectorized {
 
 template <typename T>
-inline size_t get_leading_zero_bits(T x) {
-    if (!x) return sizeof(x) * 8;
+inline uint32_t get_leading_zero_bits_unsafe(T x) {
+    assert(x != 0);
 
     if constexpr (sizeof(T) <= sizeof(unsigned int)) {
         return __builtin_clz(x);
-    } else if constexpr (sizeof(T) <= sizeof(unsigned long int)) {
+    } else if constexpr (sizeof(T) <= sizeof(unsigned long int)) /// NOLINT
+    {
         return __builtin_clzl(x);
     } else {
         return __builtin_clzll(x);
@@ -62,31 +37,9 @@ inline size_t get_leading_zero_bits(T x) {
 }
 
 template <typename T>
-inline size_t get_trailing_zero_bits(T x) {
-    if (!x) return sizeof(x) * 8;
-
-    if constexpr (sizeof(T) <= sizeof(unsigned int)) {
-        return __builtin_ctz(x);
-    } else if constexpr (sizeof(T) <= sizeof(unsigned long int)) {
-        return __builtin_ctzl(x);
-    } else {
-        return __builtin_ctzll(x);
-    }
+inline uint32_t bit_scan_reverse(T x) {
+    return (std::max<size_t>(sizeof(T), sizeof(unsigned int))) * 8 - 1 -
+           get_leading_zero_bits_unsafe(x);
 }
 
-/** Returns a mask that has '1' for `bits` LSB set:
- * mask_low_bits<UInt8>(3) => 00000111
- */
-template <typename T>
-inline T mask_low_bits(unsigned char bits) {
-    if (bits == 0) {
-        return 0;
-    }
-
-    T result = static_cast<T>(~T {0});
-    if (bits < sizeof(T) * 8) {
-        result = static_cast<T>(result >> (sizeof(T) * 8 - bits));
-    }
-
-    return result;
-}
+} // namespace doris::vectorized

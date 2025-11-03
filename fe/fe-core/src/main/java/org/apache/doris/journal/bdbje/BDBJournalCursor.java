@@ -17,6 +17,8 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 
@@ -44,21 +46,25 @@ public class BDBJournalCursor implements JournalCursor {
     private final int maxTryTime = 3;
 
     public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey) {
+        return getJournalCursor(env, fromKey, toKey, true);
+    }
+
+    public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey,
+            boolean exitIfNotFound) {
         if (toKey < fromKey || fromKey < 0) {
-            System.out.println("Invalid key range!");
+            LOG.warn("Invalid key range! fromKey:{} toKey:{}", fromKey, toKey);
             return null;
         }
         BDBJournalCursor cursor = null;
         try {
-            cursor = new BDBJournalCursor(env, fromKey, toKey);
+            cursor = new BDBJournalCursor(env, fromKey, toKey, exitIfNotFound);
         } catch (Exception e) {
             LOG.error("new BDBJournalCursor error.", e);
         }
         return cursor;
     }
 
-
-    private BDBJournalCursor(BDBEnvironment env, long fromKey, long toKey) throws Exception {
+    private BDBJournalCursor(BDBEnvironment env, long fromKey, long toKey, boolean exitIfNotFound) throws Exception {
         this.environment = env;
         this.toKey = toKey;
         this.currentKey = fromKey;
@@ -80,17 +86,24 @@ public class BDBJournalCursor implements JournalCursor {
         }
 
         if (dbName == null) {
-            LOG.error("Can not find the key:{}, fail to get journal cursor. will exit.", fromKey);
-            System.exit(-1);
+            if (exitIfNotFound) {
+                LOG.error("Can not find the key:{}, fail to get journal cursor. will exit.", fromKey);
+                System.exit(-1);
+            } else {
+                throw new Exception("Can not find the key:" + fromKey + ", fail to get journal cursor.");
+            }
         }
         this.database = env.openDatabase(dbName);
     }
 
     @Override
-    public JournalEntity next() {
-        JournalEntity ret = null;
+    public Pair<Long, JournalEntity> next() {
         if (currentKey > toKey) {
-            return ret;
+            return null;
+        }
+
+        if (Env.getCurrentEnv().getForceSkipJournalIds().contains(String.valueOf(currentKey))) {
+            return Pair.of(currentKey++, null);
         }
         Long key = currentKey;
         DatabaseEntry theKey = new DatabaseEntry();
@@ -109,15 +122,16 @@ public class BDBJournalCursor implements JournalCursor {
                     // Recreate the data String.
                     byte[] retData = theData.getData();
                     DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
-                    ret = new JournalEntity();
+                    JournalEntity entity = new JournalEntity();
                     try {
-                        ret.readFields(in);
+                        entity.readFields(in);
+                        entity.setDataSize(retData.length);
                     } catch (Exception e) {
                         LOG.error("fail to read journal entity key={}, will exit", currentKey, e);
                         System.exit(-1);
                     }
                     currentKey++;
-                    return ret;
+                    return Pair.of(key, entity);
                 } else if (nextDbPositionIndex < dbNames.size() && currentKey == dbNames.get(nextDbPositionIndex)) {
                     database = environment.openDatabase(dbNames.get(nextDbPositionIndex).toString());
                     nextDbPositionIndex++;

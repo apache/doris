@@ -18,18 +18,18 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import java.util.List;
 import java.util.Map;
 
 public interface QeProcessor {
 
     TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr);
-
-    void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException;
 
     void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws UserException;
 
@@ -39,5 +39,11 @@ public interface QeProcessor {
 
     Map<String, QueryStatisticsItem> getQueryStatistics();
 
+    String getCurrentQueryByQueryId(TUniqueId queryId);
+
     Coordinator getCoordinator(TUniqueId queryId);
+
+    List<Coordinator> getAllCoordinators();
+
+    Map<String, QueryInfo> getQueryInfoMap();
 }

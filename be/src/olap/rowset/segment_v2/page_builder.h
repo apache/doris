@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "util/slice.h"
 
@@ -38,9 +39,14 @@ namespace segment_v2 {
 // 5. Bitmap Index Page: store bitmap index of data
 class PageBuilder {
 public:
-    PageBuilder() {}
+    PageBuilder() = default;
+    PageBuilder(const PageBuilder&) = delete;
+    PageBuilder& operator=(const PageBuilder&) = delete;
 
-    virtual ~PageBuilder() {}
+    virtual ~PageBuilder() = default;
+
+    // Init the internal state of the page builder.
+    virtual Status init() = 0;
 
     // Used by column writer to determine whether the current page is full.
     // Column writer depends on the result to decide whether to flush current page.
@@ -59,17 +65,26 @@ public:
 
     // Finish building the current page, return the encoded data.
     // This api should be followed by reset() before reusing the builder
-    virtual OwnedSlice finish() = 0;
+    // It will return error status when memory allocated failed during finish
+    virtual Status finish(OwnedSlice* owned_slice) = 0;
 
     // Get the dictionary page for dictionary encoding mode column.
     virtual Status get_dictionary_page(OwnedSlice* dictionary_page) {
         return Status::NotSupported("get_dictionary_page not implemented");
     }
 
+    virtual Status get_dictionary_page_encoding(EncodingTypePB* encoding) const {
+        return Status::NotSupported("get_dictionary_page_encoding not implemented");
+    }
+
+    virtual Status get_dict_word(uint32_t value_code, Slice* word) {
+        return Status::NotSupported("get_dict_word not implemented");
+    }
+
     // Reset the internal state of the page builder.
     //
     // Any data previously returned by finish may be invalidated by this call.
-    virtual void reset() = 0;
+    virtual Status reset() = 0;
 
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
@@ -77,18 +92,31 @@ public:
     // Return the total bytes of pageBuilder that have been added to the page.
     virtual uint64_t size() const = 0;
 
+    // Return the uncompressed data size in bytes (raw data added via add() method).
+    // This is used to track the original data size before compression.
+    virtual uint64_t get_raw_data_size() const = 0;
+
     // Return the first value in this page.
     // This method could only be called between finish() and reset().
-    // Status::NotFound if no values have been added.
+    // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
     virtual Status get_first_value(void* value) const = 0;
 
     // Return the last value in this page.
     // This method could only be called between finish() and reset().
-    // Status::NotFound if no values have been added.
+    // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
     virtual Status get_last_value(void* value) const = 0;
+};
 
-private:
-    DISALLOW_COPY_AND_ASSIGN(PageBuilder);
+template <typename Derived>
+class PageBuilderHelper : public PageBuilder {
+public:
+    template <typename... Args>
+    static Status create(PageBuilder** builder, Args&&... args) {
+        std::unique_ptr<PageBuilder> builder_uniq_ptr(new Derived(std::forward<Args>(args)...));
+        RETURN_IF_ERROR(builder_uniq_ptr->init());
+        *builder = builder_uniq_ptr.release();
+        return Status::OK();
+    }
 };
 
 } // namespace segment_v2

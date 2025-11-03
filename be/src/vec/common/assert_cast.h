@@ -20,37 +20,61 @@
 
 #pragma once
 
-#include <string>
 #include <type_traits>
-#include <typeindex>
 #include <typeinfo>
 
+#include "common/exception.h"
 #include "common/logging.h"
-#include "fmt/format.h"
 #include "vec/common/demangle.h"
-#include "vec/common/exception.h"
 
-/** Perform static_cast in release build.
-  * Checks type by comparing typeid and throw an exception in debug build.
+enum class TypeCheckOnRelease : bool { ENABLE = true, DISABLE = false };
+
+/** Perform static_cast in release build when TypeCheckOnRelease is set to DISABLE.
+  * Checks type by comparing typeid and throw an exception in all the other situations.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
-template <typename To, typename From>
-To assert_cast(From&& from) {
+template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
+PURE To assert_cast(From&& from) {
+    // https://godbolt.org/z/nrsx7nYhs
+    // perform_cast will not be compiled to asm in release build with TypeCheckOnRelease::DISABLE
+    auto perform_cast = [](auto&& from) -> To {
+        if constexpr (std::is_pointer_v<To>) {
+            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+                return static_cast<To>(from);
+            }
+            if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
+                if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
+                    return ptr;
+                }
+                throw doris::Exception(doris::Status::FatalError("Bad cast from type:{}* to {}",
+                                                                 demangle(typeid(*from).name()),
+                                                                 demangle(typeid(To).name())));
+            }
+        } else {
+            if (typeid(from) == typeid(To)) {
+                return static_cast<To>(from);
+            }
+        }
+        throw doris::Exception(doris::Status::FatalError("Bad cast from type:{} to {}",
+                                                         demangle(typeid(from).name()),
+                                                         demangle(typeid(To).name())));
+    };
+
 #ifndef NDEBUG
     try {
-        if constexpr (std::is_pointer_v<To>) {
-            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) return static_cast<To>(from);
-        } else {
-            if (typeid(from) == typeid(To)) return static_cast<To>(from);
-        }
+        return perform_cast(std::forward<From>(from));
     } catch (const std::exception& e) {
-        LOG(FATAL) << "assert cast err:" << e.what();
+        throw doris::Exception(doris::Status::FatalError("assert cast err:{}", e.what()));
     }
-
-    LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
-                              demangle(typeid(To).name()));
-    __builtin_unreachable();
 #else
-    return static_cast<To>(from);
+    if constexpr (check == TypeCheckOnRelease::ENABLE) {
+        try {
+            return perform_cast(std::forward<From>(from));
+        } catch (const std::exception& e) {
+            throw doris::Exception(doris::Status::FatalError("assert cast err:{}", e.what()));
+        }
+    } else {
+        return static_cast<To>(from);
+    }
 #endif
 }

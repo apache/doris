@@ -15,19 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.nereids;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.Statistics;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -37,70 +33,63 @@ import java.util.List;
  * Inspired by GPORCA-CExpressionHandle.
  */
 public class PlanContext {
-    // array of children's derived stats
-    private final List<StatsDeriveResult> childrenStats = Lists.newArrayList();
-    // statistics of attached plan/gexpr
-    private StatsDeriveResult statistics;
-    // attached plan
-    private Plan plan;
-    // attached group expression
-    private GroupExpression groupExpression;
+    private final ConnectContext connectContext;
+    private final List<Statistics> childrenStats;
+    private final Statistics planStats;
+    private final int arity;
+    private boolean isBroadcastJoin = false;
+    private final boolean isStatsReliable;
 
-    public PlanContext(Plan plan) {
-        this.plan = plan;
+    /**
+     * Constructor for PlanContext.
+     */
+    public PlanContext(ConnectContext connectContext, GroupExpression groupExpression) {
+        this.connectContext = connectContext;
+        this.arity = groupExpression.arity();
+        this.planStats = groupExpression.getOwnerGroup().getStatistics();
+        this.isStatsReliable = groupExpression.getOwnerGroup().isStatsReliable();
+        this.childrenStats = new ArrayList<>(groupExpression.arity());
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            childrenStats.add(groupExpression.childStatistics(i));
+        }
     }
 
-    public PlanContext(GroupExpression groupExpression) {
-        this.groupExpression = groupExpression;
+    public SessionVariable getSessionVariable() {
+        return connectContext.getSessionVariable();
     }
 
-    public Plan getPlan() {
-        return plan;
+    public void setBroadcastJoin() {
+        isBroadcastJoin = true;
     }
 
-    public GroupExpression getGroupExpression() {
-        return groupExpression;
+    public boolean isBroadcastJoin() {
+        return isBroadcastJoin;
     }
 
-    public List<StatsDeriveResult> getChildrenStats() {
-        return childrenStats;
+    public int arity() {
+        return arity;
     }
 
-    public StatsDeriveResult getStatistics() {
-        return statistics;
+    public Statistics getStatisticsWithCheck() {
+        return planStats;
     }
 
-    public void setStatistics(StatsDeriveResult stats) {
-        this.statistics = stats;
-    }
-
-    public StatsDeriveResult getStatisticsWithCheck() {
-        Preconditions.checkNotNull(statistics);
-        return statistics;
-    }
-
-    public LogicalProperties childLogicalPropertyAt(int index) {
-        return plan.child(index).getLogicalProperties();
-    }
-
-    public List<Slot> getChildOutputSlots(int index) {
-        return childLogicalPropertyAt(index).getOutput();
-    }
-
-    public List<Id> getChildOutputIds(int index) {
-        List<Id> ids = Lists.newArrayList();
-        childLogicalPropertyAt(index).getOutput().forEach(slot -> {
-            ids.add(slot.getExprId());
-        });
-        return ids;
+    public boolean isStatsReliable() {
+        return isStatsReliable;
     }
 
     /**
      * Get child statistics.
      */
-    public StatsDeriveResult getChildStatistics(int index) {
-        StatsDeriveResult statistics = childrenStats.get(index);
-        Preconditions.checkNotNull(statistics);
-        return statistics;
+    public Statistics getChildStatistics(int index) {
+        return childrenStats.get(index);
+    }
+
+    public List<Statistics> getChildrenStatistics() {
+        return childrenStats;
+    }
+
+    public StatementContext getStatementContext() {
+        return connectContext.getStatementContext();
     }
 }

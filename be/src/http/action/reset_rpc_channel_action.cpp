@@ -17,26 +17,35 @@
 
 #include "http/action/reset_rpc_channel_action.h"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <string>
+#include <vector>
 
 #include "http/http_channel.h"
 #include "http/http_request.h"
+#include "http/http_status.h"
 #include "runtime/exec_env.h"
 #include "util/brpc_client_cache.h"
 #include "util/string_util.h"
 
 namespace doris {
-ResetRPCChannelAction::ResetRPCChannelAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+#include "common/compile_check_begin.h"
+ResetRPCChannelAction::ResetRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                             TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 void ResetRPCChannelAction::handle(HttpRequest* req) {
     std::string endpoints = req->param("endpoints");
     if (iequal(endpoints, "all")) {
-        int size = _exec_env->brpc_internal_client_cache()->size();
+        size_t size = _exec_env->brpc_internal_client_cache()->size();
         if (size > 0) {
-            std::vector<std::string> endpoints;
-            _exec_env->brpc_internal_client_cache()->get_all(&endpoints);
+            std::vector<std::string> endpoints_vec;
+            _exec_env->brpc_internal_client_cache()->get_all(&endpoints_vec);
             _exec_env->brpc_internal_client_cache()->clear();
             HttpChannel::send_reply(req, HttpStatus::OK,
-                                    fmt::format("reseted: {0}", join(endpoints, ",")));
+                                    fmt::format("reseted: {0}", join(endpoints_vec, ",")));
             return;
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, "no cached channel.");
@@ -66,5 +75,5 @@ void ResetRPCChannelAction::handle(HttpRequest* req) {
         return;
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

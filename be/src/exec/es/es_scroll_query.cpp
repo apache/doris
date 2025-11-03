@@ -17,9 +17,13 @@
 
 #include "exec/es/es_scroll_query.h"
 
+#include <glog/logging.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <stdlib.h>
+
 #include <sstream>
 
-#include "exec/es/es_query_builder.h"
 #include "exec/es/es_scan_reader.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
@@ -59,7 +63,6 @@ std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scr
 
 std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>& properties,
                                         const std::vector<std::string>& fields,
-                                        std::vector<EsPredicate*>& predicates,
                                         const std::map<std::string, std::string>& docvalue_context,
                                         bool* doc_value_mode) {
     rapidjson::Document es_query_dsl;
@@ -68,13 +71,15 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     // generate the filter clause
     rapidjson::Document scratch_document;
     rapidjson::Value query_node(rapidjson::kObjectType);
-    query_node.SetObject();
-    BooleanQueryBuilder::to_query(predicates, &scratch_document, &query_node);
-    // note: add `query` for this value....
-    es_query_dsl.AddMember("query", query_node, allocator);
-    bool pure_docvalue = true;
+    // use fe generate dsl, it must be placed outside the if, otherwise it will cause problems in AddMember
+    rapidjson::Document fe_query_dsl;
+    DCHECK(properties.find(ESScanReader::KEY_QUERY_DSL) != properties.end());
+    auto query_dsl = properties.at(ESScanReader::KEY_QUERY_DSL);
+    es_query_dsl.AddMember("query", fe_query_dsl.Parse(query_dsl.c_str(), query_dsl.length()),
+                           allocator);
 
     // Doris FE already has checked docvalue-scan optimization
+    bool pure_docvalue = true;
     if (properties.find(ESScanReader::KEY_DOC_VALUES_MODE) != properties.end()) {
         pure_docvalue = atoi(properties.at(ESScanReader::KEY_DOC_VALUES_MODE).c_str());
     } else {
@@ -120,11 +125,19 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     } else {
         size = atoi(properties.at(ESScanReader::KEY_BATCH_SIZE).c_str());
     }
-    rapidjson::Value sort_node(rapidjson::kArrayType);
-    // use the scroll-scan mode for scan index documents
-    rapidjson::Value field("_doc", allocator);
-    sort_node.PushBack(field, allocator);
-    es_query_dsl.AddMember("sort", sort_node, allocator);
+
+    std::string shard_id;
+    if (properties.find(ESScanReader::KEY_SHARD) != properties.end()) {
+        shard_id = properties.at(ESScanReader::KEY_SHARD);
+    }
+    // To maintain consistency with the query, when shard_id is negative, do not add sort node in scroll request body.
+    if (!shard_id.empty() && std::stoi(shard_id) >= 0) {
+        rapidjson::Value sort_node(rapidjson::kArrayType);
+        // use the scroll-scan mode for scan index documents
+        rapidjson::Value field("_doc", allocator);
+        sort_node.PushBack(field, allocator);
+        es_query_dsl.AddMember("sort", sort_node, allocator);
+    }
     // number of documents returned
     es_query_dsl.AddMember("size", size, allocator);
     rapidjson::StringBuffer buffer;

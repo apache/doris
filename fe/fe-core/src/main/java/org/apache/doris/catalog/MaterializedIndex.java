@@ -17,26 +17,20 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
-public class MaterializedIndex extends MetaObject implements Writable, GsonPostProcessable {
+public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
     public enum IndexState {
         NORMAL,
         @Deprecated
@@ -74,6 +68,8 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
+    private boolean rowCountReported = false;
+
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
         this.idToTablets = new HashMap<>();
@@ -91,7 +87,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         this.idToTablets = new HashMap<>();
         this.tablets = new ArrayList<>();
 
-        this.rowCount = 0;
+        this.rowCount = -1;
 
         this.rollupIndexId = -1L;
         this.rollupFinishedVersion = -1L;
@@ -102,7 +98,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     }
 
     public List<Long> getTabletIdsInOrder() {
-        List<Long> tabletIds = Lists.newArrayList();
+        List<Long> tabletIds = Lists.newArrayListWithCapacity(tablets.size());
         for (Tablet tablet : tablets) {
             tabletIds.add(tablet.getId());
         }
@@ -126,7 +122,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         idToTablets.put(tablet.getId(), tablet);
         tablets.add(tablet);
         if (!isRestore) {
-            Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
+            Env.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
         }
     }
 
@@ -172,12 +168,20 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         this.rollupFinishedVersion = -1L;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
         long dataSize = 0;
         for (Tablet tablet : getTablets()) {
-            dataSize += tablet.getDataSize(false);
+            dataSize += tablet.getDataSize(singleReplica, filterSizeZero);
         }
         return dataSize;
+    }
+
+    public long getRemoteDataSize() {
+        long remoteDataSize = 0;
+        for (Tablet tablet : getTablets()) {
+            remoteDataSize += tablet.getRemoteDataSize();
+        }
+        return remoteDataSize;
     }
 
     public long getReplicaCount() {
@@ -186,6 +190,46 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             replicaCount += tablet.getReplicas().size();
         }
         return replicaCount;
+    }
+
+    public long getLocalIndexSize() {
+        long localIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localIndexSize += replica.getLocalInvertedIndexSize();
+            }
+        }
+        return localIndexSize;
+    }
+
+    public long getLocalSegmentSize() {
+        long localSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localSegmentSize += replica.getLocalSegmentSize();
+            }
+        }
+        return localSegmentSize;
+    }
+
+    public long getRemoteIndexSize() {
+        long remoteIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteIndexSize += replica.getRemoteInvertedIndexSize();
+            }
+        }
+        return remoteIndexSize;
+    }
+
+    public long getRemoteSegmentSize() {
+        long remoteSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteSegmentSize += replica.getRemoteSegmentSize();
+            }
+        }
+        return remoteSegmentSize;
     }
 
     public int getTabletOrderIdx(long tabletId) {
@@ -199,48 +243,12 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         return -1;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-
-        Text.writeString(out, state.name());
-        out.writeLong(rowCount);
-
-        int tabletCount = tablets.size();
-        out.writeInt(tabletCount);
-        for (Tablet tablet : tablets) {
-            tablet.write(out);
-        }
-
-        out.writeLong(rollupIndexId);
-        out.writeLong(rollupFinishedVersion);
+    public void setRowCountReported(boolean reported) {
+        this.rowCountReported = reported;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-
-        state = IndexState.valueOf(Text.readString(in));
-        rowCount = in.readLong();
-
-        int tabletCount = in.readInt();
-        for (int i = 0; i < tabletCount; ++i) {
-            Tablet tablet = Tablet.read(in);
-            tablets.add(tablet);
-            idToTablets.put(tablet.getId(), tablet);
-        }
-
-        rollupIndexId = in.readLong();
-        rollupFinishedVersion = in.readLong();
-    }
-
-    public static MaterializedIndex read(DataInput in) throws IOException {
-        MaterializedIndex materializedIndex = new MaterializedIndex();
-        materializedIndex.readFields(in);
-        return materializedIndex;
+    public boolean getRowCountReported() {
+        return this.rowCountReported;
     }
 
     @Override
@@ -252,27 +260,13 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             return false;
         }
 
-        MaterializedIndex table = (MaterializedIndex) obj;
+        MaterializedIndex other = (MaterializedIndex) obj;
 
-        // Check idToTablets
-        if (table.idToTablets == null) {
-            return false;
-        }
-        if (idToTablets.size() != table.idToTablets.size()) {
-            return false;
-        }
-        for (Entry<Long, Tablet> entry : idToTablets.entrySet()) {
-            long key = entry.getKey();
-            if (!table.idToTablets.containsKey(key)) {
-                return false;
-            }
-            if (!entry.getValue().equals(table.idToTablets.get(key))) {
-                return false;
-            }
-        }
-
-        return (state.equals(table.state))
-                && (rowCount == table.rowCount);
+        return other.idToTablets != null
+                && idToTablets.size() == other.idToTablets.size()
+                && idToTablets.equals(other.idToTablets)
+                && (state.equals(other.state))
+                && (rowCount == other.rowCount);
     }
 
     @Override

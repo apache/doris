@@ -20,49 +20,68 @@
 
 #pragma once
 
+#include <cmath>
+#include <cstdint>
+
 #include "common/status.h"
-#include "runtime/datetime_value.h"
+#include "runtime/primitive_type.h"
+#include "udf/udf.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/exception.h"
+#include "vec/common/int_exp.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
-#include "vec/functions/function_helpers.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/functions/date_format_type.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/util.hpp"
+
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                            \
-    template <typename DateValueType, typename ArgType>                      \
-    struct CLASS {                                                           \
-        using ARG_TYPE = ArgType;                                            \
-        static constexpr auto name = #UNIT;                                  \
-                                                                             \
-        static inline auto execute(const ARG_TYPE& t, bool& is_null) {       \
-            const auto& date_time_value = (DateValueType&)(t);               \
-            is_null = !date_time_value.is_valid_date();                      \
-            return date_time_value.FUNCTION;                                 \
-        }                                                                    \
-                                                                             \
-        static DataTypes get_variadic_argument_types() {                     \
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) { \
-                return {std::make_shared<DataTypeDateTime>()};               \
-            } else {                                                         \
-                return {std::make_shared<DataTypeDateV2>()};                 \
-            }                                                                \
-        }                                                                    \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                             \
+    template <PrimitiveType PType>                                                            \
+    struct CLASS {                                                                            \
+        static constexpr PrimitiveType OpArgType = PType;                                     \
+        using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;                \
+        static constexpr auto name = #UNIT;                                                   \
+                                                                                              \
+        static inline auto execute(const NativeType& t) {                                     \
+            const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t); \
+            return date_time_value.FUNCTION;                                                  \
+        }                                                                                     \
+                                                                                              \
+        static DataTypes get_variadic_argument_types() {                                      \
+            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};       \
+        }                                                                                     \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
 TO_TIME_FUNCTION(ToDayImpl, day);
 TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
 TO_TIME_FUNCTION(ToSecondImpl, second);
+TO_TIME_FUNCTION(ToMicroSecondImpl, microsecond);
 
 TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());
@@ -72,298 +91,327 @@ TIME_FUNCTION_IMPL(WeekDayImpl, weekday, weekday());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
 
-#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                    \
-    template <typename DateValueType, typename ArgType>                      \
-    struct CLASS {                                                           \
-        using ARG_TYPE = ArgType;                                            \
-        static constexpr auto name = #UNIT;                                  \
-                                                                             \
-        static inline auto execute(const ARG_TYPE& t, bool& is_null) {       \
-            const auto& date_time_value = (DateValueType&)(t);               \
-            is_null = !date_time_value.is_valid_date();                      \
-            return date_time_value.FUNCTION;                                 \
-        }                                                                    \
-                                                                             \
-        static DataTypes get_variadic_argument_types() {                     \
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) { \
-                return {std::make_shared<DataTypeDateTime>()};               \
-            } else {                                                         \
-                return {std::make_shared<DataTypeDateV2>()};                 \
-            }                                                                \
-        }                                                                    \
+#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                                     \
+    template <PrimitiveType PType>                                                            \
+    struct CLASS {                                                                            \
+        static constexpr PrimitiveType OpArgType = PType;                                     \
+        using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;                   \
+        static constexpr auto name = #UNIT;                                                   \
+                                                                                              \
+        static inline auto execute(const ArgType& t) {                                        \
+            const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t); \
+            return date_time_value.FUNCTION;                                                  \
+        }                                                                                     \
+                                                                                              \
+        static DataTypes get_variadic_argument_types() {                                      \
+            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};       \
+        }                                                                                     \
     }
 
 TIME_FUNCTION_ONE_ARG_IMPL(ToWeekOneArgImpl, week, week(mysql_week_mode(0)));
 TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_mode(0)));
 
-template <typename DateValueType, typename ArgType>
+template <PrimitiveType PType>
 struct ToDateImpl {
-    using ARG_TYPE = ArgType;
+    static constexpr PrimitiveType OpArgType = PType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_date";
 
-    static inline auto execute(const ArgType& t, bool& is_null) {
-        auto dt = binary_cast<ArgType, DateValueType>(t);
-        is_null = !dt.is_valid_date();
-        if constexpr (!std::is_same_v<DateValueType, doris::vectorized::DateV2Value>) {
+    static auto execute(const NativeType& t) {
+        auto dt = binary_cast<NativeType, DateType>(t);
+        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>>) {
+            return binary_cast<DateType, NativeType>(dt);
+        } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             dt.cast_to_date();
+            return binary_cast<DateType, NativeType>(dt);
+        } else {
+            return (PrimitiveTypeTraits<TYPE_DATEV2>::CppNativeType)(
+                    binary_cast<DateType, NativeType>(dt) >> TIME_PART_LENGTH);
         }
-        return binary_cast<DateValueType, ArgType>(dt);
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else {
-            return {std::make_shared<DataTypeDateV2>()};
-        }
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
 };
 
-template <typename DateValue, typename ArgType>
-struct DateImpl : public ToDateImpl<DateValue, ArgType> {
+template <PrimitiveType ArgType>
+struct DateImpl : public ToDateImpl<ArgType> {
     static constexpr auto name = "date";
 };
 
-// TODO: This function look like no need do indeed copy here, we should optimize
-// this function
-template <typename ArgType>
+// TODO: This function look like no need do indeed copy here, we should optimize this function
+template <PrimitiveType PType>
 struct TimeStampImpl {
-    using ARG_TYPE = ArgType;
+    static constexpr PrimitiveType OpArgType = PType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
     static constexpr auto name = "timestamp";
 
-    static inline auto execute(const ARG_TYPE& t, bool& is_null) { return t; }
+    static auto execute(const ArgType& t) { return t; }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
 };
 
-template <typename DateValueType, typename ArgType>
+template <PrimitiveType PType>
 struct DayNameImpl {
-    using ARG_TYPE = ArgType;
+    static constexpr PrimitiveType OpArgType = PType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
     static constexpr auto name = "dayname";
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
-    static inline auto execute(const DateValueType& dt, ColumnString::Chars& res_data,
-                               size_t& offset, bool& is_null) {
-        const auto* day_name = dt.day_name();
-        is_null = !dt.is_valid_date();
-        if (day_name == nullptr || is_null) {
-            offset += 1;
-            res_data[offset - 1] = 0;
-        } else {
+    static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* day_names) {
+        DCHECK(day_names != nullptr);
+        const auto* day_name = dt.day_name_with_locale(day_names);
+        if (day_name != nullptr) {
             auto len = strlen(day_name);
             memcpy(&res_data[offset], day_name, len);
-            offset += len + 1;
-            res_data[offset - 1] = 0;
+            offset += len;
         }
         return offset;
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else {
-            return {std::make_shared<DataTypeDateV2>()};
-        }
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
 };
 
-template <typename DateValueType, typename ArgType>
+template <PrimitiveType PType>
+struct ToIso8601Impl {
+    static constexpr PrimitiveType OpArgType = PType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    static constexpr auto name = "to_iso8601";
+    static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
+
+    static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* /*names_ptr*/) {
+        auto length = dt.to_buffer((char*)res_data.data() + offset,
+                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
+        if (std::is_same_v<ArgType, UInt64>) {
+            res_data[offset + 10] = 'T';
+        }
+
+        offset += length;
+        return offset;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+    }
+};
+
+template <PrimitiveType PType>
 struct MonthNameImpl {
-    using ARG_TYPE = ArgType;
+    static constexpr PrimitiveType OpArgType = PType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
     static constexpr auto name = "monthname";
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
-    static inline auto execute(const DateValueType& dt, ColumnString::Chars& res_data,
-                               size_t& offset, bool& is_null) {
-        const auto* month_name = dt.month_name();
-        is_null = !dt.is_valid_date();
-        if (month_name == nullptr || is_null) {
-            offset += 1;
-            res_data[offset - 1] = 0;
-        } else {
+    static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
+                        ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* month_names) {
+        DCHECK(month_names != nullptr);
+        const auto* month_name = dt.month_name_with_locale(month_names);
+        if (month_name != nullptr) {
             auto len = strlen(month_name);
             memcpy(&res_data[offset], month_name, len);
-            offset += (len + 1);
-            res_data[offset - 1] = 0;
+            offset += len;
         }
         return offset;
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else {
-            return {std::make_shared<DataTypeDateV2>()};
-        }
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
 };
 
-template <typename DateType, typename ArgType>
+template <PrimitiveType PType>
 struct DateFormatImpl {
-    using FromType = ArgType;
+    using DateType = typename PrimitiveTypeTraits<PType>::CppType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    static constexpr PrimitiveType FromPType = PType;
 
     static constexpr auto name = "date_format";
 
-    static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
-        const auto& dt = (DateType&)t;
-        if (format.size > 128) {
-            offset += 1;
-            res_data.emplace_back(0);
-            return std::pair {offset, true};
-        }
-        char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
-            offset += 1;
-            res_data.emplace_back(0);
-            return std::pair {offset, true};
-        }
+    template <typename Impl>
+    static bool execute(const ArgType& t, StringRef format, ColumnString::Chars& res_data,
+                        size_t& offset, const cctz::time_zone& time_zone) {
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
+            // Handle non-special formats.
+            const auto& dt = (DateType&)t;
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
 
-        auto len = strlen(buf) + 1;
-        res_data.insert(buf, buf + len);
-        offset += len;
-        return std::pair {offset, false};
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+            return false;
+        } else {
+            const auto& dt = (DateType&)t;
+
+            if (!dt.is_valid_date()) {
+                return true;
+            }
+
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            offset += len;
+
+            return false;
+        }
     }
 
     static DataTypes get_variadic_argument_types() {
-        if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
-            return std::vector<DataTypePtr> {
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeDateTime>()),
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeString>())};
-        } else {
-            return std::vector<DataTypePtr> {
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeDateV2>()),
-                    std::dynamic_pointer_cast<const IDataType>(
-                            std::make_shared<vectorized::DataTypeString>())};
-        }
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std::make_shared<vectorized::DataTypeString>()};
     }
 };
 
-// TODO: This function should be depend on argments not always nullable
-template <typename DateType>
+template <bool WithStringArg, bool NewVersion = false>
 struct FromUnixTimeImpl {
-    using FromType = Int32;
+    using ArgType = Int64;
+    static constexpr PrimitiveType FromPType = TYPE_BIGINT;
 
-    static constexpr auto name = "from_unixtime";
-
-    static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
-        // TODO: use default time zone, slowly and incorrect, just for test use
-        static cctz::time_zone time_zone = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
-
-        DateType dt;
-        if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
-            offset += 1;
-            res_data.emplace_back(0);
-            return std::pair {offset, true};
-        }
-
-        char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
-            offset += 1;
-            res_data.emplace_back(0);
-            return std::pair {offset, true};
-        }
-
-        auto len = strlen(buf) + 1;
-        res_data.insert(buf, buf + len);
-        offset += len;
-        return std::pair {offset, false};
-    }
-};
-
-template <typename Transform>
-struct TransformerToStringOneArgument {
-    static void vector(const PaddedPODArray<Int64>& ts, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-        null_map.resize_fill(len, false);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<const VecDateTimeValue&>(t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
-                                                reinterpret_cast<bool&>(null_map[i]));
-        }
-    }
-
-    static void vector(const PaddedPODArray<UInt32>& ts, ColumnString::Chars& res_data,
-                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-        null_map.resize_fill(len, false);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<const DateV2Value&>(t);
-            res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
-                                                reinterpret_cast<bool&>(null_map[i]));
-        }
-    }
-};
-
-template <typename Transform>
-struct TransformerToStringTwoArgument {
-    static void vector_constant(const PaddedPODArray<typename Transform::FromType>& ts,
-                                const std::string& format, ColumnString::Chars& res_data,
-                                ColumnString::Offsets& res_offsets,
-                                PaddedPODArray<UInt8>& null_map) {
-        auto len = ts.size();
-        res_offsets.resize(len);
-        null_map.resize_fill(len, false);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto [new_offset, is_null] = Transform::execute(
-                    t, StringRef(format.c_str(), format.size()), res_data, offset);
-
-            res_offsets[i] = new_offset;
-            null_map[i] = is_null;
-        }
-    }
-};
-
-template <typename FromType, typename ToType, typename Transform>
-struct Transformer {
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
-                       NullMap& null_map) {
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-        null_map.resize_fill(size, false);
-
-        for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i], reinterpret_cast<bool&>(null_map[i]));
-        }
-    }
-};
-
-template <typename FromType, typename ToType, typename Transform>
-struct DateTimeTransformImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/) {
-        using Op = Transformer<FromType, ToType, Transform>;
-
-        const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
-            auto col_to = ColumnVector<ToType>::create();
-            auto null_map = ColumnVector<UInt8>::create();
-            Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (WithStringArg) {
+            return {std::make_shared<DataTypeInt64>(),
+                    std::make_shared<vectorized::DataTypeString>()};
         } else {
-            return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
+            return {std::make_shared<DataTypeInt64>()};
         }
-        return Status::OK();
+    }
+    static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
+    static constexpr auto name = NewVersion ? "from_unixtime_new" : "from_unixtime";
+
+    [[nodiscard]] static bool check_valid(const ArgType& val) {
+        if constexpr (NewVersion) {
+            if (val < 0) [[unlikely]] {
+                return false;
+            }
+        } else {
+            if (val < 0 || val > TIMESTAMP_VALID_MAX) [[unlikely]] {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& val,
+                                                               const cctz::time_zone& time_zone) {
+        DateV2Value<DateTimeV2ValueType> dt;
+        dt.from_unixtime(val, time_zone);
+        return dt;
+    }
+
+    // return true if null(result is invalid)
+    template <typename Impl>
+    static bool execute(const ArgType& val, StringRef format, ColumnString::Chars& res_data,
+                        size_t& offset, const cctz::time_zone& time_zone) {
+        if (!check_valid(val)) {
+            return true;
+        }
+        DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
+        if (!dt.is_valid_date()) [[unlikely]] {
+            return true;
+        }
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
+
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+        } else {
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            offset += len;
+        }
+        return false;
     }
 };
 
+// only new verison
+template <bool WithStringArg>
+struct FromUnixTimeDecimalImpl {
+    using ArgType = Int64;
+    static constexpr PrimitiveType FromPType = TYPE_DECIMAL64;
+    constexpr static short Scale = 6; // same with argument's scale in FE's signature
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (WithStringArg) {
+            return {std::make_shared<DataTypeDecimal64>(),
+                    std::make_shared<vectorized::DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeDecimal64>()};
+        }
+    }
+    static constexpr auto name = "from_unixtime_new";
+
+    [[nodiscard]] static bool check_valid(const ArgType& val) {
+        if (val < 0) [[unlikely]] {
+            return false;
+        }
+        return true;
+    }
+
+    static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& interger,
+                                                               const ArgType& fraction,
+                                                               const cctz::time_zone& time_zone) {
+        DateV2Value<DateTimeV2ValueType> dt;
+        // 9 is nanoseconds, our input's scale is 6
+        dt.from_unixtime(interger, (int32_t)fraction * common::exp10_i32(9 - Scale), time_zone, 6);
+        return dt;
+    }
+
+    // return true if null(result is invalid)
+    template <typename Impl>
+    static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
+                                ColumnString::Chars& res_data, size_t& offset,
+                                const cctz::time_zone& time_zone) {
+        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) [[unlikely]] {
+            return true;
+        }
+        DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
+        if (!dt.is_valid_date()) [[unlikely]] {
+            return true;
+        }
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
+
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+        } else {
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl::date_to_str(
+                    dt, (char*)res_data.data() + offset);
+            offset += len;
+        }
+        return false;
+    }
+};
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

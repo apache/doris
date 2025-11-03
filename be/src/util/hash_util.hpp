@@ -20,32 +20,34 @@
 
 #pragma once
 
-#include "common/compiler_util.h"
-#include "common/logging.h"
-
-// For cross compiling with clang, we need to be able to generate an IR file with
-// no sse instructions.  Attempting to load a precompiled IR file that contains
-// unsupported instructions causes llvm to fail.  We need to use #defines to control
-// the code that is built and the runtime checks to control what code is run.
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
+#include <gen_cpp/Types_types.h>
+#include <xxh3.h>
 #include <zlib.h>
 
-#include "gen_cpp/Types_types.h"
+#include <bit>
+#include <functional>
+
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/cpu_info.h"
+#include "util/hash/city.h"
 #include "util/murmur_hash3.h"
+#include "util/sse_util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Utility class to compute hash values.
 class HashUtil {
 public:
-    static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
-        return crc32(hash, (const unsigned char*)data, bytes);
+    static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
+        return (uint32_t)crc32(hash, (const unsigned char*)data, bytes);
     }
+
+    static uint32_t zlib_crc_hash_null(uint32_t hash) {
+        // null is treat as 0 when hash
+        static const int INT_VALUE = 0;
+        return (uint32_t)crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+    }
+
 #if defined(__SSE4_2__) || defined(__aarch64__)
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.
@@ -56,7 +58,7 @@ public:
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
             return zlib_crc_hash(data, bytes, hash);
         }
@@ -83,7 +85,7 @@ public:
         return hash;
     }
 
-    static uint64_t crc_hash64(const void* data, int32_t bytes, uint64_t hash) {
+    static uint64_t crc_hash64(const void* data, uint32_t bytes, uint64_t hash) {
         uint32_t words = bytes / sizeof(uint32_t);
         bytes = bytes % sizeof(uint32_t);
 
@@ -115,7 +117,7 @@ public:
         return converter.u64;
     }
 #else
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         return zlib_crc_hash(data, bytes, hash);
     }
 #endif
@@ -123,60 +125,22 @@ public:
     // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
     static const uint32_t MURMUR3_32_SEED = 104729;
 
-    ALWAYS_INLINE static uint32_t rotl32(uint32_t x, int8_t r) {
-        return (x << r) | (x >> (32 - r));
-    }
-
-    ALWAYS_INLINE static uint32_t fmix32(uint32_t h) {
-        h ^= h >> 16;
-        h *= 0x85ebca6b;
-        h ^= h >> 13;
-        h *= 0xc2b2ae35;
-        h ^= h >> 16;
-        return h;
-    }
-
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
-    static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
-        const uint8_t* data = (const uint8_t*)key;
-        const int nblocks = len / 4;
+    static uint32_t murmur_hash3_32(const void* key, int64_t len, uint32_t seed) {
+        uint32_t out = 0;
+        murmur_hash3_x86_32(key, len, seed, &out);
+        return out;
+    }
 
-        uint32_t h1 = seed;
-
-        const uint32_t c1 = 0xcc9e2d51;
-        const uint32_t c2 = 0x1b873593;
-        const uint32_t* blocks = (const uint32_t*)(data + nblocks * 4);
-
-        for (int i = -nblocks; i; i++) {
-            uint32_t k1 = blocks[i];
-
-            k1 *= c1;
-            k1 = rotl32(k1, 15);
-            k1 *= c2;
-
-            h1 ^= k1;
-            h1 = rotl32(h1, 13);
-            h1 = h1 * 5 + 0xe6546b64;
+    template <bool is_mmh64_v2>
+    static uint64_t murmur_hash3_64(const void* key, int64_t len, uint64_t seed) {
+        uint64_t out = 0;
+        if constexpr (is_mmh64_v2) {
+            murmur_hash3_x64_64_shared(key, len, seed, &out);
+        } else {
+            murmur_hash3_x64_64(key, len, seed, &out);
         }
-
-        const uint8_t* tail = (const uint8_t*)(data + nblocks * 4);
-        uint32_t k1 = 0;
-        switch (len & 3) {
-        case 3:
-            k1 ^= tail[2] << 16;
-        case 2:
-            k1 ^= tail[1] << 8;
-        case 1:
-            k1 ^= tail[0];
-            k1 *= c1;
-            k1 = rotl32(k1, 15);
-            k1 *= c2;
-            h1 ^= k1;
-        };
-
-        h1 ^= len;
-        h1 = fmix32(h1);
-        return h1;
+        return out;
     }
 
     static const int MURMUR_R = 47;
@@ -201,16 +165,22 @@ public:
         switch (len & 7) {
         case 7:
             h ^= uint64_t(data2[6]) << 48;
+            [[fallthrough]];
         case 6:
             h ^= uint64_t(data2[5]) << 40;
+            [[fallthrough]];
         case 5:
             h ^= uint64_t(data2[4]) << 32;
+            [[fallthrough]];
         case 4:
             h ^= uint64_t(data2[3]) << 24;
+            [[fallthrough]];
         case 3:
             h ^= uint64_t(data2[2]) << 16;
+            [[fallthrough]];
         case 2:
             h ^= uint64_t(data2[1]) << 8;
+            [[fallthrough]];
         case 1:
             h ^= uint64_t(data2[0]);
             h *= MURMUR_PRIME;
@@ -235,7 +205,7 @@ public:
     // For example, if the data is <1000, 2000, 3000, 4000, ..> and then the mod of 1000
     // is taken on the hash, all values will collide to the same bucket.
     // For string values, Fnv is slightly faster than boost.
-    static uint32_t fnv_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t fnv_hash(const void* data, uint32_t bytes, uint32_t hash) {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -246,7 +216,7 @@ public:
         return hash;
     }
 
-    static uint64_t fnv_hash64(const void* data, int32_t bytes, uint64_t hash) {
+    static uint64_t fnv_hash64(const void* data, uint32_t bytes, uint64_t hash) {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -260,7 +230,7 @@ public:
     // Our hash function is MurmurHash2, 64 bit version.
     // It was modified in order to provide the same result in
     // big and little endian archs (endian neutral).
-    static uint64_t murmur_hash64A(const void* key, int32_t len, unsigned int seed) {
+    static uint64_t murmur_hash64A(const void* key, int64_t len, unsigned int seed) {
         const uint64_t m = MURMUR_PRIME;
         const int r = 47;
         uint64_t h = seed ^ (len * m);
@@ -269,18 +239,22 @@ public:
 
         while (data != end) {
             uint64_t k;
-#if (BYTE_ORDER == BIG_ENDIAN)
-            k = (uint64_t)data[0];
-            k |= (uint64_t)data[1] << 8;
-            k |= (uint64_t)data[2] << 16;
-            k |= (uint64_t)data[3] << 24;
-            k |= (uint64_t)data[4] << 32;
-            k |= (uint64_t)data[5] << 40;
-            k |= (uint64_t)data[6] << 48;
-            k |= (uint64_t)data[7] << 56;
-#else
-            k = *((uint64_t*)data);
-#endif
+            if constexpr (std::endian::native == std::endian::big) {
+                k = (uint64_t)data[0];
+                k |= (uint64_t)data[1] << 8;
+                k |= (uint64_t)data[2] << 16;
+                k |= (uint64_t)data[3] << 24;
+                k |= (uint64_t)data[4] << 32;
+                k |= (uint64_t)data[5] << 40;
+                k |= (uint64_t)data[6] << 48;
+                k |= (uint64_t)data[7] << 56;
+            } else if constexpr (std::endian::native == std::endian::little) {
+                memcpy(&k, data, sizeof(k));
+            } else {
+                static_assert(std::endian::native == std::endian::big ||
+                                      std::endian::native == std::endian::little,
+                              "Unsupported endianness");
+            }
 
             k *= m;
             k ^= k >> r;
@@ -293,20 +267,26 @@ public:
         switch (len & 7) {
         case 7:
             h ^= (uint64_t)data[6] << 48;
+            [[fallthrough]];
         case 6:
             h ^= (uint64_t)data[5] << 40;
+            [[fallthrough]];
         case 5:
             h ^= (uint64_t)data[4] << 32;
+            [[fallthrough]];
         case 4:
             h ^= (uint64_t)data[3] << 24;
+            [[fallthrough]];
         case 3:
             h ^= (uint64_t)data[2] << 16;
+            [[fallthrough]];
         case 2:
             h ^= (uint64_t)data[1] << 8;
+            [[fallthrough]];
         case 1:
             h ^= (uint64_t)data[0];
             h *= m;
-        };
+        }
 
         h ^= h >> r;
         h *= m;
@@ -318,7 +298,7 @@ public:
     // depending on hardware capabilities.
     // Seed values for different steps of the query execution should use different seeds
     // to prevent accidental key collisions. (See IMPALA-219 for more details).
-    static uint32_t hash(const void* data, int32_t bytes, uint32_t seed) {
+    static uint32_t hash(const void* data, uint32_t bytes, uint32_t seed) {
 #ifdef __SSE4_2__
 
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
@@ -332,7 +312,7 @@ public:
 #endif
     }
 
-    static uint64_t hash64(const void* data, int32_t bytes, uint64_t seed) {
+    static uint64_t hash64(const void* data, uint64_t bytes, uint64_t seed) {
 #ifdef _SSE4_2_
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
             return crc_hash64(data, bytes, seed);
@@ -355,15 +335,44 @@ public:
         std::hash<T> hasher;
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wused-but-marked-unused"
+#endif
+    // xxHash function for a byte array.  For convenience, a 64-bit seed is also
+    // hashed into the result.  The mapping may change from time to time.
+    static xxh_u32 xxHash32WithSeed(const char* s, size_t len, xxh_u32 seed) {
+        return XXH32(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u32 xxHash32NullWithSeed(xxh_u32 seed) {
+        static const int INT_VALUE = 0;
+        return XXH32(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
+
+    static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH3_64bits_withSeed(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 };
 
 } // namespace doris
 
-namespace std {
 template <>
-struct hash<doris::TUniqueId> {
-    std::size_t operator()(const doris::TUniqueId& id) const {
-        std::size_t seed = 0;
+struct std::hash<doris::TUniqueId> {
+    size_t operator()(const doris::TUniqueId& id) const {
+        uint32_t seed = 0;
         seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
         seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
         return seed;
@@ -371,29 +380,20 @@ struct hash<doris::TUniqueId> {
 };
 
 template <>
-struct hash<doris::TNetworkAddress> {
+struct std::hash<doris::TNetworkAddress> {
     size_t operator()(const doris::TNetworkAddress& address) const {
-        std::size_t seed = 0;
-        seed = doris::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
+        uint32_t seed = 0;
+        seed = doris::HashUtil::hash(address.hostname.data(), (uint32_t)address.hostname.size(),
+                                     seed);
         seed = doris::HashUtil::hash(&address.port, 4, seed);
         return seed;
     }
 };
 
-#if __GNUC__ < 6 && !defined(__clang__)
-// Cause this is builtin function
 template <>
-struct hash<__int128> {
-    std::size_t operator()(const __int128& val) const {
-        return doris::HashUtil::hash(&val, sizeof(val), 0);
-    }
-};
-#endif
-
-template <>
-struct hash<std::pair<doris::TUniqueId, int64_t>> {
+struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
     size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
-        size_t seed = 0;
+        uint32_t seed = 0;
         seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
         seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
         seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
@@ -401,4 +401,13 @@ struct hash<std::pair<doris::TUniqueId, int64_t>> {
     }
 };
 
-} // namespace std
+template <class First, class Second>
+struct std::hash<std::pair<First, Second>> {
+    size_t operator()(const pair<First, Second>& p) const {
+        size_t h1 = std::hash<First>()(p.first);
+        size_t h2 = std::hash<Second>()(p.second);
+        return doris::util_hash::HashLen16(h1, h2);
+    }
+};
+
+#include "common/compile_check_end.h"

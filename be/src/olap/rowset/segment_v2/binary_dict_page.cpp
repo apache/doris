@@ -17,21 +17,28 @@
 
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h" // for Substitute
-#include "runtime/mem_pool.h"
+#include "common/status.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
+#include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
+#include "util/coding.h"
 #include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
-#include "vec/columns/column_dictionary.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/predicate_column.h"
 
 namespace doris {
-namespace segment_v2 {
+#include "common/compile_check_begin.h"
+struct StringRef;
 
-using strings::Substitute;
+namespace segment_v2 {
 
 BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
         : _options(options),
@@ -39,14 +46,32 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _pool() {
+          _dict_word_page_encoding_type(config::binary_plain_encoding_default_impl == "v2"
+                                                ? PLAIN_ENCODING_V2
+                                                : PLAIN_ENCODING),
+          _fallback_binary_encoding_type(config::binary_plain_encoding_default_impl == "v2"
+                                                 ? PLAIN_ENCODING_V2
+                                                 : PLAIN_ENCODING) {}
+
+Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
-    _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
+    PageBuilder* data_page_builder_ptr = nullptr;
+    RETURN_IF_ERROR(BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>::create(
+            &data_page_builder_ptr, _options));
+    _data_page_builder.reset(data_page_builder_ptr);
     PageBuilderOptions dict_builder_options;
+    // here the binary plain page is used to store the dictionary items so
+    // the data page size is set to the same as the dict page size
     dict_builder_options.data_page_size = _options.dict_page_size;
-    _dict_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
-    reset();
+    dict_builder_options.dict_page_size = _options.dict_page_size;
+    dict_builder_options.is_dict_page = true;
+
+    const EncodingInfo* encoding_info;
+    RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                      _dict_word_page_encoding_type, &encoding_info));
+    RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
+    return reset();
 }
 
 bool BinaryDictPageBuilder::is_page_full() {
@@ -66,8 +91,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
         uint32_t value_code = -1;
-        auto* actual_builder =
-                down_cast<BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>*>(_data_page_builder.get());
+        auto* actual_builder = dynamic_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
+                _data_page_builder.get());
 
         if (_data_page_builder->count() == 0) {
             _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
@@ -78,20 +103,22 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
             if (is_page_full()) {
                 break;
             }
-            auto iter = _dictionary.find(*src);
-            if (iter != _dictionary.end()) {
+
+            if (src->empty() && _has_empty) {
+                value_code = _empty_code;
+            } else if (auto iter = _dictionary.find(*src); iter != _dictionary.end()) {
                 value_code = iter->second;
             } else {
                 Slice dict_item(src->data, src->size);
                 if (src->size > 0) {
-                    char* item_mem = (char*)_pool.allocate(src->size);
+                    char* item_mem = _arena.alloc(src->size);
                     if (item_mem == nullptr) {
                         return Status::MemoryAllocFailed("memory allocate failed, size:{}",
                                                          src->size);
                     }
                     dict_item.relocate(item_mem);
                 }
-                value_code = _dictionary.size();
+                value_code = cast_set<uint32_t>(_dictionary.size());
                 size_t add_count = 1;
                 RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item),
                                                    &add_count));
@@ -100,6 +127,10 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                     break;
                 }
                 _dictionary.emplace(dict_item, value_code);
+                if (src->empty()) {
+                    _has_empty = true;
+                    _empty_code = value_code;
+                }
             }
             size_t add_count = 1;
             RETURN_IF_ERROR(actual_builder->single_add(
@@ -108,38 +139,62 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 // current data page is full, stop processing remaining inputs
                 break;
             }
+            // Track raw data size: the original string size
+            _raw_data_size += src->size;
             num_added += 1;
         }
         *count = num_added;
         return Status::OK();
     } else {
-        DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        return _data_page_builder->add(vals, count);
+        DCHECK(_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2);
+        RETURN_IF_ERROR(_data_page_builder->add(vals, count));
+        // For plain encoding, track raw data size from the input
+        const Slice* src = reinterpret_cast<const Slice*>(vals);
+        for (size_t i = 0; i < *count; ++i) {
+            _raw_data_size += src[i].size;
+        }
+        return Status::OK();
     }
 }
 
-OwnedSlice BinaryDictPageBuilder::finish() {
+Status BinaryDictPageBuilder::finish(OwnedSlice* slice) {
+    if (VLOG_DEBUG_IS_ON && _encoding_type == DICT_ENCODING) {
+        VLOG_DEBUG << "dict page size:" << _dict_builder->size();
+    }
+
     DCHECK(!_finished);
     _finished = true;
 
-    OwnedSlice data_slice = _data_page_builder->finish();
+    OwnedSlice data_slice;
+    RETURN_IF_ERROR(_data_page_builder->finish(&data_slice));
     // TODO(gaodayue) separate page header and content to avoid this copy
-    _buffer.append(data_slice.slice().data, data_slice.slice().size);
+    RETURN_IF_CATCH_EXCEPTION(
+            { _buffer.append(data_slice.slice().data, data_slice.slice().size); });
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return _buffer.build();
+    *slice = _buffer.build();
+    return Status::OK();
 }
 
-void BinaryDictPageBuilder::reset() {
-    _finished = false;
-    _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
-    _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
+Status BinaryDictPageBuilder::reset() {
+    RETURN_IF_CATCH_EXCEPTION({
+        _finished = false;
+        _raw_data_size = 0;
+        _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
+        _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
-    if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        _data_page_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(_options));
-        _encoding_type = PLAIN_ENCODING;
-    } else {
-        _data_page_builder->reset();
-    }
+        if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
+            DCHECK(_fallback_binary_encoding_type == PLAIN_ENCODING ||
+                   _fallback_binary_encoding_type == PLAIN_ENCODING_V2);
+            const EncodingInfo* encoding_info;
+            RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                              _fallback_binary_encoding_type, &encoding_info));
+            RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
+            _encoding_type = _fallback_binary_encoding_type;
+        } else {
+            RETURN_IF_ERROR(_data_page_builder->reset());
+        }
+    });
+    return Status::OK();
 }
 
 size_t BinaryDictPageBuilder::count() const {
@@ -147,18 +202,22 @@ size_t BinaryDictPageBuilder::count() const {
 }
 
 uint64_t BinaryDictPageBuilder::size() const {
-    return _pool.total_allocated_bytes() + _data_page_builder->size();
+    return _arena.used_size() + _data_page_builder->size();
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    *dictionary_page = _dict_builder->finish();
+    return _dict_builder->finish(dictionary_page);
+}
+
+Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {
+    *encoding = _dict_word_page_encoding_type;
     return Status::OK();
 }
 
 Status BinaryDictPageBuilder::get_first_value(void* value) const {
     DCHECK(_finished);
     if (_data_page_builder->count() == 0) {
-        return Status::NotFound("page is empty");
+        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
     }
     if (_encoding_type != DICT_ENCODING) {
         return _data_page_builder->get_first_value(value);
@@ -170,15 +229,19 @@ Status BinaryDictPageBuilder::get_first_value(void* value) const {
 Status BinaryDictPageBuilder::get_last_value(void* value) const {
     DCHECK(_finished);
     if (_data_page_builder->count() == 0) {
-        return Status::NotFound("page is empty");
+        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
     }
     if (_encoding_type != DICT_ENCODING) {
         return _data_page_builder->get_last_value(value);
     }
     uint32_t value_code;
     RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
-    *reinterpret_cast<Slice*>(value) = _dict_builder->get(value_code);
+    RETURN_IF_ERROR(_dict_builder->get_dict_word(value_code, reinterpret_cast<Slice*>(value)));
     return Status::OK();
+}
+
+uint64_t BinaryDictPageBuilder::get_raw_data_size() const {
+    return _raw_data_size;
 }
 
 BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options)
@@ -198,15 +261,15 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
-        // copy the codewords into a temporary buffer first
-        // And then copy the strings corresponding to the codewords to the destination buffer
-        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
-        RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
         _data_page_decoder.reset(
-                _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+                _bit_shuffle_ptr =
+                        new BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
-        DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        _data_page_decoder.reset(new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _data_page_decoder.reset(
+                new BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_data, _options));
+    } else if (_encoding_type == PLAIN_ENCODING_V2) {
+        _data_page_decoder.reset(
+                new BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption("invalid encoding type:{}", _encoding_type);
@@ -227,21 +290,21 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
-    _dict_decoder = (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
+void BinaryDictPageDecoder::set_dict_decoder(uint32_t num_dict_items, StringRef* dict_word_info) {
+    _num_dict_items = num_dict_items;
     _dict_word_info = dict_word_info;
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
+    if (!is_dict_encoding()) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
     }
     // dictionary encoding
     DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+    DCHECK(_dict_word_info != nullptr) << "_dict_word_info is nullptr";
 
-    if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
+    if (*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }
@@ -254,7 +317,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
     dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
-                               _dict_decoder->_num_elems);
+                               _num_dict_items);
 
     _bit_shuffle_ptr->_cur_index += max_fetch;
 
@@ -263,13 +326,14 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
                                              size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
+    if (!is_dict_encoding()) {
+        dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
     }
     DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+    DCHECK(_dict_word_info != nullptr) << "_dict_word_info is nullptr";
 
-    if (PREDICT_FALSE(*n == 0)) {
+    if (*n == 0) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }
@@ -277,72 +341,23 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     auto total = *n;
     size_t read_count = 0;
-    int32_t data[total];
+    _buffer.resize(total);
     for (size_t i = 0; i < total; ++i) {
         ordinal_t ord = rowids[i] - page_first_ordinal;
-        if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {
+        if (ord >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
             break;
         }
 
-        data[read_count++] = data_array[ord];
+        _buffer[read_count++] = data_array[ord];
     }
 
-    if (LIKELY(read_count > 0))
-        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
+    if (LIKELY(read_count > 0)) {
+        dst->insert_many_dict_data(_buffer.data(), 0, _dict_word_info, read_count, _num_dict_items);
+    }
     *n = read_count;
     return Status::OK();
 }
 
-Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
-        return _data_page_decoder->next_batch(n, dst);
-    }
-    // dictionary encoding
-    DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
-
-    if (PREDICT_FALSE(*n == 0)) {
-        return Status::OK();
-    }
-    auto* out = reinterpret_cast<Slice*>(dst->data());
-
-    _batch->resize(*n);
-
-    ColumnBlock column_block(_batch.get(), dst->column_block()->pool());
-    ColumnBlockView tmp_block_view(&column_block);
-    RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
-    const auto len = *n;
-
-    size_t mem_len[len];
-    for (int i = 0; i < len; ++i) {
-        int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
-        // get the string from the dict decoder
-        *out = Slice(_dict_word_info[codeword].data, _dict_word_info[codeword].size);
-        mem_len[i] = out->size;
-        out++;
-    }
-
-    // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
-    size_t mem_size = 0;
-    for (int i = 0; i < len; ++i) {
-        mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
-        mem_size += mem_len[i];
-    }
-
-    // allocate a batch of memory and do memcpy
-    out = reinterpret_cast<Slice*>(dst->data());
-    char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
-    if (destination == nullptr) {
-        return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
-    }
-    for (int i = 0; i < len; ++i) {
-        out->relocate(destination);
-        destination += mem_len[i];
-        ++out;
-    }
-
-    return Status::OK();
-}
-
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

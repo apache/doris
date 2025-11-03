@@ -18,49 +18,71 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <functional>
 #include <memory>
-#include <string>
+#include <vector>
 
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/hash/string_hash.h"
-#include "olap/column_block.h"
-#include "olap/column_vector.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
-#include "olap/types.h"
-#include "runtime/mem_pool.h"
+#include "olap/rowset/segment_v2/page_builder.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
+#include "util/faststring.h"
+#include "util/slice.h"
+#include "vec/common/arena.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+struct StringRef;
+
 namespace segment_v2 {
+enum EncodingTypePB : int;
+template <FieldType Type>
+class BitShufflePageDecoder;
 
 enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 
 // This type of page use dictionary encoding for strings.
 // There is only one dictionary page for all the data pages within a column.
 //
-// Layout for dictionary encoded page:
-// Either header + embedded codeword page, which can be encoded with any
-//        int PageBuilder, when mode_ = DICT_ENCODING.
-// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
-// Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
-// page go beyond the option_->dict_page_size, the subsequent data pages will switch
-// to string plain page automatically.
-class BinaryDictPageBuilder : public PageBuilder {
+// Layout for dictionary encoded data page:
+// The data page starts with a 4-byte header (EncodingTypePB) followed by the encoded data.
+// There are three possible encoding formats:
+//
+// 1. header(4 bytes) + bitshuffle encoded codeword page, when mode_ = DICT_ENCODING.
+//    The codeword page contains integer codes referencing the dictionary, compressed with bitshuffle+lz4.
+//
+// 2. header(4 bytes) + BinaryPlainPageV2, when mode_ = PLAIN_ENCODING_V2.
+//    Used as fallback when dictionary is full. Stores raw strings with varint-encoded lengths.
+//
+// 3. header(4 bytes) + BinaryPlainPage, when mode_ = PLAIN_ENCODING.
+//    Used as fallback when dictionary is full. Stores raw strings with offset array.
+//
+// Data pages start with mode_ = DICT_ENCODING. When the size of dictionary page
+// goes beyond options.dict_page_size, subsequent data pages will switch to plain
+// encoding (either PLAIN_ENCODING_V2 or PLAIN_ENCODING based on config) automatically.
+//
+// The dictionary page itself is encoded as either BinaryPlainPage (PLAIN_ENCODING) or
+// BinaryPlainPageV2 (PLAIN_ENCODING_V2), determined by config::binary_plain_encoding_default_impl.
+class BinaryDictPageBuilder : public PageBuilderHelper<BinaryDictPageBuilder> {
 public:
-    BinaryDictPageBuilder(const PageBuilderOptions& options);
+    using Self = BinaryDictPageBuilder;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override;
 
     bool is_page_full() override;
 
     Status add(const uint8_t* vals, size_t* count) override;
 
-    OwnedSlice finish() override;
+    Status finish(OwnedSlice* slice) override;
 
-    void reset() override;
+    Status reset() override;
 
     size_t count() const override;
 
@@ -68,32 +90,44 @@ public:
 
     Status get_dictionary_page(OwnedSlice* dictionary_page) override;
 
+    Status get_dictionary_page_encoding(EncodingTypePB* encoding) const override;
+
     Status get_first_value(void* value) const override;
 
     Status get_last_value(void* value) const override;
 
+    uint64_t get_raw_data_size() const override;
+
 private:
+    BinaryDictPageBuilder(const PageBuilderOptions& options);
+
     PageBuilderOptions _options;
     bool _finished;
 
     std::unique_ptr<PageBuilder> _data_page_builder;
 
-    std::unique_ptr<BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>> _dict_builder;
+    std::unique_ptr<PageBuilder> _dict_builder = nullptr;
 
     EncodingTypePB _encoding_type;
+
+    EncodingTypePB
+            _dict_word_page_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+    EncodingTypePB
+            _fallback_binary_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+
     struct HashOfSlice {
-        size_t operator()(const Slice& slice) const {
-            return HashStringThoroughly(slice.data, slice.size);
-        }
+        size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
     };
     // query for dict item -> dict id
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
-    // used to remember the insertion order of dict keys
-    std::vector<Slice> _dict_items;
-    // TODO(zc): rethink about this mem pool
-    MemPool _pool;
+    // TODO(zc): rethink about this arena
+    vectorized::Arena _arena;
     faststring _buffer;
     faststring _first_value;
+    uint64_t _raw_data_size = 0;
+
+    bool _has_empty = false;
+    uint32_t _empty_code = 0;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {
@@ -103,8 +137,6 @@ public:
     Status init() override;
 
     Status seek_to_position_in_page(size_t pos) override;
-
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
@@ -117,22 +149,22 @@ public:
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
+    void set_dict_decoder(uint32_t num_dict_items, StringRef* dict_word_info);
 
-    ~BinaryDictPageDecoder();
+    ~BinaryDictPageDecoder() override;
 
 private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
-    BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
+    BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
-    // use as data buf.
-    std::unique_ptr<ColumnVectorBatch> _batch;
 
     StringRef* _dict_word_info = nullptr;
+    uint32_t _num_dict_items = 0;
+
+    std::vector<int32_t> _buffer;
 };
 
 } // namespace segment_v2

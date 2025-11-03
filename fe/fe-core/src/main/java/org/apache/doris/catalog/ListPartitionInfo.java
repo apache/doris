@@ -17,6 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ListPartitionDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -25,14 +29,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ListUtil;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class ListPartitionInfo extends PartitionInfo {
 
@@ -47,10 +52,12 @@ public class ListPartitionInfo extends PartitionInfo {
         this.isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
-    public static PartitionInfo read(DataInput in) throws IOException {
-        PartitionInfo partitionInfo = new ListPartitionInfo();
-        partitionInfo.readFields(in);
-        return partitionInfo;
+    public ListPartitionInfo(boolean isAutoCreatePartitions, ArrayList<Expr> exprs, List<Column> partitionColumns) {
+        super(PartitionType.LIST, partitionColumns);
+        this.isAutoCreatePartitions = isAutoCreatePartitions;
+        if (exprs != null) {
+            this.partitionExprs.addAll(exprs);
+        }
     }
 
     @Override
@@ -58,12 +65,22 @@ public class ListPartitionInfo extends PartitionInfo {
         // get partition key
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
 
+        if (!partitionKeyDesc.hasInValues()) {
+            throw new DdlException("List partition expected 'VALUES [IN or ((\"xxx\", \"xxx\"), ...)]'");
+        }
+
+        // we might receive one whole empty values list, we should add default partition value for
+        // such occasion
         for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
+            if (values.isEmpty()) {
+                continue;
+            }
             Preconditions.checkArgument(values.size() == partitionColumns.size(),
                     "partition key desc list size[" + values.size() + "] is not equal to "
                             + "partition column size[" + partitionColumns.size() + "]");
         }
         List<PartitionKey> partitionKeys = new ArrayList<>();
+        boolean isDefaultListPartition = false;
         try {
             for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
                 PartitionKey partitionKey = PartitionKey.createListPartitionKey(values, partitionColumns);
@@ -73,11 +90,14 @@ public class ListPartitionInfo extends PartitionInfo {
                             + partitionKeyDesc.toSql() + "] has duplicate item [" + partitionKey.toSql() + "].");
                 }
                 partitionKeys.add(partitionKey);
+                isDefaultListPartition = partitionKey.isDefaultListPartitionKey();
             }
         } catch (AnalysisException e) {
             throw new DdlException("Invalid list value format: " + e.getMessage());
         }
-        return new ListPartitionItem(partitionKeys);
+        ListPartitionItem item = new ListPartitionItem(partitionKeys);
+        item.setDefaultPartition(isDefaultListPartition);
+        return item;
     }
 
     private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc,
@@ -109,55 +129,6 @@ public class ListPartitionInfo extends PartitionInfo {
         ListUtil.checkListsConflict(list1, list2);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        // partition columns
-        out.writeInt(partitionColumns.size());
-        for (Column column : partitionColumns) {
-            column.write(out);
-        }
-
-        out.writeInt(idToItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        out.writeInt(idToTempItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToTempItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            Column column = Column.read(in);
-            partitionColumns.add(column);
-        }
-
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            ListPartitionItem partitionItem = ListPartitionItem.read(in);
-            idToItem.put(partitionId, partitionItem);
-        }
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            ListPartitionItem partitionItem = ListPartitionItem.read(in);
-            idToTempItem.put(partitionId, partitionItem);
-        }
-    }
-
     public static void checkPartitionColumn(Column column) throws AnalysisException {
         PrimitiveType type = column.getDataType();
         if (!type.isFixedPointType() && !type.isDateType()
@@ -170,7 +141,10 @@ public class ListPartitionInfo extends PartitionInfo {
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
-        sb.append("PARTITION BY LIST(");
+        if (enableAutomaticPartition()) {
+            sb.append("AUTO ");
+        }
+        sb.append("PARTITION BY LIST (");
         int idx = 0;
         for (Column column : partitionColumns) {
             if (idx != 0) {
@@ -190,21 +164,31 @@ public class ListPartitionInfo extends PartitionInfo {
             String partitionName = partition.getName();
             List<PartitionKey> partitionKeys = entry.getValue().getItems();
 
-            sb.append("PARTITION ").append(partitionName).append(" VALUES IN ");
-            sb.append("(");
+            sb.append("PARTITION ").append(partitionName);
+            StringBuilder partitionKeysBuilder = new StringBuilder();
             int idxInternal = 0;
             for (PartitionKey partitionKey : partitionKeys) {
                 String partitionKeyStr = partitionKey.toSql();
-                if (!isMultiColumnPartition) {
+                if (!isMultiColumnPartition && !partitionKeyStr.isEmpty()) {
                     partitionKeyStr = partitionKeyStr.substring(1, partitionKeyStr.length() - 1);
                 }
-                sb.append(partitionKeyStr);
+                partitionKeysBuilder.append(partitionKeyStr);
                 if (partitionKeys.size() > 1 && idxInternal != partitionKeys.size() - 1) {
-                    sb.append(",");
+                    partitionKeysBuilder.append(",");
                 }
                 idxInternal++;
             }
-            sb.append(")");
+
+            // length == 0 means it is a default partition
+            if (partitionKeysBuilder.length() > 0) {
+                sb.append(" VALUES IN ").append("(");
+                sb.append(partitionKeysBuilder.toString());
+                sb.append(")");
+            }
+
+            if (!"".equals(getStoragePolicy(entry.getKey()))) {
+                sb.append("(\"storage_policy\" = \"").append(getStoragePolicy(entry.getKey())).append("\")");
+            }
 
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
@@ -218,5 +202,34 @@ public class ListPartitionInfo extends PartitionInfo {
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    @Override
+    public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
+        List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+        List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
+
+        // sort list
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        Collections.sort(entries, ListUtil.LIST_MAP_ENTRY_COMPARATOR);
+        for (Map.Entry<Long, PartitionItem> entry : entries) {
+            Partition partition = table.getPartition(entry.getKey());
+            String partitionName = partition.getName();
+
+            List<PartitionKey> partitionKeys = entry.getValue().getItems();
+            List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+                    .collect(Collectors.toList());
+            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createIn(inValues);
+
+            Map<String, String> properties = Maps.newHashMap();
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    properties.put("STORAGE POLICY", p);
+                }
+            });
+
+            allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
+        }
+        return new ListPartitionDesc(this.partitionExprs, partitionColumnNames, allPartitionDescs);
     }
 }

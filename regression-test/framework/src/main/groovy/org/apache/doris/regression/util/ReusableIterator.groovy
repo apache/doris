@@ -24,9 +24,11 @@ class ReusableIterator<T> implements CloseableIterator<T> {
     private CloseableIterator<T> it
     private T next
     private boolean cached
+    private int currentId
 
     ReusableIterator(CloseableIterator<T> it) {
         this.it = it
+        this.currentId = 0
     }
 
     @Override
@@ -57,8 +59,13 @@ class ReusableIterator<T> implements CloseableIterator<T> {
     T next() {
         if (hasNext()) {
             cached = false
+            currentId++
             return next
         }
         throw new NoSuchElementException()
+    }
+
+    int getCurrentId() {
+        return currentId
     }
 }

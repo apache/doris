@@ -33,7 +33,6 @@ import java.io.IOException;
 @Description(name = "bitmap_count", value = "a _FUNC_ b - Returns the number of distinct integers"
         + " added to the bitmap (e.g., number of bits set)")
 public class BitmapCountUDF extends GenericUDF {
-
     private transient BinaryObjectInspector inputOI;
 
     @Override
@@ -60,7 +59,6 @@ public class BitmapCountUDF extends GenericUDF {
             BitmapValue bitmapValue = BitmapValueUtil.deserializeToBitmap(inputBytes);
             return bitmapValue.cardinality();
         } catch (IOException ioException) {
-            ioException.printStackTrace();
             throw new HiveException(ioException);
         }
     }

@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.trees.plans.Plan;
-
 /**
  * abstract class for all rule factories build one plan rule.
  */
-public abstract class OnePlanRuleFactory extends OneRuleFactory<Plan> implements PlanRuleFactory {
+public abstract class OnePlanRuleFactory extends OneRuleFactory implements PlanRuleFactory {
 }

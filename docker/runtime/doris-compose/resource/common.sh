@@ -1,0 +1,227 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+export MASTER_FE_IP=""
+export MASTER_FE_PORT=""
+export MASTER_FE_QUERY_ADDR_FILE=$DORIS_HOME/status/master_fe_query_addr
+export HAS_INIT_FDB_FILE=${DORIS_HOME}/status/has_init_fdb
+export HAS_CREATE_INSTANCE_FILE=$DORIS_HOME/status/has_create_instance
+export LOG_FILE=$DORIS_HOME/log/health.out
+export LOCK_FILE=$DORIS_HOME/status/token
+export MY_TYPE_ID="${MY_TYPE}-${MY_ID}"
+
+health_log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $@" | tee -a $LOG_FILE
+}
+
+# concurrent write meta service server will failed due to fdb txn conflict.
+# so add lock to protect writing ms txns.
+lock_cluster() {
+    health_log "start acquire token"
+    while true; do
+        if [ -f $LOCK_FILE ]; then
+            if [ "a$(cat $LOCK_FILE)" == "a${MY_TYPE_ID}" ]; then
+                health_log "rm $LOCK_FILE generate by myself"
+                rm $LOCK_FILE
+                continue
+            fi
+
+            mt=$(stat -c %Y $LOCK_FILE)
+            if [ -z "$mt" ]; then
+                health_log "get $LOCK_FILE modify time failed"
+                sleep 0.1
+                continue
+            fi
+
+            now=$(date '+%s')
+            diff=$(expr $now - $mt)
+            if [ $diff -lt 10 ]; then
+                sleep 0.1
+                continue
+            fi
+
+            rm $LOCK_FILE
+            health_log "rm $LOCK_FILE due to exceeds $diff seconds."
+        fi
+
+        if [ ! -f $LOCK_FILE ]; then
+            echo ${MY_TYPE_ID} >$LOCK_FILE
+        fi
+
+        sleep 0.1
+
+        if [ "a$(cat $LOCK_FILE)" == "a${MY_TYPE_ID}" ]; then
+            break
+        fi
+
+        sleep 0.1
+    done
+
+    health_log "now got token"
+}
+
+unlock_cluster() {
+    if [ ! -f $LOCK_FILE ]; then
+        return
+    fi
+
+    if [ "a$(cat $LOCK_FILE)" == "a${MY_TYPE_ID}" ]; then
+        rm $LOCK_FILE
+    fi
+}
+
+wait_master_fe_ready() {
+    while true; do
+        master_fe_query_addr=$(cat $MASTER_FE_QUERY_ADDR_FILE)
+        if [ -n "$master_fe_query_addr" ]; then
+            MASTER_FE_IP=$(echo ${master_fe_query_addr} | cut -d ":" -f 1)
+            MASTER_FE_PORT=$(echo ${master_fe_query_addr} | cut -d ":" -f 2)
+            health_log "master fe ${master_fe_query_addr} has ready."
+            break
+        fi
+        health_log "master fe has not ready."
+        sleep 1
+    done
+}
+
+wait_create_instance() {
+    ok=0
+    for ((i = 0; i < 30; i++)); do
+        if [ -f $HAS_CREATE_INSTANCE_FILE ]; then
+            ok=1
+            break
+        fi
+
+        health_log "has not create instance, not found file $HAS_CREATE_INSTANCE_FILE"
+
+        sleep 1
+    done
+
+    if [ $ok -eq 0 ]; then
+        health_log "wait create instance file too long, exit"
+        exit 1
+    fi
+
+    health_log "check has create instance ok"
+}
+
+wait_pid() {
+    pid=$1
+    health_log ""
+    health_log "ps -elf\n$(ps -elf)\n"
+    if [ -z $pid ]; then
+        health_log "pid $pid not exist"
+        exit 1
+    fi
+
+    health_log "pid $pid exist"
+    health_log "wait process $pid"
+    while true; do
+        ps -p $pid >/dev/null
+        if [ $? -ne 0 ]; then
+            break
+        fi
+        sleep 1s
+    done
+
+    health_log "show dmesg -T: "
+    dmesg -T | tail -n 50 | tee -a $LOG_FILE
+
+    health_log "show ps -elf"
+    health_log "ps -elf\n$(ps -elf)\n"
+    health_log "pid $pid not exist"
+
+    health_log "wait end"
+}
+
+create_doris_instance() {
+    while true; do
+
+        lock_cluster
+
+        output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
+            -d '{"instance_id":"'"${INSTANCE_ID}"'",
+                    "name": "'"${INSTANCE_ID}"'",
+                    "user_id": "'"${DORIS_CLOUD_USER}"'",
+                    "obj_info": {
+                    "ak": "'"${DORIS_CLOUD_AK}"'",
+                    "sk": "'"${DORIS_CLOUD_SK}"'",
+                    "bucket": "'"${DORIS_CLOUD_BUCKET}"'",
+                    "endpoint": "'"${DORIS_CLOUD_ENDPOINT}"'",
+                    "external_endpoint": "'"${DORIS_CLOUD_EXTERNAL_ENDPOINT}"'",
+                    "prefix": "'"${DORIS_CLOUD_PREFIX}"'",
+                    "region": "'"${DORIS_CLOUD_REGION}"'",
+                    "provider": "'"${DORIS_CLOUD_PROVIDER}"'"
+                }}')
+
+        unlock_cluster
+
+        health_log "create instance output: $output"
+        code=$(jq -r '.code' <<<$output)
+
+        if [ "$code" != "OK" ]; then
+            health_log "create instance failed"
+            sleep 1
+            continue
+        fi
+
+        health_log "create doris instance succ, output: $output"
+        touch $HAS_CREATE_INSTANCE_FILE
+        break
+    done
+}
+
+is_doris_instance_exists() {
+    output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_instance?token=greedisgood9999&instance_id=${INSTANCE_ID}")
+
+    health_log "get instance output: $output"
+    code=$(jq -r '.code' <<<$output)
+
+    if [ "$code" != "OK" ]; then
+        health_log "get instance failed"
+        return 1
+    fi
+
+    return 0
+}
+
+# Like wait_create_instance, but query meta service directly.
+wait_doris_instance_ready() {
+    ok=0
+    for ((i = 0; i < 30; i++)); do
+        is_doris_instance_exists
+        if [ $? -eq 0 ]; then
+            ok=1
+            break
+        fi
+
+        health_log "doris instance not exist yet."
+
+        sleep 1
+    done
+
+    if [ $ok -eq 0 ]; then
+        health_log "wait doris instance too long, exit"
+        exit 1
+    fi
+
+    if [ ! -f $HAS_CREATE_INSTANCE_FILE ]; then
+        touch $HAS_CREATE_INSTANCE_FILE
+    fi
+
+    health_log "check doris instance ok"
+}

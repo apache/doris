@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.resource.Tag;
 
@@ -59,7 +59,7 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         }
 
         GroupId groupId = new GroupId(dbId, grpId);
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
@@ -69,7 +69,7 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
         List<List<String>> infos = index.getInfos();
         result.setRows(infos);
         return result;

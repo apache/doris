@@ -17,24 +17,42 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot implements Unbound {
+public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
+
     private final List<String> nameParts;
 
+    public UnboundSlot(String... nameParts) {
+        this(ImmutableList.copyOf(nameParts), Optional.empty());
+    }
+
     public UnboundSlot(List<String> nameParts) {
-        super(NodeType.UNBOUND_SLOT);
-        this.nameParts = nameParts;
+        this(Utils.fastToImmutableList(nameParts), Optional.empty());
+    }
+
+    public UnboundSlot(List<String> nameParts, Optional<Pair<Integer, Integer>> indexInSqlString) {
+        super(indexInSqlString);
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts can not be null"));
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return new UnboundSlot(nameParts, Optional.ofNullable(index));
     }
 
     public List<String> getNameParts() {
@@ -53,12 +71,32 @@ public class UnboundSlot extends Slot implements Unbound {
     }
 
     @Override
-    public String toSql() {
-        return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
+    public String toDigest() {
+        return computeToSql();
+    }
+
+    @Override
+    public List<String> getQualifier() {
+        return nameParts.subList(0, nameParts.size() - 1);
+    }
+
+    @Override
+    public String computeToSql() {
+        switch (nameParts.size()) {
+            case 1: return Utils.quoteIfNeeded(nameParts.get(0));
+            case 2: return Utils.quoteIfNeeded(nameParts.get(0)) + "." + Utils.quoteIfNeeded(nameParts.get(1));
+            case 3: return Utils.quoteIfNeeded(nameParts.get(0)) + "." + Utils.quoteIfNeeded(nameParts.get(1))
+                    + "." + Utils.quoteIfNeeded(nameParts.get(2));
+            default: {
+                return nameParts.stream().map(Utils::quoteIfNeeded)
+                        .reduce((left, right) -> left + "." + right)
+                        .orElse("");
+            }
+        }
     }
 
     public static UnboundSlot quoted(String name) {
-        return new UnboundSlot(Lists.newArrayList(name));
+        return new UnboundSlot(Lists.newArrayList(name), Optional.empty());
     }
 
     @Override
@@ -75,7 +113,12 @@ public class UnboundSlot extends Slot implements Unbound {
             return false;
         }
         UnboundSlot other = (UnboundSlot) o;
-        return nameParts.containsAll(other.getNameParts());
+        return nameParts.equals(other.nameParts);
+    }
+
+    @Override
+    public int computeHashCode() {
+        return nameParts.hashCode();
     }
 
     @Override

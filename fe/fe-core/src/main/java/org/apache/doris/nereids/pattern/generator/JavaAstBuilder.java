@@ -153,7 +153,6 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return new EnumConstant(getText(ctx.identifier()));
     }
 
-
     /** create interface declaration. */
     public InterfaceDeclaration visitInterfaceDeclaration(
             InterfaceDeclarationContext ctx, ClassOrInterfaceModifier modifier) {
@@ -177,7 +176,6 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
 
         return interfaceDeclaration;
     }
-
 
     /** create class declaration. */
     public ClassDeclaration visitClassDeclaration(ClassDeclarationContext ctx, ClassOrInterfaceModifier modifier) {
@@ -376,7 +374,6 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return new QualifiedName(identifiers);
     }
 
-
     /** merge modifiers, e.g public + static + final. */
     public ClassOrInterfaceModifier mergeModifiers(List<ClassOrInterfaceModifierContext> contexts) {
         int mod = 0;
@@ -387,7 +384,6 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         return new ClassOrInterfaceModifier(mod);
     }
 
-
     /** create a type list. */
     public List<TypeType> getTypes(TypeListContext typeListContext) {
         List<TypeType> types = new ArrayList<>();
@@ -396,7 +392,6 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
         }
         return types;
     }
-
 
     /** create a List by class and contexts. */
     public <T extends JavaAstNode, C extends ParserRuleContext> List<T> visit(Class<T> clazz, List<C> contexts) {
@@ -422,7 +417,6 @@ public class JavaAstBuilder extends JavaParserBaseVisitor<JavaAstNode> {
             rootTypeDeclarations.add(typeDeclaration);
         }
     }
-
 
     /** get full qualified name, e.g. OuterClassName.InnerClassName. */
     public static String getFullQualifiedName(Stack<String> outerClassStack,

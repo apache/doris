@@ -20,28 +20,44 @@
 
 #include "thread.h"
 
+#include <sys/resource.h>
+
+#ifndef __APPLE__
+// IWYU pragma: no_include <bits/types/struct_sched_param.h>
+#include <sched.h>
 #include <sys/prctl.h>
-#include <sys/types.h>
+#else
+#include <pthread.h>
+
+#include <cstdint>
+#endif
+
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <ostream>
 #include <string>
+#include <vector>
 
+#include "absl/strings/substitute.h"
+#include "common/config.h"
 #include "common/logging.h"
-#include "gutil/atomicops.h"
-#include "gutil/dynamic_annotations.h"
-#include "gutil/map-util.h"
-#include "gutil/once.h"
-#include "gutil/strings/substitute.h"
-#include "olap/olap_define.h"
-#include "util/debug/sanitizer_scopes.h"
+#include "http/web_page_handler.h"
+#include "runtime/thread_context.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -58,7 +74,7 @@ __thread Thread* Thread::_tls = nullptr;
 static std::shared_ptr<ThreadMgr> thread_manager;
 //
 // Controls the single (lazy) initialization of thread_manager.
-static GoogleOnceType once = GOOGLE_ONCE_INIT;
+static std::once_flag once;
 
 // A singleton class that tracks all live threads, and groups them together for easy
 // auditing. Used only by Thread.
@@ -72,6 +88,12 @@ public:
     }
 
     static void set_thread_name(const std::string& name, int64_t tid);
+
+#ifndef __APPLE__
+    static void set_idle_sched(int64_t tid);
+
+    static void set_thread_nice_value(int64_t tid);
+#endif
 
     // not the system TID, since pthread_t is less prone to being recycled.
     void add_thread(const pthread_t& pthread_id, const std::string& name,
@@ -131,57 +153,72 @@ void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     if (tid == getpid()) {
         return;
     }
+#ifdef __APPLE__
+    int err = pthread_setname_np(name.c_str());
+#else
     int err = prctl(PR_SET_NAME, name.c_str());
+#endif
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_name";
     }
 }
 
+#ifndef __APPLE__
+void ThreadMgr::set_idle_sched(int64_t tid) {
+    if (tid == getpid()) {
+        return;
+    }
+    struct sched_param sp = {.sched_priority = 0};
+    int err = sched_setscheduler(0, SCHED_IDLE, &sp);
+    if (err < 0 && errno != EPERM) {
+        LOG(ERROR) << "set_thread_idle_sched";
+    }
+}
+
+void ThreadMgr::set_thread_nice_value(int64_t tid) {
+    if (tid == getpid()) {
+        return;
+    }
+    // From Linux kernel:
+    // In the current implementation, each unit of difference in the nice values of two
+    // processes results in a factor of 1.25 in the degree to which the
+    // scheduler favors the higher priority process.  This causes very
+    // low nice values (+19) to truly provide little CPU to a process
+    // whenever there is any other higher priority load on the system,
+    // and makes high nice values (-20) deliver most of the CPU to
+    // applications that require it (e.g., some audio applications).
+
+    // Choose 5 as lower priority value, default is 0
+    int err = setpriority(PRIO_PROCESS, 0, config::scan_thread_nice_value);
+    if (err < 0 && errno != EPERM) {
+        LOG(ERROR) << "set_thread_low_priority";
+    }
+}
+#endif
+
 void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
                            const std::string& category, int64_t tid) {
-    // These annotations cause TSAN to ignore the synchronization on lock_
-    // without causing the subsequent mutations to be treated as data races
-    // in and of themselves (that's what IGNORE_READS_AND_WRITES does).
-    //
-    // Why do we need them here and in SuperviseThread()? TSAN operates by
-    // observing synchronization events and using them to establish "happens
-    // before" relationships between threads. Where these relationships are
-    // not built, shared state access constitutes a data race. The
-    // synchronization events here, in RemoveThread(), and in
-    // SuperviseThread() may cause TSAN to establish a "happens before"
-    // relationship between thread functors, ignoring potential data races.
-    // The annotations prevent this from happening.
-    ANNOTATE_IGNORE_SYNC_BEGIN();
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    {
-        std::unique_lock<std::mutex> l(_lock);
-        _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
-        _threads_running_metric++;
-        _threads_started_metric++;
-    }
-    ANNOTATE_IGNORE_SYNC_END();
+    std::unique_lock<std::mutex> l(_lock);
+    _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
+    _threads_running_metric++;
+    _threads_started_metric++;
 }
 
 void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& category) {
-    ANNOTATE_IGNORE_SYNC_BEGIN();
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    {
-        std::unique_lock<std::mutex> l(_lock);
-        auto category_it = _thread_categories.find(category);
-        DCHECK(category_it != _thread_categories.end());
-        category_it->second.erase(pthread_id);
-        _threads_running_metric--;
-    }
-    ANNOTATE_IGNORE_SYNC_END();
+    std::unique_lock<std::mutex> l(_lock);
+    auto category_it = _thread_categories.find(category);
+    DCHECK(category_it != _thread_categories.end());
+    category_it->second.erase(pthread_id);
+    _threads_running_metric--;
 }
 
 void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
                                         EasyJson* ej) const {
-    const auto* category_name = FindOrNull(args, "group");
-    if (category_name) {
-        bool requested_all = (*category_name == "all");
+    if (args.contains("group")) {
+        const auto& category_name = args.at("group");
+        bool requested_all = category_name == "all";
         ej->Set("requested_thread_group", EasyJson::kObject);
-        (*ej)["group_name"] = escape_for_html_to_string(*category_name);
+        (*ej)["group_name"] = escape_for_html_to_string(category_name);
         (*ej)["requested_all"] = requested_all;
 
         // The critical section is as short as possible so as to minimize the delay
@@ -189,11 +226,10 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
             std::unique_lock<std::mutex> l(_lock);
-            const auto* category = FindOrNull(_thread_categories, *category_name);
-            if (!category) {
+            if (!_thread_categories.contains(category_name)) {
                 return;
             }
-            for (const auto& elem : *category) {
+            for (const auto& elem : _thread_categories.at(category_name)) {
                 descriptors_to_print.emplace_back(elem.second);
             }
         } else {
@@ -212,7 +248,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         }
     } else {
         // List all thread groups and the number of threads running in each.
-        std::vector<pair<string, uint64_t>> thread_categories_info;
+        std::vector<std::pair<std::string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
             std::unique_lock<std::mutex> l(_lock);
@@ -225,7 +261,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
             (*ej)["total_threads_running"] = running;
             EasyJson groups = ej->Set("groups", EasyJson::kArray);
             for (const auto& elem : thread_categories_info) {
-                string category_arg;
+                std::string category_arg;
                 url_encode(elem.first, &category_arg);
                 EasyJson group = groups.PushBack(EasyJson::kObject);
                 group["encoded_group_name"] = category_arg;
@@ -262,14 +298,24 @@ void Thread::set_self_name(const std::string& name) {
     ThreadMgr::set_thread_name(name, current_thread_id());
 }
 
+#ifndef __APPLE__
+void Thread::set_idle_sched() {
+    ThreadMgr::set_idle_sched(current_thread_id());
+}
+
+void Thread::set_thread_nice_value() {
+    ThreadMgr::set_thread_nice_value(current_thread_id());
+}
+#endif
+
 void Thread::join() {
-    ThreadJoiner(this).join();
+    static_cast<void>(ThreadJoiner(this).join());
 }
 
 int64_t Thread::tid() const {
-    int64_t t = base::subtle::Acquire_Load(&_tid);
+    int64_t t = _tid.load();
     if (t != PARENT_WAITING_TID) {
-        return _tid;
+        return t;
     }
     return wait_for_tid();
 }
@@ -287,8 +333,7 @@ const std::string& Thread::category() const {
 }
 
 std::string Thread::to_string() const {
-    return strings::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name,
-                               _category);
+    return absl::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name, _category);
 }
 
 Thread* Thread::current_thread() {
@@ -296,17 +341,29 @@ Thread* Thread::current_thread() {
 }
 
 int64_t Thread::unique_thread_id() {
+#ifdef __APPLE__
+    uint64_t tid;
+    pthread_threadid_np(pthread_self(), &tid);
+    return tid;
+#else
     return static_cast<int64_t>(pthread_self());
+#endif
 }
 
 int64_t Thread::current_thread_id() {
+#ifdef __APPLE__
+    uint64_t tid;
+    pthread_threadid_np(nullptr, &tid);
+    return tid;
+#else
     return syscall(SYS_gettid);
+#endif
 }
 
 int64_t Thread::wait_for_tid() const {
     int loop_count = 0;
     while (true) {
-        int64_t t = Acquire_Load(&_tid);
+        int64_t t = _tid.load();
         if (t != PARENT_WAITING_TID) {
             return t;
         }
@@ -330,12 +387,11 @@ int64_t Thread::wait_for_tid() const {
 }
 
 Status Thread::start_thread(const std::string& category, const std::string& name,
-                            const ThreadFunctor& functor, uint64_t flags,
-                            scoped_refptr<Thread>* holder) {
-    GoogleOnceInit(&once, &init_threadmgr);
+                            const ThreadFunctor& functor, std::shared_ptr<Thread>* holder) {
+    std::call_once(once, init_threadmgr);
 
     // Temporary reference for the duration of this function.
-    scoped_refptr<Thread> t(new Thread(category, name, functor));
+    auto t = std::make_shared<Thread>(category, name, functor);
 
     // Optional, and only set if the thread was successfully created.
     //
@@ -351,16 +407,13 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     // access the thread object, and we have no guarantee that our caller
     // won't drop the reference as soon as we return. This is dereferenced
     // in FinishThread().
-    t->AddRef();
-
-    auto cleanup = MakeScopedCleanup([&]() {
-        // If we failed to create the thread, we need to undo all of our prep work.
-        t->_tid = INVALID_TID;
-        t->Release();
-    });
+    t->_shared_self = t;
 
     int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
     if (ret) {
+        // If we failed to create the thread, we need to undo all of our prep work.
+        t->_tid = INVALID_TID;
+        t->_shared_self.reset();
         return Status::RuntimeError("Could not create thread. (error {}) {}", ret, strerror(ret));
     }
 
@@ -370,8 +423,6 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     // (or someone communicating with the parent) can join, so joinable must
     // be set before the parent returns.
     t->_joinable = true;
-    cleanup.cancel();
-
     VLOG_NOTICE << "Started thread " << t->tid() << " - " << category << ":" << name;
     return Status::OK();
 }
@@ -382,23 +433,24 @@ void* Thread::supervise_thread(void* arg) {
     PCHECK(system_tid != -1);
 
     // Take an additional reference to the thread manager, which we'll need below.
-    ANNOTATE_IGNORE_SYNC_BEGIN();
     std::shared_ptr<ThreadMgr> thread_mgr_ref = thread_manager;
-    ANNOTATE_IGNORE_SYNC_END();
 
     // Set up the TLS.
     //
-    // We could store a scoped_refptr in the TLS itself, but as its
+    // We could store a ptr in the TLS itself, but as its
     // lifecycle is poorly defined, we'll use a bare pointer. We
     // already incremented the reference count in StartThread.
     Thread::_tls = t;
 
+    // Create thread context, there is no need to create it when func is executed.
+    ThreadLocalHandle::create_thread_local_if_not_exits();
+
     // Publish our tid to '_tid', which unblocks any callers waiting in
     // WaitForTid().
-    Release_Store(&t->_tid, system_tid);
+    t->_tid.store(system_tid);
 
-    std::string name = strings::Substitute("$0-$1", t->name(), system_tid);
-    thread_manager->set_thread_name(name, t->_tid);
+    std::string name = absl::Substitute("$0-$1", t->name(), system_tid);
+    ThreadMgr::set_thread_name(name, t->_tid);
     thread_manager->add_thread(pthread_self(), name, t->category(), t->_tid);
 
     // FinishThread() is guaranteed to run (even if functor_ throws an
@@ -424,10 +476,12 @@ void Thread::finish_thread(void* arg) {
     t->_done.count_down();
 
     VLOG_CRITICAL << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
-    t->Release();
+    t->_shared_self.reset();
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code
     // following here!
+
+    ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 void Thread::init_threadmgr() {
@@ -470,8 +524,8 @@ Status ThreadJoiner::join() {
     bool keep_trying = true;
     while (keep_trying) {
         if (waited_ms >= _warn_after_ms) {
-            LOG(WARNING) << strings::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
-                                                waited_ms, _thread->_name, _thread->_tid);
+            LOG(WARNING) << absl::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
+                                             waited_ms, _thread->_name, _thread->_tid.load());
         }
 
         int remaining_before_giveup = std::numeric_limits<int>::max();

@@ -19,18 +19,19 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.loadv2.LoadJobFinalOperation;
-import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TTxnCommitAttachment;
-import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public abstract class TxnCommitAttachment implements Writable {
-
+public abstract class TxnCommitAttachment implements Writable, GsonPostProcessable {
+    @SerializedName(value = "sourceType")
     protected TransactionState.LoadJobSourceType sourceType;
     protected boolean isTypeRead = false;
 
@@ -56,36 +57,15 @@ public abstract class TxnCommitAttachment implements Writable {
     }
 
     public static TxnCommitAttachment read(DataInput in) throws IOException {
-        TxnCommitAttachment attachment = null;
-        LoadJobSourceType type = LoadJobSourceType.valueOf(Text.readString(in));
-        if (type == LoadJobSourceType.ROUTINE_LOAD_TASK) {
-            attachment = new RLTaskTxnCommitAttachment();
-        } else if (type == LoadJobSourceType.BATCH_LOAD_JOB) {
-            attachment = new LoadJobFinalOperation();
-        } else if (type == LoadJobSourceType.BACKEND_STREAMING) {
-            attachment = new MiniLoadTxnCommitAttachment();
-        } else if (type == LoadJobSourceType.FRONTEND) {
-            // spark load
-            attachment = new LoadJobFinalOperation();
-        } else {
-            throw new IOException("Unknown load job source type: " + type.name());
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), TxnCommitAttachment.class);
+    }
 
-        attachment.setTypeRead(true);
-        attachment.readFields(in);
-        return attachment;
+    public void gsonPostProcess() {
+        setTypeRead(true);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, sourceType.name());
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            sourceType = LoadJobSourceType.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }

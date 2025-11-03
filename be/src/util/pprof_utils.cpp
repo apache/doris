@@ -17,13 +17,21 @@
 
 #include "util/pprof_utils.h"
 
-#include <fstream>
+#include <stdio.h>
+#include <unistd.h>
 
+#include <cstdlib>
+#include <fstream> // IWYU pragma: keep
+#include <memory>
+
+#include "absl/strings/substitute.h"
 #include "agent/utils.h"
-#include "gutil/strings/substitute.h"
-#include "util/file_utils.h"
+#include "io/fs/local_file_system.h"
 
 namespace doris {
+namespace config {
+extern std::string pprof_profile_dir;
+}
 
 Status PprofUtils::get_pprof_cmd(std::string* cmd) {
     AgentUtils util;
@@ -66,12 +74,15 @@ Status PprofUtils::get_self_cmdline(std::string* cmd) {
         return Status::InternalError("Unable to open file: /proc/self/cmdline");
     }
     char buf[1024];
-    // Ignore unused return value
-    if (fscanf(fp, "%1023s ", buf))
-        ;
+
+    Status res = Status::OK();
+
+    if (fscanf(fp, "%1023s ", buf) != 1) {
+        res = Status::InternalError("get_self_cmdline read buffer failed");
+    }
     fclose(fp);
     *cmd = buf;
-    return Status::OK();
+    return res;
 }
 
 Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool is_file,
@@ -100,13 +111,13 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
 
     // parse raw with "pprof --text cmdline raw_file"
     std::string cmd_output;
-    std::string final_cmd =
-            pprof_cmd + strings::Substitute(" --text $0 $1", self_cmdline, final_file);
+    std::string final_cmd = pprof_cmd + absl::Substitute(" --text $0 $1", self_cmdline, final_file);
     AgentUtils util;
+    LOG(INFO) << "begin to run command: " << final_cmd;
     bool rc = util.exec_cmd(final_cmd, &cmd_output, false);
 
     // delete raw file
-    FileUtils::remove(file_or_content);
+    static_cast<void>(io::global_local_filesystem()->delete_file(file_or_content));
 
     if (!rc) {
         return Status::InternalError("Failed to execute command: {}", cmd_output);
@@ -128,7 +139,10 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
     // check stackcollapse-perf.pl and flamegraph.pl exist
     std::string stackcollapse_perf_pl = flame_graph_tool_dir + "/stackcollapse-perf.pl";
     std::string flamegraph_pl = flame_graph_tool_dir + "/flamegraph.pl";
-    if (!FileUtils::check_exist(stackcollapse_perf_pl) || !FileUtils::check_exist(flamegraph_pl)) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(stackcollapse_perf_pl, &exists));
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(flamegraph_pl, &exists));
+    if (!exists) {
         return Status::InternalError(
                 "Missing stackcollapse-perf.pl or flamegraph.pl in FlameGraph");
     }
@@ -144,9 +158,10 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
 
     AgentUtils util;
     std::string cmd_output;
+    LOG(INFO) << "begin to run command: " << cmd.str();
     bool rc = util.exec_cmd(cmd.str(), &cmd_output);
     if (!rc) {
-        FileUtils::remove(tmp_file.str());
+        static_cast<void>(io::global_local_filesystem()->delete_file(tmp_file.str()));
         return Status::InternalError("Failed to execute perf command: {}", cmd_output);
     }
 
@@ -160,10 +175,11 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         std::stringstream gen_cmd;
         gen_cmd << perf_cmd << " script -i " << tmp_file.str() << " | " << stackcollapse_perf_pl
                 << " | " << flamegraph_pl << " > " << graph_file.str();
+        LOG(INFO) << "begin to run command: " << gen_cmd.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content);
         if (!rc) {
-            FileUtils::remove(tmp_file.str());
-            FileUtils::remove(graph_file.str());
+            static_cast<void>(io::global_local_filesystem()->delete_file(tmp_file.str()));
+            static_cast<void>(io::global_local_filesystem()->delete_file(graph_file.str()));
             return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = graph_file.str();
@@ -171,9 +187,10 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         std::stringstream gen_cmd;
         gen_cmd << perf_cmd << " script -i " << tmp_file.str() << " | " << stackcollapse_perf_pl
                 << " | " << flamegraph_pl;
+        LOG(INFO) << "begin to run command: " << gen_cmd.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content, false);
         if (!rc) {
-            FileUtils::remove(tmp_file.str());
+            static_cast<void>(io::global_local_filesystem()->delete_file(tmp_file.str()));
             return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = res_content;

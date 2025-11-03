@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees;
 
 /**
- * interface for all tree node that have two children.
+ * interface for all tree node that have three children.
  */
 public interface TernaryNode<
             NODE_TYPE extends TreeNode<NODE_TYPE>,

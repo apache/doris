@@ -17,37 +17,35 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
-/** ProjectToGlobalAggregate. */
+/**
+ * ProjectToGlobalAggregate.
+ * <p>
+ * example sql:
+ * <pre>
+ * select sum(value)
+ * from tbl
+ * </pre>
+ *
+ * origin plan:                                                 transformed plan:
+ * <p>
+ * LogicalProject(projects=[sum(value)])                        LogicalAggregate(groupBy=[], output=[sum(value)])
+ *            |                                      =>                              |
+ *  LogicalOlapScan(table=tbl)                                                  LogicalOlapScan(table=tbl)
+ */
 public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
-    public Rule<Plan> build() {
+    public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
-           logicalProject().then(project -> {
-               boolean needGlobalAggregate = project.operator.getProjects()
-                       .stream()
-                       .anyMatch(this::hasNonWindowedAggregateFunction);
-
-               if (needGlobalAggregate) {
-                   LogicalAggregate op = new LogicalAggregate(ImmutableList.of(), project.operator.getProjects());
-                   return plan(op, project.child());
-               } else {
-                   return project;
-               }
-           })
+           logicalProject()
+                   .when(project -> ExpressionUtils.hasNonWindowAggregateFunction(project.getProjects()))
+                   .then(project -> new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child()))
         );
-    }
-
-    private boolean hasNonWindowedAggregateFunction(Expression expression) {
-        // TODO: exclude windowed aggregate function
-        return expression.anyMatch(AggregateFunction.class::isInstance);
     }
 }

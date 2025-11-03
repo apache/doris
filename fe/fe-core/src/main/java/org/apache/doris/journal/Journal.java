@@ -46,8 +46,22 @@ public interface Journal {
     // toKey = -1 means toKey = Long.Max_Value
     public JournalCursor read(long fromKey, long toKey);
 
+    /**
+     * Same as read(fromKey, toKey)
+     * @param exitIfNotFound true: FE process will exit if journal not found; false: return null if journal not found
+     */
+    public JournalCursor read(long fromKey, long toKey, boolean exitIfNotFound);
+
     // Write a journal and sync to disk
-    public void write(short op, Writable writable) throws IOException;
+    public long write(short op, Writable writable) throws IOException;
+
+    // Write a set of journal to disk in batch.
+    //
+    // Return the first id of the batched journals.
+    public long write(JournalBatch batch) throws IOException;
+
+    // Get current journal number
+    public long getJournalNum();
 
     // Delete journals whose max id is less than deleteToJournalId
     public void deleteJournals(long deleteJournalToId);
@@ -57,5 +71,7 @@ public interface Journal {
 
     // Get all the dbs' name
     public List<Long> getDatabaseNames();
+
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException;
 
 }

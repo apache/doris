@@ -17,70 +17,82 @@
 
 #include "vec/aggregate_functions/aggregate_function_collect.h"
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
+#include "vec/core/call_on_type_index.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-template <typename T>
-AggregateFunctionPtr create_agg_function_collect(bool distinct, const DataTypes& argument_types) {
+template <PrimitiveType T, bool HasLimit>
+AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
+                                                    const bool result_is_nullable,
+
+                                                    const AggregateFunctionAttr& attr) {
     if (distinct) {
-        return AggregateFunctionPtr(
-                new AggregateFunctionCollect<AggregateFunctionCollectSetData<T>>(argument_types));
+        if constexpr (T == INVALID_TYPE) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "unexpected type for collect, please check the input");
+        } else {
+            return creator_without_type::create<AggregateFunctionCollect<
+                    AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(
+                    argument_types, result_is_nullable, attr);
+        }
     } else {
-        return AggregateFunctionPtr(
-                new AggregateFunctionCollect<AggregateFunctionCollectListData<T>>(argument_types));
+        return creator_without_type::create<
+                AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
+                argument_types, result_is_nullable, attr);
     }
+}
+
+template <bool HasLimit>
+AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable,
+
+                                                            const AggregateFunctionAttr& attr) {
+    bool distinct = name == "collect_set";
+
+    AggregateFunctionPtr agg_fn;
+    auto call = [&](const auto& type) -> bool {
+        using DispatcType = std::decay_t<decltype(type)>;
+        agg_fn = do_create_agg_function_collect<DispatcType::PType, HasLimit>(
+                distinct, argument_types, result_is_nullable, attr);
+        return true;
+    };
+
+    if (!dispatch_switch_all(argument_types[0]->get_primitive_type(), call)) {
+        // We do not care what the real type is.
+        agg_fn = do_create_agg_function_collect<INVALID_TYPE, HasLimit>(distinct, argument_types,
+                                                                        result_is_nullable, attr);
+    }
+    return agg_fn;
 }
 
 AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
-                                                       const Array& parameters,
-                                                       const bool result_is_nullable) {
-    if (argument_types.size() != 1) {
-        LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
-                                    argument_types.size(), name);
-        return nullptr;
+                                                       const bool result_is_nullable,
+                                                       const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 2);
+    if (argument_types.size() == 1) {
+        return create_aggregate_function_collect_impl<false>(name, argument_types,
+                                                             result_is_nullable, attr);
     }
-
-    bool distinct = false;
-    if (name == "collect_set") {
-        distinct = true;
+    if (argument_types.size() == 2) {
+        return create_aggregate_function_collect_impl<true>(name, argument_types,
+                                                            result_is_nullable, attr);
     }
-
-    WhichDataType type(argument_types[0]);
-    if (type.is_uint8()) {
-        return create_agg_function_collect<UInt8>(distinct, argument_types);
-    } else if (type.is_int8()) {
-        return create_agg_function_collect<Int8>(distinct, argument_types);
-    } else if (type.is_int16()) {
-        return create_agg_function_collect<Int16>(distinct, argument_types);
-    } else if (type.is_int32()) {
-        return create_agg_function_collect<Int32>(distinct, argument_types);
-    } else if (type.is_int64()) {
-        return create_agg_function_collect<Int64>(distinct, argument_types);
-    } else if (type.is_int128()) {
-        return create_agg_function_collect<Int128>(distinct, argument_types);
-    } else if (type.is_float32()) {
-        return create_agg_function_collect<Float32>(distinct, argument_types);
-    } else if (type.is_float64()) {
-        return create_agg_function_collect<Float64>(distinct, argument_types);
-    } else if (type.is_decimal128()) {
-        return create_agg_function_collect<Decimal128>(distinct, argument_types);
-    } else if (type.is_date()) {
-        return create_agg_function_collect<Int64>(distinct, argument_types);
-    } else if (type.is_date_time()) {
-        return create_agg_function_collect<Int64>(distinct, argument_types);
-    } else if (type.is_string()) {
-        return create_agg_function_collect<StringRef>(distinct, argument_types);
-    }
-
-    LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
-                                argument_types[0]->get_name(), name);
     return nullptr;
 }
 
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("collect_list", create_aggregate_function_collect);
-    factory.register_function("collect_set", create_aggregate_function_collect);
+    // notice: array_agg only differs from collect_list in that array_agg will show null elements in array
+    factory.register_function_both("collect_list", create_aggregate_function_collect);
+    factory.register_function_both("collect_set", create_aggregate_function_collect);
+    factory.register_alias("collect_list", "group_array");
+    factory.register_alias("collect_set", "group_uniq_array");
 }
 } // namespace doris::vectorized

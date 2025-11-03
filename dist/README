@@ -25,6 +25,10 @@ This directory is used to organize the list of third-party dependent licenses re
 
     This directory holds the license files related to third-party dependencies.
 
-2. `tools`
+2. `tools/`
 
     This directory stores tools related to license organization.
+
+3. `download_scripts/`
+
+    This directory stores scripts for downloading release binaries.

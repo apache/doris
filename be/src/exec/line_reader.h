@@ -17,15 +17,20 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "common/status.h"
+#include "util/profile_collector.h"
 
 namespace doris {
-
-// This class is used for CSV scanner, to read content line by line
-class LineReader {
+namespace io {
+struct IOContext;
+}
+// This class is used to read content line by line
+class LineReader : public ProfileCollector {
 public:
     virtual ~LineReader() = default;
-    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) = 0;
+    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                             const io::IOContext* io_ctx) = 0;
 
     virtual void close() = 0;
 };

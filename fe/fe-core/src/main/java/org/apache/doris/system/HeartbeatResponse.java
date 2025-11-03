@@ -19,6 +19,9 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -38,16 +41,18 @@ public class HeartbeatResponse implements Writable {
         OK, BAD
     }
 
+    @SerializedName(value = "type")
     protected Type type;
-    protected boolean isTypeRead = false;
-
+    @SerializedName(value = "status")
     protected HbStatus status;
 
     /**
-     * msg and hbTime are no need to be synchronized to other Frontends,
+     * msg no need to be synchronized to other Frontends,
      * and only Master Frontend has these info
      */
     protected String msg;
+
+    @SerializedName(value = "hbTime")
     protected long hbTime;
 
     public HeartbeatResponse(Type type) {
@@ -70,41 +75,13 @@ public class HeartbeatResponse implements Writable {
         return hbTime;
     }
 
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
-
     public static HeartbeatResponse read(DataInput in) throws IOException {
-        HeartbeatResponse result = null;
-        Type type = Type.valueOf(Text.readString(in));
-        if (type == Type.FRONTEND) {
-            result = new FrontendHbResponse();
-        } else if (type == Type.BACKEND) {
-            result = new BackendHbResponse();
-        } else if (type == Type.BROKER) {
-            result = new BrokerHbResponse();
-        } else {
-            throw new IOException("Unknown job type: " + type.name());
-        }
-
-        result.setTypeRead(true);
-        result.readFields(in);
-        return result;
+        return GsonUtils.GSON.fromJson(Text.readString(in), HeartbeatResponse.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-        Text.writeString(out, status.name());
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            type = Type.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
-
-        status = HbStatus.valueOf(Text.readString(in));
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     @Override

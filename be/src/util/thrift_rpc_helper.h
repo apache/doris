@@ -17,14 +17,17 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <functional>
+#include <string>
+
 #include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
 
 class ExecEnv;
-class FrontendServiceClient;
 template <class T>
 class ClientConnection;
 
@@ -43,6 +46,8 @@ public:
     template <typename T>
     static Status rpc(const std::string& ip, const int32_t port,
                       std::function<void(ClientConnection<T>&)> callback, int timeout_ms);
+
+    static ExecEnv* get_exec_env() { return _s_exec_env; }
 
 private:
     static ExecEnv* _s_exec_env;

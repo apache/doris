@@ -21,14 +21,27 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
+add_library(GeoType STATIC geo_types.cpp)
+
 add_library(Geo STATIC
     geo_common.cpp
-    geo_functions.cpp
-    geo_types.cpp
     wkt_parse.cpp
+    wkb_parse.cpp
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
+    geo_tobinary.cpp
+    ByteOrderValues.cpp
+    machine.h
 )
+pch_reuse(Geo)
+
+target_link_libraries(Geo GeoType)
+include(CheckCXXCompilerFlag)
+set(WARNING_OPTION "-Wno-unused-but-set-variable")
+check_cxx_compiler_flag(${WARNING_OPTION} HAS_WARNING_OPTION)
+if (HAS_WARNING_OPTION)
+    target_compile_options(Geo PRIVATE ${WARNING_OPTION} "-Wno-unused-macros")
+endif()
 
 add_custom_command(
     OUTPUT ${GENSRC_DIR}/geo/wkt_lex.l.cpp ${GENSRC_DIR}/geo/wkt_lex.l.h

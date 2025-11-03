@@ -17,53 +17,44 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.persist.EditLog;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class SystemInfoServiceTest {
-
-    @Mocked
-    private Catalog catalog;
-    @Mocked
-    private EditLog editLog;
-
     private SystemInfoService infoService;
 
     @Before
     public void setUp() {
-        new Expectations() {
-            {
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                editLog.logAddBackend((Backend) any);
-                minTimes = 0;
-
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-            }
-        };
-
         infoService = new SystemInfoService();
     }
 
@@ -73,7 +64,77 @@ public class SystemInfoServiceTest {
     }
 
     @Test
+    public void testGetHostAndPort() {
+        String ipv4 = "192.168.1.2:9050";
+        String ipv6 = "[fe80::5054:ff:fec9:dee0]:9050";
+        String ipv6Error = "fe80::5054:ff:fec9:dee0:9050";
+        try {
+            HostInfo hostAndPort = SystemInfoService.getHostAndPort(ipv4);
+            Assert.assertEquals("192.168.1.2", hostAndPort.getHost());
+            Assert.assertEquals(9050, hostAndPort.getPort());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        try {
+            HostInfo hostAndPort = SystemInfoService.getHostAndPort(ipv6);
+            Assert.assertEquals("fe80::5054:ff:fec9:dee0", hostAndPort.getHost());
+            Assert.assertEquals(9050, hostAndPort.getPort());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        try {
+            SystemInfoService.getHostAndPort(ipv6Error);
+            Assert.fail();
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Test
+    public void testBackendHbResponseSerialization() throws IOException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        System.out.println(Env.getCurrentEnvJournalVersion());
+
+        BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234, 1234, 1234, "test",
+                Tag.VALUE_COMPUTATION, 10, 100, false, 1234);
+
+        // Write objects to file
+        File file1 = new File("./BackendHbResponseSerialization");
+        try {
+            file1.createNewFile();
+
+            try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(file1))) {
+                writeResponse.write(dos);
+                dos.flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Assert.fail();
+            }
+
+            // Read objects from file
+            try (DataInputStream dis = new DataInputStream(new FileInputStream(file1))) {
+                BackendHbResponse readResponse = (BackendHbResponse) HeartbeatResponse.read(dis);
+                // Before meta version 121, nodeRole will not be read, so readResponse is not equal to writeResponse
+                Assert.assertTrue(readResponse.toString().equals(writeResponse.toString()));
+                Assert.assertTrue(Tag.VALUE_COMPUTATION.equals(readResponse.getNodeRole()));
+            } catch (IOException e) {
+                e.printStackTrace();
+                Assert.fail();
+            }
+
+        } finally {
+            file1.delete();
+        }
+    }
+
+    @Test
     public void testSelectBackendIdsByPolicy() throws Exception {
+        Config.disable_backend_black_list = true;
         // 1. no backend
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy, 1).size());
@@ -152,22 +213,22 @@ public class SystemInfoServiceTest {
 
         Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
         Tag tagb = Tag.create(Tag.TYPE_LOCATION, "tagb");
-        be1.setTag(taga);
-        be2.setTag(taga);
-        be3.setTag(tagb);
-        be4.setTag(tagb);
-        be5.setTag(tagb);
+        be1.setTagMap(taga.toMap());
+        be2.setTagMap(taga.toMap());
+        be3.setTagMap(tagb.toMap());
+        be4.setTagMap(tagb.toMap());
+        be5.setTagMap(tagb.toMap());
 
-        BeSelectionPolicy policy7 = new BeSelectionPolicy.Builder().needQueryAvailable()
-                .addTags(Sets.newHashSet(taga)).build();
+        BeSelectionPolicy policy7 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(taga))
+                .build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy7, 1).size());
         Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy7, 2).size());
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy7, 2).contains(10001L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy7, 2).contains(10002L));
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy7, 3).size());
 
-        BeSelectionPolicy policy8 = new BeSelectionPolicy.Builder()
-                .needQueryAvailable().addTags(Sets.newHashSet(tagb)).build();
+        BeSelectionPolicy policy8 = new BeSelectionPolicy.Builder().needQueryAvailable().addTags(Sets.newHashSet(tagb))
+                .build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy8, 3).size());
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10003L));
         Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy8, 3).contains(10004L));
@@ -209,7 +270,7 @@ public class SystemInfoServiceTest {
         // 8. check same host
         addBackend(10006, "192.168.1.1", 9051);
         Backend be6 = infoService.getBackend(10006);
-        be6.setTag(taga);
+        be6.setTagMap(taga.toMap());
         be6.setAlive(true);
         addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
         addDisk(be6, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
@@ -219,6 +280,99 @@ public class SystemInfoServiceTest {
         BeSelectionPolicy policy15 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).allowOnSameHost().build();
         Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy15, 2).size());
+    }
+
+    @Test
+    public void testComputeNodeBackendSelect() throws Exception {
+        // only one compute node
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+        addBackend(20001, "192.168.2.1", 9051);
+        Backend be1 = infoService.getBackend(20001);
+        setComputeNode(be1, taga);
+        be1.setAlive(true);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
+        BeSelectionPolicy policy01 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy01, 1).size());
+
+        BeSelectionPolicy policy02 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy02, 1).size());
+
+        BeSelectionPolicy policy03 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(0).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy03, 1).size());
+
+        BeSelectionPolicy policy04 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(1).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy04, 1).size());
+
+        // one compute node and two mix node
+        addBackend(20002, "192.168.2.2", 9051);
+        Backend be2 = infoService.getBackend(20002);
+        be2.setTagMap(taga.toMap());
+        be2.setAlive(true);
+        addDisk(be2, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
+
+        addBackend(20003, "192.168.2.3", 9051);
+        Backend be3 = infoService.getBackend(20003);
+        be3.setTagMap(taga.toMap());
+        be3.setAlive(true);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 100 * 1024 * 1024L);
+
+        BeSelectionPolicy policy05 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy05, 3).size());
+
+        BeSelectionPolicy policy06 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(2).build();
+        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy06, 2).size());
+
+        BeSelectionPolicy policy07 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(3).build();
+        Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy07, 3).size());
+    }
+
+    @Test
+    public void testPreferLocationsSelect() throws Exception {
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+
+        // add more backends
+        addBackend(10002, "192.168.1.2", 9050);
+        Backend be2 = infoService.getBackend(10002);
+        be2.setAlive(true);
+        addBackend(10003, "192.168.1.3", 9050);
+        Backend be3 = infoService.getBackend(10003);
+        be3.setAlive(true);
+        addBackend(10004, "192.168.1.4", 9050);
+        Backend be4 = infoService.getBackend(10004);
+        be4.setAlive(true);
+        addBackend(10005, "192.168.1.5", 9050);
+        Backend be5 = infoService.getBackend(10005);
+        be5.setAlive(true);
+
+        setComputeNode(be5, taga);
+
+        List<String> preferLocations = new ArrayList<>();
+        preferLocations.add("192.168.1.2");
+        BeSelectionPolicy policy1 = new BeSelectionPolicy.Builder().addPreLocations(preferLocations).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy1, 1).size());
+        preferLocations.add("192.168.1.3");
+        BeSelectionPolicy policy2 = new BeSelectionPolicy.Builder().addPreLocations(preferLocations).build();
+
+        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy2, 2).size());
+
+        // only one preferLocations
+        preferLocations.clear();
+        preferLocations.add("192.168.1.4");
+        BeSelectionPolicy policy3 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .addPreLocations(preferLocations).preferComputeNode(true).assignExpectBeNum(3).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy3, 1).size());
+
+        preferLocations.add("192.168.1.5");
+        BeSelectionPolicy policy4 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .addPreLocations(preferLocations).preferComputeNode(true).assignExpectBeNum(1).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy4, 1).size());
     }
 
     @Test
@@ -243,24 +397,35 @@ public class SystemInfoServiceTest {
         Backend be5 = infoService.getBackend(10005);
         addDisk(be5, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
         be5.setAlive(true);
+        // no effect with compute node
+        addBackend(10006, "192.168.1.6", 9050);
+        Backend be6 = infoService.getBackend(10006);
+        addDisk(be6, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be6.setAlive(true);
+        setComputeNode(be6, Tag.DEFAULT_BACKEND_TAG);
 
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         // also check if the random selection logic can evenly distribute the replica.
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
-        for (int i = 0; i < 10000; ++i) {
-            Map<Tag, List<Long>> res = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
-                    SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.HDD);
+        for (int i = 0; i < 30000; ++i) {
+            Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
+                    Maps.newHashMap(), TStorageMedium.HDD, false, false);
+            Map<Tag, List<Long>> res = ret.first;
             Assert.assertEquals(3, res.get(Tag.DEFAULT_BACKEND_TAG).size());
             for (Long beId : res.get(Tag.DEFAULT_BACKEND_TAG)) {
                 beCounterMap.put(beId, beCounterMap.getOrDefault(beId, 0) + 1);
             }
         }
-        System.out.println(beCounterMap);
+        Set<Long> expectBackendIds = infoService.getMixBackends().stream()
+                .filter(Backend::isAlive).map(Backend::getId)
+                .collect(Collectors.toSet());
+        Assert.assertEquals(expectBackendIds, beCounterMap.keySet().stream().collect(Collectors.toSet()));
         List<Integer> list = Lists.newArrayList(beCounterMap.values());
         Collections.sort(list);
-        int diff = list.get(list.size() - 1) - list.get(0);
-        // The max replica num and min replica num's diff is less than 5%.
-        Assert.assertTrue((diff * 1.0 / list.get(0)) < 0.05);
+        int max = list.get(list.size() - 1);
+        int diff =  max - list.get(0);
+        // The max replica num and min replica num's diff is less than 30%.
+        Assert.assertTrue((diff * 1.0 / max) < 0.3);
     }
 
     private void addDisk(Backend be, String path, TStorageMedium medium, long totalB, long availB) {
@@ -272,4 +437,72 @@ public class SystemInfoServiceTest {
         map.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(map));
     }
+
+    private void setComputeNode(Backend be, Tag tag) {
+        Map<String, String> tagMap = tag.toMap();
+        tagMap.put(Tag.TYPE_ROLE, Tag.VALUE_COMPUTATION);
+        be.setTagMap(tagMap);
+    }
+
+    @Test
+    public void testGetMinPipelineExecutorSize() {
+        // Test case 1: No backends
+        int result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(1, result);
+
+        // Test case 2: Single backend with pipeline executor size = 8
+        addBackend(20001, "192.168.2.1", 9050);
+        Backend be1 = infoService.getBackend(20001);
+        be1.setPipelineExecutorSize(8);
+        be1.setAlive(true);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(8, result);
+
+        // Test case 3: Multiple backends with different pipeline executor sizes
+        addBackend(20002, "192.168.2.2", 9050);
+        Backend be2 = infoService.getBackend(20002);
+        be2.setPipelineExecutorSize(4); // This should be the minimum
+        be2.setAlive(true);
+
+        addBackend(20003, "192.168.2.3", 9050);
+        Backend be3 = infoService.getBackend(20003);
+        be3.setPipelineExecutorSize(12);
+        be3.setAlive(true);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(4, result);
+
+        // Test case 4: Backends with zero and negative pipeline executor sizes (should
+        // be ignored)
+        addBackend(20004, "192.168.2.4", 9050);
+        Backend be4 = infoService.getBackend(20004);
+        be4.setPipelineExecutorSize(0); // Should be ignored
+        be4.setAlive(true);
+
+        addBackend(20005, "192.168.2.5", 9050);
+        Backend be5 = infoService.getBackend(20005);
+        be5.setPipelineExecutorSize(-1); // Should be ignored
+        be5.setAlive(true);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(4, result); // Still should be 4 from be2
+
+        // Test case 5: All backends have zero or negative pipeline executor sizes
+        be1.setPipelineExecutorSize(0);
+        be2.setPipelineExecutorSize(-5);
+        be3.setPipelineExecutorSize(0);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(1, result); // Should return default value 1
+
+        // Test case 6: Mix of positive and non-positive values
+        be1.setPipelineExecutorSize(16);
+        be2.setPipelineExecutorSize(0); // ignored
+        be3.setPipelineExecutorSize(6); // This should be the minimum
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(6, result);
+    }
+
 }

@@ -17,21 +17,27 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
-#include <boost/algorithm/string.hpp>
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <boost/algorithm/string/replace.hpp>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <new>
 #include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include "json2pb/json_to_pb.h"
+#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
 #include "olap/olap_meta.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
+#include "runtime/exec_env.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -46,15 +52,6 @@ class RowsetMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
         LOG(INFO) << "SetUp";
-        config::tablet_map_shard_size = 1;
-        config::txn_map_shard_size = 1;
-        config::txn_shard_size = 1;
-        EngineOptions options;
-        // won't open engine, options.path is needless
-        options.backend_uid = UniqueId::gen_uid();
-        if (k_engine == nullptr) {
-            k_engine = new StorageEngine(options);
-        }
 
         std::string meta_path = "./meta";
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
@@ -78,11 +75,9 @@ public:
 
     virtual void TearDown() {
         SAFE_DELETE(_meta);
-        SAFE_DELETE(k_engine);
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
         LOG(INFO) << "TearDown";
     }
-    StorageEngine* k_engine = nullptr;
 
 private:
     OlapMeta* _meta;
@@ -98,7 +93,7 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     EXPECT_EQ(rowset_meta.rowset_id(), rowset_id);
     RowsetMetaPB rowset_meta_pb;
     rowset_meta.to_rowset_pb(&rowset_meta_pb);
-    Status status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
+    Status status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb, false);
     EXPECT_TRUE(status == Status::OK());
     EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;

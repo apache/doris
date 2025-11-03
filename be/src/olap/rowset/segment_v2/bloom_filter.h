@@ -17,18 +17,42 @@
 
 #pragma once
 
+#include <bvar/reducer.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/strings/substitute.h"
-#include "olap/utils.h"
 #include "util/murmur_hash3.h"
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
+inline bvar::Adder<int64_t> g_total_bloom_filter_num("doris_total_bloom_filter_num");
+inline bvar::Adder<int64_t> g_read_bloom_filter_num("doris_read_bloom_filter_num");
+inline bvar::Adder<int64_t> g_write_bloom_filter_num("doris_write_bloom_filter_num");
+
+inline bvar::Adder<int64_t> g_total_bloom_filter_total_bytes("doris_total_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_read_bloom_filter_total_bytes("doris_read_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_write_bloom_filter_total_bytes("doris_write_bloom_filter_bytes");
+
+inline bvar::Adder<int64_t> g_pk_total_bloom_filter_num("doris_pk_total_bloom_filter_num");
+inline bvar::Adder<int64_t> g_pk_read_bloom_filter_num("doris_pk_read_bloom_filter_num");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_increase_num(
+        "doris_pk_write_bloom_filter_increase_num");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_decrease_num(
+        "doris_pk_write_bloom_filter_decrease_num");
+
+inline bvar::Adder<int64_t> g_pk_total_bloom_filter_total_bytes(
+        "doris_pk_total_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_pk_read_bloom_filter_total_bytes("doris_pk_read_bloom_filter_bytes");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_increase_bytes(
+        "doris_pk_write_bloom_filter_increase_bytes");
+inline bvar::Adder<int64_t> g_pk_write_bloom_filter_decrease_bytes(
+        "doris_pk_write_bloom_filter_decrease_bytes");
 
 struct BloomFilterOptions {
     // false positive probability
@@ -51,16 +75,34 @@ public:
     static const uint32_t MAXIMUM_BYTES = 128 * 1024 * 1024;
 
     // Factory function for BloomFilter
-    static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf);
+    static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf,
+                         size_t bf_size = 0);
 
-    BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) {}
+    BloomFilter() { g_total_bloom_filter_num << 1; }
 
-    virtual ~BloomFilter() { delete[] _data; }
+    virtual ~BloomFilter() {
+        if (_data) {
+            if (_is_write) {
+                g_write_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
+                g_write_bloom_filter_num << -1;
+            } else {
+                g_read_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
+                g_read_bloom_filter_num << -1;
+            }
+            g_total_bloom_filter_total_bytes << -static_cast<int64_t>(_size);
+            delete[] _data;
+        }
+        g_total_bloom_filter_num << -1;
+    }
+
+    virtual bool is_ngram_bf() const { return false; }
 
     // for write
     Status init(uint64_t n, double fpp, HashStrategyPB strategy) {
         return this->init(optimal_bit_num(n, fpp) / 8, strategy);
     }
+
+    Status init(uint64_t filter_size) { return init(filter_size, HASH_MURMUR3_X64_64); }
 
     Status init(uint64_t filter_size, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
@@ -76,20 +118,30 @@ public:
         memset(_data, 0, _size);
         _has_null = (bool*)(_data + _num_bytes);
         *_has_null = false;
+        _is_write = true;
+        g_write_bloom_filter_num << 1;
+        g_write_bloom_filter_total_bytes << _size;
+        g_total_bloom_filter_total_bytes << _size;
         return Status::OK();
     }
 
     // for read
     // use deep copy to acquire the data
-    Status init(const char* buf, uint32_t size, HashStrategyPB strategy) {
+    virtual Status init(const char* buf, size_t size, HashStrategyPB strategy) {
+        if (size <= 1) {
+            return Status::InvalidArgument("invalid size:{}", size);
+        }
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
             return Status::InvalidArgument("invalid strategy:{}", strategy);
         }
-        if (size == 0) {
-            return Status::InvalidArgument("invalid size:{}", size);
+        if (buf == nullptr) {
+            return Status::InvalidArgument("buf is nullptr");
+        }
+        if (((size - 1) & (size - 2)) != 0) {
+            return Status::InvalidArgument("size - 1 must be power of two");
         }
         _data = new char[size];
         memcpy(_data, buf, size);
@@ -97,18 +149,31 @@ public:
         _num_bytes = _size - 1;
         DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
         _has_null = (bool*)(_data + _num_bytes);
+        g_read_bloom_filter_num << 1;
+        g_read_bloom_filter_total_bytes << _size;
+        g_total_bloom_filter_total_bytes << _size;
         return Status::OK();
     }
 
     void reset() { memset(_data, 0, _size); }
 
-    uint64_t hash(const char* buf, uint32_t size) const {
+    uint64_t hash(const char* buf, size_t size) const {
         uint64_t hash_code;
         _hash_func(buf, size, DEFAULT_SEED, &hash_code);
         return hash_code;
     }
 
-    void add_bytes(const char* buf, uint32_t size) {
+    static Result<uint64_t> hash(const char* buf, size_t size, HashStrategyPB strategy) {
+        if (strategy == HASH_MURMUR3_X64_64) {
+            uint64_t hash_code;
+            murmur_hash3_x64_64(buf, size, DEFAULT_SEED, &hash_code);
+            return hash_code;
+        } else {
+            return Status::InvalidArgument("invalid strategy:{}", strategy);
+        }
+    }
+
+    virtual void add_bytes(const char* buf, size_t size) {
         if (buf == nullptr) {
             *_has_null = true;
             return;
@@ -117,7 +182,7 @@ public:
         add_hash(code);
     }
 
-    bool test_bytes(char* buf, uint32_t size) const {
+    bool test_bytes(const char* buf, size_t size) const {
         if (buf == nullptr) {
             return *_has_null;
         }
@@ -125,15 +190,19 @@ public:
         return test_hash(code);
     }
 
-    char* data() const { return _data; }
+    /// Checks if this contains everything from another bloom filter.
+    /// Bloom filters must have equal size and seed.
+    virtual bool contains(const BloomFilter& bf_) const { return true; };
 
-    uint32_t num_bytes() const { return _num_bytes; }
+    virtual const char* data() const { return _data; }
 
-    uint32_t size() const { return _size; }
+    size_t num_bytes() const { return _num_bytes; }
+
+    virtual size_t size() const { return _size; }
 
     void set_has_null(bool has_null) { *_has_null = has_null; }
 
-    bool has_null() const { return *_has_null; }
+    virtual bool has_null() const { return *_has_null; }
 
     virtual void add_hash(uint64_t hash) = 0;
     virtual bool test_hash(uint64_t hash) const = 0;
@@ -158,19 +227,21 @@ public:
 protected:
     // bloom filter data
     // specially add one byte for null flag
-    char* _data;
+    char* _data = nullptr;
     // optimal bloom filter num bytes
     // it is calculated by optimal_bit_num() / 8
-    uint32_t _num_bytes;
+    size_t _num_bytes = 0;
     // equal to _num_bytes + 1
     // last byte is for has_null flag
-    uint32_t _size;
+    size_t _size = 0;
     // last byte's pointer in data for null flag
-    bool* _has_null;
+    bool* _has_null = nullptr;
+    // is this bf used for write
+    bool _is_write = false;
 
 private:
-    std::function<void(const void*, const int, const uint64_t, void*)> _hash_func;
+    std::function<void(const void*, const int64_t, const uint64_t, void*)> _hash_func;
 };
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"
