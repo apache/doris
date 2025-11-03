@@ -23,14 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -45,13 +39,7 @@ public class Sem extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(LargeIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE));
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE));
 
     /**
      * constructor with 1 argument.
@@ -61,7 +49,7 @@ public class Sem extends NullableAggregateFunction
     }
 
     /**
-     * constructor with 1 argument.
+     * constructor with distinct flag and 1 argument.
      */
     public Sem(boolean distinct, Expression arg) {
         this(distinct, false, arg);
@@ -79,9 +67,8 @@ public class Sem extends NullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
-            throw new AnalysisException("sem requires a numeric, boolean or string parameter: " + this.toSql());
+        if (!argType.isDoubleType()) {
+            throw new AnalysisException("sem only requires a double parameter: " + this.toSql());
         }
     }
 

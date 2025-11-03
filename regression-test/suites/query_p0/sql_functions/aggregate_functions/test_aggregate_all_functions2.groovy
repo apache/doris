@@ -124,28 +124,32 @@ suite("test_aggregate_all_functions2") {
         exception "requires a boolean or numeric argument"
     }
 
-    qt_sem_double """SELECT sem(k8) FROM baseall;"""    // 66813.32469
-    qt_sem_float """SELECT sem(k9) FROM baseall;"""    // 5350.392064
-    qt_sem_largeint """SELECT sem(k13) FROM baseall;""" // 16604079329999999393723317663188385792
-    qt_sem_bigint """SELECT sem(k4) FROM baseall;""" // 1272946277000000000
-    qt_sem_int """SELECT sem(k3) FROM baseall;"""  // 296380900.8
-    qt_sem_smallint """SELECT sem(k2) FROM baseall;""" // 4529.188786
-    qt_sem_tinyint """SELECT sem(k1) FROM baseall;""" // 1.154700538
-    qt_sem_bool """SELECT sem(k0) FROM baseall;"""  // 0.1333333333
-    
+    qt_sem_bool """SELECT sem(CAST(k0 AS DOUBLE)) FROM baseall;"""        // 0.1333333333
+    qt_sem_tinyint """SELECT sem(CAST(k1 AS DOUBLE)) FROM baseall;"""     // 1.154700538
+    qt_sem_smallint """SELECT sem(CAST(k2 AS DOUBLE)) FROM baseall;"""    // 4529.188786
+    qt_sem_int """SELECT sem(CAST(k3 AS DOUBLE)) FROM baseall;"""         // 296380900.8
+    qt_sem_bigint """SELECT sem(CAST(k4 AS DOUBLE)) FROM baseall;"""      // 1272946277000000000
+    qt_sem_largeint """SELECT sem(CAST(k13 AS DOUBLE)) FROM baseall;"""   // 1.660407933e+37
+    qt_sem_float """SELECT sem(CAST(k9 AS DOUBLE)) FROM baseall;"""       // 5350.392064
+    qt_sem_double """SELECT sem(k8) FROM baseall;"""                      // 66813.32469
+
     qt_sem_distinct_double """SELECT sem(DISTINCT k8) FROM baseall;"""
-    
+
     qt_sem_window_double """SELECT sem(k8) OVER(PARTITION BY k6) FROM baseall ORDER BY k1;"""
-    qt_sem_window_largeint """SELECT sem(k13) OVER(PARTITION BY k10) FROM baseall ORDER BY k1;"""
-    qt_sem_window_int """SELECT sem(k3) OVER(PARTITION BY k6) FROM baseall ORDER BY k1;"""
 
     qt_sem_null_double """SELECT sem(k8) FROM baseall WHERE k8 IS NULL OR k8 IS NOT NULL;"""
 
+    qt_sem_literal_single """SELECT sem(CAST(1.0 AS DOUBLE));"""  // 0.0
+    qt_sem_literal_multi """SELECT sem(CAST(x AS DOUBLE)) FROM (
+        SELECT 1.0 AS x
+        UNION ALL SELECT 2.0
+        UNION ALL SELECT 3.0
+    ) t;"""  // 0.5773502692
+
     test {
         sql """SELECT sem(k10) FROM baseall;"""
-        exception "sem requires a numeric, boolean or string parameter"
+        exception "sem only requires a double parameter"
     }
-
 
     sql "DROP DATABASE IF EXISTS metric_table"
     sql """

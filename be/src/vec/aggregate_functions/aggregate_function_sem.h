@@ -37,61 +37,64 @@ class BufferReadable;
 class BufferWritable;
 
 struct AggregateFunctionSemData {
-    double sum {};
-    double sumOfSquares {};
+    double mean {};
+    double m2 {}; // Cumulative sum of squares
     UInt64 count = 0;
 
     void add(const double& value) {
-        sum += value;
-        sumOfSquares += value * value;
         count++;
+        double delta = value - mean;
+        mean += delta / static_cast<double>(count);
+        double delta2 = value - mean;
+        m2 += delta * delta2;
     }
 
     void merge(const AggregateFunctionSemData& rhs) {
-        sum += rhs.sum;
-        sumOfSquares += rhs.sumOfSquares;
-        count += rhs.count;
+        UInt64 total_count = count + rhs.count;
+        double delta = rhs.mean - mean;
+        mean = (mean * static_cast<double>(count) + rhs.mean * static_cast<double>(rhs.count)) /
+               static_cast<double>(total_count);
+        m2 += rhs.m2 + delta * delta * static_cast<double>(count) * static_cast<double>(rhs.count) /
+                               static_cast<double>(total_count);
+        count = total_count;
     }
 
     void write(BufferWritable& buf) const {
-        buf.write_binary(sum);
-        buf.write_binary(sumOfSquares);
+        buf.write_binary(mean);
+        buf.write_binary(m2);
         buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        buf.read_binary(sum);
-        buf.read_binary(sumOfSquares);
+        buf.read_binary(mean);
+        buf.read_binary(m2);
         buf.read_binary(count);
     }
 
     void reset() {
-        sum = {};
-        sumOfSquares = {};
+        mean = {};
+        m2 = {};
         count = 0;
     }
 
     double result() const {
-        if (count <= 1) {
+        if (count < 2) {
             return 0;
         }
         double dCount = static_cast<double>(count);
-        double result =
-                std::sqrt((sumOfSquares - (sum * sum) / dCount) / ((dCount) * (dCount - 1.0)));
+        double result = std::sqrt(m2 / (dCount * (dCount - 1.0)));
         return result;
     }
 };
 
-template <PrimitiveType T, typename Data>
+template <typename Data>
 class AggregateFunctionSem final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSem<T, Data>>,
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSem<Data>>,
           UnaryExpression,
           NullableAggregateFunction {
 public:
-    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-
     AggregateFunctionSem(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionSem<T, Data>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSem<Data>>(argument_types_) {}
 
     String get_name() const override { return "sem"; }
 
@@ -100,7 +103,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& column =
-                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add((double)column.get_data()[row_num]);
     }
 

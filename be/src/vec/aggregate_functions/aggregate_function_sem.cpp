@@ -28,18 +28,14 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType T>
-using AggregateFuncSem = AggregateFunctionSem<T, AggregateFunctionSemData>;
+using AggregateFuncSem = AggregateFunctionSem<AggregateFunctionSemData>;
 
 void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
-        return creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
-                                      TYPE_LARGEINT, TYPE_FLOAT,
-                                      TYPE_DOUBLE>::creator<AggregateFuncSem>(name, types,
-                                                                              result_is_nullable,
-                                                                              attr);
+        return creator_without_type::creator<AggregateFuncSem>(name, types, result_is_nullable,
+                                                               attr);
     };
     factory.register_function_both("sem", creator);
 }
