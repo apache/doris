@@ -161,6 +161,42 @@
 6	2
 7	5
 
+-- !interval_mixed_thresholds_1 --
+1	2
+2	3
+3	4
+4	0
+5	5
+6	3
+7	3
+
+-- !interval_mixed_thresholds_2 --
+1	2
+2	3
+3	4
+4	0
+5	5
+6	3
+7	3
+
+-- !interval_mixed_thresholds_3 --
+1	2
+2	3
+3	4
+4	0
+5	5
+6	3
+7	3
+
+-- !interval_const_value_mixed_thresholds --
+1	2
+2	2
+3	2
+4	2
+5	2
+6	2
+7	3
+
 -- !interval_complex_1 --
 4
 

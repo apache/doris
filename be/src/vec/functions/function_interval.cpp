@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <vector>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -43,7 +45,6 @@ public:
     String get_name() const override { return name; }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
         return std::make_shared<DataTypeInt32>();
@@ -51,8 +52,8 @@ public:
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        if (arguments.size() < 2) {
-            return Status::InvalidArgument("interval requires at least 2 arguments");
+        if (arguments.size() < 2) [[unlikely]] {
+            return Status::InternalError("interval requires at least 2 arguments");
         }
 
         auto res_col = ColumnInt32::create();
@@ -60,9 +61,11 @@ public:
         res_data.resize(input_rows_count);
 
         auto compare_cwn = block.get_by_position(arguments[0]);
-        auto compare_col_ptr = compare_cwn.column;
+        ColumnPtr compare_col_ptr = ColumnPtr {};
         bool compare_is_const = false;
-        std::tie(compare_col_ptr, compare_is_const) = unpack_if_const(compare_col_ptr);
+        compare_is_const = is_column_const(*block.get_by_position(arguments[0]).column);
+        default_preprocess_parameter_columns(&compare_col_ptr, &compare_is_const, {0}, block,
+                                             arguments);
 
         switch (compare_cwn.type->get_primitive_type()) {
         case PrimitiveType::TYPE_TINYINT:
@@ -86,7 +89,7 @@ public:
                                            res_data);
             break;
         default:
-            return Status::InvalidArgument(
+            [[unlikely]] return Status::InternalError(
                     "interval only supports integer numeric types for the first argument");
         }
 
@@ -118,21 +121,8 @@ private:
                 thresholds.push_back(th_col.get_data()[index_check_const(row, is_const)]);
             }
 
-            size_t left = 0;
-            size_t right = num_thresholds;
-            size_t result_idx = num_thresholds;
-
-            while (left < right) {
-                size_t mid = left + (right - left) / 2;
-                if (thresholds[mid] > compare_val) {
-                    result_idx = mid;
-                    right = mid;
-                } else {
-                    left = mid + 1;
-                }
-            }
-
-            res[row] = static_cast<Int32>(result_idx);
+            auto it = std::upper_bound(thresholds.begin(), thresholds.end(), compare_val);
+            res[row] = static_cast<Int32>(it - thresholds.begin());
         }
     }
 };
