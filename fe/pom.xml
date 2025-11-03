@@ -1169,6 +1169,11 @@ under the License.
                 <artifactId>hadoop-aws</artifactId>
                 <version>${hadoop.version}</version>
                 <exclusions>
+                    <!-- NB: Exclude the AWS SDK bundle because it’s a large monolithic package, and we only need the S3 modules to reduce dependency size.-->
+                    <exclusion>
+                        <groupId>software.amazon.awssdk</groupId>
+                        <artifactId>bundle</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-log4j12</artifactId>
