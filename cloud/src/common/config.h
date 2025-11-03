@@ -252,6 +252,7 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
+CONF_mBool(enable_rowset_state_check, "true");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.

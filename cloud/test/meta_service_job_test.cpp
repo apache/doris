@@ -30,6 +30,7 @@
 #include <random>
 #include <string>
 
+#include "common/config.h"
 #include "common/defer.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -40,6 +41,9 @@
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "mock_accessor.h"
+#include "recycler/recycler.h"
+#include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
 // External functions from meta_service_test.cpp
@@ -156,6 +160,7 @@ void commit_rowset(MetaService* meta_service, const doris::RowsetMetaCloudPB& ro
     CreateRowsetRequest req;
     req.set_txn_id(txn_id);
     req.mutable_rowset_meta()->CopyFrom(rowset);
+    req.set_tablet_job_id(std::to_string(rowset.job_id()));
     meta_service->commit_rowset(&cntl, &req, &res, nullptr);
 }
 
@@ -5400,6 +5405,281 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "second_reset_offset");
     }
+}
+// Test workflow: start job -> prepare rowset -> force recycle -> commit rowset -> force recycle again -> finish job
+TEST(MetaServiceJobTest, RecycleRowsets_CompactionWorkflow) {
+    MOCK_GET_INSTANCE_ID(instance_id);
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+
+    config::enable_rowset_state_check = true;
+
+    int64_t table_id = 9001;
+    int64_t index_id = 9002;
+    int64_t partition_id = 9003;
+    int64_t tablet_id = 9004;
+    std::string mock_instance = instance_id;
+    std::string resource_id = "test_resource_id";
+    std::string job_id = "12345678";
+    std::string initiator = "BE:127.0.0.1:9050";
+
+    // Create mock accessor for testing
+    auto mock_accessor = std::make_shared<MockAccessor>();
+
+    // Create tablet
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+    std::cout << "Created tablet: " << tablet_id << "\n";
+
+    // Insert some initial rowsets to the tablet (as compaction input)
+    std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+    for (int i = 0; i < 3; ++i) {
+        auto rowset = create_rowset(tablet_id, 2 + i, 3 + i, 100);
+        rowset.set_resource_id(resource_id);
+        rowset.set_num_segments(1);
+        rowset.set_job_id(stol(job_id));
+        input_rowsets.push_back(rowset);
+    }
+    insert_rowsets(txn_kv.get(), table_id, index_id, partition_id, tablet_id, input_rowsets);
+    std::cout << "Inserted " << input_rowsets.size() << " input rowsets\n";
+
+    // Step 1: Start compaction job
+    StartTabletJobResponse start_res;
+    {
+        start_compaction_job(meta_service.get(), tablet_id, job_id, initiator, 1, 0,
+                             TabletCompactionJobPB::CUMULATIVE, start_res);
+        ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK);
+        std::cout << "Step 1: Started compaction job, job_id=" << job_id << "\n";
+    }
+
+    // Step 2: Prepare rowset (compaction output)
+    doris::RowsetMetaCloudPB output_rowset;
+    std::string rowset_id_v2;
+    int64_t txn_id = 100001;
+    {
+        output_rowset = create_rowset(tablet_id, 2, 5, 300); // Merge versions 2-4 into 2-5
+        output_rowset.set_txn_id(txn_id);
+        output_rowset.set_resource_id(resource_id);
+        output_rowset.set_num_segments(2); // Create 2 segments
+        output_rowset.set_job_id(stol(job_id));
+        rowset_id_v2 = output_rowset.rowset_id_v2();
+
+        CreateRowsetResponse res;
+        // Use meta_service->prepare_rowset directly
+        brpc::Controller cntl;
+        CreateRowsetRequest req;
+        req.mutable_rowset_meta()->CopyFrom(output_rowset);
+        meta_service->prepare_rowset(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        std::cout << "Step 2: Rowset prepared, rowset_id_v2=" << rowset_id_v2 << "\n";
+    }
+
+    // Write rowset data using mock accessor
+    {
+        std::cout << "Writing rowset data files to mock accessor...\n";
+
+        // Write segment files for the rowset
+        for (int i = 0; i < output_rowset.num_segments(); ++i) {
+            std::string segment_file = fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id_v2, i);
+            ASSERT_EQ(mock_accessor->put_file(segment_file, "segment_data"), 0);
+            std::cout << "  Created segment file: " << segment_file << "\n";
+        }
+
+        // Verify files were written
+        std::unique_ptr<ListIterator> list_iter;
+        std::string tablet_prefix = fmt::format("data/{}/", tablet_id);
+        ASSERT_EQ(mock_accessor->list_directory(tablet_prefix, &list_iter), 0);
+
+        int file_count = 0;
+        while (list_iter->has_next()) {
+            auto file_meta = list_iter->next();
+            if (file_meta.has_value()) {
+                std::cout << "  Found file: " << file_meta->path << "\n";
+                file_count++;
+            }
+        }
+        ASSERT_EQ(file_count, output_rowset.num_segments())
+                << "Should have " << output_rowset.num_segments() << " segment files";
+        std::cout << "Verified: " << file_count << " data files exist in mock accessor\n";
+    }
+
+    // Step 3: Force recycle rowsets (first time - before commit)
+    {
+        config::force_immediate_recycle = true;
+
+        std::cout << "Step 3: Force recycle rowsets (first time - before commit)\n";
+
+        // Get instance info
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(mock_instance);
+
+        // Create recycler thread pool group
+        auto s3_producer_pool = std::make_shared<SimpleThreadPool>(1);
+        s3_producer_pool->start();
+        auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(1);
+        recycle_tablet_pool->start();
+        auto group_recycle_function_pool = std::make_shared<SimpleThreadPool>(1);
+        group_recycle_function_pool->start();
+        RecyclerThreadPoolGroup thread_group(std::move(s3_producer_pool),
+                                             std::move(recycle_tablet_pool),
+                                             std::move(group_recycle_function_pool));
+
+        auto txn_lazy_committer = std::make_shared<TxnLazyCommitter>(txn_kv);
+        auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance_info, thread_group,
+                                                           txn_lazy_committer);
+
+        // Add the mock accessor to recycler
+        recycler->TEST_add_accessor(resource_id, mock_accessor);
+
+        // Recycle rowsets - tmp rowset should NOT be deleted
+        int ret = recycler->recycle_rowsets();
+        std::cout << "Recycle rowsets (first time) returned: " << ret << "\n";
+
+        config::force_immediate_recycle = false;
+    }
+
+    // Verify data files still exist after Step 3
+    {
+        std::cout << "Verifying data files still exist after first recycle...\n";
+
+        std::unique_ptr<ListIterator> list_iter;
+        std::string tablet_prefix = fmt::format("data/{}/", tablet_id);
+        ASSERT_EQ(mock_accessor->list_directory(tablet_prefix, &list_iter), 0);
+
+        int file_count = 0;
+        while (list_iter->has_next()) {
+            auto file_meta = list_iter->next();
+            if (file_meta.has_value()) {
+                std::cout << "  Still exists: " << file_meta->path << "\n";
+                file_count++;
+            }
+        }
+        ASSERT_EQ(file_count, output_rowset.num_segments())
+                << "Data files should NOT be deleted (tmp rowset not committed)";
+        std::cout << "Verified: All " << file_count << " data files still exist (correct!)\n";
+    }
+
+    // Step 4: Commit rowset
+    {
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), output_rowset, res, txn_id);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        std::cout << "Step 4: Rowset committed, txn_id=" << txn_id << "\n";
+    }
+
+    // Verify the committed rowset exists and tmp rowset still exists after commit
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check that the tmp rowset still exists (will be cleaned by finish_tablet_job)
+        std::string tmp_rowset_key = meta_rowset_tmp_key({mock_instance, txn_id, tablet_id});
+        std::string tmp_rowset_val;
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_val), TxnErrorCode::TXN_OK)
+                << "Tmp rowset should still exist after commit (not cleaned yet)";
+        std::cout << "Verified: Tmp rowset still exists after commit\n";
+    }
+
+    // Step 5: Force recycle tmp rowsets (second time)
+    {
+        config::force_immediate_recycle = true;
+
+        std::cout << "Step 5: Force recycle tmp rowsets (second time)\n";
+
+        // Get instance info
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(mock_instance);
+
+        // Create recycler thread pool group
+        auto s3_producer_pool = std::make_shared<SimpleThreadPool>(1);
+        s3_producer_pool->start();
+        auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(1);
+        recycle_tablet_pool->start();
+        auto group_recycle_function_pool = std::make_shared<SimpleThreadPool>(1);
+        group_recycle_function_pool->start();
+        RecyclerThreadPoolGroup thread_group(std::move(s3_producer_pool),
+                                             std::move(recycle_tablet_pool),
+                                             std::move(group_recycle_function_pool));
+
+        auto txn_lazy_committer = std::make_shared<TxnLazyCommitter>(txn_kv);
+        auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance_info, thread_group,
+                                                           txn_lazy_committer);
+
+        // Add the mock accessor to recycler
+        recycler->TEST_add_accessor(resource_id, mock_accessor);
+
+        // Recycle tmp rowsets
+        int ret = recycler->recycle_tmp_rowsets();
+        std::cout << "Recycle tmp rowsets (second time) returned: " << ret << "\n";
+
+        config::force_immediate_recycle = false;
+    }
+
+    // Verify data files still exist after second recycle
+    {
+        std::cout << "Verifying data files still exist after second recycle...\n";
+
+        std::unique_ptr<ListIterator> list_iter;
+        std::string tablet_prefix = fmt::format("data/{}/", tablet_id);
+        ASSERT_EQ(mock_accessor->list_directory(tablet_prefix, &list_iter), 0);
+
+        int file_count = 0;
+        while (list_iter->has_next()) {
+            auto file_meta = list_iter->next();
+            if (file_meta.has_value()) {
+                std::cout << "  Still exists: " << file_meta->path << "\n";
+                file_count++;
+            }
+        }
+        ASSERT_EQ(file_count, output_rowset.num_segments())
+                << "Data files should still exist (tmp rowset data should not be deleted)";
+        std::cout << "Verified: All " << file_count << " data files still exist\n";
+    }
+
+    // Verify tmp rowset metadata still exists after second recycle
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string tmp_rowset_key = meta_rowset_tmp_key({mock_instance, txn_id, tablet_id});
+        std::string tmp_rowset_val;
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_val), TxnErrorCode::TXN_OK)
+                << "Tmp rowset metadata should still exist (not cleaned yet)";
+        std::cout << "Verified: Tmp rowset metadata still exists after second recycle\n";
+    }
+
+    // Step 6: Finish compaction job
+    {
+        brpc::Controller cntl;
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+
+        // Add input versions: version range [2, 4]
+        compaction->add_input_versions(2);
+        compaction->add_input_versions(4);
+
+        // Add output information
+        compaction->add_txn_id(txn_id); // Add txn_id for the output rowset
+        compaction->add_output_versions(output_rowset.end_version());
+        compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
+        compaction->set_num_output_rows(output_rowset.num_rows());
+        compaction->set_num_output_segments(output_rowset.num_segments());
+        compaction->set_size_output_rowsets(output_rowset.total_disk_size());
+        compaction->set_index_size_output_rowsets(output_rowset.index_disk_size());
+        compaction->set_segment_size_output_rowsets(output_rowset.data_disk_size());
+
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        std::cout << "Step 6: Compaction job finished\n";
+    }
+
+    std::cout << "Test completed successfully!\n";
 }
 
 } // namespace doris::cloud

@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <sstream>
+#include <string>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -54,6 +55,8 @@ static inline constexpr size_t get_file_name_offset(const T (&s)[S], size_t i = 
 }
 #define SS (ss << &__FILE__[get_file_name_offset(__FILE__)] << ":" << __LINE__ << " ")
 #define INSTANCE_LOG(severity) (LOG(severity) << '(' << instance_id << ')')
+
+using namespace std::chrono;
 
 namespace doris::cloud {
 
@@ -94,6 +97,115 @@ bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
        << compaction.input_versions(0) << " input_version_end=" << compaction.input_versions(1)
        << " schema_change_alter_version=" << job_pb.schema_change().alter_version();
     return false;
+}
+
+void finish_tablet_job_txn(MetaServiceCode& code, std::string& msg,
+                           std::unique_ptr<Transaction>& txn, const std::string& instance_id,
+                           const std::string& job_idd, const TabletIndexPB& tablet_idx) {
+    if (config::enable_rowset_state_check && !job_idd.empty()) {
+        int64_t job_id = stol(job_idd);
+        int64_t tablet_id = tablet_idx.tablet_id();
+        TabletIndexPB tablet_idx;
+        get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "prepare tablet job txn failed to get tablet idx, tablet_id="
+                         << tablet_id << ", msg=" << msg;
+            return;
+        }
+
+        std::string txn_info = txn_info_key({instance_id, tablet_idx.db_id(), job_id});
+        std::string txn_info_val;
+        TxnInfoPB txn_info_pb;
+        auto err = txn->get(txn_info, &txn_info_val);
+        if (err == TxnErrorCode::TXN_OK) {
+            if (!txn_info_pb.ParseFromString(txn_info_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed txn info value. key={}", hex(txn_info));
+                LOG(WARNING) << "prepare tablet job txn failed to parse txn info, tablet_id="
+                             << tablet_id << ", msg=" << msg;
+                return;
+            }
+            if (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_COMMITTED) {
+                LOG(WARNING) << "finish tablet job txn failed, txn not committed, tablet_id="
+                             << tablet_id << ", job_id=" << job_id
+                             << ", status=" << txn_info_pb.status();
+                return;
+            }
+
+            if (!txn_info_pb.sub_txn_ids().empty()) {
+                LOG(WARNING) << "finish tablet job txn failed, has sub txn, tablet_id=" << tablet_id
+                             << ", job_id=" << job_id;
+                return;
+            }
+
+            txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+
+            auto now_time = system_clock::now();
+            uint64_t finish_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
+
+            txn_info_pb.set_finish_time(finish_time);
+            txn->put(txn_info, txn_info_pb.SerializeAsString());
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to check txn info existence, err={}", err);
+            LOG(WARNING) << "prepare tablet job txn failed to get txn info, tablet_id=" << tablet_id
+                         << ", msg=" << msg;
+            return;
+        }
+    }
+}
+
+void prepare_tablet_job_txn(MetaServiceCode& code, std::string& msg,
+                            std::unique_ptr<Transaction>& txn, const std::string& instance_id,
+                            const std::string& job_idd, const TabletIndexPB& tablet_idx) {
+    if (config::enable_rowset_state_check && !job_idd.empty()) {
+        int64_t job_id = stol(job_idd);
+        int64_t tablet_id = tablet_idx.tablet_id();
+        TabletIndexPB tablet_idx;
+        get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "prepare tablet job txn failed to get tablet idx, tablet_id="
+                         << tablet_id << ", msg=" << msg;
+            return;
+        }
+
+        std::string txn_info = txn_info_key({instance_id, tablet_idx.db_id(), job_id});
+        std::string txn_info_val;
+        TxnInfoPB txn_info_pb;
+        auto err = txn->get(txn_info, &txn_info_val);
+        if (err == TxnErrorCode::TXN_OK) {
+            if (!txn_info_pb.ParseFromString(txn_info_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed txn info value. key={}", hex(txn_info));
+                LOG(WARNING) << "prepare tablet job txn failed to parse txn info, tablet_id="
+                             << tablet_id << ", msg=" << msg;
+                return;
+            }
+            if (txn_info_pb.txn_id() == job_id) {
+                // The prepare rowset request has been processed.
+                LOG(INFO) << "prepare tablet job txn already processed, tablet_id=" << tablet_id
+                          << ", job_id=" << job_id;
+                return;
+            }
+        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            txn_info_pb.set_db_id(tablet_idx.db_id());
+            txn_info_pb.set_txn_id(job_id);
+            txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_PREPARED);
+
+            auto now_time = system_clock::now();
+            uint64_t prepare_time =
+                    duration_cast<milliseconds>(now_time.time_since_epoch()).count();
+
+            txn_info_pb.set_prepare_time(prepare_time);
+            txn->put(txn_info, txn_info_pb.SerializeAsString());
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to check txn info existence, err={}", err);
+            LOG(WARNING) << "prepare tablet job txn failed to get txn info, tablet_id=" << tablet_id
+                         << ", msg=" << msg;
+            return;
+        }
+    }
 }
 
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
@@ -286,6 +398,9 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }
         break;
     }
+
+    prepare_tablet_job_txn(code, msg, txn, instance_id, compaction.id(), request->job().idx());
+
     if (!job_pb.has_idx()) {
         job_pb.mutable_idx()->CopyFrom(request->job().idx());
     }
@@ -423,6 +538,9 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         response->set_alter_version(job_pb.schema_change().alter_version());
         return;
     }
+
+    prepare_tablet_job_txn(code, msg, txn, instance_id, schema_change.id(), request->job().idx());
+
     job_pb.mutable_idx()->CopyFrom(request->job().idx());
     // FE can ensure that a tablet does not have more than one schema_change job at the same time,
     // so we can directly preempt previous schema_change job.
@@ -1288,6 +1406,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     }
     INSTANCE_LOG(INFO) << "put rowset meta, tablet_id=" << tablet_id
                        << " rowset_key=" << hex(rowset_key);
+
+    finish_tablet_job_txn(code, msg, txn, instance_id, compaction.id(), request->job().idx());
 
     //==========================================================================
     //                      Remove compaction job

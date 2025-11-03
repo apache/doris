@@ -309,6 +309,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        context.job_id = stol(_job_id);
         if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                          sc_params.vault_id);

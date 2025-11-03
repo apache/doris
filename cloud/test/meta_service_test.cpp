@@ -46,8 +46,10 @@
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "mock_accessor.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
+#include "recycler/recycler.h"
 #include "resource-manager/resource_manager.h"
 
 int main(int argc, char** argv) {
@@ -12216,4 +12218,193 @@ TEST(MetaServiceTest, RowsetVisibleTimeTest) {
                   << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
     }
 }
+
+// Test the workflow: prepare txn -> prepare rowsets -> force recycle rowsets -> commit rowsets -> commit txn
+TEST(MetaServiceTest, RecycleRowsets_PrepareCommitWorkflow) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+
+    int64_t db_id = 8888;
+    int64_t table_id = 9001;
+    int64_t index_id = 9002;
+    int64_t partition_id = 9003;
+    int64_t tablet_id = 9004;
+    std::string mock_instance = "test_instance";
+    std::string resource_id = "test_resource_id";
+
+    // Create mock accessor for testing
+    auto mock_accessor = std::make_shared<MockAccessor>();
+
+    // Create tablet
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id,
+                                                     partition_id, tablet_id));
+
+    int64_t txn_id = 0;
+    std::string label = "test_recycle_workflow_label";
+
+    // Step 1: Prepare (begin) txn
+    {
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        ASSERT_GT(txn_id, 0);
+        std::cout << "Step 1: Transaction prepared with txn_id=" << txn_id << "\n";
+    }
+
+    // Step 2: Prepare rowsets
+    doris::RowsetMetaCloudPB rowset;
+    std::string rowset_id_v2;
+    {
+        rowset = create_rowset(txn_id, tablet_id, partition_id, -1, 100);
+        rowset.set_resource_id(resource_id);
+        rowset.set_num_segments(2); // Create 2 segments
+        rowset_id_v2 = rowset.rowset_id_v2();
+
+        CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        std::cout << "Step 2: Rowset prepared for txn_id=" << txn_id << ", tablet_id=" << tablet_id
+                  << ", rowset_id_v2=" << rowset_id_v2 << "\n";
+    }
+
+    // Between Step 2 and Step 3: Write rowset data using mock accessor
+    {
+        std::cout << "Writing rowset data files to mock accessor...\n";
+
+        // Write segment files for the rowset (using format: data/{tablet_id}/{rowset_id_v2}_{segment}.dat)
+        for (int i = 0; i < rowset.num_segments(); ++i) {
+            std::string segment_file = fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id_v2, i);
+            ASSERT_EQ(mock_accessor->put_file(segment_file, "segment_data"), 0);
+            std::cout << "  Created segment file: " << segment_file << "\n";
+        }
+
+        // Verify files were written
+        std::unique_ptr<ListIterator> list_iter;
+        std::string tablet_prefix = fmt::format("data/{}/", tablet_id);
+        ASSERT_EQ(mock_accessor->list_directory(tablet_prefix, &list_iter), 0);
+
+        int file_count = 0;
+        while (list_iter->has_next()) {
+            auto file_meta = list_iter->next();
+            if (file_meta.has_value()) {
+                std::cout << "  Found file: " << file_meta->path << "\n";
+                file_count++;
+            }
+        }
+        ASSERT_EQ(file_count, rowset.num_segments())
+                << "Should have " << rowset.num_segments() << " segment files";
+        std::cout << "Verified: " << file_count << " data files exist in mock accessor\n";
+    }
+
+    // Step 3: Recycle rowsets with force_immediate_recycle enabled
+    {
+        config::force_immediate_recycle = true;
+
+        std::cout << "Step 3: Calling recycle with force_immediate_recycle=true\n";
+
+        // Get instance info
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(mock_instance);
+
+        // Create recycler thread pool group (needed for InstanceRecycler)
+        auto s3_producer_pool = std::make_shared<SimpleThreadPool>(1);
+        s3_producer_pool->start();
+        auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(1);
+        recycle_tablet_pool->start();
+        auto group_recycle_function_pool = std::make_shared<SimpleThreadPool>(1);
+        group_recycle_function_pool->start();
+        RecyclerThreadPoolGroup thread_group(std::move(s3_producer_pool),
+                                             std::move(recycle_tablet_pool),
+                                             std::move(group_recycle_function_pool));
+
+        auto txn_lazy_committer = std::make_shared<TxnLazyCommitter>(txn_kv);
+        auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance_info, thread_group,
+                                                           txn_lazy_committer);
+
+        // Add the mock accessor to recycler
+        recycler->TEST_add_accessor(resource_id, mock_accessor);
+
+        // Recycle rowsets - at this stage, the rowset is still temporary and should not be recycled
+        int ret = recycler->recycle_rowsets();
+        std::cout << "Recycle rowsets returned: " << ret << "\n";
+
+        config::force_immediate_recycle = false;
+    }
+
+    // Verify data files still exist after Step 3 (should NOT be deleted)
+    {
+        std::cout << "Verifying data files still exist after recycle...\n";
+
+        std::unique_ptr<ListIterator> list_iter;
+        std::string tablet_prefix = fmt::format("data/{}/", tablet_id);
+        ASSERT_EQ(mock_accessor->list_directory(tablet_prefix, &list_iter), 0);
+
+        int file_count = 0;
+        while (list_iter->has_next()) {
+            auto file_meta = list_iter->next();
+            if (file_meta.has_value()) {
+                std::cout << "  Still exists: " << file_meta->path << "\n";
+                file_count++;
+            }
+        }
+        ASSERT_EQ(file_count, rowset.num_segments())
+                << "Data files should NOT be deleted (txn not committed yet)";
+        std::cout << "Verified: All " << file_count << " data files still exist (correct!)\n";
+    }
+
+    // Step 4: Commit rowsets
+    {
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        std::cout << "Step 4: Rowset committed for txn_id=" << txn_id << "\n";
+    }
+
+    // Step 5: Commit txn
+    {
+        ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service.get(), db_id, txn_id, label));
+        std::cout << "Step 5: Transaction committed, txn_id=" << txn_id << "\n";
+    }
+
+    // Verify the rowset is committed successfully
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check that the rowset meta exists (version 2, since version 1 is the initial rowset)
+        std::string rowset_key = meta_rowset_key({mock_instance, tablet_id, 2});
+        std::string rowset_val;
+        ASSERT_EQ(txn->get(rowset_key, &rowset_val), TxnErrorCode::TXN_OK)
+                << "Committed rowset should exist";
+        std::cout << "Verified: Committed rowset exists at version 2\n";
+
+        // Check that the tmp rowset is cleaned up
+        std::string tmp_rowset_key = meta_rowset_tmp_key({mock_instance, txn_id, tablet_id});
+        std::string tmp_rowset_val;
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Tmp rowset should be cleaned up after commit";
+        std::cout << "Verified: Tmp rowset cleaned up after commit\n";
+    }
+
+    // Verify committed rowset data files still exist (should be kept)
+    {
+        std::cout << "Verifying data files exist after commit...\n";
+
+        std::unique_ptr<ListIterator> list_iter;
+        std::string tablet_prefix = fmt::format("data/{}/", tablet_id);
+        ASSERT_EQ(mock_accessor->list_directory(tablet_prefix, &list_iter), 0);
+
+        int file_count = 0;
+        while (list_iter->has_next()) {
+            auto file_meta = list_iter->next();
+            if (file_meta.has_value()) {
+                std::cout << "  Committed data: " << file_meta->path << "\n";
+                file_count++;
+            }
+        }
+        ASSERT_EQ(file_count, rowset.num_segments()) << "Committed data files should still exist";
+        std::cout << "Verified: All " << file_count << " committed data files exist\n";
+    }
+
+    std::cout << "Test completed successfully!\n";
+}
+
 } // namespace doris::cloud

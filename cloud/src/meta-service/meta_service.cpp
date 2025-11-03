@@ -2305,6 +2305,170 @@ static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn
 }
 
 /**
+ * Check if the rowset job state is valid and remove invalid sub_txn_ids
+ * 
+ * @param code Result code indicating the operation status
+ * @param msg Error description for failed operations
+ * @param txn Pointer to the transaction object
+ * @param instance_id Identifier for the specific instance
+ * @param tablet_id The tablet ID
+ * @param rowset_meta The rowset meta information
+ * @param job_id The job ID to check
+ * @return true if check passed, false otherwise
+ */
+static bool check_prepare_rowset_job_state(MetaServiceCode& code, std::string& msg,
+                                           Transaction* txn, const std::string& instance_id,
+                                           int64_t tablet_id,
+                                           const doris::RowsetMetaCloudPB& rowset_meta,
+                                           const std::string& job_id) {
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << "check rowset job state failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+        return false;
+    }
+
+    std::string txn_info = txn_info_key({instance_id, tablet_idx.db_id(), stol(job_id)});
+    std::string txn_info_val;
+    TxnInfoPB txn_info_pb;
+
+    TxnErrorCode err = txn->get(txn_info, &txn_info_val);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (!txn_info_pb.ParseFromString(txn_info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed txn info value. key={}", hex(txn_info));
+            LOG(WARNING) << "check rowset job state failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return false;
+        }
+
+        if (txn_info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED) {
+            auto* sub_txn_ids = txn_info_pb.mutable_sub_txn_ids();
+            auto it = std::ranges::find(sub_txn_ids->begin(), sub_txn_ids->end(),
+                                        rowset_meta.txn_id());
+
+            if (it != sub_txn_ids->end()) {
+                // The prepare rowset request has been processed.
+                code = MetaServiceCode::ALREADY_EXISTED;
+                msg = "rowset already prepared";
+                LOG(INFO) << "check rowset job state: rowset already existed, txn_id="
+                          << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                          << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                          << ", rowset_state=" << rowset_meta.rowset_state();
+                return false;
+            }
+
+            txn_info_pb.add_sub_txn_ids(rowset_meta.txn_id());
+            txn->put(txn_info, txn_info_pb.SerializeAsString());
+            LOG(INFO) << "check rowset job state success, txn_id=" << rowset_meta.txn_id()
+                      << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                      << ", rowset_state=" << rowset_meta.rowset_state();
+        }
+    } else {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check txn info existence, err={}", err);
+        LOG(WARNING) << "check rowset job state failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Check if the rowset job state is valid and update sub_txn_ids when committing rowset
+ * 
+ * @param code Result code indicating the operation status
+ * @param msg Error description for failed operations
+ * @param txn Pointer to the transaction object
+ * @param instance_id Identifier for the specific instance
+ * @param tablet_id The tablet ID
+ * @param rowset_meta The rowset meta information
+ * @param job_id The job ID to check
+ * @return true if check passed, false otherwise
+ */
+static bool check_commit_rowset_job_state(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                                          const std::string& instance_id, int64_t tablet_id,
+                                          const doris::RowsetMetaCloudPB& rowset_meta,
+                                          const std::string& job_id) {
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+        return false;
+    }
+
+    std::string txn_info = txn_info_key({instance_id, tablet_idx.db_id(), stol(job_id)});
+    std::string txn_info_val;
+    TxnInfoPB txn_info_pb;
+
+    TxnErrorCode err = txn->get(txn_info, &txn_info_val);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (!txn_info_pb.ParseFromString(txn_info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed txn info value. key={}", hex(txn_info));
+            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return false;
+        }
+
+        if (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_PREPARED) {
+            std::stringstream ss;
+            ss << " txn is not in PREPARED state,"
+               << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+               << " job id=" << job_id << " rowset_id=" << rowset_meta.rowset_id_v2()
+               << " txn_status=" << txn_info_pb.status();
+            msg = ss.str();
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return false;
+        }
+
+        auto* sub_txn_ids = txn_info_pb.mutable_sub_txn_ids();
+        auto it = std::ranges::find(sub_txn_ids->begin(), sub_txn_ids->end(), rowset_meta.txn_id());
+        if (it != sub_txn_ids->end()) {
+            sub_txn_ids->erase(it);
+        }
+
+        if (sub_txn_ids->empty()) {
+            // all sub txns are committed, set txn status to COMMITTED
+            txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+            auto now_time = system_clock::now();
+            uint64_t commit_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
+
+            txn_info_pb.set_finish_time(commit_time);
+            txn->put(txn_info, txn_info_pb.SerializeAsString());
+        }
+
+        txn->put(txn_info, txn_info_pb.SerializeAsString());
+        LOG(INFO) << "commit rowset success, txn_id=" << rowset_meta.txn_id()
+                  << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                  << ", rowset_state=" << rowset_meta.rowset_state();
+    } else {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check txn info existence, err={}", err);
+        LOG(WARNING) << "check rowset job state failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * 1. Check and confirm tmp rowset kv does not exist
  * 2. Construct recycle rowset kv which contains object path
  * 3. Put recycle rowset kv
@@ -2426,6 +2590,16 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
+        return;
+    }
+
+    if (config::enable_rowset_state_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty() &&
+        !check_prepare_rowset_job_state(code, msg, txn.get(), instance_id, tablet_id, rowset_meta,
+                                        request->tablet_job_id())) {
+        LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
+                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
         return;
     }
 
@@ -2644,6 +2818,17 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
                   << "key=" << hex(rowset_ref_count_key);
         txn->atomic_add(rowset_ref_count_key, 1);
+    }
+
+    if (config::enable_rowset_state_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_commit_rowset_job_state(code, msg, txn.get(), instance_id, tablet_id,
+                                           rowset_meta, request->tablet_job_id())) {
+            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return;
+        }
     }
 
     auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});

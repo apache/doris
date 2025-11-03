@@ -910,6 +910,87 @@ int InstanceRecycler::recycle_deleted_instance() {
     return ret;
 }
 
+/**
+ * Check if the job state is finished for rowset state check
+ * 
+ * @param txn_kv Pointer to the transaction kv store
+ * @param instance_id Instance identifier
+ * @param tablet_id The tablet ID
+ * @param rowset_meta The rowset meta information
+ * @return true if job is finished or not found, false if job is still running
+ */
+bool is_job_state_finished(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                           int64_t tablet_id, const doris::RowsetMetaCloudPB* rowset_meta) {
+    if (!config::enable_rowset_state_check || !rowset_meta->has_job_id() ||
+        rowset_meta->job_id() == 0) {
+        return true; // No job state check needed
+    }
+
+    LOG(INFO) << "begin to check job state for rowset state check, instance_id=" << instance_id
+              << " tablet_id=" << tablet_id << " rowset_id=" << rowset_meta->rowset_id_v2()
+              << " version=[" << rowset_meta->start_version() << '-' << rowset_meta->end_version()
+              << "] txn_id=" << rowset_meta->txn_id()
+              << " creation_time=" << rowset_meta->creation_time()
+              << " job_id=" << rowset_meta->job_id();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn, instance_id=" << instance_id;
+        return false;
+    }
+
+    int64_t job_id = rowset_meta->job_id();
+    TabletIndexPB tablet_index_pb;
+    if (get_tablet_idx(txn_kv.get(), instance_id, tablet_id, tablet_index_pb) != 0) {
+        LOG_WARNING("failed to get tablet index pb for rowset state check")
+                .tag("instance_id", instance_id)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_meta->rowset_id_v2())
+                .tag("job_id", job_id);
+        return false;
+    }
+
+    std::string txn_info = txn_info_key({instance_id, tablet_index_pb.db_id(), job_id});
+    std::string txn_info_val;
+    err = txn->get(txn_info, &txn_info_val);
+
+    if (err == TxnErrorCode::TXN_OK) {
+        TxnInfoPB txn_info_pb;
+        if (!txn_info_pb.ParseFromString(txn_info_val)) {
+            LOG_WARNING("failed to parse txn info pb for rowset state check")
+                    .tag("instance_id", instance_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_meta->rowset_id_v2())
+                    .tag("job_id", job_id);
+            return false;
+        }
+
+        if (txn_info_pb.has_status() && (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_VISIBLE ||
+                                         !txn_info_pb.sub_txn_ids().empty())) {
+            LOG(INFO) << "txn is not committed, skip recycle rowset, instance_id=" << instance_id
+                      << " tablet_id=" << tablet_id << " rowset_id=" << rowset_meta->rowset_id_v2()
+                      << " version=[" << rowset_meta->start_version() << '-'
+                      << rowset_meta->end_version() << "] txn_id=" << rowset_meta->txn_id()
+                      << " creation_time=" << rowset_meta->creation_time() << " job_id=" << job_id
+                      << " txn_state=" << txn_info_pb.status();
+            return false;
+        }
+        return true; // Job is finished (VISIBLE and no sub_txn_ids)
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG_WARNING("failed to get txn info for rowset state check")
+                .tag("instance_id", instance_id)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_meta->rowset_id_v2())
+                .tag("job_id", job_id)
+                .tag("err", err);
+        return false;
+    }
+
+    // TXN_KEY_NOT_FOUND means job has been recycled or finished
+    return true;
+}
+
 bool is_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                      int64_t txn_id) {
     std::unique_ptr<Transaction> txn;
@@ -3074,6 +3155,7 @@ int InstanceRecycler::recycle_rowsets() {
 
         int64_t current_time = ::time(nullptr);
         int64_t expiration = calculate_rowset_expired_time(instance_id_, rowset, &earlest_ts);
+        auto* rowset_meta = rowset.mutable_rowset_meta();
 
         VLOG_DEBUG << "recycle rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
                    << " num_expired=" << num_expired << " expiration=" << expiration
@@ -3081,6 +3163,33 @@ int InstanceRecycler::recycle_rowsets() {
         if (current_time < expiration) { // not expired
             return 0;
         }
+
+        DCHECK_GT(rowset_meta->txn_id(), 0) << "txn_id=" << rowset_meta->txn_id()
+                                            << " rowset=" << rowset_meta->ShortDebugString();
+        if (!is_txn_finished(txn_kv_, instance_id_, rowset_meta->txn_id())) {
+            LOG(INFO) << "txn is not finished, skip recycle rowset, instance_id=" << instance_id_
+                      << " tablet_id=" << rowset_meta->tablet_id()
+                      << " rowset_id=" << rowset_meta->rowset_id_v2() << " version=["
+                      << rowset_meta->start_version() << '-' << rowset_meta->end_version()
+                      << "] txn_id=" << rowset_meta->txn_id()
+                      << " creation_time=" << rowset_meta->creation_time()
+                      << " expiration=" << expiration
+                      << " txn_expiration=" << rowset_meta->txn_expiration();
+            return 0;
+        }
+
+        if (!is_job_state_finished(txn_kv_, instance_id_, rowset_meta->tablet_id(), rowset_meta)) {
+            LOG(INFO) << "releated job is not finished, skip recycle rowset, instance_id="
+                      << instance_id_ << " tablet_id=" << rowset_meta->tablet_id()
+                      << " rowset_id=" << rowset_meta->rowset_id_v2() << " version=["
+                      << rowset_meta->start_version() << '-' << rowset_meta->end_version()
+                      << "] txn_id=" << rowset_meta->txn_id()
+                      << " creation_time=" << rowset_meta->creation_time()
+                      << " expiration=" << expiration
+                      << " txn_expiration=" << rowset_meta->txn_expiration();
+            return 0;
+        }
+
         ++num_expired;
         expired_rowset_size += v.size();
         if (!rowset.has_type()) {                         // old version `RecycleRowsetPB`
@@ -3120,7 +3229,6 @@ int InstanceRecycler::recycle_rowsets() {
             return 0;
         }
         // TODO(plat1ko): check rowset not referenced
-        auto rowset_meta = rowset.mutable_rowset_meta();
         if (!rowset_meta->has_resource_id()) [[unlikely]] { // impossible
             if (rowset.type() != RecycleRowsetPB::PREPARE && rowset_meta->num_segments() == 0) {
                 LOG_INFO("recycle rowset that has empty resource id");
@@ -3780,6 +3888,17 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 << "txn_id=" << rowset.txn_id() << " rowset=" << rowset.ShortDebugString();
         if (!is_txn_finished(txn_kv_, instance_id_, rowset.txn_id())) {
             LOG(INFO) << "txn is not finished, skip recycle tmp rowset, instance_id="
+                      << instance_id_ << " tablet_id=" << rowset.tablet_id()
+                      << " rowset_id=" << rowset.rowset_id_v2() << " version=["
+                      << rowset.start_version() << '-' << rowset.end_version()
+                      << "] txn_id=" << rowset.txn_id()
+                      << " creation_time=" << rowset.creation_time() << " expiration=" << expiration
+                      << " txn_expiration=" << rowset.txn_expiration();
+            return 0;
+        }
+
+        if (!is_job_state_finished(txn_kv_, instance_id_, rowset.tablet_id(), &rowset)) {
+            LOG(INFO) << "releated job is not finished, skip recycle rowset, instance_id="
                       << instance_id_ << " tablet_id=" << rowset.tablet_id()
                       << " rowset_id=" << rowset.rowset_id_v2() << " version=["
                       << rowset.start_version() << '-' << rowset.end_version()
