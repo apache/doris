@@ -456,7 +456,8 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
 }
 
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
-    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+    _is_merge_iterator = _rs_reader->is_merge_iterator();
+    _get_data_by_ref = get_data_by_ref && _is_merge_iterator;
     if (!_get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
@@ -478,7 +479,8 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
 // }
 // so first child load first row and other child row_pos = -1
 void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
-    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+    _is_merge_iterator = _rs_reader->is_merge_iterator();
+    _get_data_by_ref = get_data_by_ref && _is_merge_iterator;
 }
 
 Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
@@ -538,7 +540,7 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _current++;
     } else {
         _ref.row_pos++;
-        if (_ref.row_pos < _block->rows()) {
+        if (_is_merge_iterator && _ref.row_pos < _block->rows()) {
             _ref.is_same = _row_is_same[_ref.row_pos];
         }
     }

@@ -252,10 +252,14 @@ private:
             if (_get_data_by_ref) {
                 return _rs_reader->next_batch(&_block_view);
             } else {
-                _row_is_same.clear();
-                BlockWithSameBit block_with_same_bit {.block = _block.get(),
-                                                      .same_bit = _row_is_same};
-                return _rs_reader->next_batch(&block_with_same_bit);
+                if (_is_merge_iterator) {
+                    _row_is_same.clear();
+                    BlockWithSameBit block_with_same_bit {.block = _block.get(),
+                                                          .same_bit = _row_is_same};
+                    return _rs_reader->next_batch(&block_with_same_bit);
+                } else {
+                    return _rs_reader->next_batch(_block.get());
+                }
             }
         }
 
@@ -267,6 +271,7 @@ private:
         BlockView _block_view;
         std::vector<RowLocation> _block_row_locations;
         std::vector<bool> _row_is_same;
+        bool _is_merge_iterator = false;
         bool _get_data_by_ref = false;
     };
 

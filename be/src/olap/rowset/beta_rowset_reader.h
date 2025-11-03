@@ -60,7 +60,11 @@ public:
     Status next_batch(BlockWithSameBit* block_with_same_bit) override {
         return _next_batch(block_with_same_bit);
     }
-    bool support_return_data_by_ref() override { return _is_merge_iterator(); }
+
+    bool is_merge_iterator() const override {
+        return _read_context->need_ordered_result &&
+               _rowset->rowset_meta()->is_segments_overlapping() && _get_segment_num() > 1;
+    }
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
@@ -127,10 +131,6 @@ private:
     [[nodiscard]] Status _init_iterator_once();
     [[nodiscard]] Status _init_iterator();
     bool _should_push_down_value_predicates() const;
-    bool _is_merge_iterator() const {
-        return _read_context->need_ordered_result &&
-               _rowset->rowset_meta()->is_segments_overlapping() && _get_segment_num() > 1;
-    }
 
     int64_t _get_segment_num() const {
         auto [seg_start, seg_end] = _segment_offsets;

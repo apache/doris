@@ -318,7 +318,7 @@ Status BetaRowsetReader::_init_iterator() {
         _read_context->merged_rows = &_merged_rows;
     }
     // merge or union segment iterator
-    if (_is_merge_iterator()) {
+    if (is_merge_iterator()) {
         auto sequence_loc = -1;
         if (_read_context->sequence_id_idx != -1) {
             for (int loc = 0; loc < _read_context->return_columns->size(); loc++) {
