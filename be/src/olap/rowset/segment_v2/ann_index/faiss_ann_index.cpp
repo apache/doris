@@ -226,19 +226,10 @@ doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
 
-    // For PQ index, check if we have enough training data
-    if (_params.quantizer == FaissBuildParameter::Quantizer::PQ) {
-        int k = 1 << _params.pq_nbits;
-        if (n < k) {
-            // Not enough training data
-            LOG(WARNING) << "Not enough training data for PQ index: " << n << " < " << k;
-            return doris::Status::RuntimeError("Not enough training data for PQ index");
-        }
-    }
-
     ScopedThreadName scoped_name("faiss_train_idx");
     // Reserve OpenMP threads globally so concurrent builds stay under omp_threads_limit.
     ScopedOmpThreadBudget thread_budget;
+
     try {
         _index->train(n, vec);
     } catch (faiss::FaissException& e) {
@@ -259,23 +250,16 @@ doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
 doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
+
     ScopedThreadName scoped_name("faiss_build_idx");
+    // Apply the same thread budget when adding vectors to limit concurrency.
+    ScopedOmpThreadBudget thread_budget;
 
     try {
-        // build index for every 1M rows, so that we can adjust thread usage dynamically.
-        for (vectorized::Int64 i = 0; i < n; i += 1'000'000) {
-            // Apply the same thread budget when adding vectors to limit concurrency.
-            ScopedOmpThreadBudget thread_budget;
-            DorisMetrics::instance()->ann_index_construction->increment(1);
-#ifdef __APPLE__
-            vectorized::Int64 chunk_size = std::min(1'000'000LL, n - i);
-#else
-            vectorized::Int64 chunk_size = std::min(1'000'000L, n - i);
-#endif
-            _index->add(chunk_size, vec + i * _dimension);
-            DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(chunk_size);
-            DorisMetrics::instance()->ann_index_construction->increment(-1);
-        }
+        DorisMetrics::instance()->ann_index_construction->increment(1);
+        _index->add(n, vec);
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(n);
+        DorisMetrics::instance()->ann_index_construction->increment(-1);
     } catch (faiss::FaissException& e) {
         return doris::Status::RuntimeError("exception occurred during adding: {}", e.what());
     }

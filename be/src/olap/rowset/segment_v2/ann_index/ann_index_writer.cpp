@@ -104,10 +104,28 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     }
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
+
+    // Add to buffer
+    _ann_vec.insert(_ann_vec.end(), p, p + num_rows * dim);
+    DCHECK(_ann_vec.size() % dim == 0);
+
     // Train the index if needed
     // Faiss index will do nothing if index does not need train.
-    RETURN_IF_ERROR(_vector_index->train(num_rows, p));
-    RETURN_IF_ERROR(_vector_index->add(num_rows, p));
+    vectorized::Int64 chunk_size = 1'000'000;
+    vectorized::Int64 i = 0;
+
+    // train/add chunk_size rows once. if the remaining rows are less than chunk_size, nothing will happen.
+    // In finish(), all remaining data will be trained and added.
+    for (; i + chunk_size < _ann_vec.size() / dim; i += chunk_size) {
+        RETURN_IF_ERROR(_vector_index->train(chunk_size, _ann_vec.data() + i * dim));
+        RETURN_IF_ERROR(_vector_index->add(chunk_size, _ann_vec.data() + i * dim));
+    }
+
+    if (i > 0) {
+        vectorized::Int64 offset = i * dim;
+        std::copy(_ann_vec.begin() + offset, _ann_vec.end(), _ann_vec.begin());
+        _ann_vec.resize(_ann_vec.size() - offset);
+    }
 
     return Status::OK();
 }
@@ -130,6 +148,14 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
+    DCHECK(_ann_vec.size() % _vector_index->get_dimension() == 0);
+
+    // train/add the remaining data
+    vectorized::Int64 num_rows = _ann_vec.size() / _vector_index->get_dimension();
+    RETURN_IF_ERROR(_vector_index->train(num_rows, _ann_vec.data()));
+    RETURN_IF_ERROR(_vector_index->add(num_rows, _ann_vec.data()));
+    _ann_vec.clear();
+
     return _vector_index->save(_dir.get());
 }
 #include "common/compile_check_end.h"
