@@ -27,26 +27,23 @@ suite("test_sc_stuck_when_be_down", "docker") {
         """
         sql """ INSERT INTO ${tblName} SELECT number, number, number from numbers("number" = "1024") """
 
-        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
+        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob._do_process_alter_tablet.sleep")
         try {
             sql """ ALTER TABLE ${tblName} MODIFY COLUMN v0 VARCHAR(100) """
             sleep(3000)
             cluster.stopBackends(1)
-            GetDebugPoint().clearDebugPointsForAllBEs()
             waitForSchemaChangeDone {
                 sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tblName}' ORDER BY createtime DESC LIMIT 1 """
                 time 600
             }
         } finally {
-            GetDebugPoint().clearDebugPointsForAllBEs()
         }
 
-        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
+        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.sleep")
         try {
             sql """ ALTER TABLE ${tblName} MODIFY COLUMN v1 VARCHAR(100) """
             sleep(3000)
             cluster.stopBackends(1, 2)
-            GetDebugPoint().clearDebugPointsForAllBEs()
             waitForSchemaChangeDone {
                 sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tblName}' ORDER BY createtime DESC LIMIT 1 """
                 time 600
@@ -55,7 +52,6 @@ suite("test_sc_stuck_when_be_down", "docker") {
         } catch (Exception ignore) {
             // do nothing
         } finally {
-            GetDebugPoint().clearDebugPointsForAllBEs()
         }
     }
 }
