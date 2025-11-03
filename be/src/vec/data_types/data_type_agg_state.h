@@ -30,6 +30,7 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
+#include "vec/data_types/serde/data_type_agg_state_serde.h"
 
 namespace doris::vectorized {
 
@@ -110,7 +111,9 @@ public:
     }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return _agg_serialized_type->get_serde(nesting_level);
+        // 返回自定义的AggState serde，用于在CSV导出时进行base64编码
+        DataTypeSerDeSPtr nested_serde = _agg_serialized_type->get_serde(nesting_level);
+        return std::make_shared<DataTypeAggStateSerde>(nested_serde, nesting_level);
     };
 
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
