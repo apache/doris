@@ -25,6 +25,9 @@ import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.CompoundValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNotNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.IsNullValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.NotDiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
@@ -69,8 +72,20 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     @Test
     public void testRangeInference() {
         ValueDesc valueDesc = getValueDesc("TA IS NULL");
+        Assertions.assertInstanceOf(IsNullValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("NULL");
         Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
-        Assertions.assertEquals("TA IS NULL", valueDesc.getReference().toSql());
+        Assertions.assertEquals("NULL", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA IS NOT NULL");
+        Assertions.assertInstanceOf(IsNotNullValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA != 10");
+        Assertions.assertInstanceOf(NotDiscreteValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
 
         valueDesc = getValueDesc("TA IS NULL AND TB IS NULL AND NULL");
         Assertions.assertInstanceOf(CompoundValue.class, valueDesc);

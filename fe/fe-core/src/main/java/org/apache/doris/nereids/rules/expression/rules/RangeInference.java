@@ -203,9 +203,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             ValueDescCollector collector = referenceValues.getValue();
             ValueDesc mergedValue;
             if (isAnd) {
-                mergedValue = intersectForSameReference(context, reference, collector);
+                mergedValue = intersect(context, reference, collector);
             } else {
-                mergedValue = unionForSameReference(context, reference, collector);
+                mergedValue = union(context, reference, collector);
             }
             valuePerRefs.add(mergedValue);
         }
@@ -214,11 +214,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return valuePerRefs.get(0);
         }
 
-        return new CompoundValue(context, valuePerRefs, isAnd);
+        Expression reference = SimplifyRange.INSTANCE.getCompoundExpression(context, valuePerRefs, isAnd);
+        return new CompoundValue(context, reference, valuePerRefs, isAnd);
     }
 
-    private ValueDesc intersectForSameReference(ExpressionRewriteContext context, Expression reference,
-            ValueDescCollector collector) {
+    private ValueDesc intersect(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
         if (collector.hasEmptyValue) {
             return new EmptyValue(context, reference);
         }
@@ -308,12 +308,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         } else if (resultValues.size() == 1) {
             return resultValues.get(0);
         } else {
-            return new CompoundValue(context, resultValues, true);
+            return new CompoundValue(context, reference, resultValues, true);
         }
     }
 
-    private ValueDesc unionForSameReference(ExpressionRewriteContext context, Expression reference,
-            ValueDescCollector collector) {
+    private ValueDesc union(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
         ImmutableList.Builder<ValueDesc> result = ImmutableList.builderWithExpectedSize(collector.size());
         // Since in-predicate's options is a list, the discrete values need to kept options' order.
         // If not keep options' order, the result in-predicate's option list will not equals to
@@ -383,7 +382,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         } else if (resultValues.size() == 1) {
             return resultValues.get(0);
         } else {
-            return new CompoundValue(context, resultValues, false);
+            return new CompoundValue(context, reference, resultValues, false);
         }
     }
 
@@ -658,36 +657,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         private final List<ValueDesc> sourceValues;
         private final boolean isAnd;
 
-        private CompoundValue(ExpressionRewriteContext context, List<ValueDesc> sourceValues, boolean isAnd) {
-            super(context, getReference(context, sourceValues, isAnd));
+        private CompoundValue(ExpressionRewriteContext context, Expression reference,
+                List<ValueDesc> sourceValues, boolean isAnd) {
+            super(context, reference);
             this.sourceValues = ImmutableList.copyOf(sourceValues);
             this.isAnd = isAnd;
-        }
-
-        // reference is used to simplify multiple ValueDescs.
-        // when ValueDesc A op ValueDesc B, only A and B's references equals,
-        // can reduce them, like A op B = A.
-        // If A and B's reference not equal, A op B will always get CompoundValue(A op B).
-        //
-        // for example:
-        // 1. RangeValue(a < 10, reference=a) union RangeValue(a > 20, reference=a)
-        //    = UnknownValue1(a < 10 or a > 20, reference=a)
-        // 2. RangeValue(a < 10, reference=a) union RangeValue(b > 20, reference=b)
-        //    = UnknownValue2(a < 10 or b > 20, reference=(a < 10 or b > 20))
-        // then given EmptyValue(, reference=a) E,
-        // 1. since E and UnknownValue1's reference equals, then
-        //    E union UnknownValue1 = E.union(UnknownValue1) = UnknownValue1,
-        // 2. since E and UnknownValue2's reference not equals, then
-        //    E union UnknownValue2 = UnknownValue3(E union UnknownValue2, reference=E union UnknownValue2)
-        private static Expression getReference(ExpressionRewriteContext context,
-                List<ValueDesc> sourceValues, boolean isAnd) {
-            Expression reference = sourceValues.get(0).reference;
-            for (int i = 1; i < sourceValues.size(); i++) {
-                if (!reference.equals(sourceValues.get(i).reference)) {
-                    return SimplifyRange.INSTANCE.getCompoundExpression(context, sourceValues, isAnd);
-                }
-            }
-            return reference;
         }
 
         public List<ValueDesc> getSourceValues() {
