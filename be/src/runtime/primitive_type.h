@@ -181,6 +181,10 @@ constexpr bool is_time_type(PrimitiveType type) {
     return type == TYPE_TIME || type == TYPE_TIMEV2;
 }
 
+constexpr bool is_timestamptz_type(PrimitiveType type) {
+    return type == TYPE_TIMESTAMPTZ;
+}
+
 constexpr bool is_date_or_datetime(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE;
 }
