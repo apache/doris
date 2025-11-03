@@ -17,6 +17,8 @@
 
 #include "vec/data_types/serde/data_type_agg_state_serde.h"
 
+#include <cmath>
+
 #include "util/url_coding.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -27,10 +29,13 @@ namespace doris::vectorized {
 
 void DataTypeAggStateSerde::_encode_to_base64(const char* data, size_t size,
                                               BufferWritable& bw) const {
-    // 使用util中的base64_encode函数进行编码
-    // base64_encode函数已经处理了空字符串的情况（会编码为空字符串）
-    std::string base64_encoded;
-    base64_encode(std::string(data, size), &base64_encoded);
+    // 使用util中的base64_encode函数进行编码，避免创建临时string对象
+    // base64编码后的长度：4 * ceil(input_length / 3)
+    size_t encoded_size = (size_t)(4.0 * std::ceil(size / 3.0));
+    std::string base64_encoded(encoded_size, '\0');
+    size_t actual_len = base64_encode(reinterpret_cast<const unsigned char*>(data), size,
+                                      reinterpret_cast<unsigned char*>(base64_encoded.data()));
+    base64_encoded.resize(actual_len);
 
     // 将base64编码后的字符串写入buffer
     bw.write(base64_encoded.data(), base64_encoded.size());
