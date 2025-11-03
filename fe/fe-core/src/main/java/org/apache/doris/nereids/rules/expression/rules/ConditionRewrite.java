@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -69,16 +70,17 @@ public abstract class ConditionRewrite extends DefaultExpressionRewriter<Boolean
 
     protected boolean rootIsCondition(ExpressionRewriteContext context) {
         Plan plan = context.plan.orElse(null);
-        if (plan instanceof LogicalFilter || plan instanceof LogicalHaving) {
-            return true;
-        } else if (plan instanceof LogicalJoin) {
+        if (!PlanUtils.hasFilterExpression(plan)) {
+            return false;
+        }
+        if (plan instanceof LogicalJoin) {
             // null aware join can not treat null as false
             ExpressionSource source = context.source.orElse(null);
             return ((LogicalJoin<?, ?>) plan).getJoinType() != JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                     && (source == ExpressionSource.JOIN_HASH_CONDITION
                             || source == ExpressionSource.JOIN_OTHER_CONDITION);
         } else {
-            return false;
+            return true;
         }
     }
 
