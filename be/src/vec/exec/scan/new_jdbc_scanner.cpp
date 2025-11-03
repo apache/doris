@@ -198,7 +198,7 @@ Status NewJdbcScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(Scanner::close(state));
+    RETURN_IF_ERROR(VScanner::close(state));
     RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();
 }
