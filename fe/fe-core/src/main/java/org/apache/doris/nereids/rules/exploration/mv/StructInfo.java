@@ -640,9 +640,13 @@ public class StructInfo {
         // aggregate is not supported now.
         private boolean windowUnderAggregate = false;
         private final Set<JoinType> supportJoinTypes;
+        // This indicates whether the operators above the join contain a generate operator.
         private boolean containsTopGenerate = false;
+        // This records the number of generate operators above the join.
         private int topGenerateNum = 0;
-        private boolean isGenerateNeighbourCatalog = true;
+        // Indicates if a Generate operator is under an Aggregate operator, because generate operator above
+        // aggregate is not supported now.
+        private boolean isGenerateUnderAggregate = true;
 
         public PlanCheckContext(Set<JoinType> supportJoinTypes) {
             this.supportJoinTypes = supportJoinTypes;
@@ -724,12 +728,12 @@ public class StructInfo {
             return topGenerateNum;
         }
 
-        public boolean isGenerateNeighbourCatalog() {
-            return isGenerateNeighbourCatalog;
+        public boolean isGenerateUnderAggregate() {
+            return isGenerateUnderAggregate;
         }
 
-        public void setGenerateNeighbourCatalog(boolean generateNeighbourCatalog) {
-            isGenerateNeighbourCatalog = generateNeighbourCatalog;
+        public void setGenerateUnderAggregate(boolean generateUnderAggregate) {
+            isGenerateUnderAggregate = generateUnderAggregate;
         }
 
         public static PlanCheckContext of(Set<JoinType> supportJoinTypes) {
@@ -760,8 +764,8 @@ public class StructInfo {
                 checkContext.plusTopAggregateNum();
             }
             if (checkContext.getTopGenerateNum() > 0) {
-                // Aggregate under generate is not supported now
-                checkContext.setGenerateNeighbourCatalog(false);
+                // generate operator is above the aggregate
+                checkContext.setGenerateUnderAggregate(false);
             }
             return visit(aggregate, checkContext);
         }

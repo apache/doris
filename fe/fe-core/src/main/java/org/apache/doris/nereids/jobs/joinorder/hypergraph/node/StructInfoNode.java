@@ -66,7 +66,7 @@ public class StructInfoNode extends AbstractNode {
         PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
         Boolean checkResult = plan.accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext);
         if (checkResult && !checkContext.isWindowUnderAggregate() && checkContext.getTopAggregateNum() <= 1
-                && checkContext.getTopWindowNum() <= 1 && checkContext.isGenerateNeighbourCatalog()) {
+                && checkContext.getTopWindowNum() <= 1 && checkContext.isGenerateUnderAggregate()) {
             expressions = collectExpressions(plan);
         } else {
             expressions = null;
