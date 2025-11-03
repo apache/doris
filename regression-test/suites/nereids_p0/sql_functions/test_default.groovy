@@ -53,6 +53,8 @@ suite("test_default") {
         ) PROPERTIES ( 'replication_num' = '1')
     """
     sql "INSERT INTO ${tableName} (c_bool) VALUES (0)"
+    sql "INSERT INTO ${tableName} (c_bool) VALUES (1)"
+    sql "INSERT INTO ${tableName} (c_bool) VALUES (0)"
 
     qt_scalar_defaults """
         SELECT
@@ -83,6 +85,38 @@ suite("test_default") {
         LIMIT 1
     """
 
+    def result = sql """
+        SELECT
+            DEFAULT(c_bool),
+            DEFAULT(c_tinyint),
+            DEFAULT(c_smallint),
+            DEFAULT(c_int),
+            DEFAULT(c_bigint),
+            DEFAULT(c_largeint),
+            DEFAULT(c_float),
+            DEFAULT(c_double),
+            DEFAULT(c_decimal),
+            DEFAULT(c_decimal_compact),
+            DEFAULT(c_char),
+            DEFAULT(c_varchar),
+            DEFAULT(c_string),
+            DEFAULT(c_datetime),
+            DEFAULT(c_date),
+            DEFAULT(c_json),
+            DEFAULT(c_ipv4),
+            DEFAULT(c_ipv6),
+            DEFAULT(c_array_int),
+            DEFAULT(c_array_string),
+            DEFAULT(c_map_str_int),
+            DEFAULT(c_struct),
+            DEFAULT(c_variant)
+        FROM ${tableName}
+    """
+    def firstRow = result[0]
+    for (int i = 1; i < result.size(); i++) {
+        assertTrue(result[i] == firstRow, "Row ${i} should equal first row")
+    }
+
     // Test 2: Aggregate type default value test
     sql "DROP TABLE IF EXISTS ${aggTableName}"
     sql """
@@ -94,6 +128,8 @@ suite("test_default") {
         PROPERTIES ( 'replication_num' = '1' )
     """
     sql "INSERT INTO ${aggTableName} (k_id) VALUES (1)"
+    sql "INSERT INTO ${aggTableName} (k_id) VALUES (2)"
+    sql "INSERT INTO ${aggTableName} (k_id) VALUES (3)"
 
     qt_agg_defaults """
         SELECT
@@ -102,6 +138,17 @@ suite("test_default") {
         FROM ${aggTableName}
         LIMIT 1
     """
+
+    def aggResult = sql """
+        SELECT
+            DEFAULT(bitmap_col),
+            DEFAULT(hll_col)
+        FROM ${aggTableName}
+    """
+    def aggFirstRow = aggResult[0]
+    for (int i = 1; i < aggResult.size(); i++) {
+        assertTrue(aggResult[i] == aggFirstRow, "Row ${i} should equal first row")
+    }
 
     // Test 3: Non-constant default value test (CURRENT_TIMESTAMP, CURRENT_DATE)
     sql "DROP TABLE IF EXISTS ${nonConstDefaultTableName}"
@@ -136,6 +183,8 @@ suite("test_default") {
         ) PROPERTIES ( 'replication_num' = '1' )
     """
     sql "INSERT INTO ${notNullTableName} (id, required_col) VALUES (1, 'test')"
+    sql "INSERT INTO ${notNullTableName} (id, required_col) VALUES (2, 'test2')"
+    sql "INSERT INTO ${notNullTableName} (id, required_col) VALUES (3, 'test3')"
 
     test {
         sql "SELECT DEFAULT(required_col) FROM ${notNullTableName} LIMIT 1"
@@ -145,6 +194,14 @@ suite("test_default") {
     qt_null_column_default """
         SELECT DEFAULT(optional_col) FROM ${notNullTableName} LIMIT 1
     """
+
+    def nullColResult = sql """
+        SELECT DEFAULT(optional_col) FROM ${notNullTableName}
+    """
+    def nullColFirstRow = nullColResult[0]
+    for (int i = 1; i < nullColResult.size(); i++) {
+        assertTrue(nullColResult[i] == nullColFirstRow, "Row ${i} should equal first row")
+    }
 
     // Test 5: Numeric type boundary default value test
     def boundaryTableName = "test_default_boundary"
@@ -169,6 +226,8 @@ suite("test_default") {
     """
 
     sql "INSERT INTO ${boundaryTableName} (c_tinyint_min) VALUES (-1)"
+    sql "INSERT INTO ${boundaryTableName} (c_tinyint_min) VALUES (0)"
+    sql "INSERT INTO ${boundaryTableName} (c_tinyint_min) VALUES (1)"
 
     qt_boundary_defaults """
         SELECT
@@ -189,6 +248,28 @@ suite("test_default") {
         LIMIT 1
     """
 
+    def boundaryResult = sql """
+        SELECT
+            DEFAULT(c_tinyint_min),
+            DEFAULT(c_tinyint_max),
+            DEFAULT(c_smallint_min),
+            DEFAULT(c_smallint_max),
+            DEFAULT(c_int_min),
+            DEFAULT(c_int_max),
+            DEFAULT(c_bigint_min),
+            DEFAULT(c_bigint_max),
+            DEFAULT(c_float_zero),
+            DEFAULT(c_double_zero),
+            DEFAULT(c_decimal_zero),
+            DEFAULT(c_empty_string),
+            DEFAULT(c_null_default)
+        FROM ${boundaryTableName}
+    """
+    def boundaryFirstRow = boundaryResult[0]
+    for (int i = 1; i < boundaryResult.size(); i++) {
+        assertTrue(boundaryResult[i] == boundaryFirstRow, "Row ${i} should equal first row")
+    }
+
     // Test 6: Complex type default value test
     def complexTableName = "test_default_complex"
     sql "DROP TABLE IF EXISTS ${complexTableName}"
@@ -206,6 +287,8 @@ suite("test_default") {
     """
 
     sql "INSERT INTO ${complexTableName} (id) VALUES (1)"
+    sql "INSERT INTO ${complexTableName} (id) VALUES (2)"
+    sql "INSERT INTO ${complexTableName} (id) VALUES (3)"
 
     qt_complex_defaults """
         SELECT
@@ -218,6 +301,21 @@ suite("test_default") {
         FROM ${complexTableName}
         LIMIT 1
     """
+
+    def complexResult = sql """
+        SELECT
+            DEFAULT(c_array_empty),
+            DEFAULT(c_array_null),
+            DEFAULT(c_map_null),
+            DEFAULT(c_struct_null),
+            DEFAULT(c_json_null),
+            DEFAULT(c_variant_null)
+        FROM ${complexTableName}
+    """
+    def complexFirstRow = complexResult[0]
+    for (int i = 1; i < complexResult.size(); i++) {
+        assertTrue(complexResult[i] == complexFirstRow, "Row ${i} should equal first row")
+    }
 
     // Test 7: Error case test - illegal parameter
     test {
@@ -247,6 +345,8 @@ suite("test_default") {
     """
 
     sql "INSERT INTO ${dateTimeTableName} (c_date_std) VALUES ('2024-01-01')"
+    sql "INSERT INTO ${dateTimeTableName} (c_date_std) VALUES ('2024-02-01')"
+    sql "INSERT INTO ${dateTimeTableName} (c_date_std) VALUES ('2024-03-01')"
 
     qt_datetime_format_defaults """
         SELECT
@@ -255,6 +355,17 @@ suite("test_default") {
         FROM ${dateTimeTableName}
         LIMIT 1
     """
+
+    def dateTimeResult = sql """
+        SELECT
+            DEFAULT(c_date_std),
+            DEFAULT(c_datetime_std)
+        FROM ${dateTimeTableName}
+    """
+    def dateTimeFirstRow = dateTimeResult[0]
+    for (int i = 1; i < dateTimeResult.size(); i++) {
+        assertTrue(dateTimeResult[i] == dateTimeFirstRow, "Row ${i} should equal first row")
+    }
 
     // Test 9: IP address type default value test
     def ipTableName = "test_default_ip"
@@ -269,6 +380,8 @@ suite("test_default") {
     """
 
     sql "INSERT INTO ${ipTableName} (c_ipv4_localhost) VALUES ('192.168.1.1')"
+    sql "INSERT INTO ${ipTableName} (c_ipv4_localhost) VALUES ('10.0.0.1')"
+    sql "INSERT INTO ${ipTableName} (c_ipv4_localhost) VALUES ('172.16.0.1')"
 
     qt_ip_defaults """
         SELECT
@@ -279,6 +392,19 @@ suite("test_default") {
         FROM ${ipTableName}
         LIMIT 1
     """
+
+    def ipResult = sql """
+        SELECT
+            DEFAULT(c_ipv4_localhost),
+            DEFAULT(c_ipv4_private),
+            DEFAULT(c_ipv6_localhost),
+            DEFAULT(c_ipv6_example)
+        FROM ${ipTableName}
+    """
+    def ipFirstRow = ipResult[0]
+    for (int i = 1; i < ipResult.size(); i++) {
+        assertTrue(ipResult[i] == ipFirstRow, "Row ${i} should equal first row")
+    }
 
     // Test 10: String type length test
     def stringTableName = "test_default_strings"
@@ -294,6 +420,8 @@ suite("test_default") {
     """
 
     sql "INSERT INTO ${stringTableName} (c_char_fixed) VALUES ('test')"
+    sql "INSERT INTO ${stringTableName} (c_char_fixed) VALUES ('hello')"
+    sql "INSERT INTO ${stringTableName} (c_char_fixed) VALUES ('world')"
 
     qt_string_defaults """
         SELECT
@@ -306,6 +434,20 @@ suite("test_default") {
         LIMIT 1
     """
 
+    def stringResult = sql """
+        SELECT
+            DEFAULT(c_char_fixed),
+            DEFAULT(c_varchar_var),
+            DEFAULT(c_string_long),
+            DEFAULT(c_char_empty),
+            DEFAULT(c_varchar_empty)
+        FROM ${stringTableName}
+    """
+    def stringFirstRow = stringResult[0]
+    for (int i = 1; i < stringResult.size(); i++) {
+        assertTrue(stringResult[i] == stringFirstRow, "Row ${i} should equal first row")
+    }
+
     // Test11: PI and E test
     def pieTableName = "test_default_pi_e"
     sql "DROP TABLE IF EXISTS ${pieTableName}"
@@ -317,6 +459,8 @@ suite("test_default") {
         ) PROPERTIES ( 'replication_num' = '1' )
     """
     sql "INSERT INTO ${pieTableName} VALUES (1, NULL, NULL)"
+    sql "INSERT INTO ${pieTableName} VALUES (2, NULL, NULL)"
+    sql "INSERT INTO ${pieTableName} VALUES (3, NULL, NULL)"
     qt_pi_e_defaults """
         SELECT
             DEFAULT(c_pi),
@@ -324,6 +468,17 @@ suite("test_default") {
         FROM ${pieTableName}
         LIMIT 1
     """
+
+    def pieResult = sql """
+        SELECT
+            DEFAULT(c_pi),
+            DEFAULT(c_e)
+        FROM ${pieTableName}
+    """
+    def pieFirstRow = pieResult[0]
+    for (int i = 1; i < pieResult.size(); i++) {
+        assertTrue(pieResult[i] == pieFirstRow, "Row ${i} should equal first row")
+    }
 
     // Test 12: Empty table test
     def emptyTableName = "test_default_empty_table"
@@ -342,4 +497,19 @@ suite("test_default") {
         FROM ${emptyTableName}
         LIMIT 1
     """
+
+    sql "INSERT INTO ${emptyTableName} (c_int) VALUES (1)"
+    sql "INSERT INTO ${emptyTableName} (c_int) VALUES (2)"
+    sql "INSERT INTO ${emptyTableName} (c_int) VALUES (3)"
+
+    def emptyResult = sql """
+        SELECT
+            DEFAULT(c_int),
+            DEFAULT(c_string)
+        FROM ${emptyTableName}
+    """
+    def emptyFirstRow = emptyResult[0]
+    for (int i = 1; i < emptyResult.size(); i++) {
+        assertTrue(emptyResult[i] == emptyFirstRow, "Row ${i} should equal first row")
+    }
 }
