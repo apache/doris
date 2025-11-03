@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/variant/variant_ext_meta_aggregator.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 
 #include <utility>
 
@@ -25,8 +25,10 @@
 
 namespace doris::segment_v2 {
 
-Status VariantExtMetaAggregator::_ensure_inited(Writers* w) {
-    if (w->inited) return Status::OK();
+Status VariantExtMetaWriter::_ensure_inited(Writers* w) {
+    if (w->inited) {
+        return Status::OK();
+    }
 
     // key writer: VARCHAR, value index ON, ordinal index OFF
     IndexedColumnWriterOptions dict_opts;
@@ -52,7 +54,7 @@ Status VariantExtMetaAggregator::_ensure_inited(Writers* w) {
     return Status::OK();
 }
 
-Status VariantExtMetaAggregator::add(int32_t root_uid, const Slice& key, const Slice& val) {
+Status VariantExtMetaWriter::add(int32_t root_uid, const Slice& key, const Slice& val) {
     auto& w = _writers_by_uid[root_uid];
     RETURN_IF_ERROR(_ensure_inited(&w));
     RETURN_IF_ERROR(w.key_writer->add(&key));
@@ -61,9 +63,11 @@ Status VariantExtMetaAggregator::add(int32_t root_uid, const Slice& key, const S
     return Status::OK();
 }
 
-Status VariantExtMetaAggregator::flush_to_footer(SegmentFooterPB* footer) {
+Status VariantExtMetaWriter::flush_to_footer(SegmentFooterPB* footer) {
     for (auto& [uid, w] : _writers_by_uid) {
-        if (!w.inited || w.count == 0) continue;
+        if (!w.inited || w.count == 0) {
+            continue;
+        }
         doris::segment_v2::IndexedColumnMetaPB key_meta;
         doris::segment_v2::IndexedColumnMetaPB val_meta;
         RETURN_IF_ERROR(w.key_writer->finish(&key_meta));
@@ -89,7 +93,7 @@ Status VariantExtMetaAggregator::flush_to_footer(SegmentFooterPB* footer) {
     return Status::OK();
 }
 
-Status VariantExtMetaAggregator::externalize_from_footer(SegmentFooterPB* footer) {
+Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer) {
     // Collect variant subcolumns first, then write in sorted order to keep stability.
     std::vector<ColumnMetaPB> kept;
     kept.reserve(footer->columns_size());
@@ -146,7 +150,7 @@ Status VariantExtMetaAggregator::externalize_from_footer(SegmentFooterPB* footer
         auto* dst = footer->add_columns();
         dst->CopyFrom(c);
     }
-    VLOG_DEBUG << "VariantExtMetaAggregator::externalize_from_footer, externalized subcolumns: "
+    VLOG_DEBUG << "VariantExtMetaWriter::externalize_from_footer, externalized subcolumns: "
                << externalized_count << ", kept columns: " << kept_count
                << ", total columns: " << footer->columns_size();
     return Status::OK();

@@ -1089,6 +1089,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
+            // Keep shared_ptr alive to prevent use-after-free when accessing raw pointers
+            TabletIndexes inverted_indexs_holder;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
             std::shared_ptr<ColumnReader> column_reader;
             if (column.is_extracted_column()) {
@@ -1097,9 +1099,14 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                     column_reader == nullptr) {
                     continue;
                 }
-                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader.get())
-                                          ->find_subcolumn_tablet_indexes(
-                                                  column, column_reader->get_vec_data_type());
+                inverted_indexs_holder =
+                        assert_cast<VariantColumnReader*>(column_reader.get())
+                                ->find_subcolumn_tablet_indexes(column,
+                                                                _storage_name_and_type[cid].second);
+                // Extract raw pointers from shared_ptr for iteration
+                for (const auto& index_ptr : inverted_indexs_holder) {
+                    inverted_indexs.push_back(index_ptr.get());
+                }
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
             else {

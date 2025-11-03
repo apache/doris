@@ -19,7 +19,7 @@
 
 #include <memory>
 
-// #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"

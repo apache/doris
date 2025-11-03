@@ -34,9 +34,9 @@ namespace doris::segment_v2 {
 // them as two IndexedColumns into footer.file_meta_datas:
 // - variant_meta_keys.<root_uid>
 // - variant_meta_values.<root_uid>
-class VariantExtMetaAggregator {
+class VariantExtMetaWriter {
 public:
-    VariantExtMetaAggregator(io::FileWriter* fw, CompressionTypePB comp) : _fw(fw), _comp(comp) {}
+    VariantExtMetaWriter(io::FileWriter* fw, CompressionTypePB comp) : _fw(fw), _comp(comp) {}
 
     // Add one path->meta mapping for the specified variant root uid.
     // key: subcolumn path (VARCHAR)

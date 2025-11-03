@@ -91,14 +91,12 @@ void ColumnReaderCache::_insert_direct(const ColumnReaderCacheKey& key,
                                        const std::shared_ptr<ColumnReader>& column_reader) {
     std::lock_guard<std::mutex> lock(_cache_mutex);
     if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
-        g_segment_column_reader_cache_count << -1;
         g_segment_column_cache_evict_count << 1;
         auto last_it = _lru_list.end();
         --last_it;
         _cache_map.erase(last_it->key);
         _lru_list.pop_back();
     }
-    g_segment_column_reader_cache_count << 1;
     _lru_list.push_front(CacheNode {key, column_reader, std::chrono::steady_clock::now()});
     _cache_map[key] = _lru_list.begin();
 }
