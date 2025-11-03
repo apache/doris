@@ -300,8 +300,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
 
-            SlotDescriptor* slot = nullptr;
-            ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
             RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, context, &pdt));
             if (pdt == PushDownType::ACCEPTABLE) {
@@ -318,6 +316,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 slotref = std::dynamic_pointer_cast<vectorized::VSlotRef>(
                         vectorized::VExpr::expr_without_cast(child));
             }
+            SlotDescriptor* slot = nullptr;
+            ColumnValueRangeType* range = nullptr;
             if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 Status status = Status::OK();
