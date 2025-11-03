@@ -202,8 +202,12 @@ public class NereidsLoadUtils {
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);
         ConnectContext ctx = cascadesContext.getConnectContext();
+        // we force convert nullable column to non-nullable column for load
+        // so set feDebug to false to avoid AdjustNullableRule report error
+        boolean oldFeDebugValue = ctx.getSessionVariable().feDebug;
         try {
             ctx.getSessionVariable().setDebugSkipFoldConstant(true);
+            ctx.getSessionVariable().feDebug = false;
 
             Analyzer.buildCustomAnalyzer(cascadesContext, ImmutableList.of(Analyzer.bottomUp(
                     new BindExpression(),
@@ -240,6 +244,7 @@ public class NereidsLoadUtils {
             throw new UserException(exception.getMessage());
         } finally {
             ctx.getSessionVariable().setDebugSkipFoldConstant(false);
+            ctx.getSessionVariable().feDebug = oldFeDebugValue;
         }
 
         return (LogicalPlan) cascadesContext.getRewritePlan();
