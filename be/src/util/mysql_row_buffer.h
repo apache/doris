@@ -144,9 +144,7 @@ private:
     char _default_buf[4096];
 };
 
-
 using MysqlRowTextBuffer = MysqlRowBuffer<false>;
 using MysqlRowBinaryBuffer = MysqlRowBuffer<true>;
-
 
 } // namespace doris
