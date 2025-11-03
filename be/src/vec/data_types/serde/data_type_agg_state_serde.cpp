@@ -52,15 +52,15 @@ Status DataTypeAggStateSerde::serialize_one_cell_to_json(const IColumn& column, 
         // 如果不是预期的列类型，尝试使用nested_serde，但会对结果进行base64编码
         // 这种情况通常不会发生，因为AggState的序列化类型通常是string或fixed_length_object
         // 为了兼容性，我们尝试将列数据先序列化为字符串，然后再base64编码
-        StringBuffer buffer;
-        VectorBufferWriter buffer_writer(buffer);
+        auto tmp_col = ColumnString::create();
+        VectorBufferWriter buffer_writer(*tmp_col.get());
         RETURN_IF_ERROR(_nested_serde->serialize_one_cell_to_json(column, row_num, buffer_writer,
                                                                   options));
         buffer_writer.commit();
 
         // 获取序列化后的字符串数据
-        const auto& serialized_data = buffer.get_buffer();
-        _encode_to_base64(serialized_data.data(), serialized_data.size(), bw);
+        const auto& serialized_data = tmp_col->get_data_at(0);
+        _encode_to_base64(serialized_data.data, serialized_data.size, bw);
     }
 
     return Status::OK();
