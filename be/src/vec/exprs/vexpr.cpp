@@ -1025,5 +1025,9 @@ bool VExpr::has_been_executed() {
     return _has_been_executed;
 }
 
+bool VExpr::dist_vir_column_is_fullfilled() const {
+    return _virtual_column_is_fullfilled;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -312,6 +312,8 @@ public:
 
     bool has_been_executed();
 
+    bool dist_vir_column_is_fullfilled() const;
+
     virtual uint64_t get_digest(uint64_t seed) const;
 
 protected:
@@ -397,6 +399,7 @@ protected:
     bool _enable_inverted_index_query = true;
 
     bool _has_been_executed = false;
+    bool _virtual_column_is_fullfilled = false;
 };
 
 } // namespace vectorized

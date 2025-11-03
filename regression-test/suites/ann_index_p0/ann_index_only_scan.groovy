@@ -176,6 +176,33 @@ suite("ann_index_only_scan") {
     logger.info("ScanBytes range enabled: q1=${sR1}, q2=${sR2}")
     assertTrue(sR1 == sR2)
 
+    tR1 = UUID.randomUUID().toString()
+    tR2 = UUID.randomUUID().toString()
+    // No virtual slot. So result distance is not needed by any one, even if it is calculated by index.
+    // So we do not need to read embedding column.
+    sql """
+        select id, "${tR1}" from ann_index_only_scan
+        where l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) > 105.66439056396484
+        order by id
+        limit 20;
+    """
+    // if condition is not lt_or_le, index will only return rowid without distance value
+    // so we still need to read embedding column.
+    sql """
+        select id, "${tR2}",
+            l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) as dist
+        from ann_index_only_scan
+        where l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) > 105.66439056396484
+        order by id
+        limit 20;
+    """
+    pR1 = getProfileWithToken(tR1)
+    pR2 = getProfileWithToken(tR2)
+    sR1 = extractScanBytesValue(pR1)
+    sR2 = extractScanBytesValue(pR2)
+    logger.info("ScanBytes range enabled (neg): q1=${sR1}, q2=${sR2}")
+    assertTrue(sR1 != sR2)
+
     // 2) ANN with inverted index together: add comment MATCH_ANY filter
     def tRI1 = UUID.randomUUID().toString()
     sql """
