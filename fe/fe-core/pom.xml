@@ -654,6 +654,10 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>sts</artifactId>
             <version>${awssdk.version}</version>
             <exclusions>
