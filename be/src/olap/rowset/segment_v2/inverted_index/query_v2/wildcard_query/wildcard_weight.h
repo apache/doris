@@ -47,7 +47,10 @@ public:
 private:
     std::string wildcard_to_regex(const std::string& pattern) {
         std::string escaped = RE2::QuoteMeta(pattern);
+        // Replace wildcard characters with regex equivalents
+        // * -> .* (zero or more of any character)
         escaped = std::regex_replace(escaped, std::regex(R"(\\\*)"), ".*");
+        // ? -> . (exactly one of any character)
         escaped = std::regex_replace(escaped, std::regex(R"(\\\?)"), ".");
         return "^" + escaped + "$";
     }

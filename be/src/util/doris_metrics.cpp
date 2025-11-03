@@ -232,6 +232,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_peer, MetricUnit::OPERATIONS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(udf_close_bthread_count, MetricUnit::OPERATIONS);
 
@@ -403,6 +404,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_peer);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, udf_close_bthread_count);
 

@@ -149,11 +149,12 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = baseSnapshotIf;
 
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
+                refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
+                        (BaseTableInfo) any);
                 minTimes = 0;
                 result = true;
 
-                refreshSnapshot.getSnapshotPartitions(anyString);
+                refreshSnapshot.getPctSnapshots(anyString, (BaseTableInfo) any);
                 minTimes = 0;
                 result = Sets.newHashSet("name2");
 
@@ -206,7 +207,7 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testIsSyncWithPartition() throws AnalysisException {
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"));
+                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertTrue(isSyncWithPartition);
     }
 
@@ -214,13 +215,13 @@ public class MTMVPartitionUtilTest {
     public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
         new Expectations() {
             {
-                refreshSnapshot.getSnapshotPartitions(anyString);
+                refreshSnapshot.getPctSnapshots(anyString, (BaseTableInfo) any);
                 minTimes = 0;
                 result = Sets.newHashSet("name2", "name3");
             }
         };
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"));
+                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
     }
 
@@ -228,13 +229,14 @@ public class MTMVPartitionUtilTest {
     public void testIsSyncWithPartitionNotSync() throws AnalysisException {
         new Expectations() {
             {
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
+                refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
+                        (BaseTableInfo) any);
                 minTimes = 0;
                 result = false;
             }
         };
         boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"));
+                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
     }
 

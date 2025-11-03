@@ -410,7 +410,7 @@ public class BindSink implements AnalysisRuleFactory {
                     // is an update on the row
                     if (column.hasOnUpdateDefaultValue()) {
                         Expression unboundFunctionDefaultValue = new NereidsParser().parseExpression(
-                                column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()
+                                column.getOnUpdateDefaultValueSql()
                         );
                         Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundFunctionDefaultValue
@@ -440,29 +440,19 @@ public class BindSink implements AnalysisRuleFactory {
                     replaceMap.put(output.toSlot(), output.child());
                 } else {
                     try {
-                        // it comes from the original planner, if default value expression is
-                        // null, we use the literal string of the default value, or it may be
-                        // default value function, like CURRENT_TIMESTAMP.
-                        if (column.getDefaultValueExpr() == null) {
-                            columnToOutput.put(column.getName(),
-                                    new Alias(Literal.of(column.getDefaultValue())
-                                            .checkedCastWithStrictChecking(DataType.fromCatalogType(column.getType())),
-                                            column.getName()));
-                        } else {
-                            Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                    column.getDefaultValueExpr().toSqlWithoutTbl());
-                            Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
-                                    boundSink, ctx.cascadesContext, unboundDefaultValue);
-                            if (defualtValueExpression instanceof Alias) {
-                                defualtValueExpression = ((Alias) defualtValueExpression).child();
-                            }
-                            Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                    defualtValueExpression, DataType.fromCatalogType(column.getType()))),
-                                    column.getName());
-                            columnToOutput.put(column.getName(), output);
-                            columnToReplaced.put(column.getName(), output.toSlot());
-                            replaceMap.put(output.toSlot(), output.child());
+                        Expression unboundDefaultValue = new NereidsParser().parseExpression(
+                                column.getDefaultValueSql());
+                        Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                                boundSink, ctx.cascadesContext, unboundDefaultValue);
+                        if (defualtValueExpression instanceof Alias) {
+                            defualtValueExpression = ((Alias) defualtValueExpression).child();
                         }
+                        Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
+                                defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                column.getName());
+                        columnToOutput.put(column.getName(), output);
+                        columnToReplaced.put(column.getName(), output.toSlot());
+                        replaceMap.put(output.toSlot(), output.child());
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }

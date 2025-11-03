@@ -85,6 +85,9 @@ struct StorageResource {
 
     std::string cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
                                           int64_t cooldown_term) const;
+
+    // Static function to parse tablet_id from remote segment path
+    static std::optional<int64_t> parse_tablet_id_from_path(const std::string& path);
 };
 
 // return nullptr if not found

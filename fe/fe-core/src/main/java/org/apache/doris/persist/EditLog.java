@@ -1181,8 +1181,8 @@ public class EditLog {
                 }
                 case OperationType.OP_INIT_CATALOG:
                 case OperationType.OP_INIT_CATALOG_COMP: {
-                    final InitCatalogLog log = (InitCatalogLog) journal.getData();
-                    env.getCatalogMgr().replayInitCatalog(log);
+                    // final InitCatalogLog log = (InitCatalogLog) journal.getData();
+                    // just ignore, init catalog is deprecated since 4.0
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
@@ -1191,8 +1191,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
-                    final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
-                    env.getCatalogMgr().replayInitExternalDb(log);
+                    // final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
+                    // just ignore, init db is deprecated since 4.0
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {

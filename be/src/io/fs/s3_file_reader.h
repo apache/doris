@@ -65,6 +65,7 @@ private:
         int64_t too_many_request_err_counter = 0;
         int64_t too_many_request_sleep_time_ms = 0;
         int64_t total_bytes_read = 0;
+        int64_t total_get_request_time_ns = 0;
     };
     Path _path;
     size_t _file_size;

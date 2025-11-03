@@ -830,28 +830,6 @@ public class FunctionCallExpr extends Expr {
         }
     }
 
-    /**
-     * This analyzeImp used for DefaultValueExprDef
-     * to generate a builtinFunction.
-     *
-     * @throws AnalysisException
-     */
-    public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
-        Type[] childTypes = new Type[children.size()];
-        for (int i = 0; i < children.size(); i++) {
-            childTypes[i] = children.get(i).type;
-        }
-        fn = new Function(
-                getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
-        fn.setReturnType(type);
-        this.type = type;
-        for (int i = 0; i < children.size(); ++i) {
-            if (getChild(i).getType().isNull()) {
-                uncheckedCastChild(Type.BOOLEAN, i);
-            }
-        }
-    }
-
     private static boolean match(String pattern, int pos, String value) {
         int length = value.length();
         int end = pattern.length();

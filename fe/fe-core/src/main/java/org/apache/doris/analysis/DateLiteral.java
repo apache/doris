@@ -29,7 +29,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -805,48 +804,6 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDateType()) {
-            if (type.equals(targetType)) {
-                return this;
-            }
-            if (targetType.equals(Type.DATE) || targetType.equals(Type.DATEV2)) {
-                return new DateLiteral(this.year, this.month, this.day, targetType);
-            } else if (targetType.equals(Type.DATETIME)) {
-                return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
-                    targetType);
-            } else if (targetType.isDatetimeV2()) {
-                return new DateLiteral(this.year, this.month, this.day, this.hour, this.minute, this.second,
-                    this.microsecond, targetType);
-            } else {
-                throw new AnalysisException("Error date literal type : " + type);
-            }
-        } else if (targetType.isStringType()) {
-            return new StringLiteral(getStringValue());
-        } else if (targetType.isBigIntType()) {
-            long value = getYear() * 1000 + getMonth() * 100 + getDay();
-            return new IntLiteral(value, Type.BIGINT);
-        } else {
-            if (Type.isImplicitlyCastable(this.type, targetType, true, SessionVariable.getEnableDecimal256())) {
-                return new CastExpr(targetType, this);
-            }
-        }
-        Preconditions.checkState(false);
-        return this;
-    }
-
-    public void castToDate() {
-        if (this.type.isDateOrDateTime()) {
-            this.type = Type.DATE;
-        } else {
-            this.type = Type.DATEV2;
-        }
-        hour = 0;
-        minute = 0;
-        second = 0;
-    }
-
     private boolean isLeapYear() {
         return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year > 0));
     }
@@ -892,10 +849,6 @@ public class DateLiteral extends LiteralExpr {
         return Timestamp.from(zonedDateTime.toInstant());
     }
 
-    public long getUnixTimestampWithMillisecond(TimeZone timeZone) {
-        return unixTimestamp(timeZone);
-    }
-
     public long getUnixTimestampWithMicroseconds(TimeZone timeZone) {
         Timestamp timestamp = getTimestamp(timeZone);
         return timestamp.getTime() * 1000 + timestamp.getNanos() / 1000 % 1000;
@@ -907,21 +860,6 @@ public class DateLiteral extends LiteralExpr {
 
     public static boolean hasMicroSecondPart(String format) {
         return format.indexOf(MICRO_SECOND_FORMATTER) != -1;
-    }
-
-    // Return the date stored in the dateliteral as pattern format.
-    // eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
-    public String dateFormat(String pattern) throws AnalysisException {
-        TemporalAccessor accessor;
-        if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
-            accessor = DATE_FORMATTER.parse(getStringValue());
-        } else if (type.isDatetimeV2()) {
-            accessor = DATE_TIME_FORMATTER_TO_MICRO_SECOND.parse(getStringValue());
-        } else {
-            accessor = DATE_TIME_FORMATTER.parse(getStringValue());
-        }
-        DateTimeFormatter toFormatter = formatBuilder(pattern).toFormatter();
-        return toFormatter.format(accessor);
     }
 
     private static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {

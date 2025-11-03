@@ -393,7 +393,7 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec, bool is_dict_page) const {
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;
@@ -405,9 +405,8 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    opts.is_dict_page = is_dict_page;
 
-    // index page should not pre decode
-    if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
@@ -1520,10 +1519,11 @@ Status FileColumnIterator::_read_dict_data() {
     Slice dict_data;
     PageFooterPB dict_footer;
     _opts.type = INDEX_PAGE;
+
     RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
-                                       &dict_data, &dict_footer, _compress_codec));
+                                       &dict_data, &dict_footer, _compress_codec, true));
     const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(_reader->get_meta_type(),
+    RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
                                       dict_footer.dict_page_footer().encoding(), &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_decoder(dict_data, {}, _dict_decoder));
     RETURN_IF_ERROR(_dict_decoder->init());

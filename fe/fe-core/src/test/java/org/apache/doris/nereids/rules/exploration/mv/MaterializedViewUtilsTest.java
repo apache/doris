@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -263,7 +263,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
                                 + "from test2 t2 join test1 t1 on "
-                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "t1.vin_type1 = t2.vin_type2 "
                                 + "group by t1.upgrade_day, t2.batch_no;",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
@@ -461,7 +461,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "partition column is in join invalid side, but is not in join condition"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -477,7 +477,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "partition column is in invalid catalog relation to check"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
@@ -574,7 +574,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "self join doesn't support partition update"));
+                                    "related base table is not partition table"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
@@ -712,6 +712,37 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    public void testPartitionDateTruncShouldTrack1() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT date_trunc(t1.L_SHIPDATE, 'day') as date_alias, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "left join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("date_alias", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
     public void testPartitionDateTruncShouldTrack() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT date_trunc(t1.L_SHIPDATE, 'day') as date_alias, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
@@ -839,10 +870,9 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            checkRelatedTableInfo(relatedTableInfo,
-                                    "test1",
-                                    "upgrade_day",
-                                    true);
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column is not in group by or window partition by"));
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
@@ -927,7 +957,10 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
             String expectColumnName,
             boolean pctPossible) {
         Assertions.assertNotNull(relatedTableInfo);
-        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
+        Assertions.assertTrue(pctPossible);
+
+        RelatedTableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        BaseTableInfo relatedBaseTableInfo = columnInfo.getTableInfo();
         try {
             TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(relatedBaseTableInfo.getCtlId())
@@ -937,7 +970,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(relatedTableInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
-        Assertions.assertTrue(pctPossible);
+        Assertions.assertEquals(columnInfo.getColumnStr().toLowerCase(), expectColumnName.toLowerCase());
     }
 }

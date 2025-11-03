@@ -50,6 +50,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -1290,5 +1291,12 @@ void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
     LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
               << " rows";
 }
+
+void BaseBackendService::test_storage_connectivity(TTestStorageConnectivityResponse& response,
+                                                   const TTestStorageConnectivityRequest& request) {
+    Status status = io::StorageConnectivityTester::test(request.type, request.properties);
+    response.__set_status(status.to_thrift());
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

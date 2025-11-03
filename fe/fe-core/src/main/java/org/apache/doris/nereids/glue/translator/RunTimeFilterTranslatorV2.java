@@ -94,7 +94,7 @@ public class RunTimeFilterTranslatorV2 {
         for (RuntimeFilterV2 filter : filters) {
             Expr targetExpr = filter.getLegacyTargetExpr();
             if (!srcExpr.getType().equals(targetExpr.getType())) {
-                targetExpr = new CastExpr(srcExpr.getType(), targetExpr);
+                targetExpr = new CastExpr(srcExpr.getType(), targetExpr, null);
             }
             targets.add(new RuntimeFilterTarget(filter.getLegacyTargetNode(), targetExpr));
         }

@@ -80,14 +80,14 @@ public:
         }
     }
 
-    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+    void insert_many_continuous_binary_data(const char* input_data, const uint32_t* offsets,
                                             const size_t num) override {
         if (UNLIKELY(num == 0)) {
             return;
         }
         // the offsets size should be num + 1
         for (size_t i = 0; i != num; ++i) {
-            insert_binary_data(data + offsets[i], offsets[i + 1] - offsets[i]);
+            insert_binary_data(input_data + offsets[i], offsets[i + 1] - offsets[i]);
         }
     }
 

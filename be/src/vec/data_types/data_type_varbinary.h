@@ -27,7 +27,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "serde/data_type_string_serde.h"
-#include "vec/common/string_view.h"
+#include "vec/common/string_container.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
@@ -40,7 +40,7 @@ class IColumn;
 class DataTypeVarbinary : public IDataType {
 public:
     using ColumnType = ColumnVarbinary;
-    using FieldType = doris::StringView;
+    using FieldType = doris::StringContainer;
 
     static constexpr PrimitiveType PType = TYPE_VARBINARY;
 
@@ -72,7 +72,8 @@ public:
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::VARBINARY_LITERAL);
         DCHECK(node.__isset.varbinary_literal);
-        return Field::create_field<TYPE_VARBINARY>(doris::StringView(node.varbinary_literal.value));
+        return Field::create_field<TYPE_VARBINARY>(
+                doris::StringContainer(node.varbinary_literal.value));
     }
 
     FieldWithDataType get_field_with_data_type(const IColumn& column,

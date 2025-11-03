@@ -2215,8 +2215,8 @@ TEST(RecycleOperationLogTest, RecycleDeletedInstance) {
 
     ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
 
-    // Verify all keys are deleted
-    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+    // Verify all keys are deleted, expecting the instance_update
+    ASSERT_EQ(count_range(txn_kv.get()), 1) << dump_range(txn_kv.get());
 }
 
 // Test OperationLogRecycleChecker class

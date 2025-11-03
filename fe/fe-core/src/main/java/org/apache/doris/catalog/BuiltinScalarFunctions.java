@@ -263,6 +263,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -786,6 +787,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpv6String.class, "is_ipv6_string", "is_ipv6"),
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(IsNan.class, "isnan"),
+            scalar(IsUuid.class, "is_uuid"),
             scalar(IsInf.class, "isinf"),
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
@@ -832,7 +834,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left", "strleft"),
-            scalar(Length.class, "length"),
+            scalar(Length.class, "length", "octet_length"),
             scalar(Crc32.class, "crc32"),
             scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
@@ -901,7 +903,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
-            scalar(Overlay.class, "overlay"),
+            scalar(Overlay.class, "overlay", "insert"),
             scalar(ParseUrl.class, "parse_url"),
             scalar(Password.class, "password"),
             scalar(ParseDataSize.class, "parse_data_size"),

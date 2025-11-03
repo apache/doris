@@ -506,25 +506,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return tableAttributes;
     }
 
-    /**
-     * Build the name mapping for this table.
-     * If "use_meta_cache" is true, the "nameMapping" should already be created in constructor.
-     * But if "use_meta_cache" is false, we can not create "nameMapping" in constructor because the catalog and db
-     * object may be null at that time.
-     * So we need to check and build the name mapping here, for both "use_meta_cache" true or false.
-     *
-     * @return
-     */
     public NameMapping getOrBuildNameMapping() {
-        if (nameMapping != null) {
-            return nameMapping;
-        }
-        synchronized (this) {
-            if (nameMapping != null) {
-                return nameMapping;
-            }
-            nameMapping = new NameMapping(catalog.getId(), dbName, name, db.getRemoteName(), getRemoteName());
-            return nameMapping;
-        }
+        return nameMapping;
     }
 }

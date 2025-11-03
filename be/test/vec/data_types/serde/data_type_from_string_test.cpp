@@ -619,7 +619,7 @@ TEST_F(DataTypeSerDeFromStringTest, structTest) {
         auto column = type->create_column();
         EXPECT_TRUE(serde->from_string(str_ref, *column, options));
         std::cout << type->to_string(*column, 0) << std::endl;
-        EXPECT_EQ(type->to_string(*column, 0), R"({123, "Hello"})");
+        EXPECT_EQ(type->to_string(*column, 0), R"({"field1":123, "field2":"Hello"})");
     }
 
     {
@@ -627,7 +627,7 @@ TEST_F(DataTypeSerDeFromStringTest, structTest) {
         auto column = type->create_column();
         EXPECT_TRUE(serde->from_string_strict_mode(str_ref, *column, options));
         std::cout << type->to_string(*column, 0) << std::endl;
-        EXPECT_EQ(type->to_string(*column, 0), R"({123, "Hello"})");
+        EXPECT_EQ(type->to_string(*column, 0), R"({"field1":123, "field2":"Hello"})");
     }
     str = "abc";
     auto str_ref = StringRef(str);

@@ -960,51 +960,6 @@ public class ScalarType extends Type {
     }
 
     /**
-     * Returns the smallest decimal type that can safely store this type. Returns
-     * INVALID if this type cannot be stored as a decimal.
-     */
-    public ScalarType getMinResolutionDecimal() {
-        switch (type) {
-            case NULL_TYPE:
-                return Type.NULL;
-            case DECIMALV2:
-                return this;
-            case TINYINT:
-                return createDecimalType(3);
-            case SMALLINT:
-                return createDecimalType(5);
-            case INT:
-                return createDecimalType(10);
-            case BIGINT:
-                return createDecimalType(19);
-            case FLOAT:
-                return createDecimalTypeInternal(MAX_DECIMAL128_PRECISION, 9, false);
-            case DOUBLE:
-                return createDecimalTypeInternal(MAX_DECIMAL128_PRECISION, 17, false);
-            default:
-                return ScalarType.INVALID;
-        }
-    }
-
-    /**
-     * Returns true if this decimal type is a supertype of the other decimal type.
-     * e.g. (10,3) is a supertype of (3,3) but (5,4) is not a supertype of (3,0).
-     * To be a super type of another decimal, the number of digits before and after
-     * the decimal point must be greater or equal.
-     */
-    public boolean isSupertypeOf(ScalarType o) {
-        Preconditions.checkState(isDecimalV2() || isDecimalV3());
-        Preconditions.checkState(o.isDecimalV2() || o.isDecimalV3());
-        if (isWildcardDecimal()) {
-            return true;
-        }
-        if (o.isWildcardDecimal()) {
-            return false;
-        }
-        return scale >= o.scale && precision - scale >= o.precision - o.scale;
-    }
-
-    /**
      * Return type t such that values from both t1 and t2 can be assigned to t.
      * If strict, only return types when there will be no loss of precision.
      * Returns INVALID_TYPE if there is no such type or if any of t1 and t2
@@ -1182,13 +1137,6 @@ public class ScalarType extends Type {
                 targetPrecision, targetScale);
     }
 
-    public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
-        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
-        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
-                - t2.decimalScale()) + targetScale;
-        return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
-    }
-
     /**
      * Returns true t1 can be implicitly cast to t2, false otherwise.
      * If strict is true, only consider casts that result in no loss of precision.
@@ -1200,16 +1148,6 @@ public class ScalarType extends Type {
 
     public static boolean canCastTo(ScalarType type, ScalarType targetType) {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
-    }
-
-    /**
-     * Decimal default precision is 9 and scale is 0, this method return whether this is
-     * default decimal v3 or v2
-     */
-    public boolean isDefaultDecimal() {
-        return (isDecimalV3() || isDecimalV2())
-                && DEFAULT_PRECISION == this.precision
-                && DEFAULT_SCALE == this.scale;
     }
 
     @Override

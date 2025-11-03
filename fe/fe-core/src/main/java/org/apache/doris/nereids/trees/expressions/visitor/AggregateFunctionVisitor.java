@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -200,6 +201,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitGroupArrayIntersect(GroupArrayIntersect groupArrayIntersect, C context) {
         return visitAggregateFunction(groupArrayIntersect, context);
+    }
+
+    default R visitGroupArrayUnion(GroupArrayUnion groupArrayUnion, C context) {
+        return visitAggregateFunction(groupArrayUnion, context);
     }
 
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {

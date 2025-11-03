@@ -625,6 +625,7 @@ extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count;
 extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_count;
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count;
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count;
+extern bvar::LatencyRecorder g_bvar_ms_scan_instance_update;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;

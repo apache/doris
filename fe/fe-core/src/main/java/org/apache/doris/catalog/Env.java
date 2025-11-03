@@ -137,9 +137,7 @@ import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.StreamLoadRecordMgr;
-import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
-import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
@@ -492,9 +490,6 @@ public class Env {
 
     protected LoadJobScheduler loadJobScheduler;
 
-    private LoadEtlChecker loadEtlChecker;
-    private LoadLoadingChecker loadLoadingChecker;
-
     private RoutineLoadScheduler routineLoadScheduler;
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
@@ -793,8 +788,6 @@ public class Env {
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
         this.tabletLoadIndexRecorderMgr = new TabletLoadIndexRecorderMgr();
-        this.loadEtlChecker = new LoadEtlChecker(loadManager);
-        this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
@@ -1899,8 +1892,6 @@ public class Env {
         loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
-        loadEtlChecker.start();
-        loadLoadingChecker.start();
         if (Config.isNotCloudMode()) {
             // Tablet checker and scheduler
             tabletChecker.start();

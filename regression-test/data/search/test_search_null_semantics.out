@@ -11,6 +11,15 @@
 -- !test_case_2_external_not --
 4
 
+-- !test_case_2_phrase_not --
+1
+2
+3
+5
+7
+9
+10
+
 -- !test_case_3_or_with_null --
 1	Ronald Reagan	President of the United States
 3	\N	Biography of Ronald McDonald
@@ -148,4 +157,3 @@
 
 -- !ternary_7_all_null --
 0
-

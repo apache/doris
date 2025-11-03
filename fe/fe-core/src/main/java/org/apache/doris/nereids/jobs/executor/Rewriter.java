@@ -132,6 +132,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
@@ -736,6 +737,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("set initial join order",
                         bottomUp(ImmutableList.of(new InitJoinOrder())),
+                        bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable())),
                         topDown(new SkewJoin())),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail

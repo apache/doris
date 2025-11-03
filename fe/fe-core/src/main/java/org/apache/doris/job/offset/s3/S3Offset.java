@@ -50,6 +50,6 @@ public class S3Offset implements Offset {
 
     @Override
     public String toString() {
-        return "{\"endFile\": \"" + endFile + "\" }";
+        return "{\"endFile\": \"" + endFile + "\"}";
     }
 }

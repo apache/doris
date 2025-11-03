@@ -362,8 +362,8 @@ private:
             // split date_str from (yyyy-mm-dd hh:mm:ss) to ([yyyy, mm, dd, hh, mm, ss])
             std::vector<std::string> date_str(6);
             date_str[0] = to_split_s.substr(0, 4);
-            for (int i = 5, j = 1; i <= size; i += 3, j++) {
-                date_str[j] = to_split_s.substr(i, 2);
+            for (int ni = 5, j = 1; ni <= size; ni += 3, j++) {
+                date_str[j] = to_split_s.substr(ni, 2);
             }
             int curr_len = 0;
 
@@ -746,7 +746,7 @@ public:
                 p = begin + std::min(len, static_cast<int>(str.size));
             } else {
                 const char* end = str.end();
-                for (size_t i = 0, char_size = 0; i < len && p < end; ++i, p += char_size) {
+                for (size_t ni = 0, char_size = 0; ni < len && p < end; ++ni, p += char_size) {
                     char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
                 }
             }
@@ -2171,11 +2171,11 @@ private:
         if (simd::VStringFunctions::is_ascii(str_ref)) {
             const auto size = str_ref.size;
 
-            const auto old_size = column_string_offsets.size();
-            const auto new_size = old_size + size;
-            column_string_offsets.resize(new_size);
-            std::iota(column_string_offsets.data() + old_size,
-                      column_string_offsets.data() + new_size, string_pos + 1);
+            const auto nested_old_size = column_string_offsets.size();
+            const auto nested_new_size = nested_old_size + size;
+            column_string_offsets.resize(nested_new_size);
+            std::iota(column_string_offsets.data() + nested_old_size,
+                      column_string_offsets.data() + nested_new_size, string_pos + 1);
 
             string_pos += size;
             dest_pos += size;
@@ -4519,9 +4519,9 @@ private:
             insert_str = col_insert->get_data_at(index_check_const<insert_const>(i));
             utf8_origin_offsets.clear();
 
-            for (size_t i = 0, char_size = 0; i < origin_str.size; i += char_size) {
-                utf8_origin_offsets.push_back(i);
-                char_size = get_utf8_byte_length(origin_str.data[i]);
+            for (size_t ni = 0, char_size = 0; ni < origin_str.size; ni += char_size) {
+                utf8_origin_offsets.push_back(ni);
+                char_size = get_utf8_byte_length(origin_str.data[ni]);
             }
 
             const size_t utf8_origin_size = utf8_origin_offsets.size();

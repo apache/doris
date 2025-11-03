@@ -65,7 +65,8 @@ class ProfileAction implements SuiteAction {
             }
 
             def httpCli = new HttpCliAction(context)
-            httpCli.endpoint(context.config.feHttpAddress)
+            def addr = context.getFeHttpAddress()
+            httpCli.endpoint("${addr.hostString}:${addr.port}")
             httpCli.uri("/rest/v1/query_profile")
             httpCli.op("get")
             httpCli.printResponse(false)
@@ -89,7 +90,7 @@ class ProfileAction implements SuiteAction {
                         def profileId = profileItem["Profile ID"].toString()
 
                         def profileCli = new HttpCliAction(context)
-                        profileCli.endpoint(context.config.feHttpAddress)
+                        profileCli.endpoint("${addr.hostString}:${addr.port}")
                         profileCli.uri("/rest/v1/query_profile/${profileId}")
                         profileCli.op("get")
                         profileCli.printResponse(false)

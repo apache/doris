@@ -22,11 +22,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -111,76 +109,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
-    /**
-     * Init LiteralExpr's Type information
-     * only use in rewrite alias function
-     * @param expr
-     * @return
-     * @throws AnalysisException
-     */
-    public static LiteralExpr init(LiteralExpr expr) throws AnalysisException {
-        Preconditions.checkArgument(expr.getType().equals(Type.INVALID));
-        String value = expr.getStringValue();
-        LiteralExpr literalExpr = null;
-        if (expr instanceof NullLiteral) {
-            literalExpr = new NullLiteral();
-        } else if (expr instanceof BoolLiteral) {
-            literalExpr = new BoolLiteral(value);
-        } else if (expr instanceof IntLiteral) {
-            literalExpr = new IntLiteral(Long.parseLong(value));
-        } else if (expr instanceof LargeIntLiteral) {
-            literalExpr = new LargeIntLiteral(value);
-        } else if (expr instanceof FloatLiteral) {
-            literalExpr = new FloatLiteral(value);
-        } else if (expr instanceof DecimalLiteral) {
-            literalExpr = new DecimalLiteral(value);
-        } else if (expr instanceof StringLiteral) {
-            literalExpr = new StringLiteral(value);
-        } else if (expr instanceof JsonLiteral) {
-            literalExpr = new JsonLiteral(value);
-        } else if (expr instanceof DateLiteral) {
-            literalExpr = new DateLiteral(value, expr.getType());
-        } else {
-            throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
-        }
-
-        Preconditions.checkNotNull(literalExpr);
-        return literalExpr;
-    }
-
-    public Expr convertTo(Type targetType) throws AnalysisException {
-        Preconditions.checkArgument(!targetType.equals(Type.INVALID));
-        if (this instanceof NullLiteral) {
-            return NullLiteral.create(targetType);
-        } else if (targetType.isBoolean()) {
-            if (this instanceof StringLiteral || this instanceof JsonLiteral) {
-                return new BoolLiteral(getStringValue());
-            } else {
-                if (getLongValue() != 0) {
-                    return new BoolLiteral(true);
-                } else {
-                    return new BoolLiteral(false);
-                }
-            }
-        } else if (targetType.isIntegerType()) {
-            return new IntLiteral(getLongValue(), targetType);
-        } else if (targetType.isLargeIntType()) {
-            return new LargeIntLiteral(getStringValue());
-        } else if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(getDoubleValue(), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
-            DecimalLiteral literal = new DecimalLiteral(getStringValue(),
-                    ((ScalarType) targetType).getScalarScale());
-            literal.setType(targetType);
-            return literal;
-        } else if (targetType.isStringType()) {
-            return new StringLiteral(getStringValue());
-        } else if (targetType.isDateType()) {
-            return new StringLiteral(getStringValue()).convertToDate(targetType);
-        }
-        return this;
-    }
-
     public static LiteralExpr createInfinity(Type type, boolean isMax) throws AnalysisException {
         Preconditions.checkArgument(!type.equals(Type.INVALID));
         if (isMax) {
@@ -257,12 +185,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public String toDigestImpl() {
         return " ? ";
-    }
-
-    // Swaps the sign of numeric literals.
-    // Throws for non-numeric literals.
-    public void swapSign() throws NotImplementedException {
-        throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
     }
 
     @Override

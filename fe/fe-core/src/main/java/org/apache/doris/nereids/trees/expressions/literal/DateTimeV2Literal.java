@@ -213,6 +213,56 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
     }
 
+    /**
+     * plusDaySecond
+     */
+    public Expression plusDaySecond(VarcharLiteral daySecond) {
+        String stringValue = daySecond.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9:\\-\\s]+")) {
+            return new NullLiteral(dataType);
+        }
+
+        String[] split = stringValue.split("\\s+");
+        if (split.length != 2) {
+            return new NullLiteral(dataType);
+        }
+
+        String day = split[0];
+        String[] hourMinuteSecond = split[1].split(":");
+
+        if (hourMinuteSecond.length != 3) {
+            return new NullLiteral(dataType);
+        }
+
+        try {
+            long days = Long.parseLong(day);
+            boolean dayPositive = days >= 0;
+
+            long hours = Long.parseLong(hourMinuteSecond[0]);
+            long minutes = Long.parseLong(hourMinuteSecond[1]);
+            long seconds = Long.parseLong(hourMinuteSecond[2]);
+
+            if (dayPositive) {
+                hours = Math.abs(hours);
+                minutes = Math.abs(minutes);
+                seconds = Math.abs(seconds);
+            } else {
+                hours = -Math.abs(hours);
+                minutes = -Math.abs(minutes);
+                seconds = -Math.abs(seconds);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusDays(days)
+                .plusHours(hours)
+                .plusMinutes(minutes)
+                .plusSeconds(seconds), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
+    }
+
     public Expression plusMonths(long months) {
         return fromJavaDateType(toJavaDateType().plusMonths(months), getDataType().getScale());
     }

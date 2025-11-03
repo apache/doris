@@ -107,5 +107,7 @@ suite("test_variant_predefine_index_type", "p0"){
     trigger_and_wait_compaction(tableName, "cumulative")
     sql "set enable_match_without_inverted_index = false"
     qt_sql "select count() from objects where (overflow_properties['color'] MATCH_PHRASE 'Blue')"    
-    qt_sql "select count() from objects where (array_contains(cast(overflow_properties['tags'] as array<string>), 'plastic'))"    
+    qt_sql "select count() from objects where (array_contains(cast(overflow_properties['tags'] as array<string>), 'plastic'))"   
+    qt_sql "select cast(overflow_properties['color'] as string) from objects where overflow_properties['color'] IS NOT NULL and id = 6 limit 1"
+    qt_sql "select overflow_properties['color'] from objects where overflow_properties['color'] IS NOT NULL and id = 6 limit 1"
 }

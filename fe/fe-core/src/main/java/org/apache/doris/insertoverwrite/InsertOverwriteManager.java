@@ -103,11 +103,13 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      *
      * @return group id, like a transaction id.
      */
-    public long registerTaskGroup() {
+    public long registerTaskGroup(long tableId) {
         long groupId = Env.getCurrentEnv().getNextId();
         taskGroups.put(groupId, new ArrayList<Long>());
         taskLocks.put(groupId, new ReentrantLock());
         partitionPairs.put(groupId, Maps.newConcurrentMap());
+        LOG.info("registered insert overwrite auto detect partition task group [" + groupId + "] for table "
+                + tableId);
         return groupId;
     }
 

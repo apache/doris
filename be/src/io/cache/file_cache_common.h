@@ -63,10 +63,12 @@ struct UInt128Wrapper {
 
 struct ReadStatistics {
     bool hit_cache = true;
+    bool from_peer_cache = false;
     bool skip_cache = false;
     int64_t bytes_read = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
+    int64_t peer_read_timer = 0;
     int64_t remote_wait_timer = 0; // wait for other downloader
     int64_t local_read_timer = 0;
     int64_t local_write_timer = 0;

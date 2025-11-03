@@ -67,6 +67,9 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final Set<String> BUILTIN_CHAR_FILTERS = ImmutableSet.of(
             "empty", "char_replace");
 
+    public static final Set<String> BUILTIN_ANALYZERS = ImmutableSet.of(
+            "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik");
+
     private static final Logger LOG = LogManager.getLogger(IndexPolicy.class);
 
     @SerializedName(value = "id")

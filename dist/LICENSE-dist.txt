@@ -1512,7 +1512,7 @@ Other dependencies:
     * unixodbc: 2.3.7 -- licenses/LICENSE-unixodbc.txt
     * leveldb: 1.23 -- licenses/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- licenses/LICENSE-cyrus-sasl.txt
-    * librdkafka: 1.8.2 -- licenses/LICENSE-librdkafka.txt
+    * librdkafka: 2.11.0 -- licenses/LICENSE-librdkafka.txt
     * zstd: 1.5.2 -- licenses/LICENSE-zstd.txt
     * brotli: 1.0.9 -- licenses/LICENSE-brotli.txt
     * bitshuffle: 0.5.1 -- licenses/LICENSE-bigshuffle.txt

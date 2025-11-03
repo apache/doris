@@ -27,7 +27,6 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.thrift.TExprNode;
@@ -410,54 +409,6 @@ public class BinaryPredicate extends Predicate {
             default:
                 return null;
         }
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr leftChildValue = getChild(0);
-        final Expr rightChildValue = getChild(1);
-        if (!(leftChildValue instanceof LiteralExpr)
-                || !(rightChildValue instanceof LiteralExpr)) {
-            return this;
-        }
-        return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
-    }
-
-    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) {
-        final boolean isFirstNull = (first instanceof NullLiteral);
-        final boolean isSecondNull = (second instanceof NullLiteral);
-        if (op == Operator.EQ_FOR_NULL) {
-            if (isFirstNull && isSecondNull) {
-                return new BoolLiteral(true);
-            } else if (isFirstNull || isSecondNull) {
-                return new BoolLiteral(false);
-            }
-        } else  {
-            if (isFirstNull || isSecondNull) {
-                return new NullLiteral();
-            }
-        }
-
-        final int compareResult = first.compareLiteral(second);
-        switch (op) {
-            case EQ:
-            case EQ_FOR_NULL:
-                return new BoolLiteral(compareResult == 0);
-            case GE:
-                return new BoolLiteral(compareResult >= 0);
-            case GT:
-                return new BoolLiteral(compareResult > 0);
-            case LE:
-                return new BoolLiteral(compareResult <= 0);
-            case LT:
-                return new BoolLiteral(compareResult < 0);
-            case NE:
-                return new BoolLiteral(compareResult != 0);
-            default:
-                Preconditions.checkState(false, "No defined binary operator.");
-        }
-        return this;
     }
 
     @Override

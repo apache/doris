@@ -27,7 +27,7 @@
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
-#include "vec/exec/format/parquet/parquet_pred_cmp.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 using namespace doris::segment_v2;

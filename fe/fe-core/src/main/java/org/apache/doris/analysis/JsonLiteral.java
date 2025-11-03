@@ -136,12 +136,6 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        // code should not be readched, since JSONB is analyzed as StringLiteral
-        throw new AnalysisException("Unknown check type: " + targetType);
-    }
-
-    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }

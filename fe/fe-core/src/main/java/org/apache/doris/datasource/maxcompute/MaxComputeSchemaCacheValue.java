@@ -27,6 +27,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @Setter
@@ -37,10 +38,11 @@ public class MaxComputeSchemaCacheValue extends SchemaCacheValue {
     private List<String> partitionSpecs;
     private List<Column> partitionColumns;
     private List<Type> partitionTypes;
+    private Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn;
 
     public MaxComputeSchemaCacheValue(List<Column> schema, Table odpsTable, TableIdentifier tableIdentifier,
             List<String> partitionColumnNames, List<String> partitionSpecs, List<Column> partitionColumns,
-            List<Type> partitionTypes) {
+            List<Type> partitionTypes, Map<String, com.aliyun.odps.Column> columnNameToOdpsColumn) {
         super(schema);
         this.odpsTable = odpsTable;
         this.tableIdentifier = tableIdentifier;
@@ -48,6 +50,7 @@ public class MaxComputeSchemaCacheValue extends SchemaCacheValue {
         this.partitionColumnNames = partitionColumnNames;
         this.partitionColumns = partitionColumns;
         this.partitionTypes = partitionTypes;
+        this.columnNameToOdpsColumn = columnNameToOdpsColumn;
     }
 
     public List<Column> getPartitionColumns() {
@@ -56,5 +59,9 @@ public class MaxComputeSchemaCacheValue extends SchemaCacheValue {
 
     public List<String> getPartitionColumnNames() {
         return partitionColumnNames;
+    }
+
+    public Map<String, com.aliyun.odps.Column> getColumnNameToOdpsColumn() {
+        return columnNameToOdpsColumn;
     }
 }

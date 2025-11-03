@@ -147,8 +147,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     selectItems.add(new UnboundAlias(setExpr, column.getName()));
                 } else if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
-                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
-                                    .toSqlWithoutTbl());
+                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueSql());
                     selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
                 } else {
                     selectItems.add(new UnboundSlot(tableName, column.getName()));
