@@ -179,11 +179,13 @@ public:
     // Return Status::OK() if init successfully,
     // Return other error otherwise
     virtual Status init(const StorageReadOptions& opts) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("to be implemented, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     virtual Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     // If there is any valid data, this function will load data
@@ -191,28 +193,34 @@ public:
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
     virtual Status next_batch(vectorized::Block* block) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     virtual Status next_batch(BlockWithSameBit* block_with_same_bit) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     virtual Status next_batch(vectorized::BlockView* block_view) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     virtual Status next_row(vectorized::IteratorRowRef* ref) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
     virtual Status unique_key_next_row(vectorized::IteratorRowRef* ref) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
-    virtual bool support_return_data_by_ref() { return false; }
+    virtual bool is_merge_iterator() const { return false; }
 
     virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-        return Status::NotSupported("to be implemented");
+        return Status::InternalError("should not reach here, current class: " +
+                                     demangle(typeid(*this).name()));
     }
 
     // return schema for this Iterator
