@@ -255,12 +255,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             // 2. and then check the column privileges
                             // 3. finally, we can eliminate the LogicalView
                             topic("Inline view and check column privileges",
-                                    bottomUp(
-                                            // The later rule CHECK_PRIVILEGES which inherent from ColumnPruning
-                                            // only works if the aggregation node is normalized, so we need call
-                                            // NormalizeAggregate here
-                                            new NormalizeAggregate()
-                                    ),
                                     bottomUp(new InlineLogicalView())
                             ),
                             topic("Eliminate optimization",
