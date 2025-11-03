@@ -54,8 +54,8 @@ Status DataTypeAggStateSerde::serialize_one_cell_to_json(const IColumn& column, 
         // 为了兼容性，我们尝试将列数据先序列化为字符串，然后再base64编码
         auto tmp_col = ColumnString::create();
         VectorBufferWriter buffer_writer(*tmp_col.get());
-        RETURN_IF_ERROR(_nested_serde->serialize_one_cell_to_json(column, row_num, buffer_writer,
-                                                                  options));
+        RETURN_IF_ERROR(
+                _nested_serde->serialize_one_cell_to_json(column, row_num, buffer_writer, options));
         buffer_writer.commit();
 
         // 获取序列化后的字符串数据
@@ -74,4 +74,3 @@ Status DataTypeAggStateSerde::serialize_one_cell_to_hive_text(
 }
 
 } // namespace doris::vectorized
-

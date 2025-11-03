@@ -36,9 +36,9 @@ public:
                                       FormatOptions& options) const override;
 
     // 重写serialize_one_cell_to_hive_text方法，对AggState数据进行base64编码
-    Status serialize_one_cell_to_hive_text(const IColumn& column, int64_t row_num,
-                                           BufferWritable& bw, FormatOptions& options,
-                                           int hive_text_complex_type_delimiter_level) const override;
+    Status serialize_one_cell_to_hive_text(
+            const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level) const override;
 
     // 其他方法委托给nested_serde处理
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
@@ -47,7 +47,7 @@ public:
     }
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                         const FormatOptions& options) const override {
+                                          const FormatOptions& options) const override {
         return _nested_serde->deserialize_one_cell_from_json(column, slice, options);
     }
 
@@ -59,8 +59,8 @@ public:
     Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level) const override {
-        return _nested_serde->deserialize_one_cell_from_hive_text(column, slice, options,
-                                                                  hive_text_complex_type_delimiter_level);
+        return _nested_serde->deserialize_one_cell_from_hive_text(
+                column, slice, options, hive_text_complex_type_delimiter_level);
     }
 
 private:
@@ -71,4 +71,3 @@ private:
 };
 
 } // namespace doris::vectorized
-
