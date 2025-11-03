@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
@@ -217,15 +218,27 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
     }
 
+    private List<Column> getPartitionColumn(String partitionColumnName) {
+        for (ColumnDefinition columnDefinition : columns) {
+            if (columnDefinition.getName().equalsIgnoreCase(partitionColumnName)) {
+                // current only support one partition col
+                return Lists.newArrayList(columnDefinition.translateToCatalogStyle());
+            }
+        }
+        throw new AnalysisException("can not find partition column");
+    }
+
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return null;
         }
-        MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(mvPartitionInfo.getRelatedTableInfo());
+        // all pct table partition type is same
+        MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(mvPartitionInfo.getPctInfos().get(0).getTableInfo());
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
             allPartitionDescs = MTMVPartitionUtil
-                    .getPartitionDescsByRelatedTable(properties, mvPartitionInfo, mvProperties);
+                    .getPartitionDescsByRelatedTable(properties, mvPartitionInfo, mvProperties,
+                            getPartitionColumn(mvPartitionInfo.getPartitionCol()));
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);
         }

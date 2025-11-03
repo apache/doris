@@ -38,7 +38,10 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/wildcard_query/wildcard_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -225,6 +228,16 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     exec_ctx.readers = resolver.readers();
     exec_ctx.reader_bindings = resolver.reader_bindings();
     exec_ctx.field_reader_bindings = resolver.field_readers();
+    for (const auto& [binding_key, binding] : resolver.binding_cache()) {
+        if (binding_key.empty()) {
+            continue;
+        }
+        query_v2::FieldBindingContext binding_ctx;
+        binding_ctx.logical_field_name = binding.logical_field_name;
+        binding_ctx.stored_field_name = binding.stored_field_name;
+        binding_ctx.stored_field_wstr = binding.stored_field_wstr;
+        exec_ctx.binding_fields.emplace(binding_key, std::move(binding_ctx));
+    }
 
     class ResolverAdapter final : public query_v2::NullBitmapResolver {
     public:
@@ -253,7 +266,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
-    auto scorer = weight->scorer(exec_ctx);
+    auto scorer = weight->scorer(exec_ctx, root_binding_key);
     if (!scorer) {
         LOG(WARNING) << "search: Failed to build scorer";
         bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
@@ -478,7 +491,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     std::wstring value_wstr = StringHelper::to_wstring(value);
 
     auto make_term_query = [&](const std::wstring& term) -> query_v2::QueryPtr {
-        return std::make_shared<query_v2::TermQuery>(context, field_wstr, term, field_name);
+        return std::make_shared<query_v2::TermQuery>(context, field_wstr, term);
     };
 
     if (clause_type == "TERM") {
@@ -497,7 +510,9 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                             value, binding.index_properties);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: No terms found after tokenization for TERM query, field="
-                             << field_name << ", value='" << value << "'";
+                             << field_name << ", value='" << value
+                             << "', returning empty BitSetQuery";
+                *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
                 return Status::OK();
             }
 
@@ -523,8 +538,47 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
     if (category == FunctionSearch::ClauseTypeCategory::TOKENIZED) {
         if (clause_type == "PHRASE") {
-            VLOG_DEBUG << "search: PHRASE clause not implemented, fallback to TERM";
-            *out = make_term_query(value_wstr);
+            bool should_analyze = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            if (!should_analyze) {
+                VLOG_DEBUG << "search: PHRASE on non-tokenized field '" << field_name
+                           << "', falling back to TERM";
+                *out = make_term_query(value_wstr);
+                return Status::OK();
+            }
+
+            if (binding.index_properties.empty()) {
+                LOG(WARNING) << "search: analyzer required but index properties empty for PHRASE "
+                                "query on field '"
+                             << field_name << "'";
+                *out = make_term_query(value_wstr);
+                return Status::OK();
+            }
+
+            std::vector<TermInfo> term_infos =
+                    inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            value, binding.index_properties);
+            if (term_infos.empty()) {
+                LOG(WARNING) << "search: No terms found after tokenization for PHRASE query, field="
+                             << field_name << ", value='" << value
+                             << "', returning empty BitSetQuery";
+                *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
+                return Status::OK();
+            }
+
+            if (term_infos.size() == 1) {
+                std::wstring term_wstr = StringHelper::to_wstring(term_infos[0].get_single_term());
+                *out = make_term_query(term_wstr);
+                return Status::OK();
+            }
+
+            std::vector<std::wstring> terms;
+            for (const auto& term_info : term_infos) {
+                terms.push_back(StringHelper::to_wstring(term_info.get_single_term()));
+            }
+            *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr, terms);
+            VLOG_DEBUG << "search: Built PhraseQuery for field=" << field_name << " with "
+                       << terms.size() << " terms";
             return Status::OK();
         }
         if (clause_type == "MATCH") {
@@ -553,7 +607,8 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                             value, binding.index_properties);
             if (term_infos.empty()) {
                 LOG(WARNING) << "search: tokenization yielded no terms for clause '" << clause_type
-                             << "', field=" << field_name;
+                             << "', field=" << field_name << ", returning empty BitSetQuery";
+                *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
                 return Status::OK();
             }
 
@@ -593,9 +648,28 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                        << value << "'";
             return Status::OK();
         }
+        if (clause_type == "PREFIX") {
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            VLOG_DEBUG << "search: PREFIX clause processed, field=" << field_name << ", pattern='"
+                       << value << "'";
+            return Status::OK();
+        }
 
-        if (clause_type == "PREFIX" || clause_type == "WILDCARD" || clause_type == "REGEXP" ||
-            clause_type == "RANGE" || clause_type == "LIST") {
+        if (clause_type == "WILDCARD") {
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
+                       << value << "'";
+            return Status::OK();
+        }
+
+        if (clause_type == "REGEXP") {
+            *out = std::make_shared<query_v2::RegexpQuery>(context, field_wstr, value);
+            VLOG_DEBUG << "search: REGEXP clause processed, field=" << field_name << ", pattern='"
+                       << value << "'";
+            return Status::OK();
+        }
+
+        if (clause_type == "RANGE" || clause_type == "LIST") {
             VLOG_DEBUG << "search: clause type '" << clause_type
                        << "' not implemented, fallback to TERM";
         }

@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -31,18 +30,8 @@ import org.apache.doris.thrift.TExprOpcode;
 
 public class TryCastExpr extends CastExpr {
 
-    public TryCastExpr(Type targetType, Expr e) {
-        super(targetType, e);
-        opcode = TExprOpcode.TRY_CAST;
-    }
-
     public TryCastExpr(Type targetType, Expr e, Void v) {
         super(targetType, e, v);
-        opcode = TExprOpcode.TRY_CAST;
-    }
-
-    public TryCastExpr(TypeDef targetTypeDef, Expr e) {
-        super(targetTypeDef, e);
         opcode = TExprOpcode.TRY_CAST;
     }
 
@@ -109,11 +98,6 @@ public class TryCastExpr extends CastExpr {
             msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }
         originCastNullable.ifPresent(msg::setIsCastNullable);
-    }
-
-    public void analyze() throws AnalysisException {
-        super.analyze();
-        this.opcode = TExprOpcode.TRY_CAST;
     }
 
     @Override
