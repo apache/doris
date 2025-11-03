@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -70,58 +70,54 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         return new UnknownValue(context, expr);
     }
 
-    private ValueDesc buildRange(ExpressionRewriteContext context, ComparisonPredicate predicate) {
-        Expression right = predicate.child(1);
-        // only handle `NumericType` and `DateLikeType` and `StringLikeType`
-        DataType rightDataType = right.getDataType();
-        if (right instanceof ComparableLiteral
-                && !right.isNullLiteral()
-                && (rightDataType.isNumericType() || rightDataType.isDateLikeType()
-                    || rightDataType.isStringLikeType())) {
-            ComparableLiteral value = (ComparableLiteral) predicate.right();
-            if (predicate instanceof EqualTo) {
-                return new DiscreteValue(context, predicate.left(), Sets.newHashSet(value));
-            }
-            Range<ComparableLiteral> range = null;
-            if (predicate instanceof GreaterThanEqual) {
-                range = Range.atLeast(value);
-            } else if (predicate instanceof GreaterThan) {
-                range = Range.greaterThan(value);
-            } else if (predicate instanceof LessThanEqual) {
-                range = Range.atMost(value);
-            } else if (predicate instanceof LessThan) {
-                range = Range.lessThan(value);
-            }
-
-            return new RangeValue(context, predicate.left(), range);
+    @Override
+    public ValueDesc visitGreaterThan(GreaterThan greaterThan, ExpressionRewriteContext context) {
+        Optional<ComparableLiteral> rightLiteral = tryGetComparableLiteral(greaterThan.right());
+        if (rightLiteral.isPresent()) {
+            return new RangeValue(context, greaterThan.left(), Range.greaterThan(rightLiteral.get()));
         } else {
-            return new UnknownValue(context, predicate);
+            return new UnknownValue(context, greaterThan);
         }
     }
 
     @Override
-    public ValueDesc visitGreaterThan(GreaterThan greaterThan, ExpressionRewriteContext context) {
-        return buildRange(context, greaterThan);
-    }
-
-    @Override
     public ValueDesc visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, ExpressionRewriteContext context) {
-        return buildRange(context, greaterThanEqual);
+        Optional<ComparableLiteral> rightLiteral = tryGetComparableLiteral(greaterThanEqual.right());
+        if (rightLiteral.isPresent()) {
+            return new RangeValue(context, greaterThanEqual.left(), Range.atLeast(rightLiteral.get()));
+        } else {
+            return new UnknownValue(context, greaterThanEqual);
+        }
     }
 
     @Override
     public ValueDesc visitLessThan(LessThan lessThan, ExpressionRewriteContext context) {
-        return buildRange(context, lessThan);
+        Optional<ComparableLiteral> rightLiteral = tryGetComparableLiteral(lessThan.right());
+        if (rightLiteral.isPresent()) {
+            return new RangeValue(context, lessThan.left(), Range.lessThan(rightLiteral.get()));
+        } else {
+            return new UnknownValue(context, lessThan);
+        }
     }
 
     @Override
     public ValueDesc visitLessThanEqual(LessThanEqual lessThanEqual, ExpressionRewriteContext context) {
-        return buildRange(context, lessThanEqual);
+        Optional<ComparableLiteral> rightLiteral = tryGetComparableLiteral(lessThanEqual.right());
+        if (rightLiteral.isPresent()) {
+            return new RangeValue(context, lessThanEqual.left(), Range.atMost(rightLiteral.get()));
+        } else {
+            return new UnknownValue(context, lessThanEqual);
+        }
     }
 
     @Override
     public ValueDesc visitEqualTo(EqualTo equalTo, ExpressionRewriteContext context) {
-        return buildRange(context, equalTo);
+        Optional<ComparableLiteral> rightLiteral = tryGetComparableLiteral(equalTo.right());
+        if (rightLiteral.isPresent()) {
+            return new DiscreteValue(context, equalTo.left(), ImmutableSet.of(rightLiteral.get()));
+        } else {
+            return new UnknownValue(context, equalTo);
+        }
     }
 
     @Override
@@ -138,6 +134,19 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new DiscreteValue(context, inPredicate.getCompareExpr(), values);
         } else {
             return new UnknownValue(context, inPredicate);
+        }
+    }
+
+    private Optional<ComparableLiteral> tryGetComparableLiteral(Expression right) {
+        // only handle `NumericType` and `DateLikeType` and `StringLikeType`
+        DataType rightDataType = right.getDataType();
+        if (right instanceof ComparableLiteral
+                && !right.isNullLiteral()
+                && (rightDataType.isNumericType() || rightDataType.isDateLikeType()
+                || rightDataType.isStringLikeType())) {
+            return Optional.of((ComparableLiteral) right);
+        } else {
+            return Optional.empty();
         }
     }
 
@@ -160,15 +169,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
     @Override
     public ValueDesc visitAnd(And and, ExpressionRewriteContext context) {
-        return simplify(context, ExpressionUtils.extractConjunction(and), true);
+        return processCompound(context, ExpressionUtils.extractConjunction(and), true);
     }
 
     @Override
     public ValueDesc visitOr(Or or, ExpressionRewriteContext context) {
-        return simplify(context, ExpressionUtils.extractDisjunction(or), false);
+        return processCompound(context, ExpressionUtils.extractDisjunction(or), false);
     }
 
-    private ValueDesc simplify(ExpressionRewriteContext context, List<Expression> predicates, boolean isAnd) {
+    private ValueDesc processCompound(ExpressionRewriteContext context, List<Expression> predicates, boolean isAnd) {
         boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
         Map<Expression, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
         for (Expression predicate : predicates) {
@@ -397,7 +406,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         R visitUnknownValue(UnknownValue unknownValue, C context);
     }
 
-    private static class ValueDescCollector {
+    private static class ValueDescCollector implements ValueDescVisitor<Void, Void> {
         Optional<IsNotNullValue> isNotNullValueOpt = Optional.empty();
         boolean hasIsNullValue = false;
         boolean hasEmptyValue = false;
@@ -408,31 +417,61 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         List<UnknownValue> unknownValues = Lists.newArrayList();
 
         void add(ValueDesc value) {
-            if (value instanceof EmptyValue) {
-                hasEmptyValue = true;
-            } else if (value instanceof RangeValue) {
-                rangeValues.add((RangeValue) value);
-            } else if (value instanceof DiscreteValue) {
-                discreteValues.add((DiscreteValue) value);
-            } else if (value instanceof NotDiscreteValue) {
-                notDiscreteValues.add((NotDiscreteValue) value);
-            } else if (value instanceof CompoundValue) {
-                compoundValues.add((CompoundValue) value);
-            } else if (value instanceof IsNullValue) {
-                hasIsNullValue = true;
-            } else if (value instanceof IsNotNullValue) {
-                IsNotNullValue isNotNullValue = (IsNotNullValue) value;
-                if (!isNotNullValueOpt.isPresent() || isNotNullValue.getNotExpression().isGeneratedIsNotNull()) {
-                    isNotNullValueOpt = Optional.of(isNotNullValue);
-                }
-            } else {
-                Preconditions.checkArgument(value instanceof UnknownValue);
-                unknownValues.add((UnknownValue) value);
-            }
+            value.accept(this, null);
         }
 
         int size() {
             return rangeValues.size() + discreteValues.size() + compoundValues.size() + unknownValues.size();
+        }
+
+        @Override
+        public Void visitEmptyValue(EmptyValue emptyValue, Void context) {
+            hasEmptyValue = true;
+            return null;
+        }
+
+        @Override
+        public Void visitRangeValue(RangeValue rangeValue, Void context) {
+            rangeValues.add(rangeValue);
+            return null;
+        }
+
+        @Override
+        public Void visitDiscreteValue(DiscreteValue discreteValue, Void context) {
+            discreteValues.add(discreteValue);
+            return null;
+        }
+
+        @Override
+        public Void visitNotDiscreteValue(NotDiscreteValue notDiscreteValue, Void context) {
+            notDiscreteValues.add(notDiscreteValue);
+            return null;
+        }
+
+        @Override
+        public Void visitIsNullValue(IsNullValue isNullValue, Void context) {
+            hasIsNullValue = true;
+            return null;
+        }
+
+        @Override
+        public Void visitIsNotNullValue(IsNotNullValue isNotNullValue, Void context) {
+            if (!isNotNullValueOpt.isPresent() || isNotNullValue.getNotExpression().isGeneratedIsNotNull()) {
+                isNotNullValueOpt = Optional.of(isNotNullValue);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitCompoundValue(CompoundValue compoundValue, Void context) {
+            compoundValues.add(compoundValue);
+            return null;
+        }
+
+        @Override
+        public Void visitUnknownValue(UnknownValue unknownValue, Void context) {
+            unknownValues.add(unknownValue);
+            return null;
         }
     }
 
@@ -531,11 +570,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return new DiscreteValue(context, reference, intersectValues);
             }
         }
-
-        @Override
-        public String toString() {
-            return range == null ? "UnknownRange" : range.toString();
-        }
     }
 
     /**
@@ -559,11 +593,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitDiscreteValue(this, context);
-        }
-
-        @Override
-        public String toString() {
-            return values.toString();
         }
     }
 
