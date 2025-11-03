@@ -35,13 +35,26 @@ suite('test_balance_warm_up', 'docker') {
         'report_tablet_interval_seconds=1',
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
-        'sys_log_verbose_modules=*'
+        'sys_log_verbose_modules=*',
+        'cache_read_from_peer_expired_seconds=100',
+        'enable_cache_read_from_peer=true'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
     options.cloudMode = true
     options.enableDebugPoints()
     
+    def getBrpcMetrics = {ip, port, name ->
+        def url = "http://${ip}:${port}/brpc_metrics"
+        def metrics = new URL(url).text
+        def matcher = metrics =~ ~"${name}\\s+(\\d+)"
+        if (matcher.find()) {
+            return matcher[0][1] as long
+        } else {
+            throw new RuntimeException("${name} not found for ${ip}:${port}")
+        }
+    }
+
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
@@ -72,6 +85,22 @@ suite('test_balance_warm_up', 'docker') {
         """
         sql """
             insert into $table values  (44, 1, 'comment', 'spez', '2006-10-11 23:00:48', 'Welcome back, Randall',  0, 43, 0, [454465], '', 0, '', [], 0), (46, 0, 'story', 'goldfish', '2006-10-11 23:39:28', '',  0, 0, 0, [454470], 'http://www.rentometer.com/', 0, ' VCs Prefer to Fund Nearby Firms - New York Times', [], 0);
+        """
+
+        // more tablets accessed. for test metrics `balance_tablet_be_mapping_size`
+        sql """CREATE TABLE more_tablets_warm_up_test_tbl (
+            `k1` int(11) NULL,
+            `v1` VARCHAR(2048)
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+            "replication_num"="1"
+            );
+        """
+        sql """
+            insert into more_tablets_warm_up_test_tbl values (1, 'value1'), (2, 'value2'), (3, 'value3'), (4, 'value4'), (5, 'value5'), (6, 'value6'), (7, 'value7'), (8, 'value8'), (9, 'value9'), (10, 'value10'), (11, 'value11'), (12, 'value12'), (13, 'value13'), (14, 'value14'), (15, 'value15'), (16, 'value16'), (17, 'value17'), (18, 'value18'), (19, 'value19'), (20, 'value20');
         """
 
         // before add be
@@ -128,6 +157,8 @@ suite('test_balance_warm_up', 'docker') {
             }
         }
 
+        sql """select count(*) from more_tablets_warm_up_test_tbl"""
+
         // from be1 -> be2, warm up this tablet
         // after add be
         def afterGetFromFe = getTabletAndBeHostFromFe(table)
@@ -179,6 +210,11 @@ suite('test_balance_warm_up', 'docker') {
             "Expected cache file pattern ${hashFile} not found in BE ${newAddBe.Host}'s file_cache directory. " + 
             "Available subdirs: ${subDirs}")
         }
+
+        sleep(105 * 1000)
+        // test expired be tablet cache info be removed
+        // after cache_read_from_peer_expired_seconds = 100s
+        assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "balance_tablet_be_mapping_size"))
     }
 
     docker(options) {
