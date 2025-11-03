@@ -625,10 +625,14 @@ public class StructInfo {
         // the aggregate above join
         private boolean containsTopAggregate = false;
         private int topAggregateNum = 0;
+        // This indicates whether the operators above the join contain any window operator.
         private boolean containsTopWindow = false;
+        // This records the number of window operators above the join.
         private int topWindowNum = 0;
         private boolean alreadyMeetJoin = false;
         private boolean alreadyMeetAggregate = false;
+        // Indicates if a window operator is under an Aggregate operator, because the window operator above
+        // aggregate is not supported now.
         private boolean windowUnderAggregate = false;
         private final Set<JoinType> supportJoinTypes;
 
