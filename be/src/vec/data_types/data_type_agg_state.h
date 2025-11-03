@@ -111,7 +111,7 @@ public:
     }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        // 返回自定义的AggState serde，用于在CSV导出时进行base64编码
+        // Return custom AggState serde for base64 encoding during CSV export
         DataTypeSerDeSPtr nested_serde = _agg_serialized_type->get_serde(nesting_level);
         return std::make_shared<DataTypeAggStateSerde>(nested_serde, nesting_level);
     };

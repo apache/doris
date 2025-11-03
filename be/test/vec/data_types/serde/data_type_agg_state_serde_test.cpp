@@ -38,21 +38,21 @@ namespace doris::vectorized {
 class DataTypeAggStateSerdeTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // 创建nested_serde用于测试
+        // Create nested_serde for testing
         auto string_type = std::make_shared<DataTypeString>();
         nested_serde = string_type->get_serde();
 
-        // 创建AggStateSerde实例
+        // Create AggStateSerde instance
         agg_state_serde = std::make_shared<DataTypeAggStateSerde>(nested_serde);
     }
 
-    // 验证字符串是否为有效的base64编码
+    // Verify if string is valid base64 encoding
     bool isValidBase64(const std::string& str) {
         if (str.empty()) {
-            return true; // 空字符串也是有效的base64
+            return true; // Empty string is also valid base64
         }
 
-        // Base64字符集: A-Z, a-z, 0-9, +, /, = (用于padding)
+        // Base64 character set: A-Z, a-z, 0-9, +, /, = (for padding)
         for (char c : str) {
             if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
                   c == '+' || c == '/' || c == '=')) {
@@ -60,14 +60,14 @@ protected:
             }
         }
 
-        // Base64字符串长度必须是4的倍数（考虑padding）
-        // padding可以是0、1或2个'='字符
+        // Base64 string length must be multiple of 4 (considering padding)
+        // Padding can be 0, 1 or 2 '=' characters
         size_t len = str.length();
         if (len % 4 != 0) {
             return false;
         }
 
-        // 检查padding的正确性：只在最后1-2个字符可以是'='
+        // Check padding correctness: only the last 1-2 characters can be '='
         size_t padding_count = 0;
         for (size_t i = len - 1; i >= len - 2 && i < len; --i) {
             if (str[i] == '=') {
@@ -76,7 +76,7 @@ protected:
                 break;
             }
         }
-        // padding最多2个字符
+        // Padding can be at most 2 characters
         return padding_count <= 2;
     }
 
@@ -84,22 +84,22 @@ protected:
     std::shared_ptr<DataTypeAggStateSerde> agg_state_serde;
 };
 
-// 测试ColumnString类型的序列化
+// Test serialization of ColumnString type
 TEST_F(DataTypeAggStateSerdeTest, SerializeColumnString) {
-    // 创建测试用的ColumnString
+    // Create ColumnString for testing
     auto column = ColumnString::create();
 
-    // 测试用例：各种不同的数据
+    // Test cases: various different data
     std::vector<std::string> test_cases = {
             "simple_string",
             "test\ndata\twith,special\"chars",
-            "",                      // 空字符串
-            "a",                     // 单字符
-            std::string(100, 'x'),   // 中等长度
-            std::string(10000, 'y'), // 大数据
+            "",                      // Empty string
+            "a",                     // Single character
+            std::string(100, 'x'),   // Medium length
+            std::string(10000, 'y'), // Large data
     };
 
-    // 添加二进制数据
+    // Add binary data
     std::vector<uint8_t> binary_data = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD, 0xFC};
     test_cases.emplace_back(reinterpret_cast<const char*>(binary_data.data()), binary_data.size());
 
@@ -107,7 +107,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnString) {
         column->insert_data(test_data.c_str(), test_data.size());
     }
 
-    // 序列化每一行并验证
+    // Serialize each row and verify
     FormatOptions options;
     auto output_col = ColumnString::create();
     output_col->reserve(column->size());
@@ -119,14 +119,14 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnString) {
 
         buffer_writer.commit();
 
-        // 获取序列化后的结果
+        // Get serialized result
         std::string serialized = output_col->get_data_at(i).to_string();
 
-        // 验证是base64编码
+        // Verify it's base64 encoded
         EXPECT_TRUE(isValidBase64(serialized))
                 << "Serialized data is not valid base64 for row " << i << ": " << serialized;
 
-        // 验证可以解码回原始数据
+        // Verify can decode back to original data
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode base64 for row " << i;
@@ -134,30 +134,30 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnString) {
     }
 }
 
-// 测试ColumnFixedLengthObject类型的序列化
+// Test serialization of ColumnFixedLengthObject type
 TEST_F(DataTypeAggStateSerdeTest, SerializeColumnFixedLengthObject) {
-    const size_t object_size = 16; // 固定对象大小
+    const size_t object_size = 16; // Fixed object size
 
-    // 创建测试用的ColumnFixedLengthObject
+    // Create ColumnFixedLengthObject for testing
     auto column = ColumnFixedLengthObject::create(object_size);
 
-    // 准备测试数据
+    // Prepare test data
     std::vector<std::vector<uint8_t>> test_cases = {
             {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
-             0x0E, 0x0F},                            // 标准二进制数据
-            std::vector<uint8_t>(object_size, 0x00), // 全零
-            std::vector<uint8_t>(object_size, 0xFF), // 全1
+             0x0E, 0x0F},                            // Standard binary data
+            std::vector<uint8_t>(object_size, 0x00), // All zeros
+            std::vector<uint8_t>(object_size, 0xFF), // All ones
             {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-             0x99, 0xAA}, // 混合数据
+             0x99, 0xAA}, // Mixed data
     };
 
-    // 插入测试数据
+    // Insert test data
     for (const auto& test_data : test_cases) {
         EXPECT_EQ(test_data.size(), object_size);
         column->insert_data(reinterpret_cast<const char*>(test_data.data()), object_size);
     }
 
-    // 序列化每一行并验证
+    // Serialize each row and verify
     FormatOptions options;
     auto output_col = ColumnString::create();
     output_col->reserve(column->size());
@@ -170,15 +170,15 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnFixedLengthObject) {
 
         buffer_writer.commit();
 
-        // 获取序列化后的结果
+        // Get serialized result
         std::string serialized = output_col->get_data_at(i).to_string();
 
-        // 验证是base64编码
+        // Verify it's base64 encoded
         EXPECT_TRUE(isValidBase64(serialized))
                 << "Serialized FixedLengthObject is not valid base64 for row " << i << ": "
                 << serialized;
 
-        // 验证可以解码回原始数据
+        // Verify can decode back to original data
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode base64 for row " << i;
@@ -188,13 +188,13 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeColumnFixedLengthObject) {
     }
 }
 
-// 测试空数据的处理
+// Test handling of empty data
 TEST_F(DataTypeAggStateSerdeTest, SerializeEmptyData) {
     FormatOptions options;
     auto output_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*output_col.get());
 
-    // 测试空字符串
+    // Test empty string
     {
         auto column = ColumnString::create();
         column->insert_data("", 0);
@@ -204,7 +204,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeEmptyData) {
         buffer_writer.commit();
 
         std::string serialized = output_col->get_data_at(0).to_string();
-        // 空字符串编码后应该也是空字符串或有效的base64
+        // Empty string after encoding should be empty string or valid base64
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success);
@@ -212,16 +212,16 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeEmptyData) {
     }
 }
 
-// 测试CSV特殊字符的处理
+// Test handling of CSV special characters
 TEST_F(DataTypeAggStateSerdeTest, SerializeCsvSpecialChars) {
     auto column = ColumnString::create();
 
-    // 包含各种CSV特殊字符的数据
+    // Data containing various CSV special characters
     std::vector<std::string> special_char_cases = {
             "data,with,commas",   "data\nwith\nnewlines",           "data\twith\ttabs",
             "data\"with\"quotes", "data,with\nall\tspecial\"chars",
-            "leading,trailing,", // 以逗号结尾
-            ",leading,comma",    // 以逗号开头
+            "leading,trailing,", // Ending with comma
+            ",leading,comma",    // Starting with comma
             "\"quoted\"",         "\n\nmultiple\nnewlines\n",
     };
 
@@ -243,15 +243,15 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeCsvSpecialChars) {
 
         std::string serialized = output_col->get_data_at(i).to_string();
 
-        // 验证base64编码后的字符串不包含CSV特殊字符（除了可能的分隔符+和/）
-        // 但不应包含换行符、制表符、逗号、引号等
+        // Verify base64 encoded string doesn't contain CSV special characters (except possible separators + and /)
+        // But should not contain newline, tab, comma, quote, etc.
         EXPECT_EQ(serialized.find('\n'), std::string::npos)
                 << "Base64 contains newline at row " << i;
         EXPECT_EQ(serialized.find('\t'), std::string::npos) << "Base64 contains tab at row " << i;
         EXPECT_EQ(serialized.find(','), std::string::npos) << "Base64 contains comma at row " << i;
         EXPECT_EQ(serialized.find('"'), std::string::npos) << "Base64 contains quote at row " << i;
 
-        // 验证可以正确解码
+        // Verify can decode correctly
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode for row " << i;
@@ -259,12 +259,12 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeCsvSpecialChars) {
     }
 }
 
-// 测试大数据量的序列化
+// Test serialization of large data
 TEST_F(DataTypeAggStateSerdeTest, SerializeLargeData) {
     auto column = ColumnString::create();
 
-    // 不同大小的数据
-    std::vector<size_t> sizes = {1024, 4096, 16384, 65536, 1048576}; // 1KB到1MB
+    // Data of different sizes
+    std::vector<size_t> sizes = {1024, 4096, 16384, 65536, 1048576}; // 1KB to 1MB
 
     for (size_t size : sizes) {
         std::string large_data(size, 'A' + (size % 26));
@@ -285,11 +285,11 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeLargeData) {
 
         std::string serialized = output_col->get_data_at(i).to_string();
 
-        // 验证是有效的base64
+        // Verify it's valid base64
         EXPECT_TRUE(isValidBase64(serialized))
                 << "Large data serialization invalid base64 at row " << i;
 
-        // 验证可以解码
+        // Verify can decode
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode large data for row " << i;
@@ -297,16 +297,16 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeLargeData) {
     }
 }
 
-// 测试随机数据的序列化
+// Test serialization of random data
 TEST_F(DataTypeAggStateSerdeTest, SerializeRandomData) {
     auto column = ColumnString::create();
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(1, 1000);            // 1到1000字节的随机长度
-    std::uniform_int_distribution<uint8_t> byte_dis(0, 255); // 随机字节值
+    std::uniform_int_distribution<> dis(1, 1000);            // Random length from 1 to 1000 bytes
+    std::uniform_int_distribution<uint8_t> byte_dis(0, 255); // Random byte values
 
-    // 生成10个随机数据
+    // Generate 10 random data
     for (int i = 0; i < 10; ++i) {
         size_t length = dis(gen);
         std::vector<uint8_t> random_data(length);
@@ -333,7 +333,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeRandomData) {
         EXPECT_TRUE(isValidBase64(serialized))
                 << "Random data serialization invalid base64 at row " << i;
 
-        // 验证可以解码
+        // Verify can decode
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode random data for row " << i;
@@ -342,7 +342,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeRandomData) {
     }
 }
 
-// 测试serialize_one_cell_to_hive_text方法
+// Test serialize_one_cell_to_hive_text method
 TEST_F(DataTypeAggStateSerdeTest, SerializeToHiveText) {
     auto column = ColumnString::create();
     column->insert_data("test_agg_state_data", 19);
@@ -360,24 +360,24 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeToHiveText) {
     std::string serialized = output_col->get_data_at(0).to_string();
     EXPECT_TRUE(isValidBase64(serialized)) << "Hive text serialization invalid base64";
 
-    // 验证可以解码
+    // Verify can decode
     std::string decoded;
     bool decode_success = doris::base64_decode(serialized, &decoded);
     EXPECT_TRUE(decode_success);
     EXPECT_EQ(decoded, "test_agg_state_data");
 }
 
-// 测试base64编码值的正确性（与标准base64库对比）
+// Test correctness of base64 encoding values (compared with standard base64 library)
 TEST_F(DataTypeAggStateSerdeTest, Base64EncodingCorrectness) {
-    // 标准的base64测试用例（来自RFC 4648）
+    // Standard base64 test cases (from RFC 4648)
     std::vector<std::pair<std::string, std::string>> standard_cases = {
-            {"", ""},               // 空字符串
-            {"f", "Zg=="},          // 1字节
-            {"fo", "Zm8="},         // 2字节
-            {"foo", "Zm9v"},        // 3字节（无padding）
-            {"foob", "Zm9vYg=="},   // 4字节
-            {"fooba", "Zm9vYmE="},  // 5字节
-            {"foobar", "Zm9vYmFy"}, // 6字节（无padding）
+            {"", ""},               // Empty string
+            {"f", "Zg=="},          // 1 byte
+            {"fo", "Zm8="},         // 2 bytes
+            {"foo", "Zm9v"},        // 3 bytes (no padding)
+            {"foob", "Zm9vYg=="},   // 4 bytes
+            {"fooba", "Zm9vYmE="},  // 5 bytes
+            {"foobar", "Zm9vYmFy"}, // 6 bytes (no padding)
     };
 
     auto column = ColumnString::create();
@@ -398,11 +398,11 @@ TEST_F(DataTypeAggStateSerdeTest, Base64EncodingCorrectness) {
 
         std::string serialized = output_col->get_data_at(i).to_string();
 
-        // 验证编码结果与预期一致
+        // Verify encoding result matches expected
         if (!standard_cases[i].second.empty() || !serialized.empty()) {
-            // 注意：由于我们的实现可能对空字符串有特殊处理，这里允许一些灵活性
+            // Note: Our implementation may have special handling for empty strings, allow some flexibility here
             if (standard_cases[i].first.empty()) {
-                // 空字符串可能编码为空字符串或有效的base64
+                // Empty string may encode to empty string or valid base64
                 EXPECT_TRUE(serialized.empty() || isValidBase64(serialized));
             } else {
                 EXPECT_EQ(serialized, standard_cases[i].second)
@@ -413,11 +413,11 @@ TEST_F(DataTypeAggStateSerdeTest, Base64EncodingCorrectness) {
     }
 }
 
-// 测试边界情况：单个字节的各种值
+// Test edge cases: various values of single byte
 TEST_F(DataTypeAggStateSerdeTest, SerializeSingleByteValues) {
     auto column = ColumnString::create();
 
-    // 测试所有可能的单字节值（0-255）
+    // Test all possible single byte values (0-255)
     for (int i = 0; i <= 255; ++i) {
         uint8_t byte_value = static_cast<uint8_t>(i);
         column->insert_data(reinterpret_cast<const char*>(&byte_value), 1);
@@ -437,7 +437,7 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeSingleByteValues) {
         std::string serialized = output_col->get_data_at(i).to_string();
         EXPECT_TRUE(isValidBase64(serialized)) << "Invalid base64 for byte value " << i;
 
-        // 验证可以解码回原始字节
+        // Verify can decode back to original byte
         std::string decoded;
         bool decode_success = doris::base64_decode(serialized, &decoded);
         EXPECT_TRUE(decode_success) << "Failed to decode byte value " << i;
@@ -447,11 +447,11 @@ TEST_F(DataTypeAggStateSerdeTest, SerializeSingleByteValues) {
     }
 }
 
-// 测试序列化性能：验证不会因为数据大小而失败
+// Test serialization performance: verify it doesn't fail due to data size
 TEST_F(DataTypeAggStateSerdeTest, SerializePerformanceStress) {
     auto column = ColumnString::create();
 
-    // 测试不同大小的数据，确保都能正常序列化
+    // Test data of different sizes to ensure all can serialize normally
     std::vector<size_t> stress_sizes = {1, 3, 4, 7, 15, 16, 31, 63, 64, 127, 255, 256, 1023, 1024};
 
     for (size_t size : stress_sizes) {

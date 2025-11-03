@@ -21,26 +21,26 @@
 
 namespace doris::vectorized {
 
-// DataTypeAggStateSerde专门用于处理AggState类型在CSV导出时的序列化
-// 它将AggState的二进制数据编码为base64字符串，以便在CSV中安全传输
+// DataTypeAggStateSerde is specifically used for serializing AggState type during CSV export
+// It encodes AggState's binary data as base64 string for safe transmission in CSV
 class DataTypeAggStateSerde : public DataTypeSerDe {
 public:
-    // 构造函数：接收底层序列化类型的serde（通常是string或fixed_length_object）
+    // Constructor: receives the underlying serialized type's serde (usually string or fixed_length_object)
     explicit DataTypeAggStateSerde(DataTypeSerDeSPtr nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), _nested_serde(nested_serde) {}
 
     std::string get_name() const override { return "AggState"; }
 
-    // 重写serialize_one_cell_to_json方法，对AggState数据进行base64编码
+    // Override serialize_one_cell_to_json method to base64 encode AggState data
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
-    // 重写serialize_one_cell_to_hive_text方法，对AggState数据进行base64编码
+    // Override serialize_one_cell_to_hive_text method to base64 encode AggState data
     Status serialize_one_cell_to_hive_text(
             const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
             int hive_text_complex_type_delimiter_level) const override;
 
-    // 其他方法委托给nested_serde处理
+    // Other methods delegate to nested_serde
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
         return _nested_serde->serialize_column_to_json(column, start_idx, end_idx, bw, options);
@@ -64,10 +64,10 @@ public:
     }
 
 private:
-    // 内部方法：将二进制数据编码为base64并写入buffer
+    // Internal method: encode binary data to base64 and write to buffer
     void _encode_to_base64(const char* data, size_t size, BufferWritable& bw) const;
 
-    DataTypeSerDeSPtr _nested_serde; // 底层序列化类型的serde
+    DataTypeSerDeSPtr _nested_serde; // Serde of the underlying serialized type
 };
 
 } // namespace doris::vectorized
