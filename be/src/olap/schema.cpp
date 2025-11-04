@@ -82,6 +82,8 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
         }
         _cols[cid] = FieldFactory::create(*cols[cid]);
 
+        DCHECK(_cols[cid] != nullptr) << cols[cid]->name();
+
         _col_offsets[cid] = offset;
         // Plus 1 byte for null byte
         offset += _cols[cid]->size() + 1;
@@ -170,6 +172,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
         ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIME>::create();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_TIMESTAMPTZ>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
