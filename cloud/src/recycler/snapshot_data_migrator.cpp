@@ -343,6 +343,12 @@ int InstanceDataMigrator::enable_instance_snapshot_switch() {
         return -1;
     }
 
+    if (instance_info.multi_version_status() == MultiVersionStatus::MULTI_VERSION_DISABLED) {
+        LOG_WARNING("instance multi version status is disabled, no need to enable snapshot switch")
+                .tag("instance_id", instance_id_);
+        return 0;
+    }
+
     instance_info.set_snapshot_switch_status(SnapshotSwitchStatus::SNAPSHOT_SWITCH_OFF);
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, instance_info.SerializeAsString());
