@@ -41,7 +41,7 @@ public class ToIso8601 extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(StringType.INSTANCE).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(StringType.INSTANCE).args(DateType.INSTANCE)
