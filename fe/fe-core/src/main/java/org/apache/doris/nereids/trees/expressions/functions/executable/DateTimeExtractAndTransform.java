@@ -589,11 +589,8 @@ public class DateTimeExtractAndTransform {
     }
 
     private static Expression fromUnixTime(BigDecimal second, StringLikeLiteral format) {
-        if (second.signum() < 0) {
-            throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
-        }
         // 32536771199L is max valid timestamp of mysql from_unix_time
-        if (second.longValue() > 32536771199L) {
+        if (second.signum() < 0 || second.longValue() > 32536771199L) {
             return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
         }
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
