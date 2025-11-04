@@ -814,6 +814,15 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
         BlockMetaKey meta_key = iterator->key();
         BlockMeta meta_value = iterator->value();
 
+        // Check for deserialization errors
+        if (!iterator->get_last_key_error().ok() || !iterator->get_last_value_error().ok()) {
+            LOG(WARNING) << "Failed to deserialize cache block metadata: "
+                         << "key_error=" << iterator->get_last_key_error().to_string()
+                         << ", value_error=" << iterator->get_last_value_error().to_string();
+            iterator->next();
+            continue; // Skip invalid records
+        }
+
         VLOG_DEBUG << "Processing cache block: tablet_id=" << meta_key.tablet_id
                    << ", hash=" << meta_key.hash.low() << "-" << meta_key.hash.high()
                    << ", offset=" << meta_key.offset << ", type=" << meta_value.type

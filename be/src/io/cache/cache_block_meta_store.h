@@ -77,6 +77,10 @@ public:
     virtual void next() = 0;
     virtual BlockMetaKey key() const = 0;
     virtual BlockMeta value() const = 0;
+
+    // Error status query methods
+    virtual Status get_last_key_error() const { return Status::OK(); }
+    virtual Status get_last_value_error() const { return Status::OK(); }
 };
 
 class CacheBlockMetaStore {
@@ -131,7 +135,8 @@ private:
 
 std::string serialize_key(const BlockMetaKey& key);
 std::string serialize_value(const BlockMeta& meta);
-BlockMetaKey deserialize_key(const std::string& key_str);
-BlockMeta deserialize_value(const std::string& value_str);
+std::optional<BlockMetaKey> deserialize_key(const std::string& key_str, Status* status = nullptr);
+std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status* status = nullptr);
+std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* status = nullptr);
 
 } // namespace doris::io

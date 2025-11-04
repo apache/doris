@@ -150,7 +150,14 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
             _db->Get(rocksdb::ReadOptions(), _file_cache_meta_cf_handle.get(), key_str, &value_str);
 
     if (status.ok()) {
-        return deserialize_value(value_str);
+        Status deserialize_status;
+        auto result = deserialize_value(value_str, &deserialize_status);
+        if (result.has_value()) {
+            return result;
+        } else {
+            LOG(WARNING) << "Failed to deserialize value: " << deserialize_status.to_string();
+            return std::nullopt;
+        }
     } else if (status.IsNotFound()) {
         return std::nullopt;
     } else {
@@ -169,7 +176,10 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
     class RocksDBIterator : public BlockMetaIterator {
     public:
         RocksDBIterator(rocksdb::Iterator* iter, const std::string& prefix)
-                : _iter(iter), _prefix(prefix) {
+                : _iter(iter),
+                  _prefix(prefix),
+                  _last_key_error(Status::OK()),
+                  _last_value_error(Status::OK()) {
             _iter->Seek(_prefix);
         }
 
@@ -184,52 +194,52 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
         void next() override { _iter->Next(); }
 
         BlockMetaKey key() const override {
+            // Reset error state
+            _last_key_error = Status::OK();
+
             auto key_view = std::string_view(_iter->key().data(), _iter->key().size());
-            Slice slice(key_view.data(), key_view.size());
+            Status status;
+            auto result = deserialize_key(std::string(key_view), &status);
 
-            // Check version byte
-            if (slice.size < 1 || slice.data[0] != 0x1) {
-                LOG(WARNING) << "Invalid key version in range_get";
-                return BlockMetaKey();
+            if (!result.has_value()) {
+                _last_key_error = status;
+                LOG(WARNING) << "Failed to deserialize key in range_get: " << status.to_string();
+                // error indicator, caller should check get_last_key_error
+                return BlockMetaKey(-1, UInt128Wrapper(0), 0);
             }
-            slice.remove_prefix(1); // skip version byte
 
-            auto* tablet_id_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_BIGINT);
-            int64_t tablet_id;
-            uint64_t hash_high, hash_low;
-            size_t offset;
-
-            Status st = tablet_id_coder->decode_ascending(&slice, sizeof(int64_t),
-                                                          reinterpret_cast<uint8_t*>(&tablet_id));
-            if (!st.ok()) return BlockMetaKey();
-
-            st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
-                                                   reinterpret_cast<uint8_t*>(&hash_high));
-            if (!st.ok()) return BlockMetaKey();
-
-            st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
-                                                   reinterpret_cast<uint8_t*>(&hash_low));
-            if (!st.ok()) return BlockMetaKey();
-
-            st = tablet_id_coder->decode_ascending(&slice, sizeof(size_t),
-                                                   reinterpret_cast<uint8_t*>(&offset));
-            if (!st.ok()) return BlockMetaKey();
-
-            uint128_t hash = (static_cast<uint128_t>(hash_high) << 64) | hash_low;
-            return BlockMetaKey(tablet_id, UInt128Wrapper(hash), offset);
+            return result.value();
         }
 
         BlockMeta value() const override {
+            // Reset error state
+            _last_value_error = Status::OK();
+
             auto value_view = std::string_view(_iter->value().data(), _iter->value().size());
-            auto meta = deserialize_value(value_view);
-            VLOG_DEBUG << "RocksDB value: " << value_view << ", deserialized as: type=" << meta.type
-                       << ", size=" << meta.size << ", ttl=" << meta.ttl;
-            return meta;
+            Status status;
+            auto result = deserialize_value(value_view, &status);
+
+            if (!result.has_value()) {
+                _last_value_error = status;
+                LOG(WARNING) << "Failed to deserialize value in range_get: " << status.to_string();
+                // error indicator, caller should check get_last_value_error
+                return BlockMeta(FileCacheType::DISPOSABLE, 0, 0);
+            }
+
+            VLOG_DEBUG << "RocksDB value: " << value_view
+                       << ", deserialized as: type=" << result->type << ", size=" << result->size
+                       << ", ttl=" << result->ttl;
+            return result.value();
         }
+
+        Status get_last_key_error() const { return _last_key_error; }
+        Status get_last_value_error() const { return _last_value_error; }
 
     private:
         rocksdb::Iterator* _iter;
         std::string _prefix;
+        mutable Status _last_key_error;
+        mutable Status _last_value_error;
     };
 
     if (!_db) {
@@ -249,7 +259,10 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
 
     class RocksDBIterator : public BlockMetaIterator {
     public:
-        RocksDBIterator(rocksdb::Iterator* iter) : _iter(iter) { _iter->SeekToFirst(); }
+        RocksDBIterator(rocksdb::Iterator* iter)
+                : _iter(iter), _last_key_error(Status::OK()), _last_value_error(Status::OK()) {
+            _iter->SeekToFirst();
+        }
 
         ~RocksDBIterator() override { delete _iter; }
 
@@ -258,20 +271,51 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         void next() override { _iter->Next(); }
 
         BlockMetaKey key() const override {
+            // Reset error state
+            _last_key_error = Status::OK();
+
             auto key_view = std::string_view(_iter->key().data(), _iter->key().size());
-            return deserialize_key(std::string(key_view));
+            Status status;
+            auto result = deserialize_key(std::string(key_view), &status);
+
+            if (!result.has_value()) {
+                _last_key_error = status;
+                LOG(WARNING) << "Failed to deserialize key in get_all: " << status.to_string();
+                // 返回一个无效的键作为错误指示，调用方应该检查错误状态
+                return BlockMetaKey(-1, UInt128Wrapper(0), 0); // 使用无效值作为错误指示
+            }
+
+            return result.value();
         }
 
         BlockMeta value() const override {
+            // Reset error state
+            _last_value_error = Status::OK();
+
             auto value_view = std::string_view(_iter->value().data(), _iter->value().size());
-            auto meta = deserialize_value(value_view);
-            VLOG_DEBUG << "RocksDB value: " << value_view << ", deserialized as: type=" << meta.type
-                       << ", size=" << meta.size << ", ttl=" << meta.ttl;
-            return meta;
+            Status status;
+            auto result = deserialize_value(value_view, &status);
+
+            if (!result.has_value()) {
+                _last_value_error = status;
+                LOG(WARNING) << "Failed to deserialize value in get_all: " << status.to_string();
+                // error indicator, caller should check get_last_value_error
+                return BlockMeta(FileCacheType::DISPOSABLE, 0, 0);
+            }
+
+            VLOG_DEBUG << "RocksDB value: " << value_view
+                       << ", deserialized as: type=" << result->type << ", size=" << result->size
+                       << ", ttl=" << result->ttl;
+            return result.value();
         }
+
+        Status get_last_key_error() const { return _last_key_error; }
+        Status get_last_value_error() const { return _last_value_error; }
 
     private:
         rocksdb::Iterator* _iter;
+        mutable Status _last_key_error;
+        mutable Status _last_value_error;
     };
 
     rocksdb::Iterator* iter =
@@ -416,14 +460,15 @@ std::string serialize_value(const BlockMeta& meta) {
     return result;
 }
 
-BlockMetaKey deserialize_key(const std::string& key_str) {
+std::optional<BlockMetaKey> deserialize_key(const std::string& key_str, Status* status) {
     // New key format: [version][encoded tablet_id][encoded hash_high][encoded hash_low][encoded offset]
     Slice slice(key_str);
 
     // Check version byte
     if (slice.size < 1 || slice.data[0] != 0x1) {
         LOG(WARNING) << "Invalid key, expected prefix 0x1";
-        return BlockMetaKey(); // Invalid version
+        if (status) *status = Status::InternalError("Invalid key, expected prefix 0x1");
+        return std::nullopt; // Invalid version
     }
     slice.remove_prefix(1); // skip version byte
 
@@ -434,44 +479,65 @@ BlockMetaKey deserialize_key(const std::string& key_str) {
 
     Status st = tablet_id_coder->decode_ascending(&slice, sizeof(int64_t),
                                                   reinterpret_cast<uint8_t*>(&tablet_id));
-    if (!st.ok()) return BlockMetaKey();
+    if (!st.ok()) {
+        if (status)
+            *status = Status::InternalError("Failed to decode tablet_id: {}", st.to_string());
+        return std::nullopt;
+    }
 
     st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
                                            reinterpret_cast<uint8_t*>(&hash_high));
-    if (!st.ok()) return BlockMetaKey();
+    if (!st.ok()) {
+        if (status)
+            *status = Status::InternalError("Failed to decode hash_high: {}", st.to_string());
+        return std::nullopt;
+    }
 
     st = tablet_id_coder->decode_ascending(&slice, sizeof(uint64_t),
                                            reinterpret_cast<uint8_t*>(&hash_low));
-    if (!st.ok()) return BlockMetaKey();
+    if (!st.ok()) {
+        if (status)
+            *status = Status::InternalError("Failed to decode hash_low: {}", st.to_string());
+        return std::nullopt;
+    }
 
     st = tablet_id_coder->decode_ascending(&slice, sizeof(size_t),
                                            reinterpret_cast<uint8_t*>(&offset));
-    if (!st.ok()) return BlockMetaKey();
+    if (!st.ok()) {
+        if (status) *status = Status::InternalError("Failed to decode offset: {}", st.to_string());
+        return std::nullopt;
+    }
 
     uint128_t hash = (static_cast<uint128_t>(hash_high) << 64) | hash_low;
+    if (status) *status = Status::OK();
     return BlockMetaKey(tablet_id, UInt128Wrapper(hash), offset);
 }
 
-BlockMeta deserialize_value(const std::string& value_str) {
+std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status* status) {
     // Parse as protobuf format
     doris::io::cache::BlockMetaPb pb;
     if (pb.ParseFromString(value_str)) {
+        if (status) *status = Status::OK();
         return BlockMeta(pb.type(), pb.size(), pb.ttl());
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
-    return BlockMeta();
+    if (status) *status = Status::InternalError("Failed to deserialize value as protobuf");
+    return std::nullopt;
 }
 
-BlockMeta deserialize_value(std::string_view value_view) {
+std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* status) {
     // Parse as protobuf format using string_view
     doris::io::cache::BlockMetaPb pb;
     if (pb.ParseFromArray(value_view.data(), value_view.size())) {
+        if (status) *status = Status::OK();
         return BlockMeta(pb.type(), pb.size(), pb.ttl());
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf from string_view";
-    return BlockMeta();
+    if (status)
+        *status = Status::InternalError("Failed to deserialize value as protobuf from string_view");
+    return std::nullopt;
 }
 
 } // namespace doris::io

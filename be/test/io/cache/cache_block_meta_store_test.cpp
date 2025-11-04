@@ -310,11 +310,14 @@ TEST_F(CacheBlockMetaStoreTest, KeySerialization) {
 
     // Test round-trip serialization
     std::string serialized = serialize_key(key);
-    BlockMetaKey deserialized = deserialize_key(serialized);
+    Status status;
+    auto deserialized = deserialize_key(serialized, &status);
 
-    EXPECT_EQ(deserialized.tablet_id, key.tablet_id);
-    EXPECT_EQ(deserialized.hash, key.hash);
-    EXPECT_EQ(deserialized.offset, key.offset);
+    EXPECT_TRUE(deserialized.has_value()) << "Failed to deserialize key: " << status.to_string();
+    EXPECT_TRUE(status.ok()) << "Deserialization failed with status: " << status.to_string();
+    EXPECT_EQ(deserialized->tablet_id, key.tablet_id);
+    EXPECT_EQ(deserialized->hash, key.hash);
+    EXPECT_EQ(deserialized->offset, key.offset);
 
     // Verify version byte
     EXPECT_EQ(serialized[0], 0x1);
@@ -756,6 +759,103 @@ TEST_F(CacheBlockMetaStoreTest, MultipleOperationsSameKey) {
     // Immediately query - should find delete operation
     auto result4 = meta_store_->get(key1);
     EXPECT_FALSE(result4.has_value());
+}
+
+TEST_F(CacheBlockMetaStoreTest, ErrorHandling) {
+    // Test error handling in deserialization functions
+
+    // Test deserialize_key with invalid data
+    Status status;
+    auto invalid_key_result = deserialize_key("invalid_key_data", &status);
+    EXPECT_FALSE(invalid_key_result.has_value());
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Failed to decode") != std::string::npos);
+
+    // Test deserialize_value with invalid data
+    auto invalid_value_result = deserialize_value("invalid_value_data", &status);
+    EXPECT_FALSE(invalid_value_result.has_value());
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Failed to deserialize value") != std::string::npos);
+
+    // Test deserialize_value with empty string_view
+    std::string_view empty_view;
+    auto empty_value_result = deserialize_value(empty_view, &status);
+    EXPECT_FALSE(empty_value_result.has_value());
+    EXPECT_FALSE(status.ok());
+
+    // Test successful deserialization
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey valid_key(1, UInt128Wrapper(hash), 1024);
+    std::string valid_key_str = serialize_key(valid_key);
+    auto valid_key_result = deserialize_key(valid_key_str, &status);
+    EXPECT_TRUE(valid_key_result.has_value());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(valid_key_result->tablet_id, 1);
+    EXPECT_EQ(valid_key_result->hash, valid_key.hash);
+    EXPECT_EQ(valid_key_result->offset, 1024);
+
+    // Test successful value deserialization
+    BlockMeta valid_meta(NORMAL, 2048, 3600);
+    std::string valid_meta_str = serialize_value(valid_meta);
+    auto valid_meta_result = deserialize_value(valid_meta_str, &status);
+    EXPECT_TRUE(valid_meta_result.has_value());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(valid_meta_result->type, NORMAL);
+    EXPECT_EQ(valid_meta_result->size, 2048);
+    EXPECT_EQ(valid_meta_result->ttl, 3600);
+}
+
+TEST_F(CacheBlockMetaStoreTest, IteratorErrorHandling) {
+    // Test error handling in iterators by manually inserting corrupted data
+
+    // Create a valid key and meta first
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey valid_key(1, UInt128Wrapper(hash), 1024);
+    BlockMeta valid_meta(NORMAL, 2048, 3600);
+
+    // Put valid data
+    meta_store_->put(valid_key, valid_meta);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Test range_get iterator error handling
+    auto iterator = meta_store_->range_get(1);
+    ASSERT_NE(iterator, nullptr);
+
+    // Iterate through valid data first
+    int count = 0;
+    while (iterator->valid()) {
+        BlockMetaKey key = iterator->key();
+        BlockMeta value = iterator->value();
+
+        // Check that no errors occurred
+        EXPECT_TRUE(iterator->get_last_key_error().ok());
+        EXPECT_TRUE(iterator->get_last_value_error().ok());
+
+        iterator->next();
+        count++;
+    }
+
+    EXPECT_EQ(count, 1);
+
+    // Test get_all iterator
+    auto all_iterator = meta_store_->get_all();
+    ASSERT_NE(all_iterator, nullptr);
+
+    count = 0;
+    while (all_iterator->valid()) {
+        BlockMetaKey key = all_iterator->key();
+        BlockMeta value = all_iterator->value();
+
+        // Check that no errors occurred
+        EXPECT_TRUE(all_iterator->get_last_key_error().ok());
+        EXPECT_TRUE(all_iterator->get_last_value_error().ok());
+
+        all_iterator->next();
+        count++;
+    }
+
+    EXPECT_EQ(count, 1);
+}
 }
 
 } // namespace doris::io
