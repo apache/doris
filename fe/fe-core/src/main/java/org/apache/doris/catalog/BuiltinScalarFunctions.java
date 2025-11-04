@@ -514,6 +514,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
@@ -1057,6 +1059,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UrlDecode.class, "url_decode"),
             scalar(UrlEncode.class, "url_encode"),
             scalar(User.class, "user"),
+            scalar(UtcDate.class, "utc_date"),
+            scalar(UtcTime.class, "utc_time"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
             scalar(UuidNumeric.class, "uuid_numeric"),
