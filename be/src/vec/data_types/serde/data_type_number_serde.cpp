@@ -820,6 +820,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
         data += sizeof(uint8_t);
         col.insert_value(unaligned_load<UInt64>(data));
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        col.insert_value(unaligned_load<UInt64>(data));
+        data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -883,6 +886,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         info.precision = -1;
         info.scale = static_cast<int>(scale);
         field = Field::create_field<TYPE_DATETIMEV2>(v);
+        data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        UInt64 v = unaligned_load<UInt64>(data);
+        field = Field::create_field<TYPE_TIMESTAMPTZ>(v);
         data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
