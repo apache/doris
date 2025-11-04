@@ -319,6 +319,53 @@ suite("test_default") {
         exception "DEFAULT function requires a column reference"
     }
 
+    def baseDefault = sql """
+        SELECT DEFAULT(c_bool)
+        FROM ${tableName}
+        LIMIT 1
+    """
+    def tableAliasDefault = sql """
+        SELECT DEFAULT(t.c_bool)
+        FROM ${tableName} t
+        LIMIT 1
+    """
+    def aliasDefault = sql """
+        SELECT DEFAULT(x)
+        FROM (
+            SELECT c_bool AS x
+            FROM ${tableName}
+        ) t
+        LIMIT 1
+    """
+    def nestedAliasDefault = sql """
+        SELECT DEFAULT(x)
+        FROM (
+            SELECT x
+            FROM (
+                SELECT c_bool AS x
+                FROM ${tableName}
+            ) inner_view
+        ) outer_view
+        LIMIT 1
+    """
+    def cteAliasDefault = sql """
+        WITH cte AS (
+            SELECT c_bool AS x
+            FROM ${tableName}
+        )
+        SELECT DEFAULT(x)
+        FROM cte
+        LIMIT 1
+    """
+    assertTrue(aliasDefault == baseDefault,
+            "DEFAULT() should return the same value for aliased columns in subqueries")
+    assertTrue(tableAliasDefault == baseDefault,
+            "DEFAULT() should return the same value when referenced through a table alias")
+    assertTrue(nestedAliasDefault == baseDefault,
+            "DEFAULT() should return the same value for nested aliased subqueries")
+    assertTrue(cteAliasDefault == baseDefault,
+            "DEFAULT() should return the same value when alias comes from a CTE")
+
     sql "SET enable_fold_constant_by_be = false;"
     test {
         sql "SELECT DEFAULT(c_bool, c_int) FROM ${tableName} LIMIT 1"
