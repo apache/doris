@@ -227,6 +227,15 @@ constexpr bool is_decimal(PrimitiveType type) {
            type == TYPE_DECIMAL256 || type == TYPE_DECIMALV2;
 }
 
+constexpr bool is_decimalv3(PrimitiveType type) {
+    return type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I ||
+           type == TYPE_DECIMAL256;
+}
+
+constexpr bool is_same_or_wider_decimalv3(PrimitiveType type1, PrimitiveType type2) {
+    return is_decimalv3(type1) && is_decimalv3(type2) && (type2 >= type1);
+}
+
 constexpr bool is_number(PrimitiveType type) {
     return is_int_or_bool(type) || is_float_or_double(type) || is_decimal(type);
 }
