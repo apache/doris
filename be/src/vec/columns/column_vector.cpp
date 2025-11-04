@@ -28,6 +28,7 @@
 #include <ostream>
 #include <string>
 
+#include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
@@ -513,6 +514,7 @@ template class ColumnVector<TYPE_DATETIME>;
 template class ColumnVector<TYPE_DATETIMEV2>;
 template class ColumnVector<TYPE_TIME>;
 template class ColumnVector<TYPE_TIMEV2>;
+template class ColumnVector<TYPE_TIMESTAMPTZ>;
 template class ColumnVector<TYPE_UINT32>;
 template class ColumnVector<TYPE_UINT64>;
 } // namespace doris::vectorized

@@ -96,6 +96,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -1211,6 +1212,14 @@ public class TypeCoercionUtils {
             return getCommonDataTypeWithDateTimeV2Type(DateTimeV2Type.SYSTEM_DEFAULT, rightType);
         } else if (leftType instanceof DateTimeV2Type) {
             return getCommonDataTypeWithDateTimeV2Type((DateTimeV2Type) leftType, rightType);
+        } else if (leftType instanceof TimeStampTzType) {
+            TimeStampTzType left = (TimeStampTzType) leftType;
+            if (rightType instanceof TimeStampTzType) {
+                TimeStampTzType right = (TimeStampTzType) rightType;
+                return Optional.of(TimeStampTzType.of(Math.max(left.getScale(), right.getScale())));
+            } else {
+                return getCommonDataTypeWithDateTimeV2Type(DateTimeV2Type.of(left.getScale()), rightType);
+            }
         }
 
         // then we process time type

@@ -80,7 +80,7 @@ public:
 
 private:
     void _init_profile();
-    Status _set_options(const TSerdeDialect::type& serde_dialect);
+    Status _set_options(RuntimeState* state);
     Status _write_one_block(RuntimeState* state, Block& block);
 
     std::shared_ptr<MySQLResultBlockBuffer> _sinker = nullptr;

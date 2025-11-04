@@ -70,13 +70,15 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
         return vectorized::int128_to_string(value);
     } else if constexpr (primitive_type == TYPE_DATETIMEV2) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_val =
-                static_cast<DateV2Value<DateTimeV2ValueType>>(value);
+        auto datetimev2_val = static_cast<DateV2Value<DateTimeV2ValueType>>(value);
         char buf[30];
         datetimev2_val.to_string(buf);
         std::stringstream ss;
         ss << buf;
         return ss.str();
+    } else if constexpr (primitive_type == TYPE_TIMESTAMPTZ) {
+        auto timestamptz_val = static_cast<TimestampTzValue>(value);
+        return timestamptz_val.to_string(cctz::utc_time_zone(), scale);
     } else if constexpr (primitive_type == TYPE_TIMEV2) {
         return TimeValue::to_string(value, scale);
     } else if constexpr (primitive_type == TYPE_IPV4) {
@@ -103,15 +105,7 @@ public:
 
     ColumnValueRange(std::string col_name);
 
-    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool contain_null);
-
-    ColumnValueRange(std::string col_name, int precision, int scale);
-
     ColumnValueRange(std::string col_name, bool is_nullable_col, int precision, int scale);
-
-    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool is_nullable_col, bool contain_null, int precision, int scale);
 
     // should add fixed value before add range
     Status add_fixed_value(const CppType& value);
@@ -359,6 +353,14 @@ protected:
     bool is_in_range(const CppType& value);
 
 private:
+    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
+                     bool contain_null);
+
+    ColumnValueRange(std::string col_name, int precision, int scale);
+
+    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
+                     bool is_nullable_col, bool contain_null, int precision, int scale);
+
     const static CppType TYPE_MIN; // Column type's min value
     const static CppType TYPE_MAX; // Column type's max value
 
@@ -387,6 +389,7 @@ private:
             primitive_type == PrimitiveType::TYPE_BOOLEAN ||
             primitive_type == PrimitiveType::TYPE_DATETIME ||
             primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
+            primitive_type == PrimitiveType::TYPE_TIMESTAMPTZ ||
             primitive_type == PrimitiveType::TYPE_DECIMAL256;
 
     int _runtime_filter_id = -1;
@@ -477,10 +480,10 @@ using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_IPV6>, ColumnValueRange<TYPE_CHAR>, ColumnValueRange<TYPE_VARCHAR>,
         ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
         ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
-        ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
-        ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
-        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>,
-        ColumnValueRange<TYPE_DECIMAL256>>;
+        ColumnValueRange<TYPE_TIMESTAMPTZ>, ColumnValueRange<TYPE_DECIMALV2>,
+        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>,
+        ColumnValueRange<TYPE_DECIMAL32>, ColumnValueRange<TYPE_DECIMAL64>,
+        ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
@@ -527,10 +530,6 @@ ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const C
           _contain_null(is_nullable_col && contain_null),
           _precision(precision),
           _scale(scale) {}
-
-template <PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, int precision, int scale)
-        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true, true, precision, scale) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, bool is_nullable_col,

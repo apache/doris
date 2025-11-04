@@ -720,6 +720,7 @@ template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIME>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATEV2>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL32>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL64>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>;

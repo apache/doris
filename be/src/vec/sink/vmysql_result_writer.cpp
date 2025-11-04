@@ -111,7 +111,7 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
-    RETURN_IF_ERROR(_set_options(state->query_options().serde_dialect));
+    RETURN_IF_ERROR(_set_options(state));
     return Status::OK();
 }
 
@@ -129,8 +129,8 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::_set_options(
-        const TSerdeDialect::type& serde_dialect) {
+Status VMysqlResultWriter<is_binary_format>::_set_options(RuntimeState* state) {
+    const auto& serde_dialect = state->query_options().serde_dialect;
     switch (serde_dialect) {
     case TSerdeDialect::DORIS:
         // eg:
@@ -171,6 +171,8 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);
     }
+
+    _options.timezone = &state->timezone_obj();
     return Status::OK();
 }
 
