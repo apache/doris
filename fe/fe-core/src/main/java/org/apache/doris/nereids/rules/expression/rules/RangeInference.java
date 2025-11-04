@@ -178,7 +178,19 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc processCompound(ExpressionRewriteContext context, List<Expression> predicates, boolean isAnd) {
-        boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
+        boolean convertIsNullToEmptyValue = false;
+        if (isAnd) {
+            boolean hasNull = false;
+            boolean hasIsNull = false;
+            for (Expression predicate : predicates) {
+                hasNull = hasNull || predicate.isNullLiteral();
+                hasIsNull = hasIsNull || predicate instanceof IsNull;
+                if (hasNull && hasIsNull) {
+                    convertIsNullToEmptyValue = true;
+                    break;
+                }
+            }
+        }
         Map<Expression, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
         for (Expression predicate : predicates) {
             // EmptyValue(a) = IsNull(a) and null,  it doesn't equals to IsNull(a).
@@ -188,8 +200,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             // What's more, if a is not nullable, then EmptyValue(a) always equals to IsNull(a),
             // but we don't consider this case here, we should fold IsNull(a) to FALSE using other rule.
             ValueDesc valueDesc = null;
-            if (convertIsNullToEmptyValue && predicate instanceof IsNull) {
+            if (predicate instanceof IsNull && convertIsNullToEmptyValue) {
                 valueDesc = new EmptyValue(context, ((IsNull) predicate).child());
+            } else if (predicate.isNullLiteral() && convertIsNullToEmptyValue) {
+                continue;
             } else {
                 valueDesc = predicate.accept(this, context);
             }

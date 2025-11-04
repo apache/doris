@@ -88,25 +88,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Assertions.assertEquals("TA", valueDesc.getReference().toSql());
 
         valueDesc = getValueDesc("TA IS NULL AND NULL");
-        Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
-        Assertions.assertEquals("AND[TA IS NULL,NULL]", valueDesc.getReference().toSql());
-        List<ValueDesc> sourceValues = ((CompoundValue) valueDesc).getSourceValues();
-        Assertions.assertEquals(2, sourceValues.size());
-        Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
-        Assertions.assertInstanceOf(UnknownValue.class, sourceValues.get(1));
-        Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
-        Assertions.assertEquals("NULL", sourceValues.get(1).getReference().toSql());
+        Assertions.assertInstanceOf(EmptyValue.class, valueDesc);
+        Assertions.assertEquals("TA", valueDesc.getReference().toSql());
 
         valueDesc = getValueDesc("TA IS NULL AND TB IS NULL AND NULL");
         Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
-        sourceValues = ((CompoundValue) valueDesc).getSourceValues();
-        Assertions.assertEquals(3, sourceValues.size());
+        List<ValueDesc> sourceValues = ((CompoundValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(2, sourceValues.size());
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
-        Assertions.assertInstanceOf(UnknownValue.class, sourceValues.get(2));
         Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
         Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
-        Assertions.assertEquals("NULL", sourceValues.get(2).getReference().toSql());
 
         valueDesc = getValueDesc("L + RANDOM(1, 10) > 8 AND L + RANDOM(1, 10) <  1");
         Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
@@ -186,6 +178,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("TA > 5 or TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA != 1 or TA != 1", "TA != 1");
         assertRewrite("TA != 1 or TA != 2", "TA is not null or null");
+        assertRewrite("TA is null and null",  "TA is null and null");
+        assertRewrite("TA is null",  "TA is null");
+        assertRewrite("TA is null and null or TA = 1",  "TA = 1");
+        assertRewrite("TA is null and null or TA is null",  "TA is null and null or TA is null");
         assertRewriteNotNull("TA != 1 or TA != 2", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 and TA > 1 and TA < 10", "TA > 5 and TA < 10");
