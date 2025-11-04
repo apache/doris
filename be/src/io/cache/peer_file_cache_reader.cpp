@@ -29,6 +29,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/brpc_client_cache.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
