@@ -464,7 +464,6 @@ TEST_F(ColumnVarbinaryTest, InsertRangeFromOutOfBoundsThrows) {
     }
 
     auto dst = ColumnVarbinary::create();
-    // start+length 超界应抛出 doris::Exception
     EXPECT_THROW(dst->insert_range_from(*src, /*start=*/1, /*length=*/5), doris::Exception);
 }
 
@@ -476,7 +475,6 @@ TEST_F(ColumnVarbinaryTest, PermuteThrowsOnShortPermutation) {
         col->insert_data(v.data(), v.size());
     }
 
-    // perm.size() < limit 应抛异常
     IColumn::Permutation perm = {1};
     EXPECT_THROW(col->permute(perm, 2), doris::Exception);
 }
@@ -494,13 +492,11 @@ TEST_F(ColumnVarbinaryTest, ReplaceColumnDataOnNonInlineTarget) {
     rhs->insert_data(rhs_inline.data(), rhs_inline.size()); // row 0 inline
     rhs->insert_data(big2.data(), big2.size());             // row 1 non-inline
 
-    // 用 inline 替换非内联目标
     col->replace_column_data(*rhs, /*row=*/0, /*self_row=*/1);
     auto r1 = col->get_data_at(1);
     ASSERT_EQ(r1.size, rhs_inline.size());
     ASSERT_EQ(memcmp(r1.data, rhs_inline.data(), r1.size), 0);
 
-    // 再用 non-inline 替换同一目标
     col->replace_column_data(*rhs, /*row=*/1, /*self_row=*/1);
     auto r1b = col->get_data_at(1);
     ASSERT_EQ(r1b.size, big2.size());
