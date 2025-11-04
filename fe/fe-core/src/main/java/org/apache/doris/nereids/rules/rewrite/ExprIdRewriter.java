@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,18 +79,10 @@ public class ExprIdRewriter extends ExpressionRewrite {
      * SlotReference:a#0 -> a#3, a#1 -> a#7
      * */
     public static class ReplaceRule implements ExpressionPatternRuleFactory {
-        private final Map<ExprId, ExprId> replaceMap;
-
-        public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
-            this.replaceMap = replaceMap;
-        }
-
-        @Override
-        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-            return ImmutableList.of(
-                    matchesType(SlotReference.class).thenApply(ctx -> {
-                        Slot slot = ctx.expr;
-
+        private static final DefaultExpressionRewriter<Map<ExprId, ExprId>> SLOT_REPLACER =
+                new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                    @Override
+                    public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
                         ExprId newId = replaceMap.get(slot.getExprId());
                         if (newId == null) {
                             return slot;
@@ -105,42 +96,47 @@ public class ExprIdRewriter extends ExpressionRewrite {
                                 lastId = newId;
                             }
                         }
+                    }
+                };
+        private final Map<ExprId, ExprId> replaceMap;
+
+        public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
+            this.replaceMap = replaceMap;
+        }
+
+        @Override
+        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+            return ImmutableList.of(
+                    matchesType(SlotReference.class).thenApply(ctx -> {
+                        Slot slot = ctx.expr;
+                        return slot.accept(SLOT_REPLACER, replaceMap);
                     }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE),
                     matchesType(VirtualSlotReference.class).thenApply(ctx -> {
                         VirtualSlotReference virtualSlot = ctx.expr;
-                        Optional<GroupingScalarFunction> originExpression = virtualSlot.getOriginExpression();
-                        if (!originExpression.isPresent()) {
-                            return virtualSlot;
-                        }
-                        List<Expression> newChildren = new ArrayList<>();
-                        List<Expression> oldChildren = originExpression.get().children();
-                        for (Expression child : oldChildren) {
-                            newChildren.add(child.accept(new DefaultExpressionRewriter<Void>() {
-                                @Override
-                                public Expression visitSlotReference(SlotReference slot, Void context) {
-                                    ExprId newId = replaceMap.get(slot.getExprId());
-                                    if (newId == null) {
-                                        return slot;
-                                    }
-                                    ExprId lastId = newId;
-                                    while (true) {
-                                        newId = replaceMap.get(lastId);
-                                        if (newId == null) {
-                                            return slot.withExprId(lastId);
-                                        } else {
-                                            lastId = newId;
-                                        }
-                                    }
+                        return virtualSlot.accept(new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                            @Override
+                            public Expression visitVirtualReference(VirtualSlotReference virtualSlot,
+                                    Map<ExprId, ExprId> replaceMap) {
+                                Optional<GroupingScalarFunction> originExpression = virtualSlot.getOriginExpression();
+                                if (!originExpression.isPresent()) {
+                                    return virtualSlot;
                                 }
-                            }, null));
-                        }
-                        if (!newChildren.equals(oldChildren)) {
-                            GroupingScalarFunction scalarFunction = originExpression.get().withChildren(newChildren);
-                            return virtualSlot.withOriginExpressionAndComputeLongValueMethod(
-                                    Optional.ofNullable(scalarFunction),
-                                    scalarFunction::computeVirtualSlotValue);
-                        }
-                        return virtualSlot;
+                                GroupingScalarFunction groupingScalarFunction = originExpression.get();
+                                GroupingScalarFunction rewrittenFunction =
+                                        (GroupingScalarFunction) groupingScalarFunction.accept(this, replaceMap);
+                                if (!rewrittenFunction.children().equals(groupingScalarFunction.children())) {
+                                    return virtualSlot.withOriginExpressionAndComputeLongValueMethod(
+                                            Optional.of(rewrittenFunction),
+                                            rewrittenFunction::computeVirtualSlotValue);
+                                }
+                                return virtualSlot;
+                            }
+
+                            @Override
+                            public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
+                                return slot.accept(SLOT_REPLACER, replaceMap);
+                            }
+                        }, replaceMap);
                     }).toRule(ExpressionRuleType.VIRTUAL_EXPR_ID_REWRITE_REPLACE)
             );
         }

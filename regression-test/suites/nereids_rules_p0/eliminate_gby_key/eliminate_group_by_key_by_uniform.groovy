@@ -257,7 +257,7 @@ suite("eliminate_group_by_key_by_uniform") {
      COMMENT ''
      PARTITION BY RANGE(`@dt`)
      (
-         PARTITION p202509 VALUES [('2025-09-01 00:00:00'), ('2025-10-01 00:00:00'))
+         PARTITION p202509 VALUES [('2025-09-01 00:00:00'), ('2025-10-05 00:00:00'))
      )
      DISTRIBUTED BY HASH(`@user_id`) BUCKETS 10
      PROPERTIES (
