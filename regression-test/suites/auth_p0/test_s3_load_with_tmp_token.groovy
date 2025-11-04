@@ -139,9 +139,8 @@ suite("test_s3_load_with_tmp_token", "load_p0") {
             "max_filter_ratio" = "1.0"
         )
         """
-    logger.info("Submit load SQL: ${sql_str}")
+
     sql """${sql_str}"""
-    logger.info("Submit load with label: $label")
 
     def max_try_milli_secs = 600000
     while (max_try_milli_secs > 0) {
@@ -162,4 +161,28 @@ suite("test_s3_load_with_tmp_token", "load_p0") {
 
     qt_sql """ SELECT COUNT(*) FROM ${tableName} """
 
+    sql """ truncate table ${tableName} """
+
+    def tvf_sql = """
+        INSERT INTO ${tableName} 
+        (k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)
+        SELECT c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19
+        FROM S3(
+            "uri" = "${path}",
+            "s3.access_key" = "${stsAk}",
+            "s3.secret_key" = "${stsSk}",
+            "s3.session_token" = "${stsToken}",
+            "s3.endpoint" = "${s3Endpoint}",
+            "s3.region" = "${s3Region}",
+            "provider" = "${getS3Provider()}",
+            "format" = "csv",
+            "column_separator" = "|",
+            "csv_schema" = "c1:int;c2:date;c3:boolean;c4:tinyint;c5:smallint;c6:int;c7:bigint;c8:largeint;c9:float;c10:double;c11:decimal(9,1);c12:decimal(9,1);c13:datetime;c14:date;c15:datetime;c16:string;c17:string;c18:string;c19:string"
+        )
+    """
+    
+    logger.info("Submit TVF SQL: ${tvf_sql}")
+    sql """${tvf_sql}"""
+    
+    qt_sql_tvf """ SELECT COUNT(*) FROM ${tableName} """
 }
