@@ -25,24 +25,24 @@
 
 namespace doris {
 
-// 测试CSV导出中AggState的base64编码功能
-// 注意：此测试验证base64编码/解码逻辑是否正确工作
+// Test base64 encoding functionality for AggState in CSV export
+// Note: This test verifies that base64 encoding/decoding logic works correctly
 TEST(AggStateCsvTest, Base64EncodingDecoding) {
-    // 测试base64编码和解码的基本功能
+    // Test basic functionality of base64 encoding and decoding
     std::string original_data = "test_agg_state_data_12345";
     std::string base64_encoded;
     std::string base64_decoded;
     
-    // 编码
+    // Encode
     base64_encode(original_data, &base64_encoded);
     EXPECT_FALSE(base64_encoded.empty());
     
-    // 解码
+    // Decode
     bool decode_success = base64_decode(base64_encoded, &base64_decoded);
     EXPECT_TRUE(decode_success);
     EXPECT_EQ(original_data, base64_decoded);
     
-    // 测试空数据
+    // Test empty data
     std::string empty_data = "";
     std::string empty_encoded;
     std::string empty_decoded;
@@ -51,7 +51,7 @@ TEST(AggStateCsvTest, Base64EncodingDecoding) {
     EXPECT_TRUE(empty_decode_success);
     EXPECT_EQ(empty_data, empty_decoded);
     
-    // 测试二进制数据
+    // Test binary data
     std::vector<uint8_t> binary_data = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD};
     std::string binary_str(reinterpret_cast<const char*>(binary_data.data()), binary_data.size());
     std::string binary_encoded;
@@ -62,39 +62,39 @@ TEST(AggStateCsvTest, Base64EncodingDecoding) {
     EXPECT_EQ(binary_str, binary_decoded);
 }
 
-// 验证base64编码后的数据可以在CSV中安全传输
+// Verify that base64 encoded data can be safely transmitted in CSV
 TEST(AggStateCsvTest, Base64CsvSafety) {
-    // 验证base64编码后的字符串不包含CSV特殊字符（在大多数情况下）
+    // Verify that base64 encoded string doesn't contain CSV special characters (in most cases)
     std::string test_data = "test\ndata\twith,special\"chars";
     std::string encoded;
     base64_encode(test_data, &encoded);
     
-    // base64编码后的字符串不应该包含换行符、制表符等CSV特殊字符
-    // base64字符串本身应该是可打印字符，不包含控制字符
-    // 验证可以正确解码
+    // Base64 encoded string should not contain CSV special characters like newline, tab, etc.
+    // Base64 string itself should be printable characters, not containing control characters
+    // Verify can decode correctly
     std::string decoded;
     bool success = base64_decode(encoded, &decoded);
     EXPECT_TRUE(success);
     EXPECT_EQ(test_data, decoded);
 }
 
-// 测试不同大小的数据编码/解码
+// Test encoding/decoding of data of different sizes
 TEST(AggStateCsvTest, Base64DifferentSizes) {
-    // 测试小数据
+    // Test small data
     std::string small_data = "a";
     std::string small_encoded, small_decoded;
     base64_encode(small_data, &small_encoded);
     EXPECT_TRUE(base64_decode(small_encoded, &small_decoded));
     EXPECT_EQ(small_data, small_decoded);
     
-    // 测试中等数据
+    // Test medium data
     std::string medium_data(100, 'x');
     std::string medium_encoded, medium_decoded;
     base64_encode(medium_data, &medium_encoded);
     EXPECT_TRUE(base64_decode(medium_encoded, &medium_decoded));
     EXPECT_EQ(medium_data, medium_decoded);
     
-    // 测试大数据
+    // Test large data
     std::string large_data(10000, 'y');
     std::string large_encoded, large_decoded;
     base64_encode(large_data, &large_encoded);
@@ -102,9 +102,9 @@ TEST(AggStateCsvTest, Base64DifferentSizes) {
     EXPECT_EQ(large_data, large_decoded);
 }
 
-// 测试与现有Base64Test的一致性
+// Test compatibility with existing Base64Test
 TEST(AggStateCsvTest, CompatibilityWithExistingTests) {
-    // 验证我们的测试与url_coding_test.cpp中的Base64Test.Basic保持一致
+    // Verify our test is consistent with Base64Test.Basic in url_coding_test.cpp
     std::vector<std::pair<std::string, std::string>> test_cases = {
         {"a", "YQ=="},
         {"ab", "YWI="},
