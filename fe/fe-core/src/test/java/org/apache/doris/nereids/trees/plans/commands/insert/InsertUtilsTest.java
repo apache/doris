@@ -28,9 +28,14 @@ public class InsertUtilsTest {
     private static final int MAX_TOTAL_BYTES = 512;
 
     private String generateString(int length) {
+        return generateString(length, "X");
+    }
+
+    private String generateString(int length, String prefix) {
         StringBuilder sb = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            sb.append("A");
+        sb.append(prefix);
+        for (int i = prefix.length(); i < length; i++) {
+            sb.append((char) ('A' + (i % 26)));
         }
         return sb.toString();
     }
@@ -171,8 +176,8 @@ public class InsertUtilsTest {
         // So firstErrorMsgPartLen should be > 465
         // firstErrorMsgPartLen = 19 + firstErrorMsg.length() > 465
         // firstErrorMsg.length() should be > 446
-        String firstErrorMsg = generateString(470);
-        String url = generateString(100);
+        String firstErrorMsg = generateString(470, "ERROR_MSG_");
+        String url = generateString(100, "URL_");
 
         String result = InsertUtils.getFinalErrorMsg(msg, firstErrorMsg, url);
 
@@ -200,8 +205,8 @@ public class InsertUtilsTest {
         // And url.length() = 100, so urlPartLen = 107
         // Then urlPartLen + firstErrorMsgPartLen = 526 > 512 ✓
         // And 47 + 419 = 466 <= 512 ✓
-        String firstErrorMsg = generateString(400);
-        String url = generateString(100);
+        String firstErrorMsg = generateString(400, "FIRST_ERROR_");
+        String url = generateString(100, "URL_CONTENT_");
 
         String result = InsertUtils.getFinalErrorMsg(msg, firstErrorMsg, url);
 
