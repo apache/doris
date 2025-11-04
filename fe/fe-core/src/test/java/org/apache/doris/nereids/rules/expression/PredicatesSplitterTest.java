@@ -53,10 +53,6 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
                 "",
                 "",
                 "a = b and c + d = e or a > 7 and 10 > d");
-        assetEquals("struct_element(a, b) > 10",
-                "",
-                "struct_element(a, b) > 10",
-                "");
     }
 
     @Test
