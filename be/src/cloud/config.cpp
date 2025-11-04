@@ -133,7 +133,7 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
-DEFINE_mBool(enable_cache_read_from_peer, "false");
+DEFINE_mBool(enable_cache_read_from_peer, "true");
 
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.

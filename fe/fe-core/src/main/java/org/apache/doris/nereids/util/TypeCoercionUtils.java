@@ -2040,7 +2040,9 @@ public class TypeCoercionUtils {
 
         // time-like vs all other type
         if (t1.isTimeType() && t2.isTimeType()) {
-            return Optional.of(TimeV2Type.INSTANCE);
+            TimeV2Type time1 = (TimeV2Type) t1;
+            TimeV2Type time2 = (TimeV2Type) t2;
+            return Optional.of(TimeV2Type.of(Math.max(time1.getScale(), time2.getScale())));
         }
         if (t1.isTimeType() || t2.isTimeType()) {
             if (t1.isNumericType() || t2.isNumericType() || t1.isBooleanType() || t2.isBooleanType()) {

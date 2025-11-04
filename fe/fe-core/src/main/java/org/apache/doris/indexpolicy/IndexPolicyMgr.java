@@ -42,7 +42,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(IndexPolicyMgr.class);
@@ -81,6 +83,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     public void validateAnalyzerExists(String analyzerName) throws DdlException {
+        // Allow built-in analyzers
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)) {
+            return;
+        }
+
         readLock();
         try {
             IndexPolicy policy = nameToIndexPolicy.get(analyzerName);
@@ -111,6 +118,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(policyName)) {
             throw new DdlException("Policy name '" + policyName + "' conflicts with built-in char filter name");
+        }
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(policyName)) {
+            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
         }
 
         IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
@@ -255,8 +265,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new CharGroupTokenizerValidator();
                 break;
             default:
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
+                        .filter(t -> !t.equals("empty"))
+                        .collect(Collectors.toSet());
                 throw new DdlException("Unsupported tokenizer type: " + type
-                        + ". Supported types: " + IndexPolicy.BUILTIN_TOKENIZERS);
+                        + ". Supported types: " + userFacingTypes);
         }
         validator.validate(properties);
     }
@@ -281,8 +294,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new NoOperationValidator("lowercase token filter");
                 break;
             default:
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
+                        .filter(t -> !t.equals("empty"))
+                        .collect(Collectors.toSet());
                 throw new DdlException("Unsupported token filter type: " + type
-                        + ". Supported types: " + IndexPolicy.BUILTIN_TOKEN_FILTERS);
+                        + ". Supported types: " + userFacingTypes);
         }
         validator.validate(properties);
     }
@@ -301,8 +317,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new CharReplaceCharFilterValidator();
                 break;
             default:
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_CHAR_FILTERS.stream()
+                        .filter(t -> !t.equals("empty"))
+                        .collect(Collectors.toSet());
                 throw new DdlException("Unsupported char filter type: " + type
-                        + ". Supported types: " + IndexPolicy.BUILTIN_CHAR_FILTERS);
+                        + ". Supported types: " + userFacingTypes);
         }
         validator.validate(properties);
     }
