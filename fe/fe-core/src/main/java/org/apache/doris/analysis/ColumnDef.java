@@ -359,7 +359,7 @@ public class ColumnDef {
                     throw new AnalysisException("complex type have to use aggregate function: " + name);
                 }
             }
-            if (!isAllowNull) {
+            if (isAllowNull) {
                 throw new AnalysisException("complex type column must be not nullable, column:" + name);
             }
         }

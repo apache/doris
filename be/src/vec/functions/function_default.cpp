@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/functions/function_default.h"
+
 #include <mysql/binary_log_types.h>
 
 #include <string>
@@ -62,8 +64,13 @@ public:
         std::string default_value;
         bool has_default_value = false;
         bool is_nullable = true;
-        get_default_value_and_nullable_for_col(context, col_name, default_value, has_default_value,
-                                               is_nullable);
+        const auto* slot_state = static_cast<const DefaultFunctionState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (slot_state != nullptr && slot_state->slot_id != -1) {
+            default_value = slot_state->default_value;
+            has_default_value = slot_state->has_default_value;
+            is_nullable = slot_state->is_nullable;
+        }
 
         // For date types, if the default value is `CURRENT_TIMESTAMP` or `CURRENT_DATE`.
         // Reference the behavior in MySQL:
@@ -81,16 +88,11 @@ public:
             }
         }
 
-        // For some complex types, only accept NULL as default value
-        if (is_complex_type(res_primitive_type) || res_primitive_type == TYPE_JSONB ||
-            res_primitive_type == TYPE_VARIANT) {
-            if (is_nullable) {
-                return return_with_all_null(block, result, res_nested_type, input_rows_count);
-            } else {
-                return Status::InvalidArgument(
-                        "Column '{}' of type '{}' must be nullable to use DEFAULT", col_name,
-                        res_nested_type->get_name());
-            }
+        // Agg state(HLL, BITMAPA, QUANTILE_STATE) error only
+        if (is_var_len_object(res_primitive_type)) {
+            return Status::InvalidArgument(
+                    "Agg type(HLL, BITMAP, QUANTILE_STATE) cannot be used for the DEFAULT "
+                    "function");
         }
 
         // 1. specified default value when creating table -> default_value
@@ -130,33 +132,6 @@ public:
     }
 
 private:
-    void get_default_value_and_nullable_for_col(FunctionContext* context,
-                                                const std::string& column_name,
-                                                std::string& default_value, bool& has_default_value,
-                                                bool& is_nullable) const {
-        RuntimeState* state = context->state();
-        const DescriptorTbl& desc_tbl = state->desc_tbl();
-
-        SlotDescriptor* target_slot = nullptr;
-        for (auto* tuple_desc : desc_tbl.get_tuple_descs()) {
-            for (auto* slot : tuple_desc->slots()) {
-                if (slot->col_name() == column_name) {
-                    target_slot = slot;
-                    break;
-                }
-            }
-            if (target_slot) {
-                break;
-            }
-        }
-
-        if (target_slot) {
-            is_nullable = target_slot->is_nullable();
-            default_value = target_slot->col_default_value();
-            has_default_value = target_slot->has_default_value();
-        }
-    }
-
     static Status return_with_all_null(Block& block, uint32_t result,
                                        const DataTypePtr& nested_type, size_t input_rows_count) {
         MutableColumnPtr res_col = nested_type->create_column();

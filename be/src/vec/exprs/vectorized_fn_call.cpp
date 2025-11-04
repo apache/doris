@@ -55,6 +55,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/functions/array/function_array_distance.h"
 #include "vec/functions/function_agg_state.h"
+#include "vec/functions/function_default.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
 #include "vec/functions/function_rpc.h"
@@ -153,6 +154,22 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     _prepare_finished = true;
 
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
+    if (_function_name == "default" && !_children.empty()) {
+        auto default_state = std::make_shared<DefaultFunctionState>();
+        auto* slot_ref = dynamic_cast<VSlotRef*>(_children[0].get());
+        if (slot_ref != nullptr && slot_ref->slot_id() != -1) {
+            const auto* slot_desc = state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
+
+            default_state->slot_id = slot_ref->slot_id();
+            default_state->is_nullable = slot_desc->is_nullable();
+            default_state->has_default_value = slot_desc->has_default_value();
+            if (default_state->has_default_value) {
+                default_state->default_value = slot_desc->col_default_value();
+            }
+        }
+        fn_ctx->set_function_state(FunctionContext::FRAGMENT_LOCAL, default_state);
+    }
+
     if (fn().__isset.dict_function) {
         fn_ctx->set_dict_function(fn().dict_function);
     }
