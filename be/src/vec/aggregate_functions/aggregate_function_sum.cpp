@@ -36,6 +36,7 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
                     creator<AggregateFunctionSumSimpleDecimal256>(name, types, result_is_nullable,
                                                                   attr);
         } else {
+            // use types of fe
             return creator_with_type_list<
                     TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_FLOAT,
                     TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
