@@ -158,6 +158,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (metadataOps != null) {
             metadataOps.close();
         }
+        if (icebergMetadataOps != null) {
+            icebergMetadataOps.close();
+        }
     }
 
     @Override
