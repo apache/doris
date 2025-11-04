@@ -95,7 +95,7 @@ public class AWSGlueMetaStoreBaseProperties {
     private ParamRules buildRules() {
 
         return new ParamRules().requireTogether(new String[]{glueAccessKey, glueSecretKey},
-                "glue.access_key and glue.secret_key must be set together")
+                        "glue.access_key and glue.secret_key must be set together")
                 .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
                         "At least one of glue.access_key or glue.role_arn must be set")
                 .requireAtLeastOne(new String[]{glueEndpoint, glueRegion},
@@ -104,14 +104,20 @@ public class AWSGlueMetaStoreBaseProperties {
 
     private void checkAndInit() {
         buildRules().validate();
-
-        Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException("Invalid AWS Glue endpoint: " + glueEndpoint);
+        if (StringUtils.isNotBlank(glueRegion) && StringUtils.isNotBlank(glueEndpoint)) {
+            return;
         }
-
-        if (StringUtils.isBlank(glueRegion)) {
+        if (StringUtils.isBlank(glueEndpoint) && StringUtils.isNotBlank(glueRegion)) {
+            return;
+        }
+        // glue region is not set, try to extract from endpoint
+        Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
+        if (matcher.matches()) {
             this.glueRegion = extractRegionFromEndpoint(matcher);
+        }
+        if (StringUtils.isBlank(glueRegion)) {
+            //follow aws sdk default region
+            glueRegion = "us-east-1";
         }
     }
 
