@@ -444,10 +444,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             // 1. All BE has been upgraded (e.g. _opt_remote_rf)
             // 2. FE has been upgraded (e.g. cnt_val->targetv2_info.size() > 0)
             // 3. This filter is bloom filter (only bloom filter should be used for merging)
-            using PPublishFilterRpcContext =
-                    AsyncRPCContext<PPublishFilterRequestV2, PPublishFilterResponse>;
-            std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
-            rpc_contexts.reserve(cnt_val->targetv2_info.size());
 
             butil::IOBuf request_attachment;
 
@@ -473,61 +469,48 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             }
 
             std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
-            for (size_t i = 0; i < targets.size(); i++) {
-                rpc_contexts.emplace_back(new PPublishFilterRpcContext);
-                size_t cur = rpc_contexts.size() - 1;
-                rpc_contexts[cur]->request = apply_request;
-                rpc_contexts[cur]->request.set_filter_id(request->filter_id());
-                rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
-                                                           request->is_pipeline());
-                rpc_contexts[cur]->request.set_merge_time(merge_time);
-                *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
+            for (auto& target : targets) {
+                auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
+                                                  DummyBrpcCallback<PPublishFilterResponse>>::
+                        create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
+                                      DummyBrpcCallback<PPublishFilterResponse>::create_shared());
+
+                closure->request_->set_filter_id(request->filter_id());
+                closure->request_->set_is_pipeline(request->has_is_pipeline() &&
+                                                   request->is_pipeline());
+                closure->request_->set_merge_time(merge_time);
+                *closure->request_->mutable_query_id() = request->query_id();
                 if (has_attachment) {
-                    rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
+                    closure->cntl_->request_attachment().append(request_attachment);
                 }
-                rpc_contexts[cur]->cntl.set_timeout_ms(std::min(3600, _state->execution_timeout) *
-                                                       1000);
-                rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
+                closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
                 // set fragment-id
-                for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size();
-                     fid++) {
-                    PUniqueId* cur_id = rpc_contexts[cur]->request.add_fragment_instance_ids();
-                    cur_id->set_hi(targets[cur].target_fragment_instance_ids[fid].hi);
-                    cur_id->set_lo(targets[cur].target_fragment_instance_ids[fid].lo);
+                for (size_t fid = 0; fid < target.target_fragment_instance_ids.size(); fid++) {
+                    PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
+                    cur_id->set_hi(target.target_fragment_instance_ids[fid].hi);
+                    cur_id->set_lo(target.target_fragment_instance_ids[fid].lo);
                 }
 
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                                targets[i].target_fragment_instance_addr));
-                VLOG_NOTICE << "send filter " << rpc_contexts[cur]->request.filter_id()
-                            << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
-                            << targets[i].target_fragment_instance_addr.port
-                            << rpc_contexts[cur]->request.ShortDebugString();
+                                target.target_fragment_instance_addr));
+                VLOG_NOTICE << "send filter " << closure->request_->filter_id()
+                            << " to:" << target.target_fragment_instance_addr.hostname << ":"
+                            << target.target_fragment_instance_addr.port
+                            << closure->request_->ShortDebugString();
                 if (stub == nullptr) {
-                    rpc_contexts.pop_back();
+                    LOG(WARNING) << "Failed to init rpc to "
+                                 << target.target_fragment_instance_addr.hostname << ":"
+                                 << target.target_fragment_instance_addr.port
+                                 << " when apply_filterv2";
                     continue;
                 }
-                stub->apply_filterv2(&rpc_contexts[cur]->cntl, &rpc_contexts[cur]->request,
-                                     &rpc_contexts[cur]->response, brpc::DoNothing());
-            }
-            for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context->cid);
-                if (auto status = Status::create(rpc_context->response.status()); !status) {
-                    return status;
-                }
-                if (rpc_context->cntl.Failed()) {
-                    LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
-                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                            rpc_context->cntl.remote_side());
-                }
+
+                stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
+                                     closure->response_.get(), closure.get());
+                closure.release();
             }
         } else {
-            // prepare rpc context
-            using PPublishFilterRpcContext =
-                    AsyncRPCContext<PPublishFilterRequest, PPublishFilterResponse>;
-            std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
-            rpc_contexts.reserve(cnt_val->target_info.size());
-
             butil::IOBuf request_attachment;
 
             PPublishFilterRequest apply_request;
@@ -552,48 +535,43 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             }
 
             std::vector<TRuntimeFilterTargetParams>& targets = cnt_val->target_info;
-            for (size_t i = 0; i < targets.size(); i++) {
-                rpc_contexts.emplace_back(new PPublishFilterRpcContext);
-                size_t cur = rpc_contexts.size() - 1;
-                rpc_contexts[cur]->request = apply_request;
-                rpc_contexts[cur]->request.set_filter_id(request->filter_id());
-                rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
-                                                           request->is_pipeline());
-                rpc_contexts[cur]->request.set_merge_time(merge_time);
-                *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
+            for (auto& target : targets) {
+                auto closure = AutoReleaseClosure<PPublishFilterRequest,
+                                                  DummyBrpcCallback<PPublishFilterResponse>>::
+                        create_unique(std::make_shared<PPublishFilterRequest>(apply_request),
+                                      DummyBrpcCallback<PPublishFilterResponse>::create_shared());
+                closure->request_->set_filter_id(request->filter_id());
+                closure->request_->set_is_pipeline(request->has_is_pipeline() &&
+                                                   request->is_pipeline());
+                closure->request_->set_merge_time(merge_time);
+                *closure->request_->mutable_query_id() = request->query_id();
                 if (has_attachment) {
-                    rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
+                    closure->cntl_->request_attachment().append(request_attachment);
                 }
-                rpc_contexts[cur]->cntl.set_timeout_ms(std::min(3600, _state->execution_timeout) *
-                                                       1000);
-                rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
+                closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
                 // set fragment_instance_id
                 auto request_fragment_instance_id =
-                        rpc_contexts[cur]->request.mutable_fragment_instance_id();
-                request_fragment_instance_id->set_hi(targets[cur].target_fragment_instance_id.hi);
-                request_fragment_instance_id->set_lo(targets[cur].target_fragment_instance_id.lo);
+                        closure->request_->mutable_fragment_instance_id();
+                request_fragment_instance_id->set_hi(target.target_fragment_instance_id.hi);
+                request_fragment_instance_id->set_lo(target.target_fragment_instance_id.lo);
 
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                                targets[i].target_fragment_instance_addr));
-                VLOG_NOTICE << "send filter " << rpc_contexts[cur]->request.filter_id()
-                            << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
-                            << targets[i].target_fragment_instance_addr.port
-                            << rpc_contexts[cur]->request.ShortDebugString();
+                                target.target_fragment_instance_addr));
+                VLOG_NOTICE << "send filter " << closure->request_->filter_id()
+                            << " to:" << target.target_fragment_instance_addr.hostname << ":"
+                            << target.target_fragment_instance_addr.port
+                            << closure->request_->ShortDebugString();
                 if (stub == nullptr) {
-                    rpc_contexts.pop_back();
+                    LOG(WARNING) << "Failed to init rpc to "
+                                 << target.target_fragment_instance_addr.hostname << ":"
+                                 << target.target_fragment_instance_addr.port
+                                 << " when apply_filter";
                     continue;
                 }
-                stub->apply_filter(&rpc_contexts[cur]->cntl, &rpc_contexts[cur]->request,
-                                   &rpc_contexts[cur]->response, brpc::DoNothing());
-            }
-            for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context->cid);
-                if (rpc_context->cntl.Failed()) {
-                    LOG(WARNING) << "runtimefilter rpc err:" << rpc_context->cntl.ErrorText();
-                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                            rpc_context->cntl.remote_side());
-                }
+                stub->apply_filter(closure->cntl_.get(), closure->request_.get(),
+                                   closure->response_.get(), closure.get());
+                closure.release();
             }
         }
     }
