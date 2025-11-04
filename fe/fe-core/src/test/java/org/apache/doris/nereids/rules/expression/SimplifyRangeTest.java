@@ -87,14 +87,26 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Assertions.assertInstanceOf(NotDiscreteValue.class, valueDesc);
         Assertions.assertEquals("TA", valueDesc.getReference().toSql());
 
+        valueDesc = getValueDesc("TA IS NULL AND NULL");
+        Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
+        Assertions.assertEquals("AND[TA IS NULL,NULL]", valueDesc.getReference().toSql());
+        List<ValueDesc> sourceValues = ((CompoundValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(2, sourceValues.size());
+        Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
+        Assertions.assertInstanceOf(UnknownValue.class, sourceValues.get(1));
+        Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
+        Assertions.assertEquals("NULL", sourceValues.get(1).getReference().toSql());
+
         valueDesc = getValueDesc("TA IS NULL AND TB IS NULL AND NULL");
         Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
-        List<ValueDesc> sourceValues = ((CompoundValue) valueDesc).getSourceValues();
+        sourceValues = ((CompoundValue) valueDesc).getSourceValues();
         Assertions.assertEquals(3, sourceValues.size());
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
+        Assertions.assertInstanceOf(UnknownValue.class, sourceValues.get(2));
         Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
         Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
+        Assertions.assertEquals("NULL", sourceValues.get(2).getReference().toSql());
 
         valueDesc = getValueDesc("L + RANDOM(1, 10) > 8 AND L + RANDOM(1, 10) <  1");
         Assertions.assertInstanceOf(CompoundValue.class, valueDesc);
@@ -107,7 +119,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     }
 
     @Test
-    public void testSimplify() {
+    public void testSimplifyNumeric() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(SimplifyRange.INSTANCE)
         ));
@@ -142,6 +154,31 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA = 1 and TA > 10", "TA is null and null");
         assertRewrite("TA >= 1 and TA <= 1", "TA = 1");
+        assertRewrite("TA = 1 and TA = 2", "TA IS NULL AND NULL");
+        assertRewriteNotNull("TA = 1 and TA = 2", "FALSE");
+        assertRewrite("TA not in (1) and TA not in (1)", "TA != 1");
+        assertRewrite("TA not in (1, 2, 3) and TA not in (1, 4, 5)", "TA not in (1, 2, 3, 4, 5)");
+        assertRewrite("TA = 1 and TA not in (2)", "TA = 1");
+        assertRewrite("TA = 1 and TA not in (1, 2)", "TA is null and null");
+        assertRewriteNotNull("TA = 1 and TA not in (1, 2)", "FALSE");
+        assertRewrite("TA > 10 and TA not in (1, 2, 3)", "TA > 10");
+        assertRewrite("TA > 10 and TA not in (1, 2, 3, 11)", "TA > 10 and TA != 11");
+        assertRewrite("TA > 10 and TA not in (1, 2, 3, 11, 12)", "TA > 10 and TA NOT IN (11, 12)");
+        assertRewrite("TA is null", "TA is null");
+        assertRewriteNotNull("TA is null", "TA is null");
+        assertRewrite("TA is not null", "TA is not null");
+        assertRewrite("TA is null and TA is not null", "FALSE");
+        assertRewriteNotNull("TA is null and TA is not null", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and TA is null", "TA is null and null");
+        assertRewriteNotNull("TA = 1 and TA != 1 and TA is null", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and TA is not null", "FALSE");
+        assertRewriteNotNull("TA = 1 and TA != 1 and TA is not null", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or TA < 5)", "TA is null and null");
+        assertRewriteNotNull("TA = 1 and TA != 1 and (TA > 10 or TA < 5)", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or TA is not null)", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or (TA < 5 and TA is not null))", "FALSE");
+        assertRewrite("TA = 1 and TA != 1 and (TA > 10 or (TA < 5 and TA is not null) or (TA > 7 and TA is not null))",
+                "TA is null and null and ((TA < 5 and TA is not null) or (TA > 7 and TA is not null))");
         assertRewrite("TA > 5 or TA < 1", "TA < 1 or TA > 5");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
         assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA is not null or null");
@@ -193,7 +230,6 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 3 and TA < 1) and (TB < 5 and TB = 6)", "TA is null and null and TB is null");
         assertRewrite("TA > 3 and TB < 5 and TA < 1", "TA is null and null and TB < 5");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "(TA is null and null) or TB < 5");
-        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
 
         assertRewrite("TA + TC", "TA + TC");
         assertRewrite("(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)", "(TA + TC >= 1 and TA + TC <=3 ) or (TA + TC > 5 and TA + TC < 7)");
@@ -248,19 +284,25 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "(TA + TC) is null and null and TB < 5");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");
-
         assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1");
-        assertRewrite("SA = '20250101' and SA < '20200101'", "SA is null and null");
-        assertRewrite("SA > '20250101' and SA > '20260110'", "SA > '20260110'");
 
         // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
         Expression expr = rewriteExpression("X + random(1, 10) > 10 AND  X + random(1, 10) < 1", true);
         Assertions.assertEquals("AND[((X + random(1, 10)) > 10),((X + random(1, 10)) < 1)]", expr.toSql());
-
         expr = rewrite("TA + random(1, 10) between 10 and 20", Maps.newHashMap());
         Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) >= 10),((cast(TA as BIGINT) + random(1, 10)) <= 20)]", expr.toSql());
         expr = rewrite("TA + random(1, 10) between 20 and 10", Maps.newHashMap());
         Assertions.assertEquals("AND[(cast(TA as BIGINT) + random(1, 10)) IS NULL,NULL]", expr.toSql());
+    }
+
+    @Test
+    public void testSimplifyString() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("SA = '20250101' and SA < '20200101'", "SA is null and null");
+        assertRewrite("SA > '20250101' and SA > '20260110'", "SA > '20260110'");
+        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
     }
 
     @Test

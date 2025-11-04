@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -78,6 +77,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
+                        .whenCtx(ctx -> PlanUtils.isConditionExpressionPlan(ctx.rewriteContext.plan.orElse(null)))
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.ADD_MIN_MAX)
         );
@@ -85,10 +85,6 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
 
     /** rewrite */
     public Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
-        Plan plan = context.plan.orElse(null);
-        if (!PlanUtils.hasFilterExpression(plan)) {
-            return expr;
-        }
         ValueDesc valueDesc = (new RangeInference()).getValue(expr, context);
         Map<Expression, MinMaxValue> exprMinMaxValues = valueDesc.accept(this, null);
         removeUnnecessaryMinMaxValues(expr, exprMinMaxValues);

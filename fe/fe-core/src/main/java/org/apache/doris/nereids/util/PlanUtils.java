@@ -162,7 +162,7 @@ public class PlanUtils {
     }
 
     /** check if a plan have filter expression */
-    public static boolean hasFilterExpression(Plan plan) {
+    public static boolean isConditionExpressionPlan(Plan plan) {
         return plan instanceof Filter || plan instanceof Join;
     }
 

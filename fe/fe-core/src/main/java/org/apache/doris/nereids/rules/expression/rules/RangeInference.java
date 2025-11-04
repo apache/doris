@@ -219,93 +219,142 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc intersect(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
-        if (collector.hasEmptyValue) {
-            return new EmptyValue(context, reference);
-        }
-
         ImmutableList.Builder<ValueDesc> result = ImmutableList.builder();
 
+        // merge all the range values
         RangeValue mergeRangeValue = null;
-        if (!collector.rangeValues.isEmpty()) {
+        if (!collector.hasEmptyValue && !collector.rangeValues.isEmpty()) {
             for (RangeValue rangeValue : collector.rangeValues) {
                 if (mergeRangeValue == null) {
                     mergeRangeValue = rangeValue;
                 } else {
                     ValueDesc combineValue = mergeRangeValue.intersect(rangeValue);
-                    if (combineValue instanceof EmptyValue) {
-                        return combineValue;
-                    } else if (combineValue instanceof RangeValue) {
+                    if (combineValue instanceof RangeValue) {
                         mergeRangeValue = (RangeValue) combineValue;
                     } else {
                         collector.add(combineValue);
+                        mergeRangeValue = null;
+                        // no need to process the lefts.
+                        if (combineValue instanceof EmptyValue) {
+                            break;
+                        }
                     }
                 }
             }
         }
 
+        // merge all the discrete values
         Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
         DiscreteValue mergeDiscreteValue = null;
-        if (!collector.discreteValues.isEmpty()) {
+        if (!collector.hasEmptyValue && !collector.discreteValues.isEmpty()) {
             discreteValues.addAll(collector.discreteValues.get(0).values);
             for (int i = 1; i < collector.discreteValues.size(); i++) {
                 discreteValues.retainAll(collector.discreteValues.get(i).values);
             }
             if (discreteValues.isEmpty()) {
-                return new EmptyValue(context, reference);
+                collector.add(new EmptyValue(context, reference));
+            } else {
+                mergeDiscreteValue = new DiscreteValue(context, reference, discreteValues);
             }
-            mergeDiscreteValue = new DiscreteValue(context, reference, discreteValues);
         }
 
-        ValueDesc mergeRangeDiscreteValue = null;
-        if (mergeRangeValue != null && mergeDiscreteValue != null) {
-            mergeRangeDiscreteValue = mergeRangeValue.intersect(mergeDiscreteValue);
-        } else if (mergeRangeValue != null) {
-            mergeRangeDiscreteValue = mergeRangeValue;
-        } else if (mergeDiscreteValue != null) {
-            mergeRangeDiscreteValue = mergeDiscreteValue;
-        }
-        if (mergeRangeDiscreteValue instanceof EmptyValue) {
-            return mergeRangeDiscreteValue;
-        } else if (mergeRangeDiscreteValue != null) {
-            result.add(mergeRangeDiscreteValue);
-        }
-
-        if (!collector.notDiscreteValues.isEmpty()) {
-            Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
+        // merge all the not discrete values
+        Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
+        if (!collector.hasEmptyValue && !collector.notDiscreteValues.isEmpty()) {
             for (NotDiscreteValue notDiscreteValue : collector.notDiscreteValues) {
                 mergeNotDiscreteValues.addAll(notDiscreteValue.values);
             }
-            if (mergeRangeDiscreteValue != null) {
-                final ValueDesc inValue = mergeRangeDiscreteValue;
-                mergeNotDiscreteValues.removeIf(value -> {
-                    if (inValue instanceof DiscreteValue) {
-                        return !((DiscreteValue) inValue).values.contains(value);
-                    } else if (inValue instanceof RangeValue) {
-                        return !((RangeValue) inValue).range.contains(value);
-                    } else {
-                        return false;
-                    }
-                });
+            if (mergeRangeValue != null) {
+                Range<ComparableLiteral> rangeValue = mergeRangeValue.range;
+                mergeNotDiscreteValues.removeIf(value -> !rangeValue.contains(value));
             }
-            if (!mergeNotDiscreteValues.isEmpty()) {
+            if (mergeDiscreteValue != null) {
+                Set<ComparableLiteral> values = mergeDiscreteValue.values;
+                mergeNotDiscreteValues.removeIf(value -> !values.contains(value));
+                Set<ComparableLiteral> newDiscreteValues = Sets.newLinkedHashSet(mergeDiscreteValue.values);
+                newDiscreteValues.removeIf(mergeNotDiscreteValues::contains);
+                if (newDiscreteValues.isEmpty()) {
+                    collector.add(new EmptyValue(context, reference));
+                }
+            }
+        }
+        if (!collector.hasEmptyValue) {
+            // merge range + discrete values
+            if (mergeRangeValue != null && mergeDiscreteValue != null) {
+                ValueDesc newMergeValue = mergeRangeValue.intersect(mergeDiscreteValue);
+                result.add(newMergeValue);
+            } else if (mergeRangeValue != null) {
+                result.add(mergeRangeValue);
+            } else if (mergeDiscreteValue != null) {
+                result.add(mergeDiscreteValue);
+            }
+            if (!collector.hasEmptyValue && !mergeNotDiscreteValues.isEmpty()) {
                 result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
             }
         }
-        if (collector.hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
-            return new UnknownValue(context, BooleanLiteral.FALSE);
-        } else if (collector.hasIsNullValue) {
-            result.add(new IsNullValue(context, reference));
-        } else {
-            collector.isNotNullValueOpt.ifPresent(result::add);
+
+        // process empty value
+        if (collector.hasEmptyValue) {
+            if (!reference.nullable()) {
+                return new UnknownValue(context, BooleanLiteral.FALSE);
+            }
+            result.add(new EmptyValue(context, reference));
         }
-        result.addAll(collector.compoundValues);
+
+        // process is null and is not null
+        // for non-nullable a: EmptyValue(a) = a is null and null
+        boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && reference.nullable();
+        if (hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
+            return new UnknownValue(context, BooleanLiteral.FALSE);
+        }
+        // nullable's EmptyValue have contains IsNull, no need to add
+        if (!collector.hasEmptyValue && collector.hasIsNullValue) {
+            result.add(new IsNullValue(context, reference));
+        }
+        if (collector.isNotNullValueOpt.isPresent()) {
+            result.add(collector.isNotNullValueOpt.get());
+        }
+        for (CompoundValue compoundValue : collector.compoundValues) {
+            // given 'EmptyValue AND x', for x:
+            // 1) if x is IsNotNullValue or UnknownValue, their intersect result maybe FALSE, not EmptyValue;
+            // 2) otherwise their intersect result is always EmptyValue, so can ignore this CompoundValue
+            if (collector.hasEmptyValue && compoundValue.intersectWithEmptyIsEmpty()) {
+                continue;
+            }
+            List<ValueDesc> otherValues = result.build();
+            // in fact, the compoundValue's reference should be equals reference
+            if (!compoundValue.isAnd && compoundValue.reference.equals(reference)) {
+                ImmutableList.Builder<ValueDesc> newSourceValuesBuilder
+                        = ImmutableList.builderWithExpectedSize(compoundValue.sourceValues.size());
+                for (ValueDesc sourceValue : compoundValue.sourceValues) {
+                    boolean containsAll = false;
+                    for (ValueDesc other : otherValues) {
+                        containsAll = containsAll || sourceValue.containsAll(other);
+                    }
+                    boolean intersectIsEmpty = collector.hasEmptyValue && sourceValue.intersectWithEmptyIsEmpty();
+                    // if source value is big enough, that it contains one of the previous value desc's range,
+                    // than no need it;
+                    // or the source intersect with empty value is empty, than no need it too.
+                    if (!containsAll && !intersectIsEmpty) {
+                        newSourceValuesBuilder.add(sourceValue);
+                    }
+                }
+                List<ValueDesc> newSourceValues = newSourceValuesBuilder.build();
+                if (newSourceValues.size() == 1) {
+                    result.add(newSourceValues.get(0));
+                } else if (newSourceValues.size() > 1) {
+                    result.add(new CompoundValue(context, reference, newSourceValues, compoundValue.isAnd));
+                }
+            } else {
+                result.add(compoundValue);
+            }
+        }
+        // unknownValue should be empty
         result.addAll(collector.unknownValues);
 
         List<ValueDesc> resultValues = result.build();
-        if (resultValues.isEmpty()) {
-            Preconditions.checkArgument(collector.hasEmptyValue);
-            return new EmptyValue(context, reference);
-        } else if (resultValues.size() == 1) {
+        Preconditions.checkArgument(!resultValues.isEmpty());
+        if (resultValues.size() == 1) {
             return resultValues.get(0);
         } else {
             return new CompoundValue(context, reference, resultValues, true);
@@ -341,7 +390,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         if (!rangeSet.isEmpty()) {
-            discreteValues.removeIf(x -> rangeSet.contains(x));
+            discreteValues.removeIf(rangeSet::contains);
         }
 
         if (!discreteValues.isEmpty()) {
@@ -499,6 +548,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         protected abstract <R, C> R visit(ValueDescVisitor<R, C> visitor, C context);
+
+        // range contain other's range
+        protected boolean containsAll(ValueDesc other) {
+            return false;
+        }
+
+        public abstract boolean intersectWithEmptyIsEmpty();
     }
 
     /**
@@ -513,6 +569,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitEmptyValue(this, context);
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return true;
         }
     }
 
@@ -569,6 +630,22 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return new DiscreteValue(context, reference, intersectValues);
             }
         }
+
+        @Override
+        protected boolean containsAll(ValueDesc other) {
+            if (other instanceof RangeValue) {
+                return range.encloses(((RangeValue) other).range);
+            } else if (other instanceof DiscreteValue) {
+                return range.containsAll(((DiscreteValue) other).values);
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return true;
+        }
     }
 
     /**
@@ -593,6 +670,20 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitDiscreteValue(this, context);
         }
+
+        @Override
+        protected boolean containsAll(ValueDesc other) {
+            if (other instanceof DiscreteValue) {
+                return values.containsAll(((DiscreteValue) other).values);
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return true;
+        }
     }
 
     /**
@@ -612,6 +703,20 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitNotDiscreteValue(this, context);
         }
+
+        @Override
+        protected boolean containsAll(ValueDesc other) {
+            if (other instanceof NotDiscreteValue) {
+                return values.containsAll(((NotDiscreteValue) other).values);
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return true;
+        }
     }
 
     /**
@@ -626,6 +731,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitIsNullValue(this, context);
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return true;
         }
     }
 
@@ -647,6 +757,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitIsNotNullValue(this, context);
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return false;
         }
     }
 
@@ -676,6 +791,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitCompoundValue(this, context);
         }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            for (ValueDesc sourceValue : sourceValues) {
+                if (!sourceValue.intersectWithEmptyIsEmpty()) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     /**
@@ -690,6 +815,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected <R, C> R visit(ValueDescVisitor<R, C> visitor, C context) {
             return visitor.visitUnknownValue(this, context);
+        }
+
+        @Override
+        public boolean intersectWithEmptyIsEmpty() {
+            return false;
         }
     }
 }

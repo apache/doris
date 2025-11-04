@@ -30,8 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -68,11 +66,9 @@ public abstract class ConditionRewrite extends DefaultExpressionRewriter<Boolean
         return expression.accept(this, rootIsCondition(context));
     }
 
+    // for the expression root, only filter and join expression can treat as condition
     protected boolean rootIsCondition(ExpressionRewriteContext context) {
         Plan plan = context.plan.orElse(null);
-        if (!PlanUtils.hasFilterExpression(plan)) {
-            return false;
-        }
         if (plan instanceof LogicalJoin) {
             // null aware join can not treat null as false
             ExpressionSource source = context.source.orElse(null);
@@ -80,7 +76,7 @@ public abstract class ConditionRewrite extends DefaultExpressionRewriter<Boolean
                     && (source == ExpressionSource.JOIN_HASH_CONDITION
                             || source == ExpressionSource.JOIN_OTHER_CONDITION);
         } else {
-            return true;
+            return PlanUtils.isConditionExpressionPlan(plan);
         }
     }
 
