@@ -41,6 +41,6 @@ suite("test_view") {
     // expect column multi scale is 11:999999999999998246906000000000.76833464320 instead of 8: 999999999999998246906000000000.76833464
     qt_scale_is_11 "select multi from v_test_decimal_mul_overflow1;"
     // expect column c1 scale is 8: 999999999999998246906000000000.76833464
-//    qt_scale_is_8 "select multi+1 c1 from v_test_decimal_mul_overflow1;"
+    qt_scale_is_8 "select multi+1 c1 from v_test_decimal_mul_overflow1;"
 
 }

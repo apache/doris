@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
@@ -604,7 +605,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             new org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr(ne, viewInfo.second),
                             ne.getName()))
                     .collect(ImmutableList.toImmutableList());
-            return new LogicalProject<>(guardedProjects, (LogicalPlan) analyzedPlan);
+            LogicalProject<Plan> newProject = new LogicalProject<>(guardedProjects, (LogicalPlan) analyzedPlan);
+            if (analyzedPlan instanceof ProjectMergeable) {
+                return ProjectMergeable.mergeContinuedProjects(guardedProjects, analyzedPlan).orElse(newProject);
+            }
+            return newProject;
         }
         return analyzedPlan;
     }
