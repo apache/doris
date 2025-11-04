@@ -60,6 +60,16 @@ class StreamLoadAction implements SuiteAction {
     boolean directToBe = false
     boolean twoPhaseCommit = false
 
+    boolean enableTLS = false
+    String keyStorePath
+    String keyStorePassword
+    String keyStoreType = "PKCS12"
+    String trustStorePath
+    String trustStorePassword
+    String trustStoreType = "PKCS12"
+    boolean sslHostnameVerify = false
+    String tlsVerifyMode = "strict"
+
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
@@ -71,6 +81,18 @@ class StreamLoadAction implements SuiteAction {
         this.context = context
         this.headers = new LinkedHashMap<>()
         this.headers.put('label', UUID.randomUUID().toString())
+
+        // mTLS config from regression-conf.groovy -> context.config.otherConfigs
+        def oc = context.config.otherConfigs ?: [:]
+        this.enableTLS = (oc.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        this.keyStorePath = oc.get("keyStorePath")
+        this.keyStorePassword = oc.get("keyStorePassword")
+        this.keyStoreType = oc.get("keyStoreType") ?: 'PKCS12'
+        this.trustStorePath = oc.get("trustStorePath")
+        this.trustStorePassword = oc.get("trustStorePassword")
+        this.trustStoreType = oc.get("trustStoreType") ?: 'PKCS12'
+        this.tlsVerifyMode = oc.get("tlsVerifyMode") ?: 'strict'
+        this.sslHostnameVerify = ('none'.equalsIgnoreCase(this.tlsVerifyMode)) ? false : true
     }
 
     void db(String db) {
@@ -176,6 +198,44 @@ class StreamLoadAction implements SuiteAction {
 
     void unset(String key) {
         headers.remove(key)
+    }
+
+    // Methods to dynamically set TLS configuration
+    void enableTLS(boolean enable) {
+        this.enableTLS = enable
+    }
+
+    void keyStorePath(String path) {
+        this.keyStorePath = path
+    }
+
+    void keyStorePassword(String password) {
+        this.keyStorePassword = password
+    }
+
+    void keyStoreType(String type) {
+        this.keyStoreType = type
+    }
+
+    void trustStorePath(String path) {
+        this.trustStorePath = path
+    }
+
+    void trustStorePassword(String password) {
+        this.trustStorePassword = password
+    }
+
+    void trustStoreType(String type) {
+        this.trustStoreType = type
+    }
+
+    void tlsVerifyMode(String mode) {
+        this.tlsVerifyMode = mode
+        this.sslHostnameVerify = ('none'.equalsIgnoreCase(mode)) ? false : true
+    }
+
+    void sslHostnameVerify(boolean verify) {
+        this.sslHostnameVerify = verify
     }
 
     @Override

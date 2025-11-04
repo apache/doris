@@ -257,6 +257,11 @@ class MetaService extends ServerNode {
     }
 
     String getConfFilePath() {
+        def selectdbConfPath = path + '/conf/selectdb_cloud.conf'
+        def file = new File(selectdbConfPath)
+        if (file.exists()) {
+            return selectdbConfPath
+        }
         return path + '/conf/doris_cloud.conf'
     }
 
@@ -279,6 +284,11 @@ class Recycler extends ServerNode {
     }
 
     String getConfFilePath() {
+        def selectdbConfPath = path + '/conf/selectdb_cloud.conf'
+        def file = new File(selectdbConfPath)
+        if (file.exists()) {
+            return selectdbConfPath
+        }
         return path + '/conf/doris_cloud.conf'
     }
 
