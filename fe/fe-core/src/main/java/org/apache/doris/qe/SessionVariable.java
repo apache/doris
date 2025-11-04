@@ -729,6 +729,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
+    public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
+
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
@@ -3093,6 +3095,11 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
+
+    @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResult = true,
+            description = {"是否启用扩展的正则表达式, 支持如 look-round 类的零宽断言",
+                    "Enable extended regular expressions, support look-round zero-width assertions"})
+    public boolean enableExtendedRegex = false;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,

@@ -359,6 +359,7 @@ public class Coordinator implements CoordInterface {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
         this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
+        this.queryGlobals.setEnableExtendedRegex(context.getSessionVariable().enableExtendedRegex);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
 

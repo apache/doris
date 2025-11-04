@@ -1017,6 +1017,12 @@ Status FunctionRegexpLike::open(FunctionContext* context,
                 opts.set_dot_nl(true);
                 state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
                 if (!state->search_state.regex->ok()) {
+                    if (!context->state()->enable_extended_regex()) {
+                        return Status::InternalError("Invalid regex expression: {}. Error: {}",
+                                                     pattern_str,
+                                                     state->search_state.regex->error());
+                    }
+
                     // RE2 failed, fallback to Boost.Regex
                     // This handles advanced regex features like zero-width assertions
                     state->search_state.regex.reset();

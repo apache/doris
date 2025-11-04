@@ -492,6 +492,9 @@ struct TQueryGlobals {
 
   // Locale name used for month/day names formatting, e.g. en_US
   6: optional string lc_time_names
+
+  // Support extended regex, like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+  7: optional bool enable_extended_regex
 }
 
 

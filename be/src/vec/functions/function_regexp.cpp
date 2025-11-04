@@ -63,10 +63,15 @@ struct RegexpExtractEngine {
 
     // Try to compile with RE2 first, fallback to Boost.Regex if RE2 fails
     static bool compile(const StringRef& pattern, std::string* error_str,
-                        RegexpExtractEngine& engine) {
+                        RegexpExtractEngine& engine, bool enable_extended_regex) {
         engine.re2_regex = std::make_unique<re2::RE2>(re2::StringPiece(pattern.data, pattern.size));
         if (engine.re2_regex->ok()) {
             return true;
+        } else if (!enable_extended_regex) {
+            *error_str =
+                    fmt::format("Invalid regex pattern: {}. Error: {}",
+                                std::string(pattern.data, pattern.size), engine.re2_regex->error());
+            return false;
         }
 
         // RE2 failed, try Boost.Regex for advanced features like zero-width assertions
@@ -603,7 +608,8 @@ struct RegexpExtractImpl {
             std::string error_str;
             const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             scoped_engine = std::make_unique<RegexpExtractEngine>();
-            bool st = RegexpExtractEngine::compile(pattern, &error_str, *scoped_engine);
+            bool st = RegexpExtractEngine::compile(pattern, &error_str, *scoped_engine,
+                                                   context->state()->enable_extended_regex());
             if (!st) {
                 context->add_warning(error_str.c_str());
                 StringOP::push_null_string(index_now, result_data, result_offset, null_map);
@@ -684,7 +690,8 @@ struct RegexpExtractAllImpl {
             std::string error_str;
             const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             scoped_engine = std::make_unique<RegexpExtractEngine>();
-            bool st = RegexpExtractEngine::compile(pattern, &error_str, *scoped_engine);
+            bool st = RegexpExtractEngine::compile(pattern, &error_str, *scoped_engine,
+                                                   context->state()->enable_extended_regex());
             if (!st) {
                 context->add_warning(error_str.c_str());
                 StringOP::push_null_string(index_now, result_data, result_offset, null_map);
@@ -751,7 +758,8 @@ public:
 
                 std::string error_str;
                 auto engine = std::make_shared<RegexpExtractEngine>();
-                bool st = RegexpExtractEngine::compile(pattern, &error_str, *engine);
+                bool st = RegexpExtractEngine::compile(pattern, &error_str, *engine,
+                                                       context->state()->enable_extended_regex());
                 if (!st) {
                     context->set_error(error_str.c_str());
                     return Status::InvalidArgument(error_str);

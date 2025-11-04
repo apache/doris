@@ -164,6 +164,7 @@ public:
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& lc_time_names() const { return _lc_time_names; }
+    bool enable_extended_regex() const { return _enable_extended_regex; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -749,6 +750,10 @@ private:
     std::string _timezone;
     cctz::time_zone _timezone_obj;
     std::string _lc_time_names;
+
+    // Support extended regex
+    // like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+    bool _enable_extended_regex;
 
     TUniqueId _query_id;
     // fragment id for each TPipelineFragmentParams
