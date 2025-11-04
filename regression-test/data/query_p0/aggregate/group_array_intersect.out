@@ -73,6 +73,80 @@
 -- !groupby_3 --
 18	["a", "b", "c", "d", "e", "f"]
 
+-- !int_1_union --
+[null, 12, 13]
+
+-- !int_2_union --
+[null, 12, 13]
+
+-- !int_3_union --
+[null, 0]
+
+-- !int_4_union --
+[null]
+
+-- !int_5_union --
+[6, 7, 8]
+
+-- !int_6_union --
+[null]
+
+-- !int_7_union --
+[null, 12, 13]
+
+-- !int_8_union --
+[null]
+
+-- !int_9_union --
+[null, 12, 13]
+
+-- !float_1_union --
+[6.3, 7.3]
+
+-- !float_2_union --
+[6.3, 7.3, 8.3]
+
+-- !float_3_union --
+[6.3, 7.3, 8.3, 9.3]
+
+-- !datetimev2_1_union --
+["2024-03-23 00:00:00.000", "2024-03-24 00:00:00.000", "2024-03-25 00:00:00.000"]
+
+-- !datetimev2_2_union --
+["2024-03-23 00:00:00.000", "2024-03-24 00:00:00.000", "2024-03-25 00:00:00.000"]
+
+-- !datev2_1_union --
+["2024-03-25", "2024-03-29", "2024-05-23"]
+
+-- !datev2_2_union --
+[null, "2024-03-29", "2024-05-23"]
+
+-- !string_1_union --
+[null, "a"]
+
+-- !string_2_union --
+[null, "a", "b", "c", "d", "e", "f"]
+
+-- !bigint_union --
+[1234567890123456, 2333333333333333]
+
+-- !decimal_union --
+[1.34000, 2.00123, 2.00189]
+
+-- !groupby_1_union --
+0	[0]
+1	[1, 2, 3, 4, 5]
+
+-- !groupby_2_union --
+18	["a", "b", "c", "d", "e", "f"]
+19	["a", "aa", "b", "bb", "c", "cc", "d", "dd", "f", "ff"]
+20	[null, "a"]
+21	[null]
+22	["x", "y"]
+
+-- !groupby_3_union --
+18	["a", "b", "c", "d", "e", "f"]
+
 -- !notnull_1 --
 []
 
@@ -93,4 +167,25 @@
 
 -- !notnull_7 --
 []
+
+-- !notnull_11_union --
+[null, 6.6, 7.7]
+
+-- !notnull_12_union --
+[6, 7, 8]	[6.6, 7.7, 8.8]
+
+-- !notnull_13_union --
+[6.6, 7.7, 8.8]
+
+-- !notnull_14_union --
+["a", "aa", "b", "bb", "c", "cc", "d", "dd", "e", "f", "ff"]
+
+-- !notnull_15_union --
+[6, 7]	[6.6, 7.7]	["a"]
+
+-- !notnull_16_union --
+["a", "aa", "b", "bb", "c", "cc", "d", "dd", "e", "f", "ff", "x", "y"]
+
+-- !notnull_17_union --
+[null, 1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8]
 
