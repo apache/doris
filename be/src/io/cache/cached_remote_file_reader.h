@@ -60,7 +60,6 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
-    std::optional<int64_t> _get_tablet_id();
     void _insert_file_reader(FileBlockSPtr file_block);
 
     // Execute remote read (S3 or peer).
