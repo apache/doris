@@ -285,4 +285,27 @@ public class StructInfoTest extends SqlTestBase {
                             Assertions.assertTrue(planCheckContext.isContainsTopGenerate());
                         });
     }
+
+    @Test
+    public void testCheckTmpRewrittenPlanInValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, c2\n"
+                                + "from (select o_orderkey from orders_arr group by o_orderkey) orders_a\n"
+                                + "LATERAL VIEW explode_numbers(0) t1 as c2\n"
+                                + "order by c2;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertFalse(StructInfo.checkTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
+    public void testCheckTmpRewrittenPlanIsValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey from orders_arr where o_orderkey = 1;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertTrue(StructInfo.checkTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
 }

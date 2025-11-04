@@ -59,10 +59,8 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
@@ -1067,29 +1065,5 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return false;
         }
         return true;
-    }
-
-    // Check the tempRewrittenPlan is valid, should only contain logical project, scan or filter
-    protected boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
-        if (tempRewrittenPlan == null) {
-            return false;
-        }
-        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
-            @Override
-            public Boolean visit(Plan plan, Void context) {
-                if (plan instanceof LogicalProject || plan instanceof CatalogRelation
-                        || plan instanceof LogicalFilter) {
-                    boolean isValid;
-                    for (Plan child : plan.children()) {
-                        isValid = child.accept(this, context);
-                        if (!isValid) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }
-        }, null);
     }
 }

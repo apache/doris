@@ -44,7 +44,7 @@ public class MaterializedViewGenerateJoinRule extends AbstractMaterializedViewJo
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
-        if (!checkTmpRewrittenPlanIsValid(tempRewritedPlan)) {
+        if (!StructInfo.checkTmpRewrittenPlanIsValid(tempRewritedPlan)) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Explode rewriteQueryByView fail",
                     () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"

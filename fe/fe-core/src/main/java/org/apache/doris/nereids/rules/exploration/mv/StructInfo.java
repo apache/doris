@@ -922,6 +922,32 @@ public class StructInfo {
     }
 
     /**
+     * Check the tempRewrittenPlan is valid, should only contain project, scan and filter node
+     */
+    public static boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
+        if (tempRewrittenPlan == null) {
+            return false;
+        }
+        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
+            @Override
+            public Boolean visit(Plan plan, Void context) {
+                if (plan instanceof LogicalProject || plan instanceof CatalogRelation
+                        || plan instanceof LogicalFilter) {
+                    boolean isValid;
+                    for (Plan child : plan.children()) {
+                        isValid = child.accept(this, context);
+                        if (!isValid) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+        }, null);
+    }
+
+    /**
      * Expressions may appear in three place in hype graph, this identifies the position where
      * expression appear in hyper graph
      */
