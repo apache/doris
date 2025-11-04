@@ -116,6 +116,13 @@ struct Input {
     std::vector<std::string> key;
     std::function<std::vector<std::string>()> gen_value;
     std::string_view value;
+
+    std::string to_string() {
+        std::stringstream ss;
+        ss << "key_type=" << key_type << " param=" << param << " key=" << key[0]
+           << " value=" << value;
+        return ss.str();
+    }
 };
 
 // clang-format off
@@ -615,7 +622,7 @@ TEST(HttpGetValueTest, process_http_get_value_test_cover_all_template) {
         // std::cout << url.str() << std::endl;
         ASSERT_EQ(uri.SetHttpURL(url), 0); // clear and set query string
         auto http_res = process_http_get_value(txn_kv.get(), uri);
-        EXPECT_EQ(http_res.status_code, 200);
+        EXPECT_EQ(http_res.status_code, 200) << url << " " << input.to_string();
         // std::cout << http_res.body << std::endl;
         EXPECT_EQ(http_res.body, input.value);
         // Key mode
@@ -623,7 +630,7 @@ TEST(HttpGetValueTest, process_http_get_value_test_cover_all_template) {
         // std::cout << url.str() << std::endl;
         ASSERT_EQ(uri.SetHttpURL(url), 0); // clear and set query string
         http_res = process_http_get_value(txn_kv.get(), uri);
-        EXPECT_EQ(http_res.status_code, 200);
+        EXPECT_EQ(http_res.status_code, 200) << url << " " << input.to_string();
         // std::cout << http_res.body << std::endl;
         EXPECT_EQ(http_res.body, input.value);
     }

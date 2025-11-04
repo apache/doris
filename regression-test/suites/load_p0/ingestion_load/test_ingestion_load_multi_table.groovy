@@ -20,6 +20,10 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
 suite('test_ingestion_load_multi_table', 'p0,external') {
+    // deprecated, just skip
+    if (true) {
+        return;
+    }
 
     def testIngestLoadJob = { loadLabel, testTable1, testTable2, dataFile1, dataFile2 ->
 

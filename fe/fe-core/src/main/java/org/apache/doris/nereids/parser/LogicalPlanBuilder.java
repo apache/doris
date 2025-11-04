@@ -410,7 +410,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
@@ -1174,22 +1173,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     @Override
     public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
-
-        BulkStorageDesc bulkDesc = null;
+        BrokerDesc brokerDesc = null;
         if (ctx.withRemoteStorageSystem() != null) {
-            Map<String, String> bulkProperties =
-                    new HashMap<>(visitPropertyItemList(ctx.withRemoteStorageSystem().brokerProperties));
-            if (ctx.withRemoteStorageSystem().S3() != null) {
-                bulkDesc = new BulkStorageDesc("S3", BulkStorageDesc.StorageType.S3, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
-                bulkDesc = new BulkStorageDesc("HDFS", BulkStorageDesc.StorageType.HDFS, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
-                bulkDesc = new BulkStorageDesc("LOCAL_HDFS", BulkStorageDesc.StorageType.LOCAL, bulkProperties);
-            } else if (ctx.withRemoteStorageSystem().BROKER() != null
-                    && ctx.withRemoteStorageSystem().identifierOrText().getText() != null) {
-                bulkDesc = new BulkStorageDesc(ctx.withRemoteStorageSystem().identifierOrText().getText(),
-                        bulkProperties);
-            }
+            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
         }
         ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
         List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
@@ -1270,7 +1256,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
-        return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
+        return new LoadCommand(labelName, dataDescriptions.build(), brokerDesc, properties, comment);
     }
 
     /* ********************************************************************************************

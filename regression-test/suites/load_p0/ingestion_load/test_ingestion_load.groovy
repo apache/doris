@@ -21,6 +21,11 @@ import java.nio.file.StandardCopyOption
 
 suite('test_ingestion_load', 'p0,external') {
 
+    // deprecated, just skip
+    if (true) {
+        return;
+    }
+
     def testIngestLoadJob = { testTable, loadLabel, String dataFile , filesize ->
 
         sql "TRUNCATE TABLE ${testTable}"

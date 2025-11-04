@@ -98,16 +98,12 @@ public class AWSGlueMetaStoreBaseProperties {
                         "glue.access_key and glue.secret_key must be set together")
                 .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
                         "At least one of glue.access_key or glue.role_arn must be set")
-                .requireAtLeastOne(new String[]{glueEndpoint, glueRegion},
-                        "At least one of glue.endpoint or glue.region must be set");
+                .require(glueEndpoint, "glue.endpoint must be set");
     }
 
     private void checkAndInit() {
         buildRules().validate();
         if (StringUtils.isNotBlank(glueRegion) && StringUtils.isNotBlank(glueEndpoint)) {
-            return;
-        }
-        if (StringUtils.isBlank(glueEndpoint) && StringUtils.isNotBlank(glueRegion)) {
             return;
         }
         // glue region is not set, try to extract from endpoint
