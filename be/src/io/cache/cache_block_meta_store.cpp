@@ -232,8 +232,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
             return result.value();
         }
 
-        Status get_last_key_error() const { return _last_key_error; }
-        Status get_last_value_error() const { return _last_value_error; }
+        Status get_last_key_error() const override { return _last_key_error; }
+        Status get_last_value_error() const override { return _last_value_error; }
 
     private:
         rocksdb::Iterator* _iter;
@@ -309,8 +309,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
             return result.value();
         }
 
-        Status get_last_key_error() const { return _last_key_error; }
-        Status get_last_value_error() const { return _last_value_error; }
+        Status get_last_key_error() const override { return _last_key_error; }
+        Status get_last_value_error() const override { return _last_value_error; }
 
     private:
         rocksdb::Iterator* _iter;
@@ -451,7 +451,7 @@ std::string serialize_key(const BlockMetaKey& key) {
 
 std::string serialize_value(const BlockMeta& meta) {
     doris::io::cache::BlockMetaPb pb;
-    pb.set_type(meta.type);
+    pb.set_type(static_cast<::doris::io::cache::FileCacheType>(meta.type));
     pb.set_size(meta.size);
     pb.set_ttl(meta.ttl);
 
@@ -467,7 +467,7 @@ std::optional<BlockMetaKey> deserialize_key(const std::string& key_str, Status* 
     // Check version byte
     if (slice.size < 1 || slice.data[0] != 0x1) {
         LOG(WARNING) << "Invalid key, expected prefix 0x1";
-        if (status) *status = Status::InternalError("Invalid key, expected prefix 0x1");
+        if (status) *status = Status::InternalError("Failed to decode key: invalid version");
         return std::nullopt; // Invalid version
     }
     slice.remove_prefix(1); // skip version byte
@@ -514,29 +514,78 @@ std::optional<BlockMetaKey> deserialize_key(const std::string& key_str, Status* 
 }
 
 std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status* status) {
+    if (value_str.empty()) {
+        if (status) *status = Status::InternalError("Failed to deserialize value");
+        return std::nullopt;
+    }
+
     // Parse as protobuf format
     doris::io::cache::BlockMetaPb pb;
     if (pb.ParseFromString(value_str)) {
+        // Validate the parsed protobuf data
+        int type = pb.type();
+        if (type < 0 || type > 3) { // Valid FileCacheType values: 0-3
+            LOG(WARNING) << "Invalid FileCacheType value: " << type;
+            if (status)
+                *status = Status::InternalError("Failed to deserialize value: invalid type");
+            return std::nullopt;
+        }
+        if (pb.size() <= 0) {
+            LOG(WARNING) << "Invalid size value: " << pb.size();
+            if (status)
+                *status = Status::InternalError("Failed to deserialize value: invalid size");
+            return std::nullopt;
+        }
+        if (pb.ttl() < 0) {
+            LOG(WARNING) << "Invalid ttl value: " << pb.ttl();
+            if (status) *status = Status::InternalError("Failed to deserialize value: invalid ttl");
+            return std::nullopt;
+        }
+
         if (status) *status = Status::OK();
-        return BlockMeta(pb.type(), pb.size(), pb.ttl());
+        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
-    if (status) *status = Status::InternalError("Failed to deserialize value as protobuf");
+    if (status) *status = Status::InternalError("Failed to deserialize value");
     return std::nullopt;
 }
 
 std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* status) {
+    if (value_view.empty()) {
+        if (status) *status = Status::InternalError("Failed to deserialize value");
+        return std::nullopt;
+    }
+
     // Parse as protobuf format using string_view
     doris::io::cache::BlockMetaPb pb;
     if (pb.ParseFromArray(value_view.data(), value_view.size())) {
+        // Validate the parsed protobuf data
+        int type = pb.type();
+        if (type < 0 || type > 3) { // Valid FileCacheType values: 0-3
+            LOG(WARNING) << "Invalid FileCacheType value: " << type;
+            if (status)
+                *status = Status::InternalError("Failed to deserialize value: invalid type");
+            return std::nullopt;
+        }
+        if (pb.size() <= 0) {
+            LOG(WARNING) << "Invalid size value: " << pb.size();
+            if (status)
+                *status = Status::InternalError("Failed to deserialize value: invalid size");
+            return std::nullopt;
+        }
+        if (pb.ttl() < 0) {
+            LOG(WARNING) << "Invalid ttl value: " << pb.ttl();
+            if (status) *status = Status::InternalError("Failed to deserialize value: invalid ttl");
+            return std::nullopt;
+        }
+
         if (status) *status = Status::OK();
-        return BlockMeta(pb.type(), pb.size(), pb.ttl());
+        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf from string_view";
-    if (status)
-        *status = Status::InternalError("Failed to deserialize value as protobuf from string_view");
+    if (status) *status = Status::InternalError("Failed to deserialize value");
     return std::nullopt;
 }
 

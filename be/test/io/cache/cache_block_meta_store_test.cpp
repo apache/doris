@@ -550,7 +550,7 @@ TEST_F(CacheBlockMetaStoreTest, GetAllRecords) {
             uint128_t hash =
                     (static_cast<uint128_t>(tablet_id * 100 + i) << 64) | (tablet_id * 200 + i);
             BlockMetaKey key(tablet_id, UInt128Wrapper(hash), i * 1024);
-            BlockMeta meta(i % 2, 2048 * (i + 1), 3600 + i * 100);
+            BlockMeta meta(static_cast<FileCacheType>(i % 2), 2048 * (i + 1), 3600 + i * 100);
             meta_store_->put(key, meta);
         }
     }
@@ -619,7 +619,7 @@ TEST_F(CacheBlockMetaStoreTest, GetAllAfterClear) {
     for (int i = 0; i < 5; ++i) {
         uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
         BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
-        BlockMeta meta(i % 2, 2048 * (i + 1), 3600 + i * 100);
+        BlockMeta meta(static_cast<FileCacheType>(i % 2), 2048 * (i + 1), 3600 + i * 100);
         meta_store_->put(key, meta);
     }
 
@@ -688,7 +688,7 @@ TEST_F(CacheBlockMetaStoreTest, GetAllIteratorValidity) {
     for (int i = 0; i < 10; ++i) {
         uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
         BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
-        BlockMeta meta(i % 3, 2048 * (i + 1), 3600 + i * 100);
+        BlockMeta meta(static_cast<FileCacheType>(i % 3), 2048 * (i + 1), 3600 + i * 100);
         meta_store_->put(key, meta);
     }
 
@@ -721,9 +721,9 @@ TEST_F(CacheBlockMetaStoreTest, MultipleOperationsSameKey) {
     BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
 
     // Multiple operations on same key
-    BlockMeta meta1(1, 1024, 3600);
-    BlockMeta meta2(2, 2048, 7200);
-    BlockMeta meta3(3, 4096, 10800);
+    BlockMeta meta1(FileCacheType::NORMAL, 1024, 3600);
+    BlockMeta meta2(FileCacheType::INDEX, 2048, 7200);
+    BlockMeta meta3(FileCacheType::TTL, 4096, 10800);
 
     // Put first value
     meta_store_->put(key1, meta1);
@@ -772,7 +772,7 @@ TEST_F(CacheBlockMetaStoreTest, ErrorHandling) {
     EXPECT_TRUE(status.to_string().find("Failed to decode") != std::string::npos);
 
     // Test deserialize_value with invalid data
-    auto invalid_value_result = deserialize_value("invalid_value_data", &status);
+    auto invalid_value_result = deserialize_value(std::string("invalid_value_data"), &status);
     EXPECT_FALSE(invalid_value_result.has_value());
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.to_string().find("Failed to deserialize value") != std::string::npos);
@@ -824,8 +824,8 @@ TEST_F(CacheBlockMetaStoreTest, IteratorErrorHandling) {
     // Iterate through valid data first
     int count = 0;
     while (iterator->valid()) {
-        BlockMetaKey key = iterator->key();
-        BlockMeta value = iterator->value();
+        (void)iterator->key();   // unused variable
+        (void)iterator->value(); // unused variable
 
         // Check that no errors occurred
         EXPECT_TRUE(iterator->get_last_key_error().ok());
@@ -843,8 +843,8 @@ TEST_F(CacheBlockMetaStoreTest, IteratorErrorHandling) {
 
     count = 0;
     while (all_iterator->valid()) {
-        BlockMetaKey key = all_iterator->key();
-        BlockMeta value = all_iterator->value();
+        (void)all_iterator->key();   // unused variable
+        (void)all_iterator->value(); // unused variable
 
         // Check that no errors occurred
         EXPECT_TRUE(all_iterator->get_last_key_error().ok());
@@ -855,7 +855,6 @@ TEST_F(CacheBlockMetaStoreTest, IteratorErrorHandling) {
     }
 
     EXPECT_EQ(count, 1);
-}
 }
 
 } // namespace doris::io
