@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.base.Preconditions;
@@ -62,14 +60,6 @@ public class Sem extends NullableAggregateFunction
     /** constructor for withChildren and reuse signature */
     private Sem(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (!argType.isDoubleType()) {
-            throw new AnalysisException("sem only requires a double parameter: " + this.toSql());
-        }
     }
 
     /**

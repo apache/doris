@@ -36,11 +36,19 @@ class Arena;
 class BufferReadable;
 class BufferWritable;
 
+/**
+ * SEM = sqrt(variance / count) = sqrt(m2 / (count * (count - 1)))
+ * It uses Welford’s method for numerically stable one-pass computation of the mean and variance.
+ */
 struct AggregateFunctionSemData {
     double mean {};
     double m2 {}; // Cumulative sum of squares
     UInt64 count = 0;
 
+    //  Let the old mean be mean_{n-1} and we receive a new value x_n.
+    //  The new mean should be: mean_n = mean_{n-1} + (x_n - mean_{n-1}) / n
+    //  The new M2 should capture total squared deviations from the new mean:
+    //      M2_n = M2_{n-1} + (x_n - mean_{n-1}) * (x_n - mean_n)
     void add(const double& value) {
         count++;
         double delta = value - mean;
@@ -49,6 +57,14 @@ struct AggregateFunctionSemData {
         m2 += delta * delta2;
     }
 
+    // Suppose we have dataset A (count_a, mean_a, M2_a) and B (count_b, mean_b, M2_b).
+    // When merging:
+    //   - The total count is count_a + count_b
+    //   - The new mean is the weighted average of the two means
+    //   - The new M2 accumulates both variances and an adjustment term to account for
+    //     the difference in means between A and B:
+    //        M2 = M2_a + M2_b + delta^2 * count_a * count_b / total_count
+    // where delta = mean_b - mean_a
     void merge(const AggregateFunctionSemData& rhs) {
         UInt64 total_count = count + rhs.count;
         double delta = rhs.mean - mean;
