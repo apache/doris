@@ -84,6 +84,7 @@ public class StructInfo {
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final PredicateCollector PREDICATE_COLLECTOR = new PredicateCollector();
+    private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
     // source data
     private final Plan originalPlan;
     private final ObjectId originalPlanId;
@@ -474,6 +475,16 @@ public class StructInfo {
     @Override
     public String toString() {
         return "StructInfo{ originalPlanId = " + originalPlanId + ", relations = " + relations + '}';
+    }
+
+    private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
+        @Override
+        public Void visit(Plan plan, List<CatalogRelation> collectedRelations) {
+            if (plan instanceof CatalogRelation) {
+                collectedRelations.add((CatalogRelation) plan);
+            }
+            return super.visit(plan, collectedRelations);
+        }
     }
 
     private static class PredicateCollector extends DefaultPlanVisitor<Void, Set<Expression>> {
