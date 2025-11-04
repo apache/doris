@@ -19,12 +19,12 @@ import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
 /*
-测试描述:
-    通过建立一个two tablet数据倾斜表, 其中一个tablet包含1行数据, 另外一个tablet包含20000行
-    执行insert into from来触发two instance, 进而向FE发送相同的create partition rpc
+Test Description:
+    We create a two-tablet table with skewed data, where one tablet has 1 row and the other tablet has 20,000 rows.
+    By running "insert into ... select ..." we trigger two instances, which will send the same create-partition RPC to the FE.
 
-    打开MockRebalance会计数createPartition的调用次数, 在第二次收到该RPC时会故意返回
-    不同的分布信息以检测tablet 分布信息缓存是否生效
+    Enabling MockRebalance will count how many times createPartition is called. On the second time this RPC is received,
+    it will deliberately return a different tablet distribution to check whether the tablet distribution cache is working.
 */
 
 
