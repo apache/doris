@@ -420,9 +420,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             mergeNotDiscreteValues.removeIf(
                     value -> discreteValues.contains(value) || rangeSet.contains(value));
             discreteValues.removeIf(mergeNotDiscreteValues::contains);
-            result = ImmutableList.builderWithExpectedSize(collector.compoundValues.size() + 4);
             if (mergeNotDiscreteValues.isEmpty()) {
-                // clear others
                 result.add(new RangeValue(context, reference, Range.all()));
             } else {
                 result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
