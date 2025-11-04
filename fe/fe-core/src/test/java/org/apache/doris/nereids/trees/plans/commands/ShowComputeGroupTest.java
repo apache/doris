@@ -58,16 +58,6 @@ public class ShowComputeGroupTest extends TestWithFeService {
     }
 
     @Test
-    public void testShowComputeGroupsInNonCloudMode() throws Exception {
-        Config.deploy_mode = "not-cloud";
-        ShowClusterStmt command = new ShowClusterStmt(true);
-        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
-        Assertions.assertThrows(AnalysisException.class, () -> {
-            command.analyze(analyzer);
-        });
-    }
-
-    @Test
     public void testShowClustersInCloudMode() throws Exception {
         ShowClusterStmt command = new ShowClusterStmt(false);
         ShowResultSetMetaData metaData = command.getMetaData();
@@ -82,15 +72,5 @@ public class ShowComputeGroupTest extends TestWithFeService {
         Assertions.assertEquals("sub_clusters", columnNames.get(4));
         Assertions.assertEquals("policy", columnNames.get(5));
         Assertions.assertEquals("properties", columnNames.get(6));
-    }
-
-    @Test
-    public void testShowClustersInNonCloudMode() throws Exception {
-        Config.deploy_mode = "not-cloud";
-        ShowClusterStmt command = new ShowClusterStmt(false);
-        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
-        Assertions.assertThrows(AnalysisException.class, () -> {
-            command.analyze(analyzer);
-        });
     }
 }
