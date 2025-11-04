@@ -65,8 +65,6 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Objects;
@@ -87,9 +85,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -146,8 +142,6 @@ public abstract class ExternalCatalog
     protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
-    @SerializedName(value = "idToDb")
-    protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     // <db name, table name> to tableAutoAnalyzePolicy
@@ -166,7 +160,6 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
-    protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
@@ -241,13 +234,9 @@ public abstract class ExternalCatalog
     // Will be called when creating catalog(so when as replaying)
     // to add some default properties if missing.
     public void setDefaultPropsIfMissing(boolean isReplay) {
-        if (catalogProperty.getOrDefault(USE_META_CACHE, "").isEmpty()) {
-            // If not setting USE_META_CACHE in replay logic,
-            // set default value to false to be compatible with older version meta data.
-            catalogProperty.addProperty(USE_META_CACHE, isReplay ? "false" : String.valueOf(DEFAULT_USE_META_CACHE));
-        }
-        useMetaCache = Optional.of(
-                Boolean.valueOf(catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE))));
+        // set default value to true, no matter is replaying or not.
+        // After 4.0, all external catalogs will use meta cache by default.
+        catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
     }
 
     // we need check auth fallback for kerberos or simple
@@ -310,24 +299,8 @@ public abstract class ExternalCatalog
         try {
             initLocalObjects();
             if (!initialized) {
-                if (useMetaCache.get()) {
-                    buildMetaCache();
-                    setLastUpdateTime(System.currentTimeMillis());
-                } else {
-                    if (!Env.getCurrentEnv().isMaster()) {
-                        // Forward to master and wait the journal to replay.
-                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
-                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                        try {
-                            remoteExecutor.forward(id, -1);
-                        } catch (Exception e) {
-                            Util.logAndThrowRuntimeException(LOG,
-                                    String.format("failed to forward init catalog %s operation to master.", name), e);
-                        }
-                        return;
-                    }
-                    init();
-                }
+                buildMetaCache();
+                setLastUpdateTime(System.currentTimeMillis());
                 initialized = true;
                 this.errorMsg = "";
             }
@@ -428,45 +401,6 @@ public abstract class ExternalCatalog
 
         // 3. create access controller
         Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties, isDryRun);
-    }
-
-    // init schema related objects
-    private void init() {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(logType);
-        List<Pair<String, String>> remoteToLocalPairs = getFilteredDatabaseNames();
-        for (Pair<String, String> pair : remoteToLocalPairs) {
-            String remoteDbName = pair.key();
-            String localDbName = pair.value();
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(localDbName)) {
-                dbId = dbNameToId.get(localDbName);
-                tmpDbNameToId.put(localDbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db = idToDb.get(dbId);
-                // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-                if (Strings.isNullOrEmpty(db.getRemoteName())) {
-                    db.setRemoteName(remoteDbName);
-                }
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId, remoteDbName);
-            } else {
-                dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(localDbName, dbId);
-                ExternalDatabase<? extends ExternalTable> db =
-                        buildDbForInit(remoteDbName, localDbName, dbId, logType, false);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, localDbName, remoteDbName);
-            }
-        }
-
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        lastUpdateTime = System.currentTimeMillis();
-        initCatalogLog.setLastUpdateTime(lastUpdateTime);
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
     /**
@@ -595,15 +529,8 @@ public abstract class ExternalCatalog
      * This method is safe to call within synchronized block.
      */
     private void refreshMetaCacheOnly() {
-        if (useMetaCache.isPresent()) {
-            if (useMetaCache.get() && metaCache != null) {
-                metaCache.invalidateAll();
-            } else if (!useMetaCache.get()) {
-                this.initialized = false;
-                for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.resetMetaToUninitialized();
-                }
-            }
+        if (metaCache != null) {
+            metaCache.invalidateAll();
         }
     }
 
@@ -657,11 +584,7 @@ public abstract class ExternalCatalog
     @Override
     public List<String> getDbNames() {
         makeSureInitialized();
-        if (useMetaCache.get()) {
-            return metaCache.listNames();
-        } else {
-            return new ArrayList<>(dbNameToId.keySet());
-        }
+        return metaCache.listNames();
     }
 
     @Override
@@ -706,16 +629,9 @@ public abstract class ExternalCatalog
             realDbName = MysqlDb.DATABASE_NAME;
         }
 
-        if (useMetaCache.get()) {
-            // must use full qualified name to generate id.
-            // otherwise, if 2 catalogs have the same db name, the id will be the same.
-            return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
-        } else {
-            if (dbNameToId.containsKey(realDbName)) {
-                return idToDb.get(dbNameToId.get(realDbName));
-            }
-            return null;
-        }
+        // must use full qualified name to generate id.
+        // otherwise, if 2 catalogs have the same db name, the id will be the same.
+        return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
     }
 
     @Nullable
@@ -728,21 +644,13 @@ public abstract class ExternalCatalog
             return null;
         }
 
-        if (useMetaCache.get()) {
-            return metaCache.getMetaObjById(dbId).orElse(null);
-        } else {
-            return idToDb.get(dbId);
-        }
+        return metaCache.getMetaObjById(dbId).orElse(null);
     }
 
     @Override
     public List<Long> getDbIds() {
         makeSureInitialized();
-        if (useMetaCache.get()) {
-            return getAllDbs().stream().map(DatabaseIf::getId).collect(Collectors.toList());
-        } else {
-            return Lists.newArrayList(dbNameToId.values());
-        }
+        return getAllDbs().stream().map(DatabaseIf::getId).collect(Collectors.toList());
     }
 
     @Override
@@ -795,67 +703,6 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
-    public synchronized void replayInitCatalog(InitCatalogLog log) {
-        // If the remote name is missing during upgrade, or
-        // the refresh db's remote name is empty,
-        // all databases in the Map will be reinitialized.
-        if ((log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()))
-                || (log.getRefreshCount() > 0
-                && (log.getRefreshRemoteDbNames() == null || log.getRefreshRemoteDbNames().isEmpty()))) {
-            dbNameToId = Maps.newConcurrentMap();
-            idToDb = Maps.newConcurrentMap();
-            lastUpdateTime = log.getLastUpdateTime();
-            initialized = false;
-            return;
-        }
-
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
-        for (int i = 0; i < log.getRefreshCount(); i++) {
-            Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(log.getRefreshDbIds().get(i));
-            // Should not return null.
-            // Because replyInitCatalog can only be called when `use_meta_cache` is false.
-            // And if `use_meta_cache` is false, getDbForReplay() will not return null
-            if (!db.isPresent()) {
-                LOG.warn("met invalid db id {} in replayInitCatalog, catalog: {}, ignore it to skip bug.",
-                        log.getRefreshDbIds().get(i), name);
-                continue;
-            }
-            db.get().setRemoteName(log.getRefreshRemoteDbNames().get(i));
-            Preconditions.checkNotNull(db.get());
-            tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
-            tmpIdToDb.put(db.get().getId(), db.get());
-            LOG.info("Synchronized database (refresh): [Name: {}, ID: {}]", db.get().getFullName(), db.get().getId());
-        }
-        for (int i = 0; i < log.getCreateCount(); i++) {
-            ExternalDatabase<? extends ExternalTable> db =
-                    buildDbForInit(log.getRemoteDbNames().get(i), log.getCreateDbNames().get(i),
-                            log.getCreateDbIds().get(i), log.getType(), false);
-            if (db != null) {
-                tmpDbNameToId.put(db.getFullName(), db.getId());
-                tmpIdToDb.put(db.getId(), db);
-                LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
-                        db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
-            }
-        }
-        // Check whether the remoteName of db in tmpIdToDb is empty
-        for (ExternalDatabase<? extends ExternalTable> db : tmpIdToDb.values()) {
-            if (Strings.isNullOrEmpty(db.getRemoteName())) {
-                LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
-                        db.getFullName(), name);
-                dbNameToId = Maps.newConcurrentMap();
-                idToDb = Maps.newConcurrentMap();
-                lastUpdateTime = log.getLastUpdateTime();
-                initialized = false;
-                return;
-            }
-        }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        lastUpdateTime = log.getLastUpdateTime();
-        initialized = true;
-    }
-
     /**
      * This method will try getting db from cache only,
      * If there is no cache, it will return empty.
@@ -867,15 +714,10 @@ public abstract class ExternalCatalog
      * @return
      */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(long dbId) {
-        Preconditions.checkState(useMetaCache.isPresent(), name);
-        if (useMetaCache.get()) {
-            if (!isInitialized()) {
-                return Optional.empty();
-            }
-            return metaCache.getMetaObjById(dbId);
-        } else {
-            return Optional.ofNullable(idToDb.get(dbId));
+        if (!isInitialized()) {
+            return Optional.empty();
         }
+        return metaCache.getMetaObjById(dbId);
     }
 
     /**
@@ -885,21 +727,14 @@ public abstract class ExternalCatalog
      * @return
      */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
-        Preconditions.checkState(useMetaCache.isPresent(), name);
-        if (useMetaCache.get()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
-                        this.name, dbName, this.id, isInitialized());
-            }
-            if (!isInitialized()) {
-                return Optional.empty();
-            }
-            return metaCache.tryGetMetaObj(dbName);
-        } else if (dbNameToId.containsKey(dbName)) {
-            return Optional.ofNullable(idToDb.get(dbNameToId.get(dbName)));
-        } else {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
+                    this.name, dbName, this.id, isInitialized());
+        }
+        if (!isInitialized()) {
             return Optional.empty();
         }
+        return metaCache.tryGetMetaObj(dbName);
     }
 
     /**
@@ -954,7 +789,7 @@ public abstract class ExternalCatalog
         }
 
         // Step 3: Resolve remote database name if using meta cache
-        if (remoteDbName == null && useMetaCache.orElse(false)) {
+        if (remoteDbName == null) {
             if (Boolean.parseBoolean(getLowerCaseMetaNames()) || !Strings.isNullOrEmpty(getMetaNamesMapping())) {
                 remoteDbName = metaCache.getRemoteName(localDbName);
                 if (remoteDbName == null) {
@@ -1000,16 +835,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (idToDb == null) {
-            // ExternalCatalog is loaded from meta with older version
-            idToDb = Maps.newConcurrentMap();
-        }
-        dbNameToId = Maps.newConcurrentMap();
-        for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-            dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
-            db.setExtCatalog(this);
-            db.setTableExtCatalog(this);
-        }
         objectCreated = false;
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
@@ -1033,10 +858,6 @@ public abstract class ExternalCatalog
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
-        // 1. add for "use_meta_cache = false"
-        idToDb.put(db.getId(), db);
-        dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
-        // 2. add for "use_meta_cache = true"
         buildMetaCache();
         metaCache.addObjForTest(db.getId(), db.getFullName(), db);
     }
@@ -1049,7 +870,6 @@ public abstract class ExternalCatalog
         this.initialized = initialized;
         if (this.initialized) {
             buildMetaCache();
-            this.useMetaCache = Optional.of(true);
         }
     }
 
@@ -1195,17 +1015,8 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
-        if (useMetaCache.get()) {
-            if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
-            }
-        } else {
-            Long dbId = dbNameToId.remove(dbName);
-            if (dbId == null) {
-                LOG.warn("unregister database {}.{} failed, not find in map. ignore.", this.name, dbName);
-            } else {
-                idToDb.remove(dbId);
-            }
+        if (isInitialized()) {
+            metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
@@ -1261,19 +1072,15 @@ public abstract class ExternalCatalog
     @Override
     public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
         makeSureInitialized();
-        if (useMetaCache.get()) {
-            Set<DatabaseIf<? extends TableIf>> dbs = Sets.newHashSet();
-            List<String> dbNames = getDbNames();
-            for (String dbName : dbNames) {
-                ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
-                if (db != null) {
-                    dbs.add(db);
-                }
+        Set<DatabaseIf<? extends TableIf>> dbs = Sets.newHashSet();
+        List<String> dbNames = getDbNames();
+        for (String dbName : dbNames) {
+            ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+            if (db != null) {
+                dbs.add(db);
             }
-            return dbs;
-        } else {
-            return new HashSet<>(idToDb.values());
         }
+        return dbs;
     }
 
     @Override
@@ -1362,10 +1169,6 @@ public abstract class ExternalCatalog
 
     public CatalogProperty getCatalogProperty() {
         return catalogProperty;
-    }
-
-    public Optional<Boolean> getUseMetaCache() {
-        return useMetaCache;
     }
 
     public Map<Pair<String, String>, String> getTableAutoAnalyzePolicy() {
@@ -1484,7 +1287,7 @@ public abstract class ExternalCatalog
      * Usually used after creating database in catalog, so that user can see newly created db immediately.
      */
     public void resetMetaCacheNames() {
-        if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
+        if (metaCache != null) {
             metaCache.resetNames();
         }
     }
