@@ -3132,10 +3132,10 @@ public class Config extends ConfigBase {
     public static boolean enable_profile_archive = true;
 
     // Number of profiles to include in each archive ZIP file.
-    // Recommended value: 100
-    @ConfField(mutable = true, description = {"每个归档 ZIP 文件包含的 profile 数量。推荐值 100",
-            "Number of profiles per archive ZIP file. Recommended: 100"})
-    public static int profile_archive_batch_size = 100;
+    // Recommended value: 1000
+    @ConfField(mutable = true, description = {"每个归档 ZIP 文件包含的 profile 数量。推荐值 1000",
+            "Number of profiles per archive ZIP file. Recommended: 1000"})
+    public static int profile_archive_batch_size = 1000;
 
     // Storage path for archived profiles.
     // If empty, defaults to ${spilled_profile_storage_path}/archive
@@ -3149,7 +3149,7 @@ public class Config extends ConfigBase {
     // >0: delete archives older than specified seconds (e.g., 604800 = 30 days)
     @ConfField(mutable = true, description = {"归档文件的保留时长（秒）。-1 表示永久保留，0 表示不保留",
             "Retention period for archive files in seconds. -1 for unlimited, 0 to disable archiving"})
-    public static int profile_archive_retention_seconds = 604800; // 7 days
+    public static int profile_archive_retention_seconds = 28800; // 8 hours
 
     // Maximum waiting time for pending archive files in seconds.
     // If the oldest file in pending directory exceeds this time, archive will be forced
@@ -3157,7 +3157,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"待归档缓冲区的最大等待时间（秒）。超过此时间即使未满批次也会强制归档",
             "Maximum waiting time for pending archive files in seconds. "
                     + "Force archive even if batch is not full"})
-    public static int profile_archive_pending_timeout_seconds = 86400; // 24 hours
+    public static int profile_archive_pending_timeout_seconds = 3600; // 1 hours
 
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
