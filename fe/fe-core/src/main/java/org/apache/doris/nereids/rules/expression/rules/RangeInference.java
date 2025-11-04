@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -379,7 +378,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc union(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
-        ImmutableList.Builder<ValueDesc> result = ImmutableList.builderWithExpectedSize(collector.size());
+        ImmutableList.Builder<ValueDesc> result = ImmutableList.builderWithExpectedSize(collector.size() + 3);
         // Since in-predicate's options is a list, the discrete values need to kept options' order.
         // If not keep options' order, the result in-predicate's option list will not equals to
         // the input in-predicate, later nereids will need to simplify the new in-predicate,
@@ -410,25 +409,31 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             discreteValues.removeIf(rangeSet::contains);
         }
 
-        if (!discreteValues.isEmpty()) {
-            result.add(new DiscreteValue(context, reference, discreteValues));
-        }
-        for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
-            result.add(new RangeValue(context, reference, range));
-        }
-
+        Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
         if (!collector.notDiscreteValues.isEmpty()) {
-            Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
             mergeNotDiscreteValues.addAll(collector.notDiscreteValues.get(0).values);
+            // a not in (1, 2) or a not in (1, 2, 3) => a not in (1, 2)
             for (int i = 1; i < collector.notDiscreteValues.size(); i++) {
                 mergeNotDiscreteValues.retainAll(collector.notDiscreteValues.get(i).values);
             }
+            // a not in (1, 2, 3) or a in (1, 2, 4) => a not in (3)
             mergeNotDiscreteValues.removeIf(
                     value -> discreteValues.contains(value) || rangeSet.contains(value));
+            discreteValues.removeIf(mergeNotDiscreteValues::contains);
+            result = ImmutableList.builderWithExpectedSize(collector.compoundValues.size() + 4);
             if (mergeNotDiscreteValues.isEmpty()) {
-                return new RangeValue(context, reference, Range.all());
+                // clear others
+                result.add(new RangeValue(context, reference, Range.all()));
+            } else {
+                result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
             }
-            result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
+        } else {
+            if (!discreteValues.isEmpty()) {
+                result.add(new DiscreteValue(context, reference, discreteValues));
+            }
+            for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
+                result.add(new RangeValue(context, reference, range));
+            }
         }
 
         if (collector.hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
@@ -440,12 +445,25 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
         result.addAll(collector.compoundValues);
         result.addAll(collector.unknownValues);
-
         List<ValueDesc> resultValues = result.build();
-        if (resultValues.isEmpty()) {
-            Preconditions.checkArgument(collector.hasEmptyValue);
-            return new EmptyValue(context, reference);
-        } else if (resultValues.size() == 1) {
+        if (collector.hasEmptyValue) {
+            boolean canSkipEmptyValue = false;
+            for (ValueDesc valueDesc : resultValues) {
+                // given 'EmptyValue OR x', for x:
+                // if x is RangeValue, then their union result is x
+                // if x is IsNull or IsNotNull..., then their union result is EmptyValue OR x,
+                // the EmptyValue can not eliminate.
+                if (valueDesc.unionEmptySkipEmpty()) {
+                    canSkipEmptyValue = true;
+                    break;
+                }
+            }
+            if (!canSkipEmptyValue) {
+                resultValues = result.add(new EmptyValue(context, reference)).build();
+            }
+        }
+        Preconditions.checkArgument(!resultValues.isEmpty());
+        if (resultValues.size() == 1) {
             return resultValues.get(0);
         } else {
             return new CompoundValue(context, reference, resultValues, false);
@@ -571,7 +589,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return false;
         }
 
+        // intersect with EmptyValue is EmptyValue
         public abstract boolean intersectWithEmptyIsEmpty();
+
+        // union with EmptyValue can skip EmptyValue
+        public abstract boolean unionEmptySkipEmpty();
     }
 
     /**
@@ -590,6 +612,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public boolean intersectWithEmptyIsEmpty() {
+            return true;
+        }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
             return true;
         }
     }
@@ -663,6 +690,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         public boolean intersectWithEmptyIsEmpty() {
             return true;
         }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
+            return true;
+        }
     }
 
     /**
@@ -701,6 +733,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         public boolean intersectWithEmptyIsEmpty() {
             return true;
         }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
+            return true;
+        }
     }
 
     /**
@@ -734,6 +771,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         public boolean intersectWithEmptyIsEmpty() {
             return true;
         }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
+            return true;
+        }
     }
 
     /**
@@ -752,6 +794,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public boolean intersectWithEmptyIsEmpty() {
+            return true;
+        }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
             return true;
         }
     }
@@ -778,6 +825,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public boolean intersectWithEmptyIsEmpty() {
+            return false;
+        }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
             return false;
         }
     }
@@ -818,6 +870,19 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
             return true;
         }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
+            for (ValueDesc sourceValue : sourceValues) {
+                // [TODO]: think again the IsNullValue inside the compound value
+                // IsNullValue union EmptyValue = IsNullValue
+                // but if IsNullValue is inside a compound value, keep the EmptyValue ?
+                if (sourceValue instanceof IsNullValue || !sourceValue.unionEmptySkipEmpty()) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     /**
@@ -836,6 +901,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public boolean intersectWithEmptyIsEmpty() {
+            return false;
+        }
+
+        @Override
+        public boolean unionEmptySkipEmpty() {
             return false;
         }
     }

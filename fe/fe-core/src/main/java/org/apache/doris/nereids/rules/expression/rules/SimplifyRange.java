@@ -52,7 +52,6 @@ import com.google.common.collect.Range;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * This class implements the function to simplify expression range.

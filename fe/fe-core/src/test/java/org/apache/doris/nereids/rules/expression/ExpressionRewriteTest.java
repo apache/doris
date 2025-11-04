@@ -412,7 +412,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         //assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null and null",
         //        "(TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null and null",
-                "(TA <= 20 or TA >= 30 or TA is null and null) and TA >= 10 and TA <= 40");
+                "TA >= 10 and TA <= 40 and (TA <= 20 or TA >= 30)");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null",
                 "TA >= 10 and TA <= 20 or TA >= 30 and TA <= 40 or TA is null");
         assertRewriteAfterTypeCoercion("ISNULL(TB) and (TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50)",
