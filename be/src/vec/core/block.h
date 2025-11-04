@@ -623,8 +623,6 @@ public:
 
     std::vector<std::string>& get_names() { return _names; }
 
-    bool has(const std::string& name) const;
-
     size_t get_position_by_name(const std::string& name) const;
 
     /** Get a list of column names separated by commas. */

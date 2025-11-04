@@ -250,12 +250,10 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         if (src_block.rows()) {
             // block->check_number_of_rows();
             for (int i = 0; i < _slot_num; ++i) {
-                auto* dest_slot_desc = _dest_tuple_desc->slots()[i];
                 vectorized::MutableColumnPtr column_ptr =
                         std::move(*block->get_by_position(i).column).mutate();
-                column_ptr->insert_range_from(
-                        *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
-                        src_block.rows());
+                column_ptr->insert_range_from(*src_block.get_by_position(i).column, 0,
+                                              src_block.rows());
             }
             RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
                                                      _dest_tuple_desc->slots().size()));
