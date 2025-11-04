@@ -86,7 +86,7 @@ public class CloudCoordinator extends Coordinator {
 
         if (idToBackend == null || idToBackend.isEmpty()) {
             LOG.warn("no available backends, idToBackend {}", idToBackend);
-            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cluster, cluster);
+            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cluster);
             throw new UserException(computeGroupHints);
         }
     }

@@ -1442,7 +1442,8 @@ public class StmtExecutor {
         if (address == null) {
             String computeGroupHints = "";
             if (Config.isCloudMode()) {
-                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null, null);
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
             }
             throw new AnalysisException("No Alive backends" + computeGroupHints);
         }

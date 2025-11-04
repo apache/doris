@@ -419,7 +419,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         if (aliveBe == null) {
             String computeGroupHints = "";
             if (Config.isCloudMode()) {
-                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null, null);
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
             }
             throw new DdlException("Test BE Connection to JDBC Failed: No Alive backends" + computeGroupHints);
         }

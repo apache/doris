@@ -108,7 +108,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                     .getCloudClusterIdByName(clusterName);
             if (Strings.isNullOrEmpty(this.cloudClusterId)) {
                 LOG.warn("can not find compute group: {}", clusterName);
-                String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(clusterName, clusterName);
+                String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(clusterName);
                 throw new MetaNotFoundException(computeGroupHints);
             }
             sessionVariables.put(CLOUD_CLUSTER_ID, this.cloudClusterId);

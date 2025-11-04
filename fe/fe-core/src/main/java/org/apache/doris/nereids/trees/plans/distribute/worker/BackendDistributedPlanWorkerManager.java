@@ -103,7 +103,7 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         List<Backend> beList = cg.getBackendList();
         if (beList.isEmpty()) {
             LOG.warn("no available backends, compute group is {}", cg.toString());
-            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cg.getName(), cg.getName());
+            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cg.getName());
             throw new UserException(computeGroupHints);
         }
 

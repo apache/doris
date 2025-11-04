@@ -126,7 +126,8 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         if (backendList.isEmpty()) {
             String computeGroupHints = "";
             if (Config.isCloudMode()) {
-                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null, null);
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
             }
             throw new AnalysisException("No Alive backends" + computeGroupHints);
         }

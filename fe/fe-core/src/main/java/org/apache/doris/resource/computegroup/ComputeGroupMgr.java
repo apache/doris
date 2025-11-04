@@ -40,24 +40,19 @@ public class ComputeGroupMgr {
         this.systemInfoService = systemInfoService;
     }
 
-    public static String computeGroupNotFoundPromptMsg(String virtualClusterName,
-            String physicalClusterName) {
+    public static String computeGroupNotFoundPromptMsg(String physicalClusterName) {
         StringBuilder sb = new StringBuilder();
         Pair<String, String> computeGroupInfos = ConnectContext.computeGroupFromHintMsg();
-        sb.append(" Unable to find the compute group. (virtual)/(real) ");
-        if (virtualClusterName == null) {
-            sb.append(computeGroupInfos.first);
-        } else {
-            sb.append(virtualClusterName);
-        }
-        sb.append("/");
+        sb.append(" Unable to find the compute group: ");
+        sb.append("<");
         if (physicalClusterName == null) {
             sb.append(computeGroupInfos.first);
         } else {
             sb.append(physicalClusterName);
         }
-        sb.append(". Please check if the compute group has been deleted.");
-        sb.append(" Current strategy: ").append(computeGroupInfos.second);
+        sb.append(">");
+        sb.append(". Please check if the compute group has been deleted. how this compute group is selected: ");
+        sb.append(computeGroupInfos.second);
         return sb.toString();
     }
 
@@ -68,7 +63,7 @@ public class ComputeGroupMgr {
                     .getPhysicalCluster(name);
             String clusterId = cloudSystemInfoService.getCloudClusterIdByName(physicalClusterName);
             if (StringUtils.isEmpty(clusterId)) {
-                String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(name, physicalClusterName);
+                String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(physicalClusterName);
                 throw new UserException(computeGroupHints);
             }
             return new CloudComputeGroup(clusterId, physicalClusterName, cloudSystemInfoService);
