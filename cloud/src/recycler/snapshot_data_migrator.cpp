@@ -69,6 +69,7 @@ void SnapshotDataMigrator::stop() {
 }
 
 void SnapshotDataMigrator::migration_loop() {
+    pthread_setname_np(pthread_self(), "SNAP_MIGRATOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;
@@ -90,7 +91,7 @@ void SnapshotDataMigrator::migration_loop() {
             if (migrating_instance_map_.count(instance_id)) continue;
         }
 
-        auto migrator = std::make_shared<InstanceDataMigrator>(txn_kv_, instance, migrate_context_);
+        auto migrator = std::make_shared<InstanceDataMigrator>(txn_kv_, instance);
         if (migrator->init() != 0) {
             LOG(WARNING) << "failed to init instance migrator, instance_id="
                          << instance.instance_id();
@@ -187,12 +188,10 @@ bool SnapshotDataMigrator::is_instance_need_migrate(const InstanceInfoPB& instan
 }
 
 InstanceDataMigrator::InstanceDataMigrator(std::shared_ptr<TxnKv> txn_kv,
-                                           const InstanceInfoPB& instance,
-                                           SnapshotDataMigrateContext& migrate_context)
+                                           const InstanceInfoPB& instance)
         : txn_kv_(std::move(txn_kv)),
           instance_id_(instance.instance_id()),
-          instance_info_(instance),
-          migrate_context_(migrate_context) {}
+          instance_info_(instance) {}
 
 InstanceDataMigrator::~InstanceDataMigrator() {
     if (!stopped()) {
@@ -342,6 +341,12 @@ int InstanceDataMigrator::enable_instance_snapshot_switch() {
         LOG_WARNING("failed to parse instance info in data migration")
                 .tag("instance_id", instance_id_);
         return -1;
+    }
+
+    if (instance_info.multi_version_status() == MultiVersionStatus::MULTI_VERSION_DISABLED) {
+        LOG_WARNING("instance multi version status is disabled, no need to enable snapshot switch")
+                .tag("instance_id", instance_id_);
+        return 0;
     }
 
     instance_info.set_snapshot_switch_status(SnapshotSwitchStatus::SNAPSHOT_SWITCH_OFF);

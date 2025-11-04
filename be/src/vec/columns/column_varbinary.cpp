@@ -115,7 +115,7 @@ size_t ColumnVarbinary::filter(const IColumn::Filter& filter) {
             } else {
                 auto val = src_vec.get_data()[i];
                 const auto* dst = _arena.insert(val.data(), val.size());
-                _data[pos] = doris::StringContainer(dst, val.size());
+                _data[pos] = doris::StringView(dst, val.size());
             }
             pos++;
         }
@@ -144,7 +144,7 @@ MutableColumnPtr ColumnVarbinary::permute(const IColumn::Permutation& perm, size
             continue;
         }
         const auto* dst = const_cast<Arena&>(_arena).insert(val.data(), val.size());
-        res_data[i] = doris::StringContainer(dst, val.size());
+        res_data[i] = doris::StringView(dst, val.size());
     }
 
     return res;
@@ -159,7 +159,7 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
         return;
     }
     const auto* dst = _arena.insert(val.data(), val.size());
-    _data[self_row] = doris::StringContainer(dst, val.size());
+    _data[self_row] = doris::StringView(dst, val.size());
 }
 
 #include "common/compile_check_end.h"

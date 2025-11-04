@@ -25,6 +25,8 @@
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
+#include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2_pre_decoder.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
@@ -37,6 +39,13 @@ class BinaryPlainPageV2Test : public testing::Test {
 public:
     BinaryPlainPageV2Test() = default;
     virtual ~BinaryPlainPageV2Test() = default;
+
+    // Helper method to apply pre-decode step for BinaryPlainPageV2
+    // Similar to decode_bitshuffle_page in BinaryDictPageTest
+    Status apply_pre_decode(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
+        BinaryPlainPageV2PreDecoder pre_decoder;
+        return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
+    }
 
     template <FieldType Type>
     void test_encode_decode_page(const std::vector<std::string>& src_strings) {
@@ -78,8 +87,14 @@ public:
         EXPECT_EQ(slices[slices.size() - 1], last_value);
 
         // Decode the page
+        // First apply pre-decode to convert V2 format to V1 format
+        Slice page_slice = owned_slice.slice();
+        std::unique_ptr<DataPage> decoded_page;
+        status = apply_pre_decode(page_slice, decoded_page);
+        EXPECT_TRUE(status.ok());
+
         PageDecoderOptions decoder_options;
-        BinaryPlainPageV2Decoder<Type> page_decoder(owned_slice.slice(), decoder_options);
+        BinaryPlainPageV2Decoder<Type> page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), page_decoder.count());
@@ -127,8 +142,14 @@ public:
         EXPECT_TRUE(status.ok());
 
         // Decode and seek
+        // First apply pre-decode to convert V2 format to V1 format
+        Slice page_slice = owned_slice.slice();
+        std::unique_ptr<DataPage> decoded_page;
+        status = apply_pre_decode(page_slice, decoded_page);
+        EXPECT_TRUE(status.ok());
+
         PageDecoderOptions decoder_options;
-        BinaryPlainPageV2Decoder<Type> page_decoder(owned_slice.slice(), decoder_options);
+        BinaryPlainPageV2Decoder<Type> page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
 
@@ -179,8 +200,14 @@ public:
         EXPECT_TRUE(status.ok());
 
         // Decode
+        // First apply pre-decode to convert V2 format to V1 format
+        Slice page_slice = owned_slice.slice();
+        std::unique_ptr<DataPage> decoded_page;
+        status = apply_pre_decode(page_slice, decoded_page);
+        EXPECT_TRUE(status.ok());
+
         PageDecoderOptions decoder_options;
-        BinaryPlainPageV2Decoder<Type> page_decoder(owned_slice.slice(), decoder_options);
+        BinaryPlainPageV2Decoder<Type> page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
 
@@ -233,8 +260,14 @@ public:
         EXPECT_FALSE(status.ok());
 
         // Decode empty page
+        // First apply pre-decode to convert V2 format to V1 format
+        Slice page_slice = owned_slice.slice();
+        std::unique_ptr<DataPage> decoded_page;
+        status = apply_pre_decode(page_slice, decoded_page);
+        EXPECT_TRUE(status.ok());
+
         PageDecoderOptions decoder_options;
-        BinaryPlainPageV2Decoder<Type> page_decoder(owned_slice.slice(), decoder_options);
+        BinaryPlainPageV2Decoder<Type> page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_decoder.count());
@@ -421,8 +454,14 @@ public:
         EXPECT_TRUE(status.ok());
 
         // Decode
+        // First apply pre-decode to convert V2 format to V1 format
+        Slice page_slice = owned_slice.slice();
+        std::unique_ptr<DataPage> decoded_page;
+        status = apply_pre_decode(page_slice, decoded_page);
+        EXPECT_TRUE(status.ok());
+
         PageDecoderOptions decoder_options;
-        BinaryPlainPageV2Decoder<Type> page_decoder(owned_slice.slice(), decoder_options);
+        BinaryPlainPageV2Decoder<Type> page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
 
@@ -550,8 +589,14 @@ TEST_F(BinaryPlainPageV2Test, TestSeekAndRead) {
     EXPECT_TRUE(status.ok());
 
     // Decode
+    // First apply pre-decode to convert V2 format to V1 format
+    Slice page_slice = owned_slice.slice();
+    std::unique_ptr<DataPage> decoded_page;
+    status = apply_pre_decode(page_slice, decoded_page);
+    EXPECT_TRUE(status.ok());
+
     PageDecoderOptions decoder_options;
-    BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR> page_decoder(owned_slice.slice(),
+    BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR> page_decoder(page_slice,
                                                                               decoder_options);
     status = page_decoder.init();
     EXPECT_TRUE(status.ok());

@@ -11569,7 +11569,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_TRUE(res.status().msg().find("Snapshot not ready") != std::string::npos);
+        ASSERT_TRUE(res.status().msg().find("Snapshot is not ready") != std::string::npos);
     }
 
     // Initialize snapshot switch status to OFF so we can test snapshot functionality
@@ -11584,6 +11584,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         InstanceInfoPB instance;
         instance.ParseFromString(val);
         instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
         val = instance.SerializeAsString();
         txn->put(key, val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -11923,6 +11924,38 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest alter_req;
+        AlterInstanceResponse alter_res;
+        alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        alter_req.set_instance_id("test_snapshot_config_instance");
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &alter_req, &alter_res, nullptr);
+        ASSERT_EQ(alter_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(alter_res.status().msg().find("MULTI_VERSION_READ_WRITE") != std::string::npos);
+    }
+
+    // Set multi-version status to READ_WRITE
+    {
+        InstanceKeyInfo key_info {"test_snapshot_config_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     // Enable snapshot for this instance
     {
         brpc::Controller cntl;
@@ -12076,6 +12109,7 @@ TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
         InstanceInfoPB instance;
         instance.ParseFromString(val);
         instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
         val = instance.SerializeAsString();
         txn->put(key, val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
