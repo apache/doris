@@ -36,9 +36,11 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::io {
 
@@ -47,6 +49,7 @@ bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
         "cached_remote_reader_skip_local_cache_io_sum_bytes");
+bvar::LatencyRecorder g_read_at_req_bytes("cached_remote_reader_read_at_req_bytes");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -86,6 +89,10 @@ void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
+    {
+        std::unique_lock l(_parallel_mtx);
+        _parallel_cv.wait(l, [this] { return _parallel_ref == 0; });
+    }
     static_cast<void>(close());
 }
 
@@ -94,24 +101,41 @@ Status CachedRemoteFileReader::close() {
 }
 
 std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, size_t read_size,
-                                                               size_t length) {
-    size_t left = offset;
-    size_t right = offset + read_size - 1;
-    size_t align_left =
-            (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
-    size_t align_right =
-            (right / config::file_cache_each_block_size + 1) * config::file_cache_each_block_size;
-    align_right = align_right < length ? align_right : length;
-    size_t align_size = align_right - align_left;
-    if (align_size < config::file_cache_each_block_size && align_left != 0) {
-        align_size += config::file_cache_each_block_size;
-        align_left -= config::file_cache_each_block_size;
+                                                               size_t file_length) {
+    const static size_t block_size = config::file_cache_each_block_size;
+
+    // Calculate the original read range [start, end)
+    size_t start_pos = offset;
+    size_t end_pos = offset + read_size;
+
+    // Align start position to the previous block boundary
+    size_t aligned_start = (start_pos / block_size) * block_size;
+
+    // Align end position to the next block boundary
+    size_t aligned_end = ((end_pos - 1) / block_size + 1) * block_size;
+
+    // Ensure we don't exceed file boundaries
+    aligned_end = std::min(aligned_end, file_length);
+
+    size_t aligned_size = aligned_end - aligned_start;
+
+    if (aligned_size > config::file_cache_tail_read_extra_bytes_threshold) {
+        return {aligned_start, aligned_size};
     }
-    return std::make_pair(align_left, align_size);
+
+    // Special case: if aligned size is smaller than a block and we're not at file start,
+    // extend backwards to include a full block
+    if (aligned_size < block_size && aligned_start > 0) {
+        aligned_start -= block_size;
+        aligned_size += block_size;
+    }
+
+    return {aligned_start, aligned_size};
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
+    g_read_at_req_bytes << result.size;
     const bool is_dryrun = io_ctx->is_dryrun;
     DCHECK(!closed());
     DCHECK(io_ctx);
@@ -183,6 +207,35 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     // read from cache or remote
     auto [align_left, align_size] = s_align_size(offset, bytes_req, size());
+    if (config::file_cache_num_parallel_prefetch > 0 && !is_dryrun && _is_doris_table) {
+        auto off = align_left + align_size;
+        if (off < _remote_file_reader->size()) { // there may be more to read
+            auto ioctx = *io_ctx;
+            ioctx.is_dryrun = true;
+            ioctx.query_id = nullptr;
+            ioctx.file_cache_stats = nullptr;
+            ioctx.file_reader_stats = nullptr;
+            auto pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
+            {
+                std::unique_lock l(_parallel_mtx);
+                _parallel_ref++;
+            }
+            auto st = pool->submit_scan_task(vectorized::SimplifiedScanTask(
+                    [ioctx, off, this] {
+                        size_t bytesread;
+                        Slice r((char*)0x0, config::file_cache_each_block_size);
+                        (void)read_at_impl(off, r, &bytesread, &ioctx);
+                        std::unique_lock l(_parallel_mtx);
+                        _parallel_ref--;
+                        _parallel_cv.notify_one();
+                    },
+                    nullptr));
+            if (!st.ok()) {
+                std::unique_lock l(_parallel_mtx);
+                _parallel_ref--;
+            }
+        }
+    }
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
     MonotonicStopWatch sw;
