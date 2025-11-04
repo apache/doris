@@ -163,7 +163,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("Current strategy: default compute group from user"))
+            assertTrue(e.getMessage().contains("Unable to find the compute group: <compute_cluster>"))
         } 
 
         try {
@@ -172,7 +172,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("Current strategy: default compute group from user"))
+            assertTrue(e.getMessage().contains("Unable to find the compute group: <compute_cluster>"))
         } 
 
 
@@ -183,7 +183,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("Current strategy: default compute group from user"))
+            assertTrue(e.getMessage().contains("how this compute group is selected: default compute group from user"))
         }
         
     }
