@@ -305,10 +305,6 @@ under the License.
             <groupId>javax.validation</groupId>
             <artifactId>validation-api</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>kafka-clients</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
         <dependency>
             <groupId>com.github.oshi</groupId>
@@ -867,15 +863,6 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-server</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hbase</groupId>
-            <artifactId>hbase-hadoop-compat</artifactId>
-            <version>2.5.2-hadoop3</version>
         </dependency>
         <dependency>
             <groupId>com.azure</groupId>
