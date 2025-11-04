@@ -71,6 +71,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -3788,7 +3789,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
 
                     for (Long beId : bePathsMap.keySet()) {
-                        tabletIdToBeID.put(tablet.getId(), beId);
+                        Long selectedBeId = beId;
+
+                        if (Config.isCloudMode()) {
+                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
+                            // 手动递增 executeNum 并获取递增后的值
+                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                            int switchAfter = 2;
+                            if (currentExecuteNum >= switchAfter) {
+                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                                for (Long otherBeId : allBeIds) {
+                                    if (!bePathsMap.keySet().contains(otherBeId)) {
+                                        selectedBeId = otherBeId;
+                                        LOG.info("Debug point enabled (execute num: {}), "
+                                                + "switch tablet {} from BE {} to BE {}",
+                                                currentExecuteNum, tablet.getId(), beId, selectedBeId);
+                                        break;
+                                    }
+                                }
+                            } else {
+                                LOG.info("Debug point enabled but skip switching (execute num: {}, switch_after: {})",
+                                        currentExecuteNum, switchAfter);
+                            }
+                        }
+                        tabletIdToBeID.put(tablet.getId(), selectedBeId);
                     }
                 }
             }
@@ -3799,6 +3824,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
+        // We return the finalResultTablets to be. In getOrSetAutoPartitionInfo we will check
+        // the tablets replica distribution per partition, first use the cached partition info.
         Multimap<Long, Long> finalResultTablets = HashMultimap.create();
         Env.getCurrentGlobalTransactionMgr().getOrSetAutoPartitionInfo(dbId, txnId,
                 tempResultTablets, finalResultTablets);
