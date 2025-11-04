@@ -25,6 +25,8 @@
 #include <memory>
 #include <vector>
 
+#include "common/exception.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
@@ -66,9 +68,151 @@ struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return sum; }
 };
 
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
+class AggregateFunctionSum
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
+public:
+    AggregateFunctionSum(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>(
+                      argument_types_) {}
+    String get_name() const override { return "sum"; }
+    DataTypePtr get_return_type() const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement get_return_type of AggregateFunctionSum");
+    }
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement get_return_type of AggregateFunctionSum");
+    }
+    void reset(AggregateDataPtr place) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement reset of AggregateFunctionSum");
+    }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement merge of AggregateFunctionSum");
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement serialize of AggregateFunctionSum");
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena&) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement deserialize of AggregateFunctionSum");
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement insert_result_into of AggregateFunctionSum");
+    }
+
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
+                                 size_t num_rows) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement deserialize_from_column of AggregateFunctionSum");
+    }
+
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement serialize_to_column of AggregateFunctionSum");
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           const size_t num_rows, Arena&) const override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "not implement streaming_agg_serialize_to_column of AggregateFunctionSum");
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena&) const override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "not implement deserialize_and_merge_from_column of AggregateFunctionSum");
+    }
+
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena&) const override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "not implement deserialize_and_merge_from_column_range of AggregateFunctionSum");
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
+                                   const size_t num_rows) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement deserialize_and_merge_vec of AggregateFunctionSum");
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, const size_t num_rows) const override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "not implement deserialize_and_merge_vec_selected of AggregateFunctionSum");
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         IColumn& to) const override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "not implement serialize_without_key_to_column of AggregateFunctionSum");
+    }
+
+    MutableColumnPtr create_serialize_column() const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement create_serialize_column of AggregateFunctionSum");
+    }
+
+    DataTypePtr get_serialized_type() const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement get_serialized_type of AggregateFunctionSum");
+    }
+
+    bool supported_incremental_mode() const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement supported_incremental_mode of AggregateFunctionSum");
+    }
+
+    NO_SANITIZE_UNDEFINED void execute_function_with_incremental(
+            int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
+            AggregateDataPtr place, const IColumn** columns, Arena& arena, bool previous_is_nul,
+            bool end_is_nul, bool has_null, UInt8* use_null_result,
+            UInt8* could_use_previous_result) const override {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "not implement execute_function_with_incremental of AggregateFunctionSum");
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement add_range_single_place of AggregateFunctionSum");
+    }
+};
+
+template <PrimitiveType T, PrimitiveType TResult>
+constexpr static bool is_valid_sum_types =
+        (is_same_or_wider_decimalv3(T, TResult) ||
+         (is_float_or_double(T) && is_float_or_double(TResult)) ||
+         (is_int_or_bool(T) && is_int_or_bool(TResult)));
 /// Counts the sum of the numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
-class AggregateFunctionSum final
+    requires(is_valid_sum_types<T, TResult>)
+class AggregateFunctionSum<T, TResult, Data> final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
@@ -85,7 +229,7 @@ public:
               scale(get_decimal_scale(*argument_types_[0])) {}
 
     DataTypePtr get_return_type() const override {
-        if constexpr (is_decimal(T)) {
+        if constexpr (is_decimal(TResult)) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
@@ -275,41 +419,35 @@ private:
     UInt32 scale;
 };
 
-template <PrimitiveType T, bool level_up>
+template <PrimitiveType T>
 struct SumSimple {
+    static_assert(!is_decimalv3(T));
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
     static constexpr PrimitiveType ResultType =
-            level_up ? (T == TYPE_DECIMALV2
-                                ? TYPE_DECIMALV2
-                                : (is_decimal(T) ? TYPE_DECIMAL128I
-                                                 : PrimitiveTypeTraits<T>::NearestPrimitiveType))
-                     : T;
+            T == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : PrimitiveTypeTraits<T>::NearestPrimitiveType;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };
 
 template <PrimitiveType T>
-using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
+using AggregateFunctionSumSimple = typename SumSimple<T>::Function;
 
-template <PrimitiveType T, bool level_up>
-struct SumSimpleDecimal256 {
-    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    static constexpr PrimitiveType ResultType =
-            level_up ? (T == TYPE_DECIMALV2
-                                ? TYPE_DECIMALV2
-                                : (is_decimal(T) ? TYPE_DECIMAL256
-                                                 : PrimitiveTypeTraits<T>::NearestPrimitiveType))
-                     : T;
+template <PrimitiveType InputType, PrimitiveType ResultType>
+struct SumSimpleNew {
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+    using Function = AggregateFunctionSum<InputType, ResultType, AggregateDataType>;
 };
+template <PrimitiveType InputType, PrimitiveType ResultType>
+using AggregateFunctionSumSimpleNew = typename SumSimpleNew<InputType, ResultType>::Function;
 
 template <PrimitiveType T>
-using AggregateFunctionSumSimpleDecimal256 = typename SumSimpleDecimal256<T, true>::Function;
-
+struct SumSimpleForAggReader {
+    using AggregateDataType = AggregateFunctionSumData<T>;
+    using Function = AggregateFunctionSum<T, T, AggregateDataType>;
+};
 // do not level up return type for agg reader
 template <PrimitiveType T>
-using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
+using AggregateFunctionSumSimpleReader = typename SumSimpleForAggReader<T>::Function;
 
 } // namespace doris::vectorized
 

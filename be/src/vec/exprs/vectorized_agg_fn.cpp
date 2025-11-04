@@ -149,8 +149,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
     }
 
-    const DataTypes& argument_types =
+    DataTypes argument_types =
             _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
+    argument_types.emplace_back(_data_type);
 
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
