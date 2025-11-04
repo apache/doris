@@ -69,6 +69,7 @@ void SnapshotDataMigrator::stop() {
 }
 
 void SnapshotDataMigrator::migration_loop() {
+    pthread_setname_np(pthread_self(), "SNAP_MIGRATOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;
