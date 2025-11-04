@@ -68,6 +68,7 @@ void SnapshotChainCompactor::stop() {
 }
 
 void SnapshotChainCompactor::compaction_loop() {
+    pthread_setname_np(pthread_self(), "SNAP_COMPACTOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;
