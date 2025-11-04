@@ -93,6 +93,7 @@ Status BRpcService::start(int port, int num_threads) {
         if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
             options.mutable_ssl_options()->verify.verify_depth = 2;
         } else if (config::tls_verify_mode == "verify_peer") {
+            // Relax the certificate restrictions for verify_peer
             // nothing
         } else if (config::tls_verify_mode == "verify_none") {
             // nothing

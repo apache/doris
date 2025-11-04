@@ -123,6 +123,7 @@ public class BDBEnvironment {
             sslConfig.setSSLAuthenticator("mirror");
             sslConfig.setSSLHostVerifier("mirror");
             sslConfig.setSSLCertRefreshIntervalSeconds(Config.tls_cert_refresh_interval_seconds);
+            sslConfig.setSSLClientAuthMode(Config.tls_verify_mode);
             replicationConfig.setRepNetConfig(sslConfig);
         }
 

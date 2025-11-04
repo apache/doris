@@ -188,7 +188,8 @@ public class JettySslCustomizer implements WebServerFactoryCustomizer<JettyServl
             if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
                 sslContextFactory.setNeedClientAuth(true);
             } else if (Config.tls_verify_mode.equals("verify_peer")) {
-                sslContextFactory.setWantClientAuth(true);
+                // Relax the certificate restrictions for verify_peer
+                // sslContextFactory.setWantClientAuth(true);
             } else {
                 sslContextFactory.setWantClientAuth(false);
                 sslContextFactory.setNeedClientAuth(false);

@@ -29,7 +29,6 @@ import io.grpc.ManagedChannel;
 import io.grpc.NameResolverRegistry;
 import io.grpc.netty.NettyChannelBuilder;
 import io.netty.channel.ChannelOption;
-import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import org.apache.logging.log4j.LogManager;
@@ -99,17 +98,6 @@ public class MetaServiceClient {
                     sslBuilder.keyManager(clientCertFile, clientKeyFile);
                 } else {
                     sslBuilder.keyManager(clientCertFile, clientKeyFile, keyPassword);
-                }
-
-                if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
-                    sslBuilder.clientAuth(ClientAuth.REQUIRE);
-                } else if (Config.tls_verify_mode.equals("verify_peer")) {
-                    sslBuilder.clientAuth(ClientAuth.OPTIONAL);
-                } else if (Config.tls_verify_mode.equals("verify_none")) {
-                    sslBuilder.clientAuth(ClientAuth.NONE);
-                } else {
-                    throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
-                            + ", verify_fail_if_no_peer_cert)");
                 }
                 sslContext = sslBuilder.build();
             } catch (SSLException e) {

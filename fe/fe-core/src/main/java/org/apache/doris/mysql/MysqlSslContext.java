@@ -152,7 +152,10 @@ public class MysqlSslContext {
         // set to server mode
         sslEngine.setUseClientMode(false);
         sslEngine.setEnabledCipherSuites(sslEngine.getSupportedCipherSuites());
-        sslEngine.setWantClientAuth(true);
+        if (!Config.tls_verify_mode.equals("verify_none")) {
+            // Relax the certificate restrictions for verify_peer
+            // sslEngine.setWantClientAuth(true);
+        }
         if (Config.ssl_force_client_auth || Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
             sslEngine.setNeedClientAuth(true);
         }

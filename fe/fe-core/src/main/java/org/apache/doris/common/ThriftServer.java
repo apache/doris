@@ -160,7 +160,8 @@ public class ThriftServer {
                 if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
                     sslServerSocket.setNeedClientAuth(true);
                 } else if (Config.tls_verify_mode.equals("verify_peer")) {
-                    sslServerSocket.setWantClientAuth(true);
+                    // Relax the certificate restrictions for verify_peer
+                    // sslServerSocket.setWantClientAuth(true);
                 } else if (Config.tls_verify_mode.equals("verify_none")) {
                     // nothing
                 } else {
@@ -259,7 +260,8 @@ public class ThriftServer {
                 if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
                     sslServerSocket.setNeedClientAuth(true);
                 } else if (Config.tls_verify_mode.equals("verify_peer")) {
-                    sslServerSocket.setWantClientAuth(true);
+                    // Relax the certificate restrictions for verify_peer
+                    // sslServerSocket.setWantClientAuth(true);
                 } else if (Config.tls_verify_mode.equals("verify_none")) {
                     // nothing
                 } else {

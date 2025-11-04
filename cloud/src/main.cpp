@@ -338,6 +338,7 @@ int main(int argc, char** argv) {
         if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
             options.mutable_ssl_options()->verify.verify_depth = 1;
         } else if (config::tls_verify_mode == "verify_peer") {
+            // Relax the certificate restrictions for verify_peer
             // nothing
         } else if (config::tls_verify_mode == "verify_none") {
             // nothing

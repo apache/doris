@@ -393,7 +393,7 @@ Status ThriftServer::start() {
         if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
             _reloadable_ssl_factory->authenticate(true);
         } else if (config::tls_verify_mode == "verify_peer") {
-            // nothing
+            // Relax the certificate restrictions for verify_peer
         } else if (config::tls_verify_mode == "verify_none") {
             // nothing
         } else {

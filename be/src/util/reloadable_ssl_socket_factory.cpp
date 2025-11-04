@@ -101,7 +101,8 @@ bool ReloadableSSLSocketFactory::create_and_swap_ssl_context() {
     if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert) {
         SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     } else if (config::tls_verify_mode == CertificateManager::verify_peer) {
-        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+        // Relax the certificate restrictions for verify_peer
+        // SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
     } else if (config::tls_verify_mode == CertificateManager::verify_none) {
         SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
     }
