@@ -222,18 +222,19 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         ImmutableList.Builder<ValueDesc> result = ImmutableList.builder();
 
         // merge all the range values
-        RangeValue mergeRangeValue = null;
+        Range<ComparableLiteral> mergeRangeValue = null;
         if (!collector.hasEmptyValue && !collector.rangeValues.isEmpty()) {
+            RangeValue mergeRangeValueDesc = null;
             for (RangeValue rangeValue : collector.rangeValues) {
-                if (mergeRangeValue == null) {
-                    mergeRangeValue = rangeValue;
+                if (mergeRangeValueDesc == null) {
+                    mergeRangeValueDesc = rangeValue;
                 } else {
-                    ValueDesc combineValue = mergeRangeValue.intersect(rangeValue);
+                    ValueDesc combineValue = mergeRangeValueDesc.intersect(rangeValue);
                     if (combineValue instanceof RangeValue) {
-                        mergeRangeValue = (RangeValue) combineValue;
+                        mergeRangeValueDesc = (RangeValue) combineValue;
                     } else {
                         collector.add(combineValue);
-                        mergeRangeValue = null;
+                        mergeRangeValueDesc = null;
                         // no need to process the lefts.
                         if (combineValue instanceof EmptyValue) {
                             break;
@@ -241,20 +242,21 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     }
                 }
             }
+            if (!collector.hasEmptyValue && mergeRangeValueDesc != null) {
+                mergeRangeValue = mergeRangeValueDesc.range;
+            }
         }
 
         // merge all the discrete values
-        Set<ComparableLiteral> discreteValues = Sets.newLinkedHashSet();
-        DiscreteValue mergeDiscreteValue = null;
+        Set<ComparableLiteral> mergeDiscreteValues = null;
         if (!collector.hasEmptyValue && !collector.discreteValues.isEmpty()) {
-            discreteValues.addAll(collector.discreteValues.get(0).values);
+            mergeDiscreteValues = Sets.newLinkedHashSet(collector.discreteValues.get(0).values);
             for (int i = 1; i < collector.discreteValues.size(); i++) {
-                discreteValues.retainAll(collector.discreteValues.get(i).values);
+                mergeDiscreteValues.retainAll(collector.discreteValues.get(i).values);
             }
-            if (discreteValues.isEmpty()) {
+            if (mergeDiscreteValues.isEmpty()) {
                 collector.add(new EmptyValue(context, reference));
-            } else {
-                mergeDiscreteValue = new DiscreteValue(context, reference, discreteValues);
+                mergeDiscreteValues = null;
             }
         }
 
@@ -265,28 +267,29 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 mergeNotDiscreteValues.addAll(notDiscreteValue.values);
             }
             if (mergeRangeValue != null) {
-                Range<ComparableLiteral> rangeValue = mergeRangeValue.range;
-                mergeNotDiscreteValues.removeIf(value -> !rangeValue.contains(value));
+                Range<ComparableLiteral> finalValue = mergeRangeValue;
+                mergeNotDiscreteValues.removeIf(value -> !finalValue.contains(value));
             }
-            if (mergeDiscreteValue != null) {
-                Set<ComparableLiteral> values = mergeDiscreteValue.values;
-                mergeNotDiscreteValues.removeIf(value -> !values.contains(value));
-                Set<ComparableLiteral> newDiscreteValues = Sets.newLinkedHashSet(mergeDiscreteValue.values);
-                newDiscreteValues.removeIf(mergeNotDiscreteValues::contains);
-                if (newDiscreteValues.isEmpty()) {
+            if (mergeDiscreteValues != null) {
+                Set<ComparableLiteral> finalValues = mergeDiscreteValues;
+                mergeNotDiscreteValues.removeIf(value -> !finalValues.contains(value));
+                mergeDiscreteValues.removeIf(mergeNotDiscreteValues::contains);
+                if (mergeDiscreteValues.isEmpty()) {
                     collector.add(new EmptyValue(context, reference));
+                    mergeDiscreteValues = null;
                 }
             }
         }
         if (!collector.hasEmptyValue) {
             // merge range + discrete values
-            if (mergeRangeValue != null && mergeDiscreteValue != null) {
-                ValueDesc newMergeValue = mergeRangeValue.intersect(mergeDiscreteValue);
+            if (mergeRangeValue != null && mergeDiscreteValues != null) {
+                ValueDesc newMergeValue = new RangeValue(context, reference, mergeRangeValue)
+                        .intersect(new DiscreteValue(context, reference, mergeDiscreteValues));
                 result.add(newMergeValue);
             } else if (mergeRangeValue != null) {
-                result.add(mergeRangeValue);
-            } else if (mergeDiscreteValue != null) {
-                result.add(mergeDiscreteValue);
+                result.add(new RangeValue(context, reference, mergeRangeValue));
+            } else if (mergeDiscreteValues != null) {
+                result.add(new DiscreteValue(context, reference, mergeDiscreteValues));
             }
             if (!collector.hasEmptyValue && !mergeNotDiscreteValues.isEmpty()) {
                 result.add(new NotDiscreteValue(context, reference, mergeNotDiscreteValues));
