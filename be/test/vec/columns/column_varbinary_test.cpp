@@ -32,8 +32,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/string_container.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/string_view.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -64,9 +64,9 @@ TEST_F(ColumnVarbinaryTest, BasicInsertGetPopClear) {
     EXPECT_EQ(col->get_name(), std::string("ColumnVarbinary"));
     EXPECT_EQ(col->size(), 0U);
 
-    const size_t inline_len = std::min<size_t>(doris::StringContainer::kInlineSize, 8);
+    const size_t inline_len = std::min<size_t>(doris::StringView::kInlineSize, 8);
     const std::string small = make_bytes(inline_len, 0x11);
-    const std::string big = make_bytes(doris::StringContainer::kInlineSize + 32, 0x22);
+    const std::string big = make_bytes(doris::StringView::kInlineSize + 32, 0x22);
 
     size_t before_bytes = col->byte_size();
 
@@ -78,7 +78,7 @@ TEST_F(ColumnVarbinaryTest, BasicInsertGetPopClear) {
     ASSERT_EQ(memcmp(r0.data, small.data(), small.size()), 0);
 
     size_t after_small_bytes = col->byte_size();
-    ASSERT_EQ(after_small_bytes - before_bytes, sizeof(doris::StringContainer));
+    ASSERT_EQ(after_small_bytes - before_bytes, sizeof(doris::StringView));
     ASSERT_EQ(after_small_bytes - before_bytes, 16);
 
     col->insert_default();
@@ -94,11 +94,11 @@ TEST_F(ColumnVarbinaryTest, BasicInsertGetPopClear) {
     ASSERT_EQ(memcmp(r2.data, big.data(), big.size()), 0);
 
     size_t after_big_bytes = col->byte_size();
-    // big insert adds one StringContainer slot + big payload in arena (Arena may add alignment/overhead)
+    // big insert adds one StringView slot + big payload in arena (Arena may add alignment/overhead)
     size_t diff = after_big_bytes - after_small_bytes;
     std::cout << "after_big_bytes: " << after_big_bytes
               << " after_small_bytes: " << after_small_bytes << " diff: " << diff << std::endl;
-    ASSERT_GE(diff, sizeof(doris::StringContainer) + big.size());
+    ASSERT_GE(diff, sizeof(doris::StringView) + big.size());
 
     // pop_back
     col->pop_back(1);
@@ -115,7 +115,7 @@ TEST_F(ColumnVarbinaryTest, BasicInsertGetPopClear) {
 TEST_F(ColumnVarbinaryTest, InsertFromAndRanges) {
     auto src = ColumnVarbinary::create();
     std::vector<std::string> vals = {make_bytes(1, 0x01), make_bytes(2, 0x02),
-                                     make_bytes(doris::StringContainer::kInlineSize + 5, 0x03),
+                                     make_bytes(doris::StringView::kInlineSize + 5, 0x03),
                                      make_bytes(0, 0x00), make_bytes(7, 0x05)};
     for (auto& v : vals) {
         src->insert_data(v.data(), v.size());
@@ -160,12 +160,12 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
     auto col = ColumnVarbinary::create();
     // Mix inline (small) and non-inline (large > kInlineSize) values
     std::vector<std::string> vals = {
-            make_bytes(1, 0x10),                                       // inline
-            make_bytes(doris::StringContainer::kInlineSize + 5, 0x91), // non-inline (dropped)
-            make_bytes(3, 0x12),                                       // inline
-            make_bytes(doris::StringContainer::kInlineSize + 7, 0x92), // non-inline
-            make_bytes(0, 0x00),                                       // empty (dropped)
-            make_bytes(doris::StringContainer::kInlineSize + 9, 0x93)  // non-inline
+            make_bytes(1, 0x10),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 5, 0x91), // non-inline (dropped)
+            make_bytes(3, 0x12),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 7, 0x92), // non-inline
+            make_bytes(0, 0x00),                                  // empty (dropped)
+            make_bytes(doris::StringView::kInlineSize + 9, 0x93)  // non-inline
     };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
@@ -205,10 +205,10 @@ TEST_F(ColumnVarbinaryTest, Permute) {
     auto col = ColumnVarbinary::create();
     // Include large (non-inline) entries to exercise arena path
     std::vector<std::string> vals = {
-            make_bytes(1, 0x20),                                       // inline
-            make_bytes(doris::StringContainer::kInlineSize + 3, 0xA0), // non-inline
-            make_bytes(3, 0x22),                                       // inline
-            make_bytes(doris::StringContainer::kInlineSize + 8, 0xA1)  // non-inline
+            make_bytes(1, 0x20),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 3, 0xA0), // non-inline
+            make_bytes(3, 0x22),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 8, 0xA1)  // non-inline
     };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
@@ -242,7 +242,7 @@ TEST_F(ColumnVarbinaryTest, Permute) {
 TEST_F(ColumnVarbinaryTest, CloneResized) {
     auto col = ColumnVarbinary::create();
     std::vector<std::string> vals = {make_bytes(1, 0x30), make_bytes(0, 0x00),
-                                     make_bytes(doris::StringContainer::kInlineSize + 1, 0x31)};
+                                     make_bytes(doris::StringView::kInlineSize + 1, 0x31)};
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
     }
@@ -276,9 +276,9 @@ TEST_F(ColumnVarbinaryTest, ReplaceColumnData) {
     auto col = ColumnVarbinary::create();
     // mix inline and non-inline
     std::vector<std::string> vals = {
-            make_bytes(2, 0x40),                                       // inline
-            make_bytes(doris::StringContainer::kInlineSize + 4, 0xB0), // non-inline
-            make_bytes(4, 0x42)                                        // inline
+            make_bytes(2, 0x40),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 4, 0xB0), // non-inline
+            make_bytes(4, 0x42)                                   // inline
     };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
@@ -286,8 +286,8 @@ TEST_F(ColumnVarbinaryTest, ReplaceColumnData) {
 
     auto rhs = ColumnVarbinary::create();
     std::vector<std::string> rhs_vals = {
-            make_bytes(doris::StringContainer::kInlineSize + 7, 0xC0), // non-inline
-            make_bytes(1, 0x51)                                        // inline
+            make_bytes(doris::StringView::kInlineSize + 7, 0xC0), // non-inline
+            make_bytes(1, 0x51)                                   // inline
     };
     for (auto& v : rhs_vals) {
         rhs->insert_data(v.data(), v.size());
@@ -308,7 +308,7 @@ TEST_F(ColumnVarbinaryTest, ReplaceColumnData) {
 
 TEST_F(ColumnVarbinaryTest, SerializeDeserializeRoundtripManual) {
     auto col = ColumnVarbinary::create();
-    std::string v = make_bytes(doris::StringContainer::kInlineSize + 17, 0x60);
+    std::string v = make_bytes(doris::StringView::kInlineSize + 17, 0x60);
 
     std::vector<char> buf;
     auto len = static_cast<uint32_t>(v.size());
@@ -339,7 +339,7 @@ TEST_F(ColumnVarbinaryTest, FieldAccessOperatorAndGet) {
     auto col = ColumnVarbinary::create();
     std::vector<std::string> vals = {
             make_bytes(1, 0x11), make_bytes(0, 0x00),
-            make_bytes(doris::StringContainer::kInlineSize + 6, 0x12)}; // include non-inline
+            make_bytes(doris::StringView::kInlineSize + 6, 0x12)}; // include non-inline
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
     }
@@ -347,13 +347,13 @@ TEST_F(ColumnVarbinaryTest, FieldAccessOperatorAndGet) {
     for (size_t i = 0; i < vals.size(); ++i) {
         // operator[]
         Field f = (*col)[i];
-        auto sv = vectorized::get<const doris::StringContainer&>(f);
+        auto sv = vectorized::get<const doris::StringView&>(f);
         ASSERT_EQ(sv.size(), vals[i].size());
         ASSERT_EQ(memcmp(sv.data(), vals[i].data(), sv.size()), 0);
         // get(size_t, Field&)
         Field f2;
         col->get(i, f2);
-        auto sv2 = vectorized::get<const doris::StringContainer&>(f2);
+        auto sv2 = vectorized::get<const doris::StringView&>(f2);
         ASSERT_EQ(sv2.size(), vals[i].size());
         ASSERT_EQ(memcmp(sv2.data(), vals[i].data(), sv2.size()), 0);
     }
@@ -363,12 +363,12 @@ TEST_F(ColumnVarbinaryTest, InsertField) {
     auto col = ColumnVarbinary::create();
     // prepare inline and non-inline fields
     std::string inline_v = make_bytes(2, 0x21);
-    std::string big_v = make_bytes(doris::StringContainer::kInlineSize + 10, 0x22);
+    std::string big_v = make_bytes(doris::StringView::kInlineSize + 10, 0x22);
 
     Field f_inline = Field::create_field<TYPE_VARBINARY>(
-            doris::StringContainer(inline_v.data(), inline_v.size()));
+            doris::StringView(inline_v.data(), inline_v.size()));
     Field f_big =
-            Field::create_field<TYPE_VARBINARY>(doris::StringContainer(big_v.data(), big_v.size()));
+            Field::create_field<TYPE_VARBINARY>(doris::StringView(big_v.data(), big_v.size()));
 
     col->insert(f_inline);
     col->insert(f_big);
@@ -384,8 +384,8 @@ TEST_F(ColumnVarbinaryTest, InsertField) {
 
 TEST_F(ColumnVarbinaryTest, SerializeValueIntoArenaAndImpl) {
     auto col = ColumnVarbinary::create();
-    std::string small = make_bytes(3, 0x31);                                      // inline
-    std::string big = make_bytes(doris::StringContainer::kInlineSize + 12, 0x32); // non-inline
+    std::string small = make_bytes(3, 0x31);                                 // inline
+    std::string big = make_bytes(doris::StringView::kInlineSize + 12, 0x32); // non-inline
     col->insert_data(small.data(), small.size());
     col->insert_data(big.data(), big.size());
 
@@ -425,7 +425,7 @@ TEST_F(ColumnVarbinaryTest, AllocatedBytesAndHasEnoughCapacity) {
     }
     // Force some non-inline values to ensure arena usage
     for (int i = 0; i < 3; ++i) {
-        auto big = make_bytes(doris::StringContainer::kInlineSize + 20 + i, 0x90 + i);
+        auto big = make_bytes(doris::StringView::kInlineSize + 20 + i, 0x90 + i);
         dest->insert_data(big.data(), big.size());
     }
     // Capture capacity & size
