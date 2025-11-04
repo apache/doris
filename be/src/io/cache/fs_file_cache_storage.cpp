@@ -18,6 +18,9 @@
 #include "io/cache/fs_file_cache_storage.h"
 
 #include <fmt/core.h>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <sys/statvfs.h>
 
 #include <filesystem>

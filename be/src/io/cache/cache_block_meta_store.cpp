@@ -559,7 +559,7 @@ std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* 
 
     // Parse as protobuf format using string_view
     doris::io::cache::BlockMetaPb pb;
-    if (pb.ParseFromArray(value_view.data(), value_view.size())) {
+    if (pb.ParseFromArray(value_view.data(), static_cast<int>(value_view.size()))) {
         // Validate the parsed protobuf data
         int type = pb.type();
         if (type < 0 || type > 3) { // Valid FileCacheType values: 0-3
