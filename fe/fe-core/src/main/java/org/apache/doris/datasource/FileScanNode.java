@@ -18,13 +18,22 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -39,6 +48,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
@@ -202,22 +212,23 @@ public abstract class FileScanNode extends ExternalScanNode {
 
         for (Column column : getColumns()) {
             Expr expr;
+            Expression expression;
             if (column.getDefaultValue() != null) {
-                if (column.getDefaultValueExprDef() != null) {
-                    expr = column.getDefaultValueExpr();
-                } else {
-                    expr = new StringLiteral(column.getDefaultValue());
-                }
+                expression = new NereidsParser().parseExpression(
+                        column.getDefaultValueSql());
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                        null, new Scope(ImmutableList.of()), null, true, true);
+                expression = analyzer.analyze(expression);
             } else {
                 if (column.isAllowNull()) {
                     // For load, use Varchar as Null, for query, use column type.
                     if (useVarcharAsNull) {
-                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                        expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
                     } else {
-                        expr = NullLiteral.create(column.getType());
+                        expression = new NullLiteral(DataType.fromCatalogType(column.getType()));
                     }
                 } else {
-                    expr = null;
+                    expression = null;
                 }
             }
             // if there is already an expr , just skip it.
@@ -235,8 +246,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             // default value.
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
-                if (expr != null) {
-                    expr = castToSlot(slotDesc, expr);
+                if (expression != null) {
+                    expression = TypeCoercionUtils.castIfNotSameType(expression,
+                            DataType.fromCatalogType(slotDesc.getType()));
+                    expr = ExpressionTranslator.translate(expression,
+                            new PlanTranslatorContext(CascadesContext.initTempContext()));
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
                 } else {
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);

@@ -72,6 +72,10 @@ struct PageReadOptions {
 
     const io::IOContext io_ctx;
 
+    // for dict page, we need to use encoding_info based on footer->dict_page_footer().encoding()
+    // to get its pre_decoder
+    bool is_dict_page {false};
+
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
@@ -89,6 +93,7 @@ struct PageReadOptions {
         type = old.type;
         encoding_info = old.encoding_info;
         pre_decode = old.pre_decode;
+        is_dict_page = old.is_dict_page;
     }
 };
 

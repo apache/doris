@@ -20,17 +20,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
@@ -46,7 +43,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Arrays;
 import java.util.Map;
 
 
@@ -63,8 +59,6 @@ public class CastExpr extends Expr {
 
     // True if this cast does not change the type.
     protected boolean noOp = false;
-
-    protected boolean notFold = false;
 
     protected static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
@@ -92,26 +86,6 @@ public class CastExpr extends Expr {
     // only used restore from readFields.
     private CastExpr() {
 
-    }
-
-    public CastExpr(Type targetType, Expr e) {
-        super();
-        Preconditions.checkArgument(targetType.isValid());
-        Preconditions.checkNotNull(e);
-        type = targetType;
-        targetTypeDef = null;
-        isImplicit = true;
-
-        children.add(e);
-
-        try {
-            analyze();
-        } catch (AnalysisException ex) {
-            LOG.warn("Implicit casts fail", ex);
-            Preconditions.checkState(false,
-                    "Implicit casts should never throw analysis exception.");
-        }
-        analysisDone();
     }
 
     /**
@@ -284,72 +258,6 @@ public class CastExpr extends Expr {
         }
     }
 
-    public void analyze() throws AnalysisException {
-        // do not analyze ALL cast
-        if (type == Type.ALL) {
-            return;
-        }
-        // cast was asked for in the query, check for validity of cast
-        Type childType = getChild(0).getType();
-
-        // this cast may result in loss of precision, but the user requested it
-        noOp = Type.matchExactType(childType, type, true);
-
-        if (noOp) {
-            // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
-            // set the target type as the child's type.
-            if (type.isDecimalV2() && childType.isDecimalV2()) {
-                getChild(0).setType(type);
-            }
-            return;
-        }
-
-        // select stmt will make BE coredump when its castExpr is like cast(int as array<>),
-        // it is necessary to check if it is castable before creating fn.
-        // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
-        if (type.isArrayType() || childType.isArrayType()) {
-            if (!Type.canCastTo(childType, type)) {
-                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
-                        + " from " + childType + " to " + type);
-            }
-        }
-
-        this.opcode = TExprOpcode.CAST;
-        FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(collectChildReturnTypes())),
-                Type.INVALID, false);
-        if (type.isScalarType()) {
-            fn = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_IDENTICAL);
-        } else {
-            createComplexTypeCastFunction();
-        }
-
-        if (fn == null) {
-            //TODO(xy): check map type
-            if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
-                return;
-            }
-            // same with Type.canCastTo() can be cast to jsonb
-            if (childType.isComplexType() && type.isJsonbType()) {
-                return;
-            }
-            if (childType.isNull() && Type.canCastTo(childType, type)) {
-                return;
-            } else {
-                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
-                    + " from " + childType + " to " + type);
-            }
-        }
-
-        if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
-            Preconditions.checkState(type.isDecimalV3() == fn.getReturnType().isDecimalV3()
-                            || type.isDatetimeV2() == fn.getReturnType().isDatetimeV2(),
-                    type + " != " + fn.getReturnType());
-        } else {
-            Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
-        }
-    }
-
     @Override
     public int hashCode() {
         return super.hashCode();
@@ -389,14 +297,5 @@ public class CastExpr extends Expr {
     @Override
     protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return children.get(0).getStringValueInComplexTypeForQuery(options);
-    }
-
-    public void setNotFold(boolean notFold) {
-        this.notFold = notFold;
-    }
-
-    @Override
-    protected void compactForLiteral(Type type) {
-        // do nothing
     }
 }

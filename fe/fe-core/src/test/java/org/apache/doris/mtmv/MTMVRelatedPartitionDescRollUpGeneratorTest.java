@@ -86,7 +86,7 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         relatedPartitionDescs.put(desc20200102, Sets.newHashSet("name2"));
         relatedPartitionDescs.put(desc20200201, Sets.newHashSet("name3"));
         Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs,
-                mtmvPartitionInfo);
+                mtmvPartitionInfo, null);
 
         PartitionKeyDesc expectDesc202001 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("2020-01-01")),

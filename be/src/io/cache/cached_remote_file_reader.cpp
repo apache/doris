@@ -17,15 +17,24 @@
 
 #include "io/cache/cached_remote_file_reader.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <cstring>
+#include <functional>
 #include <list>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "cpp/sync_point.h"
@@ -33,16 +42,26 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
+#include "io/cache/peer_file_cache_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "olap/storage_policy.h"
+#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
+#include "service/backend_options.h"
 #include "util/bit_util.h"
+#include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
 namespace doris::io {
 
-bvar::Adder<uint64_t> remote_read_counter("cached_remote_reader_remote_read");
+bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+bvar::Adder<uint64_t> peer_read_counter("cached_remote_reader_peer_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
@@ -63,6 +82,8 @@ bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_bytes_1min_window(
 bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_total_bytes_1min_window(
         "cached_remote_reader_indirect_total_bytes_1min_window", &g_read_cache_indirect_total_bytes,
         60);
+bvar::Adder<uint64_t> g_failed_get_peer_addr_counter(
+        "cached_remote_reader_failed_get_peer_addr_counter");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -131,6 +152,126 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
     return std::make_pair(align_left, align_size);
 }
 
+namespace {
+std::optional<int64_t> extract_tablet_id(const std::string& file_path) {
+    return StorageResource::parse_tablet_id_from_path(file_path);
+}
+
+// Get peer connection info from tablet_id
+std::pair<std::string, int> get_peer_connection_info(const std::string& file_path) {
+    std::string host = "";
+    int port = 0;
+
+    // Try to get tablet_id from actual path and lookup tablet info
+    if (auto tablet_id = extract_tablet_id(file_path)) {
+        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+        if (auto tablet_info = manager.get_balanced_tablet_info(*tablet_id)) {
+            host = tablet_info->first;
+            port = tablet_info->second;
+        } else {
+            LOG_WARNING("get peer connection info not found")
+                    .tag("tablet_id", *tablet_id)
+                    .tag("file_path", file_path);
+        }
+    } else {
+        LOG_WARNING("parse tablet id from path failed")
+                .tag("tablet_id", "null")
+                .tag("file_path", file_path);
+    }
+
+    DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
+        host = dp->param<std::string>("host", "127.0.0.1");
+        port = dp->param("port", 9060);
+        LOG_WARNING("debug point PeerFileCacheReader::_fetch_from_peer_cache_blocks")
+                .tag("host", host)
+                .tag("port", port);
+    });
+
+    return {host, port};
+}
+
+// Execute peer read with fallback to S3
+Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
+                         size_t& size, std::unique_ptr<char[]>& buffer,
+                         const std::string& file_path, bool is_doris_table, ReadStatistics& stats,
+                         const IOContext* io_ctx) {
+    auto [host, port] = get_peer_connection_info(file_path);
+    VLOG_DEBUG << "PeerFileCacheReader read from peer, host=" << host << ", port=" << port
+               << ", file_path=" << file_path;
+
+    if (host.empty() || port == 0) {
+        g_failed_get_peer_addr_counter << 1;
+        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
+                                  << ", host=" << host << ", port=" << port
+                                  << ", file_path=" << file_path;
+        return Status::InternalError("host or port is empty");
+    }
+    SCOPED_RAW_TIMER(&stats.peer_read_timer);
+    peer_read_counter << 1;
+    PeerFileCacheReader peer_reader(file_path, is_doris_table, host, port);
+    auto st = peer_reader.fetch_blocks(empty_blocks, empty_start, Slice(buffer.get(), size), &size,
+                                       io_ctx);
+    if (!st.ok()) {
+        LOG_WARNING("PeerFileCacheReader read from peer failed")
+                .tag("host", host)
+                .tag("port", port)
+                .tag("error", st.msg());
+    }
+    stats.from_peer_cache = true;
+    return st;
+}
+
+// Execute S3 read
+Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
+                       ReadStatistics& stats, const IOContext* io_ctx,
+                       FileReaderSPtr remote_file_reader) {
+    s3_read_counter << 1;
+    SCOPED_RAW_TIMER(&stats.remote_read_timer);
+    stats.from_peer_cache = false;
+    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+}
+
+} // anonymous namespace
+
+Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks,
+                                                    size_t empty_start, size_t& size,
+                                                    std::unique_ptr<char[]>& buffer,
+                                                    ReadStatistics& stats,
+                                                    const IOContext* io_ctx) {
+    DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.change_type", {
+        // Determine read type from debug point or default to S3
+        std::string read_type = "s3";
+        read_type = dp->param<std::string>("type", "s3");
+        LOG_WARNING("CachedRemoteFileReader.read_at_impl.change_type")
+                .tag("path", path().native())
+                .tag("off", empty_start)
+                .tag("size", size)
+                .tag("type", read_type);
+        // Execute appropriate read strategy
+        if (read_type == "s3") {
+            return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
+        } else {
+            return execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
+                                     _is_doris_table, stats, io_ctx);
+        }
+    });
+
+    if (!_is_doris_table || !doris::config::enable_cache_read_from_peer) {
+        return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
+    } else {
+        // first try peer read, if peer failed, fallback to S3
+        // peer timeout is 5 seconds
+        // TODO(dx): here peer and s3 reader need to get data in parallel, and take the one that is correct and returns first
+        auto st = execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
+                                    _is_doris_table, stats, io_ctx);
+        if (!st.ok()) {
+            // Fallback to S3
+            return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
+        }
+        return st;
+    }
+}
+
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
     size_t already_read = 0;
@@ -148,6 +289,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
+
     ReadStatistics stats;
     stats.bytes_read += bytes_req;
     MonotonicStopWatch read_at_sw;
@@ -274,12 +416,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_end = empty_blocks.back()->range().right;
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
-        {
-            remote_read_counter << 1;
-            SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
-                                                         &size, io_ctx));
-        }
+
+        // Determine read type and execute remote read
+        RETURN_IF_ERROR(
+                _execute_remote_read(empty_blocks, empty_start, size, buffer, stats, io_ctx));
+
         for (auto& block : empty_blocks) {
             if (block->state() == FileBlock::State::SKIP_CACHE) {
                 continue;
@@ -371,7 +512,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                              << st.msg() << ", block state=" << block_state;
                 size_t nest_bytes_read {0};
                 stats.hit_cache = false;
-                remote_read_counter << 1;
+                stats.from_peer_cache = false;
+                s3_read_counter << 1;
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
                         current_offset, Slice(result.data + (current_offset - offset), read_size),
@@ -400,10 +542,16 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         statis->num_local_io_total++;
         statis->bytes_read_from_local += read_stats.bytes_read;
     } else {
-        statis->num_remote_io_total++;
-        statis->bytes_read_from_remote += read_stats.bytes_read;
+        if (read_stats.from_peer_cache) {
+            statis->num_peer_io_total++;
+            statis->bytes_read_from_peer += read_stats.bytes_read;
+            statis->peer_io_timer += read_stats.peer_read_timer;
+        } else {
+            statis->num_remote_io_total++;
+            statis->bytes_read_from_remote += read_stats.bytes_read;
+            statis->remote_io_timer += read_stats.remote_read_timer;
+        }
     }
-    statis->remote_io_timer += read_stats.remote_read_timer;
     statis->remote_wait_timer += read_stats.remote_wait_timer;
     statis->local_io_timer += read_stats.local_read_timer;
     statis->num_skip_cache_io_total += read_stats.skip_cache;
@@ -421,11 +569,17 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
             statis->inverted_index_num_local_io_total++;
             statis->inverted_index_bytes_read_from_local += read_stats.bytes_read;
         } else {
-            statis->inverted_index_num_remote_io_total++;
-            statis->inverted_index_bytes_read_from_remote += read_stats.bytes_read;
+            if (read_stats.from_peer_cache) {
+                statis->inverted_index_num_peer_io_total++;
+                statis->inverted_index_bytes_read_from_peer += read_stats.bytes_read;
+                statis->inverted_index_peer_io_timer += read_stats.peer_read_timer;
+            } else {
+                statis->inverted_index_num_remote_io_total++;
+                statis->inverted_index_bytes_read_from_remote += read_stats.bytes_read;
+                statis->inverted_index_remote_io_timer += read_stats.remote_read_timer;
+            }
         }
         statis->inverted_index_local_io_timer += read_stats.local_read_timer;
-        statis->inverted_index_remote_io_timer += read_stats.remote_read_timer;
     }
 
     g_skip_cache_sum << read_stats.skip_cache;

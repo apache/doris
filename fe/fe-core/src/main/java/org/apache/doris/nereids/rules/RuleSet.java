@@ -176,7 +176,7 @@ public class RuleSet {
             new PushDownFilterThroughPartitionTopN(),
             ExpressionNormalizationAndOptimization.NO_MIN_MAX_RANGE_INSTANCE,
             new EliminateFilter()
-    );
+            );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProducerToPhysicalCTEProducer())
