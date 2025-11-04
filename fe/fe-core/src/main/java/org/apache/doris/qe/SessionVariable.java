@@ -1290,7 +1290,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
             description = {
                     "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为OFF（即执行此优化）。",
-                    "Skips the removal of always-true predicates after partition pruning. Defaults to OFF (optimization is active)."
+                    "Skips the removal of always-true predicates after partition pruning. "
+                            + "Defaults to OFF (optimization is active)."
             }
     )
     public boolean skipPrunePredicate = false;
