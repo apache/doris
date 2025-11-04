@@ -131,23 +131,9 @@ suite("test_default") {
     sql "INSERT INTO ${aggTableName} (k_id) VALUES (2)"
     sql "INSERT INTO ${aggTableName} (k_id) VALUES (3)"
 
-    qt_agg_defaults """
-        SELECT
-            DEFAULT(bitmap_col),
-            DEFAULT(hll_col)
-        FROM ${aggTableName}
-        LIMIT 1
-    """
-
-    def aggResult = sql """
-        SELECT
-            DEFAULT(bitmap_col),
-            DEFAULT(hll_col)
-        FROM ${aggTableName}
-    """
-    def aggFirstRow = aggResult[0]
-    for (int i = 1; i < aggResult.size(); i++) {
-        assertTrue(aggResult[i] == aggFirstRow, "Row ${i} should equal first row")
+    test {
+        sql "SELECT DEFAULT(bitmap_col), DEFAULT(hll_col) FROM ${aggTableName} LIMIT 1"
+        exception "Agg type(HLL, BITMAP, QUANTILE_STATE) cannot be used for the DEFAULT function"
     }
 
     // Test 3: Non-constant default value test (CURRENT_TIMESTAMP, CURRENT_DATE)
@@ -333,6 +319,19 @@ suite("test_default") {
         exception "DEFAULT function requires a column reference"
     }
 
+    sql "SET enable_fold_constant_by_be = false;"
+    test {
+        sql "SELECT DEFAULT(c_bool, c_int) FROM ${tableName} LIMIT 1"
+        exception "Can not found function 'DEFAULT' which has 2 arity. Candidate functions are: [DEFAULT(Expression)]"
+    }
+
+    sql "SET enable_fold_constant_by_be = true;"
+    test {
+        sql "SELECT DEFAULT(c_bool, c_int) FROM ${tableName} LIMIT 1"
+        exception "Can not found function 'DEFAULT' which has 2 arity. Candidate functions are: [DEFAULT(Expression)]"
+    }
+    sql "SET enable_fold_constant_by_be = default;"
+
     // Test 8: Date and time format default value test
     def dateTimeTableName = "test_default_datetime_formats"
     sql "DROP TABLE IF EXISTS ${dateTimeTableName}"
@@ -512,4 +511,32 @@ suite("test_default") {
     for (int i = 1; i < emptyResult.size(); i++) {
         assertTrue(emptyResult[i] == emptyFirstRow, "Row ${i} should equal first row")
     }
+
+    // Test 13: Same col_name in different tables
+    def tableA = "test_default_table_a"
+    def tableB = "test_default_table_b"
+    sql "DROP TABLE IF EXISTS ${tableA}"
+    sql "DROP TABLE IF EXISTS ${tableB}"
+    sql """
+        CREATE TABLE ${tableA} (
+            id          INT             NOT NULL DEFAULT '1',
+            val         VARCHAR(20)     NOT NULL DEFAULT 'hello',
+            dt          DATE            NOT NULL DEFAULT CURRENT_DATE
+        ) PROPERTIES ('replication_num' = '1' )
+    """
+    sql """
+        CREATE TABLE ${tableB} (
+            id          BIGINT          NOT NULL DEFAULT '1',
+            val         DOUBLE          NOT NULL DEFAULT PI,
+            dt          DATETIME        NOT NULL DEFAULT '2023-12-31 23:59:59'
+        ) PROPERTIES ('replication_num' = '1' )
+    """
+    sql "INSERT INTO ${tableA}(id) VALUES (1), (2), (3);"
+    sql "INSERT INTO ${tableB}(id) VALUES (1), (2), (3);"
+    qt_same_col_name """SELECT
+                            DEFAULT(a.val), DEFAULT(a.dt),
+                            DEFAULT(b.val), DEFAULT(b.dt)
+                        FROM ${tableA} AS a
+                        JOIN ${tableB} AS b
+                        ON a.id = b.id;"""
 }
