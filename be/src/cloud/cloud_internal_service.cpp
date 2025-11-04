@@ -274,8 +274,6 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
                << ", response=" << response->DebugString();
 }
 
-#include "common/compile_check_end.h"
-
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(
         "file_cache_event_driven_warm_up_submitted_segment_num");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_segment_num(
