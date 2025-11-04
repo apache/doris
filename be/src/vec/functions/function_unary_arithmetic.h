@@ -124,7 +124,7 @@ public:
                     using DataType = std::decay_t<decltype(type)>;
 
                     if constexpr (IsDataTypeDecimal<DataType>) {
-                        if (allow_decimal) {
+                        if constexpr (allow_decimal) {
                             if (auto col = check_and_get_column<ColumnDecimal<DataType::PType>>(
                                         block.get_by_position(arguments[0]).column.get())) {
                                 auto col_res =

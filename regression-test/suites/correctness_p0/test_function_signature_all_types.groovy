@@ -26,6 +26,9 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     
     sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'false')"
     logger.info("set disable_datev1 to false")
+
+    sql "ADMIN SET FRONTEND CONFIG ('enable_date_conversion' = 'false')"
+    logger.info("set enable_date_conversion to false")
     
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
