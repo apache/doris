@@ -229,8 +229,8 @@ public class LoadManager implements Writable {
                 default:
                     return;
             }
+            addLoadJob(loadJob);
         }
-        addLoadJob(loadJob);
         // persistent
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
     }
