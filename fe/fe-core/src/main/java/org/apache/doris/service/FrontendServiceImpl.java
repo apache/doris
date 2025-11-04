@@ -3791,10 +3791,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     for (Long beId : bePathsMap.keySet()) {
                         Long selectedBeId = beId;
 
-                        if (Config.isCloudMode()) {
+                        if (Config.isCloudMode()
+                                && DebugPointUtil.isEnable("FE.FrontendServiceImpl.initHttpStreamPlan.MockRebalance")) {
                             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                                     "FE.FrontendServiceImpl.createPartition.MockRebalance");
-                            // 手动递增 executeNum 并获取递增后的值
                             int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
                             int switchAfter = 2;
                             if (currentExecuteNum >= switchAfter) {
