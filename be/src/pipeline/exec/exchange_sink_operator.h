@@ -167,7 +167,7 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    std::unique_ptr<Writer> _writer;
+    std::unique_ptr<WriterBase> _writer;
     size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
