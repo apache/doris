@@ -617,40 +617,10 @@ public class ExpressionUtils {
         return true;
     }
 
-    /** matchNumericType */
-    public static boolean matchNumericType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isNumericType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** matchDateLikeType */
-    public static boolean matchDateLikeType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isDateLikeType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /** hasNullLiteral */
     public static boolean hasNullLiteral(List<Expression> children) {
         for (Expression child : children) {
             if (child instanceof NullLiteral) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** hasOnlyMetricType */
-    public static boolean hasOnlyMetricType(List<Expression> children) {
-        for (Expression child : children) {
-            if (child.getDataType().isOnlyMetricType()) {
                 return true;
             }
         }

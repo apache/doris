@@ -123,17 +123,23 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     public ValueDesc visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         // only handle `NumericType` and `DateLikeType`
         if (inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE
-                && ExpressionUtils.isAllNonNullComparableLiteral(inPredicate.getOptions())
-                && (ExpressionUtils.matchNumericType(inPredicate.getOptions())
-                || ExpressionUtils.matchDateLikeType(inPredicate.getOptions()))) {
+                && ExpressionUtils.isAllNonNullComparableLiteral(inPredicate.getOptions())) {
             Set<ComparableLiteral> values = Sets.newLinkedHashSetWithExpectedSize(inPredicate.getOptions().size());
+            boolean succ = true;
             for (Expression value : inPredicate.getOptions()) {
-                values.add((ComparableLiteral) value);
+                Optional<ComparableLiteral> literal = tryGetComparableLiteral(value);
+                if (!literal.isPresent()) {
+                    succ = false;
+                    break;
+                }
+                values.add(literal.get());
             }
-            return new DiscreteValue(context, inPredicate.getCompareExpr(), values);
-        } else {
-            return new UnknownValue(context, inPredicate);
+            if (succ) {
+                return new DiscreteValue(context, inPredicate.getCompareExpr(), values);
+            }
         }
+
+        return new UnknownValue(context, inPredicate);
     }
 
     private Optional<ComparableLiteral> tryGetComparableLiteral(Expression right) {
@@ -342,24 +348,34 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (!compoundValue.isAnd && compoundValue.reference.equals(reference)) {
                 ImmutableList.Builder<ValueDesc> newSourceValuesBuilder
                         = ImmutableList.builderWithExpectedSize(compoundValue.sourceValues.size());
+                boolean containsAll = false;
                 for (ValueDesc sourceValue : compoundValue.sourceValues) {
-                    boolean containsAll = false;
                     for (ValueDesc other : otherValues) {
-                        containsAll = containsAll || sourceValue.containsAll(other);
+                        containsAll = sourceValue.containsAll(other);
+                        if (containsAll) {
+                            break;
+                        }
+                    }
+                    if (containsAll) {
+                        break;
                     }
                     boolean intersectIsEmpty = collector.hasEmptyValue && sourceValue.intersectWithEmptyIsEmpty();
-                    // if source value is big enough, that it contains one of the previous value desc's range,
-                    // than no need it;
-                    // or the source intersect with empty value is empty, than no need it too.
-                    if (!containsAll && !intersectIsEmpty) {
+                    // the source intersect with empty value is empty, no need it too.
+                    if (!intersectIsEmpty) {
                         newSourceValuesBuilder.add(sourceValue);
                     }
                 }
-                List<ValueDesc> newSourceValues = newSourceValuesBuilder.build();
-                if (newSourceValues.size() == 1) {
-                    result.add(newSourceValues.get(0));
-                } else if (newSourceValues.size() > 1) {
-                    result.add(new CompoundValue(context, reference, newSourceValues, compoundValue.isAnd));
+                // for 'x1 and x2 and x3 and ... and (y1 or y2 or y3)'
+                // if yi containsAll xj, then yi can replace with TRUE, then (y1 or y2 or y3) will evaluate to TRUE,
+                // so any disjunction of the OR contains one of the outer AND's conjunction's all range,
+                // then can eliminate this OR
+                if (!containsAll) {
+                    List<ValueDesc> newSourceValues = newSourceValuesBuilder.build();
+                    if (newSourceValues.size() == 1) {
+                        result.add(newSourceValues.get(0));
+                    } else if (newSourceValues.size() > 1) {
+                        result.add(new CompoundValue(context, reference, newSourceValues, compoundValue.isAnd));
+                    }
                 }
             } else {
                 result.add(compoundValue);
@@ -609,6 +625,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         @Override
+        protected boolean containsAll(ValueDesc other) {
+            return other instanceof EmptyValue;
+        }
+
+        @Override
         public boolean intersectWithEmptyIsEmpty() {
             return true;
         }
@@ -675,10 +696,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         protected boolean containsAll(ValueDesc other) {
-            if (other instanceof RangeValue) {
+            if (other instanceof EmptyValue) {
+                return true;
+            } else if (other instanceof RangeValue) {
                 return range.encloses(((RangeValue) other).range);
             } else if (other instanceof DiscreteValue) {
                 return range.containsAll(((DiscreteValue) other).values);
+            } else if (other instanceof NotDiscreteValue) {
+                return !range.hasLowerBound() && !range.hasUpperBound();
             } else {
                 return false;
             }
@@ -720,7 +745,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         protected boolean containsAll(ValueDesc other) {
-            if (other instanceof DiscreteValue) {
+            if (other instanceof EmptyValue) {
+                return true;
+            } else if (other instanceof DiscreteValue) {
                 return values.containsAll(((DiscreteValue) other).values);
             } else {
                 return false;
@@ -758,8 +785,26 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         protected boolean containsAll(ValueDesc other) {
-            if (other instanceof NotDiscreteValue) {
-                return values.containsAll(((NotDiscreteValue) other).values);
+            if (other instanceof EmptyValue) {
+                return true;
+            } else if (other instanceof RangeValue) {
+                Range<ComparableLiteral> range = ((RangeValue) other).range;
+                for (ComparableLiteral value : values) {
+                    if (range.contains(value)) {
+                        return false;
+                    }
+                }
+                return true;
+            } else if (other instanceof DiscreteValue) {
+                Set<ComparableLiteral> discreteValues = ((DiscreteValue) other).values;
+                for (ComparableLiteral value : values) {
+                    if (discreteValues.contains(value)) {
+                        return false;
+                    }
+                }
+                return true;
+            } else if (other instanceof NotDiscreteValue) {
+                return ((NotDiscreteValue) other).values.containsAll(values);
             } else {
                 return false;
             }
