@@ -46,6 +46,8 @@ suite("ann_index_only_scan") {
     sql "set experimental_enable_virtual_slot_for_cse=true;"
 	// disable lazy materialization since it will break index-only scan.
     sql "set experimental_topn_lazy_materialization_threshold=0;"
+    sql "set parallel_pipeline_task_num=1;"
+    sql "set enable_sql_cache=false;"
     
     sql """
         create table ann_index_only_scan (
@@ -306,4 +308,143 @@ suite("ann_index_only_scan") {
         select id from ann_index_only_scan_no_ann
         where l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) < 999.0 order by id;
     """
+
+    // 5) TopN + IndexFilter (inverted): index-only should apply when not projecting non-index columns
+    sql "set enable_no_need_read_data_opt=true;"
+    def tTI1 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tTI1}"
+        from ann_index_only_scan
+        where comment match_any 'people'
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def tTI2 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tTI2}", comment
+        from ann_index_only_scan
+        where comment match_any 'people'
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def pTI1 = getProfileWithToken(tTI1)
+    def pTI2 = getProfileWithToken(tTI2)
+    def sTI1 = extractScanBytesValue(pTI1)
+    def sTI2 = extractScanBytesValue(pTI2)
+    logger.info("ScanBytes topn+inverted: q1=${sTI1}, q2=${sTI2}")
+    assertTrue(sTI1 != sTI2)
+
+    // 6) TopN + Range + IndexFilter
+    def tTRI1 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tTRI1}"
+        from ann_index_only_scan
+        where comment match_any 'people'
+          and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) < 200.0
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def tTRI2 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tTRI2}", comment
+        from ann_index_only_scan
+        where comment match_any 'people'
+          and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) < 200.0
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def pTRI1 = getProfileWithToken(tTRI1)
+    def pTRI2 = getProfileWithToken(tTRI2)
+    def sTRI1 = extractScanBytesValue(pTRI1)
+    def sTRI2 = extractScanBytesValue(pTRI2)
+    logger.info("ScanBytes topn+range+inverted: q1=${sTRI1}, q2=${sTRI2}")
+    assertTrue(sTRI1 != sTRI2)
+
+    // 7) Range + proj + no-dist-from-index (gt/ ge): toggling the opt should have no effect
+    sql "set enable_no_need_read_data_opt=true;"
+    def tRN1 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tRN1}",
+            l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) as dist
+        from ann_index_only_scan
+        where l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) > 100.0
+        order by id
+        limit 20;
+    """
+    def pRN1 = getProfileWithToken(tRN1)
+    def sRN1 = extractScanBytesValue(pRN1)
+    sql "set enable_no_need_read_data_opt=false;"
+    def tRN2 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tRN2}",
+            l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) as dist
+        from ann_index_only_scan
+        where l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) > 100.0
+        order by id
+        limit 20;
+    """
+    def pRN2 = getProfileWithToken(tRN2)
+    def sRN2 = extractScanBytesValue(pRN2)
+    logger.info("ScanBytes range(gt)+proj opt-toggle: on=${sRN1}, off=${sRN2}")
+    assertTrue(sRN1 == sRN2)
+
+    // 8) TopN + Range + CommonFilter (array_size on embedding): opt toggle should have no effect
+    sql "set enable_no_need_read_data_opt=true;"
+    def tCF1 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tCF1}"
+        from ann_index_only_scan
+        where array_size(embedding) > 5
+          and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) > 100.0
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def pCF1 = getProfileWithToken(tCF1)
+    def sCF1 = extractScanBytesValue(pCF1)
+    sql "set enable_no_need_read_data_opt=false;"
+    def tCF2 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tCF2}"
+        from ann_index_only_scan
+        where array_size(embedding) > 5
+          and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) > 100.0
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def pCF2 = getProfileWithToken(tCF2)
+    def sCF2 = extractScanBytesValue(pCF2)
+    logger.info("ScanBytes topn+range+common-filter opt-toggle: on=${sCF1}, off=${sCF2}")
+    assertTrue(sCF1 == sCF2)
+
+    // 9) CSE: multiple uses of distance in predicates should still allow index-only
+    sql "set enable_no_need_read_data_opt=true;"
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
+    def tCSE1 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tCSE1}"
+        from ann_index_only_scan
+        where abs(l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) + 10) > 10
+          and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) <= 150
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def tCSE2 = UUID.randomUUID().toString()
+    sql """
+        select id, "${tCSE2}", embedding
+        from ann_index_only_scan
+        where abs(l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) + 10) > 10
+          and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) <= 150
+        order by l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031])
+        limit 5;
+    """
+    def pCSE1 = getProfileWithToken(tCSE1)
+    def pCSE2 = getProfileWithToken(tCSE2)
+    def sCSE1 = extractScanBytesValue(pCSE1)
+    def sCSE2 = extractScanBytesValue(pCSE2)
+    logger.info("ScanBytes CSE (no-embed vs embed): q1=${sCSE1}, q2=${sCSE2}")
+    // NOTE: currently, CSE with virtual slot still needs to read embedding column when not projecting it.
+    // Since we do not check if src column of some expr has been materializated.
+    // For example, althrough dist column has been calculated by l2_distance_approximate < 150 in the form of virtual slot,
+    // but when evaluating abs(dist + 10) > 10, we still need to read embedding column, eventhough dist will not be calculated again.
+    assertTrue(sCSE1 == sCSE2)
 }
