@@ -1684,11 +1684,14 @@ vectorized::Block TabletSchema::create_block(
                             tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
-        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             if (_pruned_columns_data_type.contains(col.unique_id())) {
                 data_type = _pruned_columns_data_type.at(col.unique_id());
             }
         }
+
         if (_vir_col_idx_to_unique_id.contains(cid)) {
             block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
             VLOG_DEBUG << fmt::format(

@@ -58,4 +58,31 @@ suite("test_pruned_columns") {
     qt_sql5 """
         select id, struct_element(s, 'city') from `tbl_test_pruned_columns` where struct_element(struct_element(s, 'data')[1][2], 'b') = 40 order by 1;
     """
+
+    sql """DROP TABLE IF EXISTS `tbl_test_pruned_columns_map`"""
+    sql """
+        CREATE TABLE `tbl_test_pruned_columns_map` (
+            `id` bigint NULL,
+            `dynamic_attributes` map<text,struct<attribute_value:text,confidence_score:double,last_updated:datetime>> NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into `tbl_test_pruned_columns_map` values
+            (1, '{"theme_preference":{"attribute_value":"light", "confidence_score":0.41, "last_updated":"2025-11-03 15:32:33"}, "language_setting":{"attribute_value":"es", "confidence_score":0.65, "last_updated":"2025-11-03 15:32:33"}}'),
+            (2, '{"theme_preference":{"attribute_value":"light", "confidence_score":0.99, "last_updated":"2025-11-03 15:32:33"}, "language_setting":{"attribute_value":"es", "confidence_score":0.92, "last_updated":"2025-11-03 15:32:33"}}');
+    """
+
+    qt_sql6 """
+        select count(struct_element(dynamic_attributes['theme_preference'], 'confidence_score')) from `tbl_test_pruned_columns_map`;
+    """
+
+    qt_sql7 """
+        select struct_element(dynamic_attributes['theme_preference'], 'confidence_score') from `tbl_test_pruned_columns_map` order by id;
+    """
 }

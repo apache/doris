@@ -945,6 +945,8 @@ Result<TColumnAccessPaths> ColumnIterator::_get_sub_access_paths(
         if (!name_path.data_access_path.path.empty()) {
             ++it;
         } else {
+            LOG(INFO) << "********* set _column_name: " << _column_name
+                      << " need_to_read true **********";
             set_need_to_read();
             it = sub_access_paths.erase(it);
         }

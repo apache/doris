@@ -556,7 +556,9 @@ Status OlapScanner::_init_return_columns() {
                     {column.unique_id(), slot->predicate_access_paths()});
         }
 
-        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT &&
+        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
             !slot->all_access_paths().empty()) {
             tablet_schema->add_pruned_columns_data_type(column.unique_id(), slot->type());
         }

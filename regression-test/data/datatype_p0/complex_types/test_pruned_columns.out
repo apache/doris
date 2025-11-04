@@ -22,3 +22,10 @@
 1	beijing
 2	shanghai
 
+-- !sql6 --
+2
+
+-- !sql7 --
+0.41
+0.99
+
