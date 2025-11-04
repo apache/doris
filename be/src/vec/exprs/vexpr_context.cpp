@@ -477,11 +477,11 @@ Status VExprContext::evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
             row_bitmap, ann_index_stats));
 
-    if (!_root->has_been_executed()) {
+    if (!_root->ann_range_search_executedd()) {
         return Status::OK();
     }
 
-    if (!_root->dist_vir_column_is_fullfilled()) {
+    if (!_root->ann_dist_is_fulfilled()) {
         // Do not perform index scan in this case.
         return Status::OK();
     }

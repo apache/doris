@@ -1021,12 +1021,12 @@ void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params
     }
 }
 
-bool VExpr::has_been_executed() {
+bool VExpr::ann_range_search_executedd() {
     return _has_been_executed;
 }
 
-bool VExpr::dist_vir_column_is_fullfilled() const {
-    return _virtual_column_is_fullfilled;
+bool VExpr::ann_dist_is_fulfilled() const {
+    return _virtual_column_is_fulfilled;
 }
 
 #include "common/compile_check_end.h"

@@ -605,7 +605,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             }
             virtual_column_iterator->prepare_materialization(std::move(distance_col),
                                                              std::move(result.row_ids));
-            _virtual_column_is_fullfilled = true;
+            _virtual_column_is_fulfilled = true;
         } else {
             // Whether the ANN index should have produced distance depends on metric and operator:
             //  - L2: distance is produced for LE/LT; not produced for GE/GT
@@ -619,17 +619,17 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             // If we expected distance but didn't get it, assert in debug to catch logic errors.
             DCHECK(!should_have_distance) << "Expected distance from ANN index but got none";
 #endif
-            _virtual_column_is_fullfilled = false;
+            _virtual_column_is_fulfilled = false;
         }
     } else {
         // Dest is not virtual column.
-        _virtual_column_is_fullfilled = true;
+        _virtual_column_is_fulfilled = true;
     }
 
     _has_been_executed = true;
     VLOG_DEBUG << fmt::format(
             "Ann range search filtered {} rows, origin {} rows, virtual column is full-filled: {}",
-            origin_num - row_bitmap.cardinality(), origin_num, _virtual_column_is_fullfilled);
+            origin_num - row_bitmap.cardinality(), origin_num, _virtual_column_is_fulfilled);
 
     ann_index_stats = *stats;
     return Status::OK();

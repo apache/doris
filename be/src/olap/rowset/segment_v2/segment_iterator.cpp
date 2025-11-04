@@ -1122,7 +1122,7 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
-        if ((*it)->root()->has_been_executed()) {
+        if ((*it)->root()->ann_range_search_executedd()) {
             _opts.stats->ann_index_range_search_cnt++;
             it = _common_expr_ctxs_push_down.erase(it);
         } else {
