@@ -122,8 +122,8 @@ ak="***********"
 sk="***********"
 
 // aliyun sts config for temporary token test
-regressionAliyunStsRegion = ""
-regressionAliyunStsRoleArn = ""
+regressionAliyunStsRegion = "cn-hongkong"
+regressionAliyunStsRoleArn = "acs:ram::1831813856339162:root/jianxu-test"
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
