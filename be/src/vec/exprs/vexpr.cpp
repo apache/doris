@@ -823,7 +823,7 @@ uint64_t VExpr::get_digest(uint64_t seed) const {
 }
 
 Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                    int* result_column_id) {
+                                    int* result_column_id) const {
     *result_column_id = block->columns();
     auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
     block->insert({std::move(column), _data_type, expr_name});
@@ -974,7 +974,7 @@ size_t VExpr::estimate_memory(const size_t rows) {
 }
 
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                         int* result_column_id) {
+                         int* result_column_id) const {
     if (context->get_inverted_index_context() &&
         context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
         uint32_t num_columns_without_result = block->columns();

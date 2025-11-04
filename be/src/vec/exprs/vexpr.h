@@ -130,7 +130,7 @@ public:
         return Status::InternalError(expr_name() + " is not ready when execute");
     }
 
-    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const = 0;
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
@@ -277,7 +277,7 @@ public:
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                      int* result_column_id);
+                      int* result_column_id) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
@@ -344,10 +344,12 @@ protected:
         return res;
     }
 
-    bool is_const_and_have_executed() { return (is_constant() && (_constant_col != nullptr)); }
+    bool is_const_and_have_executed() const {
+        return (is_constant() && (_constant_col != nullptr));
+    }
 
     Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                 int* result_column_id);
+                                 int* result_column_id) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
