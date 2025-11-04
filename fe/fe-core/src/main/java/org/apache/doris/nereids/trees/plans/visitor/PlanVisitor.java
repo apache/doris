@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPostProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -224,6 +225,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalLoadProject(LogicalLoadProject<? extends Plan> project, C context) {
+        return visit(project, context);
+    }
+
+    public R visitLogicalPostProject(LogicalPostProject<? extends Plan> project, C context) {
         return visit(project, context);
     }
 
