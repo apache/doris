@@ -35,13 +35,10 @@ void BaseDebugPointAction::handle(HttpRequest* req) {
                 "Disable debug points. please check config::enable_debug_points");
     }
     std::string result = status.to_json();
-    LOG(INFO) << "handle request result:" << result << ", status: " << status.to_string();
     if (status.ok()) {
-        LOG(INFO) << "***** send ok";
         HttpChannel::send_reply(req, HttpStatus::OK, result);
     } else {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, result);
-        LOG(INFO) << "***** send error";
     }
 }
 
