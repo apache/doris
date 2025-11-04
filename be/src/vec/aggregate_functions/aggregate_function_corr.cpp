@@ -30,6 +30,7 @@ using CorrMomentStat = StatFunc<T, CorrMoment>;
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
+                                                    const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 2, 2);
@@ -48,6 +49,7 @@ using CorrWelfordMomentStat = StatFunc<T, CorrMomentWelford>;
 
 AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& name,
                                                             const DataTypes& argument_types,
+                                                            const DataTypePtr& result_type,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 2, 2);

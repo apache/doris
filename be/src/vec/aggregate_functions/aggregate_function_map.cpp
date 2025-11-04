@@ -34,6 +34,7 @@ AggregateFunctionPtr create_agg_function_map_agg(const DataTypes& argument_types
 
 AggregateFunctionPtr create_aggregate_function_map_agg(const std::string& name,
                                                        const DataTypes& argument_types,
+                                                       const DataTypePtr& result_type,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
     AggregateFunctionPtr agg_fn;

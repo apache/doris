@@ -31,7 +31,7 @@ namespace doris::vectorized {
 AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge, bool without_key) {
     auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
-            "sum", {std::make_shared<DataTypeInt64>()}, false,
+            "sum", {std::make_shared<DataTypeInt64>()}, std::make_shared<DataTypeInt64>(), false,
             BeExecVersionManager::get_newest_version(),
             {.enable_decimal256 = false, .column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
@@ -44,7 +44,7 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs
                                              bool is_merge, bool without_key) {
     auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
-            "sum", {std::make_shared<DataTypeInt64>()}, false,
+            "sum", {std::make_shared<DataTypeInt64>()}, std::make_shared<DataTypeInt64>(), false,
             BeExecVersionManager::get_newest_version(),
             {.enable_decimal256 = false, .column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
@@ -58,7 +58,8 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
     auto* mock_agg_fn_evaluator =
             pool.add(new MockAggFnEvaluator(false, false, is_window_function)); // just falg;
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
-            agg_fn_name, args_types, result_nullable, BeExecVersionManager::get_newest_version(),
+            agg_fn_name, args_types, nullptr, result_nullable,
+            BeExecVersionManager::get_newest_version(),
             {.enable_decimal256 = false,
              .is_window_function = is_window_function,
              .column_names = {}});

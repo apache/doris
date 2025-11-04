@@ -50,19 +50,20 @@ using AggregateFuncAvgDecimal256 = typename AvgDecimal256<T>::Function;
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
+                                           const DataTypePtr& result_type,
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
         if (attr.enable_decimal256 && is_decimal(types[0]->get_primitive_type())) {
             return creator_with_type_list<
                     TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
-                    TYPE_DECIMAL256>::creator<AggregateFuncAvgDecimal256>(name, types,
+                    TYPE_DECIMAL256>::creator<AggregateFuncAvgDecimal256>(name, types, result_type,
                                                                           result_is_nullable, attr);
         } else {
             return creator_with_type_list<
                     TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DOUBLE,
                     TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
-                    TYPE_DECIMALV2>::creator<AggregateFuncAvg>(name, types, result_is_nullable,
-                                                               attr);
+                    TYPE_DECIMALV2>::creator<AggregateFuncAvg>(name, types, result_type,
+                                                               result_is_nullable, attr);
         }
     };
     factory.register_function_both("avg", creator);

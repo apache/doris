@@ -42,7 +42,7 @@ public:
               _function_name(std::move(function_name)),
               _be_exec_version(be_exec_version) {
         _agg_function = AggregateFunctionSimpleFactory::instance().get(
-                _function_name, _sub_types, _result_is_nullable, _be_exec_version);
+                _function_name, _sub_types, nullptr, _result_is_nullable, _be_exec_version);
         if (_agg_function == nullptr ||
             !BeExecVersionManager::check_be_exec_version(be_exec_version)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,

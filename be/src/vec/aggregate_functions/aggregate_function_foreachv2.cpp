@@ -78,7 +78,8 @@ public:
 
 void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
-            [&](const std::string& name, const DataTypes& types, const bool result_is_nullable,
+            [&](const std::string& name, const DataTypes& types, const DataTypePtr& result_type,
+                const bool result_is_nullable,
                 const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
         const std::string& suffix = AggregateFunctionForEachV2::AGG_FOREACH_SUFFIX;
         DataTypes transform_arguments;
@@ -88,8 +89,8 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
             transform_arguments.push_back(item_type);
         }
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
-        auto nested_function = factory.get(nested_function_name, transform_arguments, true,
-                                           BeExecVersionManager::get_newest_version(), attr);
+        auto nested_function = factory.get(nested_function_name, transform_arguments, result_type,
+                                           true, BeExecVersionManager::get_newest_version(), attr);
         if (!nested_function) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
