@@ -719,7 +719,7 @@ public class InsertUtils {
         boolean useFirstErrorMsgPlaceholder = false;
         boolean useUrlPlaceholder = false;
 
-        // special case: url length > 512 or first error msg length > 512
+        // special case: url length > 512 or first error msg length > 512 or sum > 512
         if (urlPartLen > maxTotalBytes && firstErrorMsgPartLen > maxTotalBytes) {
             useUrlPlaceholder = true;
             urlPartLen = ". url: please use `show load` for detail msg".length();
@@ -731,6 +731,15 @@ public class InsertUtils {
         } else if (firstErrorMsgPartLen > maxTotalBytes) {
             useFirstErrorMsgPlaceholder = true;
             firstErrorMsgPartLen = ". first_error_msg: please use `show load` for detail msg".length();
+        } else if (urlPartLen + firstErrorMsgPartLen > maxTotalBytes) {
+            int tempLen = ". url: please use `show load` for detail msg".length();
+            if (tempLen + firstErrorMsgPartLen > maxTotalBytes) {
+                // just leave firstErrorMsg
+                urlPartLen = 0;
+            } else {
+                useUrlPlaceholder = true;
+                urlPartLen = tempLen;
+            }
         }
 
         int maxMessageBytes = maxTotalBytes - firstErrorMsgPartLen - urlPartLen;

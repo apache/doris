@@ -156,5 +156,60 @@ public class InsertUtilsTest {
 
         Assertions.assertTrue(result.length() <= MAX_TOTAL_BYTES);
     }
+
+    /**
+     * case8: urlPartLen + firstErrorMsgPartLen > 512, but tempLen + firstErrorMsgPartLen still > 512
+     * Should only keep firstErrorMsg and drop url
+     */
+    @Test
+    public void testUrlAndFirstErrorMsgSumTooLong_DropUrl() {
+        String msg = "Insert failed";
+        // ". first_error_msg: ".length() = 19
+        // We need firstErrorMsgPartLen such that:
+        // ". url: please use `show load` for detail msg".length() + firstErrorMsgPartLen > 512
+        // ". url: please use `show load` for detail msg".length() = 47
+        // So firstErrorMsgPartLen should be > 465
+        // firstErrorMsgPartLen = 19 + firstErrorMsg.length() > 465
+        // firstErrorMsg.length() should be > 446
+        String firstErrorMsg = generateString(470);
+        String url = generateString(100);
+
+        String result = InsertUtils.getFinalErrorMsg(msg, firstErrorMsg, url);
+
+        Assertions.assertTrue(result.contains(msg));
+        Assertions.assertTrue(result.contains(firstErrorMsg));
+        Assertions.assertFalse(result.contains(url));
+        Assertions.assertFalse(result.contains("please use `show load` for detail msg"));
+        Assertions.assertTrue(result.length() <= MAX_TOTAL_BYTES);
+    }
+
+    /**
+     * case9: urlPartLen + firstErrorMsgPartLen > 512, but tempLen + firstErrorMsgPartLen <= 512
+     * Should use url placeholder and keep firstErrorMsg
+     */
+    @Test
+    public void testUrlAndFirstErrorMsgSumTooLong_UseUrlPlaceholder() {
+        String msg = "Insert failed";
+        // ". first_error_msg: ".length() = 19
+        // ". url: ".length() = 7
+        // ". url: please use `show load` for detail msg".length() = 47
+        // We need: urlPartLen + firstErrorMsgPartLen > 512
+        // AND: 47 + firstErrorMsgPartLen <= 512
+        // So firstErrorMsgPartLen should be in range (512-urlPartLen, 465]
+        // Let's make firstErrorMsg.length() = 400, so firstErrorMsgPartLen = 419
+        // And url.length() = 100, so urlPartLen = 107
+        // Then urlPartLen + firstErrorMsgPartLen = 526 > 512 ✓
+        // And 47 + 419 = 466 <= 512 ✓
+        String firstErrorMsg = generateString(400);
+        String url = generateString(100);
+
+        String result = InsertUtils.getFinalErrorMsg(msg, firstErrorMsg, url);
+
+        Assertions.assertTrue(result.contains(msg));
+        Assertions.assertTrue(result.contains(firstErrorMsg));
+        Assertions.assertTrue(result.contains("please use `show load` for detail msg"));
+        Assertions.assertFalse(result.contains(url));
+        Assertions.assertTrue(result.length() <= MAX_TOTAL_BYTES);
+    }
 }
 
