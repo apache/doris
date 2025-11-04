@@ -20,10 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 /**
  * AbstractMaterializedViewLimitRule
@@ -74,30 +71,5 @@ public interface AbstractMaterializedViewLimitOrTopNRule {
             return Pair.of(queryLimit, queryOffset - viewOffset);
         }
         return null;
-    }
-
-    /**
-     * Check the tempRewrittenPlan is valid, should only contain logical project, scan
-     */
-    default boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
-        if (tempRewrittenPlan == null) {
-            return false;
-        }
-        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
-            @Override
-            public Boolean visit(Plan plan, Void context) {
-                if (plan instanceof LogicalProject || plan instanceof CatalogRelation) {
-                    boolean isValid;
-                    for (Plan child : plan.children()) {
-                        isValid = child.accept(this, context);
-                        if (!isValid) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }
-        }, null);
     }
 }

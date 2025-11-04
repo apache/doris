@@ -644,10 +644,17 @@ public class StructInfo {
         // aggregate is not supported now.
         private boolean windowUnderAggregate = false;
         private final Set<JoinType> supportJoinTypes;
+        // This field indicates whether a node that does not allow limit rewriting is encountered in the plan node.
+        // Currently, limit is only allowed to traverse through Project and Filter nodes;
+        // rewriting is not supported in any other stages.
         private boolean alreadyMeetLimitForbiddenNode = false;
+        // This indicates whether the operators above the join contain a limit operator.
         private boolean containsTopLimit = false;
+        // This records the number of limit operators above the join.
         private int topLimitNum = 0;
+        // This indicates whether the operators above the join contain a topN operator.
         private boolean containsTopTopN = false;
+        // This records the number of topN operators above the join.
         private int topTopNNum = 0;
 
         public PlanCheckContext(Set<JoinType> supportJoinTypes) {
@@ -973,6 +980,31 @@ public class StructInfo {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
         }, queryPlanWithUnionFilter, queryPlan, false), true);
+    }
+
+    /**
+     * Check the tempRewrittenPlan is valid, should only contain project, scan
+     */
+    public static boolean checkLimitTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
+        if (tempRewrittenPlan == null) {
+            return false;
+        }
+        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
+            @Override
+            public Boolean visit(Plan plan, Void context) {
+                if (plan instanceof LogicalProject || plan instanceof CatalogRelation) {
+                    boolean isValid;
+                    for (Plan child : plan.children()) {
+                        isValid = child.accept(this, context);
+                        if (!isValid) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+        }, null);
     }
 
     /**

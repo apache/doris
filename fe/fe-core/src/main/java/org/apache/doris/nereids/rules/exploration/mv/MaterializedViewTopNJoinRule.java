@@ -47,7 +47,7 @@ public class MaterializedViewTopNJoinRule extends AbstractMaterializedViewJoinRu
             CascadesContext cascadesContext) {
         Plan tempRewritePlan = super.rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo,
                 viewToQuerySlotMapping, tempRewritedPlan, materializationContext, cascadesContext);
-        if (!checkTmpRewrittenPlanIsValid(tempRewritePlan)) {
+        if (!StructInfo.checkLimitTmpRewrittenPlanIsValid(tempRewritePlan)) {
             materializationContext.recordFailReason(queryStructInfo,
                     "TopN join rewriteQueryByView fail because tempRewritePlan is invalid",
                     () -> String.format("tempRewrittenPlan is %s", tempRewritePlan));
