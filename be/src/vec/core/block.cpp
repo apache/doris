@@ -1300,10 +1300,6 @@ void MutableBlock::initialize_index_by_name() {
     }
 }
 
-bool MutableBlock::has(const std::string& name) const {
-    return index_by_name.end() != index_by_name.find(name);
-}
-
 size_t MutableBlock::get_position_by_name(const std::string& name) const {
     auto it = index_by_name.find(name);
     if (index_by_name.end() == it) {

@@ -311,10 +311,7 @@ Status FixedReadPlan::read_columns_by_plan(
         const signed char* __restrict cur_delete_signs) const {
     if (force_read_old_delete_signs) {
         // always read delete sign column from historical data
-        if (const vectorized::ColumnWithTypeAndName* old_delete_sign_column =
-                    block.try_get_by_name(DELETE_SIGN);
-            old_delete_sign_column == nullptr) {
-            auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
+        if (auto del_col_cid = tablet_schema.field_index(DELETE_SIGN); del_col_cid != -1) {
             cids_to_read.emplace_back(del_col_cid);
             block.swap(tablet_schema.create_block_by_cids(cids_to_read));
         }
@@ -430,10 +427,11 @@ Status FixedReadPlan::fill_missing_columns(
                     const auto& column = *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
-                            assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    auto_inc_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(
-assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
-block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get())->get_element(idx)));
+                            assert_cast<vectorized::ColumnInt64*>(missing_col.get());
+                    // assume auto inc column is last column in input block
+                    auto_inc_column->insert_from(
+                            *block->get_by_position(block->columns()-1).column.get(),
+                            idx);
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
