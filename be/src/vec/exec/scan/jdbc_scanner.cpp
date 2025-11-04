@@ -188,6 +188,9 @@ void JdbcScanner::_update_profile() {
 }
 
 Status JdbcScanner::close(RuntimeState* state) {
+    if (!_try_close()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(Scanner::close(state));
     RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();

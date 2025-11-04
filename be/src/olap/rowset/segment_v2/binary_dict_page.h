@@ -50,13 +50,25 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // This type of page use dictionary encoding for strings.
 // There is only one dictionary page for all the data pages within a column.
 //
-// Layout for dictionary encoded page:
-// Either header + embedded codeword page, which can be encoded with any
-//        int PageBuilder, when mode_ = DICT_ENCODING.
-// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
-// Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
-// page go beyond the option_->dict_page_size, the subsequent data pages will switch
-// to string plain page automatically.
+// Layout for dictionary encoded data page:
+// The data page starts with a 4-byte header (EncodingTypePB) followed by the encoded data.
+// There are three possible encoding formats:
+//
+// 1. header(4 bytes) + bitshuffle encoded codeword page, when mode_ = DICT_ENCODING.
+//    The codeword page contains integer codes referencing the dictionary, compressed with bitshuffle+lz4.
+//
+// 2. header(4 bytes) + BinaryPlainPageV2, when mode_ = PLAIN_ENCODING_V2.
+//    Used as fallback when dictionary is full. Stores raw strings with varint-encoded lengths.
+//
+// 3. header(4 bytes) + BinaryPlainPage, when mode_ = PLAIN_ENCODING.
+//    Used as fallback when dictionary is full. Stores raw strings with offset array.
+//
+// Data pages start with mode_ = DICT_ENCODING. When the size of dictionary page
+// goes beyond options.dict_page_size, subsequent data pages will switch to plain
+// encoding (either PLAIN_ENCODING_V2 or PLAIN_ENCODING based on config) automatically.
+//
+// The dictionary page itself is encoded as either BinaryPlainPage (PLAIN_ENCODING) or
+// BinaryPlainPageV2 (PLAIN_ENCODING_V2), determined by config::binary_plain_encoding_default_impl.
 class BinaryDictPageBuilder : public PageBuilderHelper<BinaryDictPageBuilder> {
 public:
     using Self = BinaryDictPageBuilder;

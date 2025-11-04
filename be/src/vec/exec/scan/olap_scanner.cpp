@@ -594,7 +594,7 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
 }
 
 Status OlapScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
     RETURN_IF_ERROR(Scanner::close(state));

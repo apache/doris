@@ -35,22 +35,22 @@ namespace doris {
 // exposes a subset of the interface. If the string is 12 characters
 // or less, it is inlined and no reference is held. If it is longer, a
 // reference to the string is held and the 4 first characters are
-// cached in the StringContainer. This allows failing comparisons early and
+// cached in the StringView. This allows failing comparisons early and
 // reduces the CPU cache working set when dealing with short strings.
 
-class StringContainer {
+class StringView {
 #include "common/compile_check_begin.h"
 public:
     using value_type = char;
     static constexpr size_t kPrefixSize = 4 * sizeof(char);
     static constexpr size_t kInlineSize = 12;
 
-    StringContainer() {
-        static_assert(sizeof(StringContainer) == 16);
-        memset(this, 0, sizeof(StringContainer));
+    StringView() {
+        static_assert(sizeof(StringView) == 16);
+        memset(this, 0, sizeof(StringView));
     }
 
-    StringContainer(const char* data, uint32_t len) : size_(len) {
+    StringView(const char* data, uint32_t len) : size_(len) {
         DCHECK_GE(len, 0);
         DCHECK(data || len == 0);
         if (isInline()) {
@@ -72,20 +72,20 @@ public:
         }
     }
 
-    StringContainer(unsigned char* data, uint32_t len)
-            : StringContainer(reinterpret_cast<const char*>(data), len) {}
+    StringView(unsigned char* data, uint32_t len)
+            : StringView(reinterpret_cast<const char*>(data), len) {}
 
     bool isInline() const { return isInline(size_); }
 
     ALWAYS_INLINE static constexpr bool isInline(uint32_t size) { return size <= kInlineSize; }
 
-    explicit StringContainer(std::string&& value) = delete;
-    explicit StringContainer(const std::string& value)
-            : StringContainer(value.data(), cast_set<uint32_t>(value.size())) {}
-    explicit StringContainer(std::string_view value)
-            : StringContainer(value.data(), cast_set<uint32_t>(value.size())) {}
-    /* implicit */ StringContainer(const char* data)
-            : StringContainer(data, cast_set<uint32_t>(strlen(data))) {}
+    explicit StringView(std::string&& value) = delete;
+    explicit StringView(const std::string& value)
+            : StringView(value.data(), cast_set<uint32_t>(value.size())) {}
+    explicit StringView(std::string_view value)
+            : StringView(value.data(), cast_set<uint32_t>(value.size())) {}
+    /* implicit */ StringView(const char* data)
+            : StringView(data, cast_set<uint32_t>(strlen(data))) {}
     doris::StringRef to_string_ref() const { return {data(), size()}; }
 
     operator std::string_view() && = delete;
@@ -101,12 +101,12 @@ public:
 
     void set_size(uint32_t size) { size_ = size; }
 
-    bool operator==(const StringContainer& other) const;
-    friend std::ostream& operator<<(std::ostream& os, const StringContainer& StringContainer) {
-        os.write(StringContainer.data(), StringContainer.size());
+    bool operator==(const StringView& other) const;
+    friend std::ostream& operator<<(std::ostream& os, const StringView& stringView) {
+        os.write(stringView.data(), stringView.size());
         return os;
     }
-    auto operator<=>(const StringContainer& other) const {
+    auto operator<=>(const StringView& other) const {
         const auto cmp = compare(other);
         return cmp < 0   ? std::strong_ordering::less
                : cmp > 0 ? std::strong_ordering::greater
@@ -116,7 +116,7 @@ public:
     // Returns 0, if this == other
     //       < 0, if this < other
     //       > 0, if this > other
-    int32_t compare(const StringContainer& other) const;
+    int32_t compare(const StringView& other) const;
 
     const char* begin() && = delete;
     const char* begin() const& { return data(); }

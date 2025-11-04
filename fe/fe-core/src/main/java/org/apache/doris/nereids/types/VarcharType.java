@@ -84,12 +84,12 @@ public class VarcharType extends CharacterType {
             return false;
         }
         VarcharType that = (VarcharType) o;
-        return len == that.len;
+        return len == that.len || (isWildcardVarchar() && that.isWildcardVarchar());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), len);
+        return Objects.hash(super.hashCode(), len == -1 ? MAX_VARCHAR_LENGTH : len);
     }
 
     public boolean isWildcardVarchar() {

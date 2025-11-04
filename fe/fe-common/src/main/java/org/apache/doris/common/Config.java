@@ -3339,7 +3339,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+    @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
             + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
             + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
             + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"

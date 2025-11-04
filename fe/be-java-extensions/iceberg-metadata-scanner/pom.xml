@@ -60,7 +60,6 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>auth</artifactId>
-            <version>${awssdk.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

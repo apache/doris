@@ -22,8 +22,6 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -557,20 +555,18 @@ public class Column implements GsonPostProcessable {
         return this.defaultValue;
     }
 
-    public Expr getDefaultValueExpr() throws AnalysisException {
+    public String getDefaultValueSql() {
         if (defaultValue == null) {
             return null;
         }
-        StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
-        if (getDataType() == PrimitiveType.VARCHAR) {
-            return defaultValueLiteral;
-        }
         if (defaultValueExprDef != null) {
-            return defaultValueExprDef.getExpr(type);
+            return defaultValueExprDef.getSql();
         }
-        Expr result = defaultValueLiteral.castTo(getType());
-        result.checkValueValid();
-        return result;
+        if (this.type.isNumericType()) {
+            return defaultValue;
+        } else {
+            return "'" + defaultValue.replace("'", "''") + "'";
+        }
     }
 
 
@@ -610,8 +606,8 @@ public class Column implements GsonPostProcessable {
         return hasOnUpdateDefaultValue;
     }
 
-    public Expr getOnUpdateDefaultValueExpr() {
-        return onUpdateDefaultValueExprDef.getExpr(type);
+    public String getOnUpdateDefaultValueSql() {
+        return onUpdateDefaultValueExprDef.getSql();
     }
 
     public TColumn toThrift() {
@@ -657,6 +653,7 @@ public class Column implements GsonPostProcessable {
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
+        tColumn.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -885,6 +882,7 @@ public class Column implements GsonPostProcessable {
             builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
+            builder.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -963,6 +961,9 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
                 throw new DdlException("Can not change variant max sparse column statistics size");
+            }
+            if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
+                throw new DdlException("Can not change variant sparse bucket num");
             }
             if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1305,6 +1306,10 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantMaxSparseColumnStatisticsSize() {
         return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
+    }
+
+    public int getVariantSparseHashShardCount() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantSparseHashShardCount() : -1;
     }
 
     public void setFieldPatternType(TPatternType type) {

@@ -19,7 +19,6 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <cstdint>
 #include <deque>
 #include <memory>
 #include <string>
@@ -34,22 +33,7 @@
 #include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
-// class TxnKv;
-// class InstanceInfoPB;
-// class StorageVaultAccessor;
-// class SimpleThreadPool;
-// class Checker;
-// class SnapshotDataMigratorMetricsContext;
 class InstanceDataMigrator;
-
-struct SnapshotDataMigrateContext {
-    std::mutex mutex;
-
-    // The indexes that have been migrated.
-    std::unordered_set<int64_t> migrated_indexes;
-    // The partitions that have been migrated.
-    std::unordered_set<int64_t> migrated_partitions;
-};
 
 class SnapshotDataMigrator {
 public:
@@ -69,8 +53,6 @@ private:
     void lease_migration_jobs();
 
     bool is_instance_need_migrate(const InstanceInfoPB& instance_info);
-
-    SnapshotDataMigrateContext migrate_context_;
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::atomic_bool stopped_ {false};
@@ -92,8 +74,7 @@ private:
 
 class InstanceDataMigrator {
 public:
-    InstanceDataMigrator(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
-                         SnapshotDataMigrateContext& migrate_context);
+    InstanceDataMigrator(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance);
     ~InstanceDataMigrator();
 
     std::string_view instance_id() const { return instance_id_; }
@@ -107,8 +88,6 @@ public:
 
     // returns 0 for success otherwise error
     int do_migrate();
-
-    SnapshotDataMigrateContext& get_migrate_context() { return migrate_context_; }
 
 private:
     // returns 0 for success otherwise error
@@ -124,7 +103,6 @@ private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
     InstanceInfoPB instance_info_;
-    SnapshotDataMigrateContext& migrate_context_;
 
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
 };

@@ -64,7 +64,7 @@ public:
             auto col_res = ColumnVarbinary::create();
             const auto& data = col->get_chars();
             const auto& offsets = col->get_offsets();
-            col_res->get_data().assign(input_rows_count, StringContainer());
+            col_res->get_data().assign(input_rows_count, StringView());
 
             for (int i = 0; i < input_rows_count; ++i) {
                 const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
@@ -155,7 +155,7 @@ struct VarbinaryLengthImpl {
         return {std::make_shared<DataTypeVarbinary>()};
     }
 
-    static Status vector(const PaddedPODArray<doris::StringContainer>& data,
+    static Status vector(const PaddedPODArray<doris::StringView>& data,
                          PaddedPODArray<Int32>& res) {
         size_t rows_count = data.size();
         res.resize(rows_count);
@@ -174,7 +174,7 @@ struct ToBase64BinaryImpl {
     using ColumnType = ColumnString;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_VARBINARY;
 
-    static Status vector(const PaddedPODArray<doris::StringContainer>& data,
+    static Status vector(const PaddedPODArray<doris::StringView>& data,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = data.size();
         dst_offsets.resize(rows_count);
@@ -221,7 +221,7 @@ struct FromBase64BinaryImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnVarbinary* res, NullMap& null_map) {
         auto rows_count = offsets.size();
-        res->get_data().assign(rows_count, StringContainer());
+        res->get_data().assign(rows_count, StringView());
 
         for (size_t i = 0; i < rows_count; i++) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);

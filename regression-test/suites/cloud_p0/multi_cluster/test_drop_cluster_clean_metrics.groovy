@@ -29,7 +29,7 @@ suite('test_drop_cluster_clean_metrics', 'docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
         'rehash_tablet_after_be_dead_seconds=3600',
-        'enable_cloud_warm_up_for_rebalance=false'
+        'cloud_warm_up_for_rebalance_type=without_warmup'
     ]
     options.beConfigs += [
         'report_tablet_interval_seconds=1',

@@ -980,7 +980,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 sendPreHeatingRpc(task.pickedTablet, task.srcBe, task.destBe);
             } catch (Exception e) {
                 LOG.warn("Failed to preheat tablet {} from {} to {}, "
-                                + "help msg turn off fe config enable_cloud_warm_up_for_rebalance",
+                                + "help msg change fe config cloud_warm_up_for_rebalance_type to without_warmup, ",
                         task.pickedTablet.getId(), task.srcBe, task.destBe, e);
             }
         }
@@ -1278,7 +1278,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             sendPreHeatingRpc(pickedTablet, srcBe, destBe);
         } catch (Exception e) {
             LOG.warn("Failed to preheat tablet {} from {} to {}, "
-                    + "help msg turn off fe config enable_cloud_warm_up_for_rebalance",
+                    + "help msg change fe config cloud_warm_up_for_rebalance_type to without_warmup ",
                     pickedTablet.getId(), srcBe, destBe, e);
             return;
         }
