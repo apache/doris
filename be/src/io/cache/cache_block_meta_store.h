@@ -38,13 +38,14 @@
 namespace doris::io {
 
 struct BlockMeta {
-    int type;
+    FileCacheType type;
     size_t size;
     uint64_t ttl;
 
-    BlockMeta() : type(0), size(0), ttl(0) {}
-    BlockMeta(int type_, size_t size_) : type(type_), size(size_), ttl(0) {}
-    BlockMeta(int type_, size_t size_, uint64_t ttl_) : type(type_), size(size_), ttl(ttl_) {}
+    BlockMeta() : type(DISPOSABLE), size(0), ttl(0) {}
+    BlockMeta(FileCacheType type_, size_t size_) : type(type_), size(size_), ttl(0) {}
+    BlockMeta(FileCacheType type_, size_t size_, uint64_t ttl_)
+            : type(type_), size(size_), ttl(ttl_) {}
 
     bool operator==(const BlockMeta& other) const {
         return type == other.type && size == other.size && ttl == other.ttl;

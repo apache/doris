@@ -460,10 +460,28 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
 
 Status FSFileCacheStorage::write_file_cache_version() const {
     std::string version_path = get_version_path();
-    Slice version("3.0");
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+
+    // Add version field to JSON
+    rapidjson::Value version_value;
+    version_value.SetString("3.0", allocator);
+    doc.AddMember("version", version_value, allocator);
+
+    // Serialize JSON to string
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+
+    // Combine version string with JSON for backward compatibility
+    std::string version_content = "3.0" + std::string(buffer.GetString(), buffer.GetSize());
+    Slice version_slice(version_content);
+
     FileWriterPtr version_writer;
     RETURN_IF_ERROR(fs->create_file(version_path, &version_writer));
-    RETURN_IF_ERROR(version_writer->append(version));
+    RETURN_IF_ERROR(version_writer->append(version_slice));
     return version_writer->close();
 }
 
@@ -483,6 +501,19 @@ Status FSFileCacheStorage::read_file_cache_version(std::string* buffer) const {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(version_reader->read_at(0, Slice(buffer->data(), file_size), &bytes_read));
     RETURN_IF_ERROR(version_reader->close());
+
+    // Extract only the version number part (before JSON starts) for backward compatibility
+    // New format: "3.0{\"version\":\"3.0\"}", old format: "3.0"
+    std::string content = *buffer;
+    size_t json_start = content.find('{');
+    if (json_start != std::string::npos) {
+        // New format with JSON, extract version number only
+        *buffer = content.substr(0, json_start);
+    } else {
+        // Old format, keep as is
+        *buffer = content;
+    }
+
     auto st = Status::OK();
     TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::read_file_cache_version", &st);
     return st;

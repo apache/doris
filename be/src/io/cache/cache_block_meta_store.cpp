@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <optional>
 #include <sstream>
+#include <string_view>
 
 #include "common/status.h"
 #include "olap/field.h"
@@ -183,8 +184,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
         void next() override { _iter->Next(); }
 
         BlockMetaKey key() const override {
-            std::string key_str = _iter->key().ToString();
-            Slice slice(key_str);
+            auto key_view = std::string_view(_iter->key().data(), _iter->key().size());
+            Slice slice(key_view.data(), key_view.size());
 
             // Check version byte
             if (slice.size < 1 || slice.data[0] != 0x1) {
@@ -219,9 +220,9 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
         }
 
         BlockMeta value() const override {
-            std::string value_str = _iter->value().ToString();
-            auto meta = deserialize_value(value_str);
-            VLOG_DEBUG << "RocksDB value: " << value_str << ", deserialized as: type=" << meta.type
+            auto value_view = std::string_view(_iter->value().data(), _iter->value().size());
+            auto meta = deserialize_value(value_view);
+            VLOG_DEBUG << "RocksDB value: " << value_view << ", deserialized as: type=" << meta.type
                        << ", size=" << meta.size << ", ttl=" << meta.ttl;
             return meta;
         }
@@ -257,14 +258,14 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         void next() override { _iter->Next(); }
 
         BlockMetaKey key() const override {
-            std::string key_str = _iter->key().ToString();
-            return deserialize_key(key_str);
+            auto key_view = std::string_view(_iter->key().data(), _iter->key().size());
+            return deserialize_key(std::string(key_view));
         }
 
         BlockMeta value() const override {
-            std::string value_str = _iter->value().ToString();
-            auto meta = deserialize_value(value_str);
-            VLOG_DEBUG << "RocksDB value: " << value_str << ", deserialized as: type=" << meta.type
+            auto value_view = std::string_view(_iter->value().data(), _iter->value().size());
+            auto meta = deserialize_value(value_view);
+            VLOG_DEBUG << "RocksDB value: " << value_view << ", deserialized as: type=" << meta.type
                        << ", size=" << meta.size << ", ttl=" << meta.ttl;
             return meta;
         }
@@ -459,6 +460,17 @@ BlockMeta deserialize_value(const std::string& value_str) {
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
+    return BlockMeta();
+}
+
+BlockMeta deserialize_value(std::string_view value_view) {
+    // Parse as protobuf format using string_view
+    doris::io::cache::BlockMetaPb pb;
+    if (pb.ParseFromArray(value_view.data(), value_view.size())) {
+        return BlockMeta(pb.type(), pb.size(), pb.ttl());
+    }
+
+    LOG(WARNING) << "Failed to deserialize value as protobuf from string_view";
     return BlockMeta();
 }
 
