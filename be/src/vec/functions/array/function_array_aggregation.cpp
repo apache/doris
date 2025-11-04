@@ -358,7 +358,8 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
             -> AggregateFunctionPtr {
         return create_aggregate_function_single_value<AggregateFunctionMinData>(
-                NameArrayMin::name, {make_nullable(data_type_ptr)}, true, attr);
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, make_nullable(data_type_ptr),
+                true, attr);
     }
 };
 
@@ -371,7 +372,8 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
             -> AggregateFunctionPtr {
         return create_aggregate_function_single_value<AggregateFunctionMaxData>(
-                NameArrayMax::name, {make_nullable(data_type_ptr)}, true, attr);
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, make_nullable(data_type_ptr),
+                true, attr);
     }
 };
 

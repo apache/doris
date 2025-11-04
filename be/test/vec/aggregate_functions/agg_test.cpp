@@ -62,7 +62,7 @@ TEST(AggTest, basic_test) {
     register_aggregate_function_sum(factory);
     DataTypePtr data_type(std::make_shared<DataTypeInt32>());
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get("sum", data_types, false, -1);
+    auto agg_function = factory.get("sum", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -95,7 +95,7 @@ TEST(AggTest, topn_test) {
     register_aggregate_function_topn(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
 
-    auto agg_function = factory.get("topn", data_types, false, -1);
+    auto agg_function = factory.get("topn", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -119,7 +119,7 @@ TEST(AggTest, window_function_test) {
     register_aggregate_function_bit(factory);
     DataTypes data_types = {make_nullable(std::make_shared<DataTypeInt8>())};
     bool is_window_function = true;
-    auto agg_function = factory.get("group_bit_or", data_types, true, -1,
+    auto agg_function = factory.get("group_bit_or", data_types, nullptr, true, -1,
                                     {.enable_decimal256 = false,
                                      .is_window_function = is_window_function,
                                      .column_names = {}});
@@ -146,10 +146,11 @@ TEST(AggTest, window_function_test2) {
     register_aggregate_function_bit(factory);
 
     bool is_window_function = true;
-    auto agg_function_sum = factory.get("sum", {std::make_shared<DataTypeInt32>()}, true, -1,
-                                        {.enable_decimal256 = false,
-                                         .is_window_function = is_window_function,
-                                         .column_names = {}});
+    auto agg_function_sum =
+            factory.get("sum", {std::make_shared<DataTypeInt32>()}, nullptr, true, -1,
+                        {.enable_decimal256 = false,
+                         .is_window_function = is_window_function,
+                         .column_names = {}});
 
     auto agg_function_group =
             factory.get("group_bit_or", {make_nullable(std::make_shared<DataTypeInt8>())}, true, -1,

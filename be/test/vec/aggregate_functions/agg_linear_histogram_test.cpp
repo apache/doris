@@ -204,7 +204,7 @@ public:
                          << "(" << data_types[0]->get_name() << ")";
 
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get("linear_histogram", data_types, false, -1,
+        auto agg_function = factory.get("linear_histogram", data_types, nullptr, false, -1,
                                         {.enable_decimal256 = true, .column_names = {""}});
         EXPECT_NE(agg_function, nullptr);
 

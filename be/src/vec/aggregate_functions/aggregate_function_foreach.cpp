@@ -33,7 +33,8 @@ namespace doris::vectorized {
 
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
-            [&](const std::string& name, const DataTypes& types, const bool result_is_nullable,
+            [&](const std::string& name, const DataTypes& types, const DataTypePtr& result_type,
+                const bool result_is_nullable,
                 const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
         const std::string& suffix = AggregateFunctionForEach::AGG_FOREACH_SUFFIX;
         DataTypes transform_arguments;
@@ -44,8 +45,8 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
         }
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function =
-                factory.get(nested_function_name, transform_arguments, result_is_nullable,
-                            BeExecVersionManager::get_newest_version(), attr);
+                factory.get(nested_function_name, transform_arguments, result_type,
+                            result_is_nullable, BeExecVersionManager::get_newest_version(), attr);
         if (!nested_function) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
