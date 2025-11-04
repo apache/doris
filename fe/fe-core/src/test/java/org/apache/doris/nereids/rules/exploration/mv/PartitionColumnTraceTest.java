@@ -330,7 +330,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo,
-                                    ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true")), "");
+                                    ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
+                                            ImmutableList.of("orders", "o_orderdate", "true", "true")), "");
                         });
     }
 
