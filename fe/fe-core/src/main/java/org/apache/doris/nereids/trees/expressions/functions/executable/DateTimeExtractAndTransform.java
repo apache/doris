@@ -538,6 +538,16 @@ public class DateTimeExtractAndTransform {
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
 
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalLiteral second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
     /**
      * date transformation function: from_unixtime
      */

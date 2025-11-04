@@ -91,6 +91,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 year, month, day, hour, minute, second, microSecond);
     }
 
+    public int getScale() {
+        return ((DateTimeV2Type) dataType).getScale();
+    }
+
     @Override
     public DateTimeV2Type getDataType() throws UnboundException {
         return (DateTimeV2Type) super.getDataType();
