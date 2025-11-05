@@ -24,11 +24,10 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include "udf/udf.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
-
-constexpr auto DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
 
 class SimpleFunctionFactory;
 
@@ -128,9 +127,12 @@ void register_function_soundex(SimpleFunctionFactory& factory);
 void register_function_throw_exception(SimpleFunctionFactory& factory);
 #endif
 
+using SimpleFunctionCreator = std::function<FunctionBuilderPtr(const DataTypePtr&)>;
+
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
+    using FunctionCreators2 = phmap::flat_hash_map<std::string, SimpleFunctionCreator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
     /// @TEMPORARY: for be_exec_version=5.
     /// whenever change this, please make sure old functions was all cleared. otherwise the version now-1 will think it should do replacement
@@ -155,6 +157,10 @@ public:
             }
         }
         function_creators[key_str] = ptr;
+    }
+
+    void register_function2(const std::string& name, const SimpleFunctionCreator& ptr) {
+        function_creators2[name] = ptr;
     }
 
     template <class Function>
@@ -192,13 +198,6 @@ public:
             key_str = function_alias[name];
         }
 
-        if (attr.enable_decimal256) {
-            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
-                key_str == "array_cum_sum") {
-                key_str += DECIMAL256_FUNCTION_SUFFIX;
-            }
-        }
-
         if ((key_str.starts_with("unix_timestamp") || key_str.starts_with("from_unixtime")) &&
             attr.new_version_unix_timestamp) {
             key_str += "_new";
@@ -217,6 +216,15 @@ public:
             }
         }
 
+        auto iter0 = function_creators2.find(key_str);
+        if (iter0 == function_creators2.end()) {
+            // use original name as signature without variadic arguments
+            iter0 = function_creators2.find(name);
+        }
+        if (iter0 != function_creators2.end()) {
+            return iter0->second(return_type)->build(arguments, return_type);
+        }
+
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
@@ -232,6 +240,7 @@ public:
 
 private:
     FunctionCreators function_creators;
+    FunctionCreators2 function_creators2;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
     /// @TEMPORARY: for be_exec_version=8. replace function to old version.
@@ -240,6 +249,11 @@ private:
     template <typename Function>
     static FunctionBuilderPtr createDefaultFunction() {
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
+    }
+
+    template <class FunctionTemplate>
+    static FunctionBuilderPtr createDefaultFunctionWithReturnType(DataTypePtr return_type) {
+        return std::make_shared<DefaultFunctionBuilder>(std::move(return_type));
     }
 
     /// @TEMPORARY: for be_exec_version=8

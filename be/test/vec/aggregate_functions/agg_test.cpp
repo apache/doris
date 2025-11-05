@@ -129,7 +129,7 @@ TEST(AggTest, window_function_test) {
     EXPECT_EQ(size, 4);
 
     is_window_function = false;
-    auto agg_function2 = factory.get("group_bit_or", data_types, true, -1,
+    auto agg_function2 = factory.get("group_bit_or", data_types, nullptr, true, -1,
                                      {.enable_decimal256 = false,
                                       .is_window_function = is_window_function,
                                       .column_names = {}});
@@ -152,15 +152,15 @@ TEST(AggTest, window_function_test2) {
                          .is_window_function = is_window_function,
                          .column_names = {}});
 
-    auto agg_function_group =
-            factory.get("group_bit_or", {make_nullable(std::make_shared<DataTypeInt8>())}, true, -1,
-                        {.enable_decimal256 = false,
-                         .is_window_function = is_window_function,
-                         .column_names = {}});
+    auto agg_function_group = factory.get(
+            "group_bit_or", {make_nullable(std::make_shared<DataTypeInt8>())}, nullptr, true, -1,
+            {.enable_decimal256 = false,
+             .is_window_function = is_window_function,
+             .column_names = {}});
 
     auto agg_function_topn = factory.get(
-            "topn", {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()}, true,
-            -1,
+            "topn", {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()},
+            nullptr, true, -1,
             {.enable_decimal256 = false,
              .is_window_function = is_window_function,
              .column_names = {}});
