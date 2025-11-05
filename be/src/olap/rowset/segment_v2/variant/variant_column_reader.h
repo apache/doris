@@ -29,11 +29,11 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
-#include "olap/rowset/segment_v2/variant_statistics.h"
 #include "olap/rowset/segment_v2/variant/variant_external_meta_reader.h"
+#include "olap/rowset/segment_v2/variant_statistics.h"
 #include "olap/tablet_schema.h"
-#include "vec/columns/column_object.h"
 #include "util/once.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/json/path_in_data.h"
 

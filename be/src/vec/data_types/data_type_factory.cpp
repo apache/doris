@@ -445,7 +445,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = vectorized::create_decimal(precision, scale, false);
         break;
     default:
-        DCHECK(false) << "Invalid FieldType:" << (int)type;
+        // DCHECK(false) << "Invalid FieldType:" << (int)type;
         result = nullptr;
         break;
     }

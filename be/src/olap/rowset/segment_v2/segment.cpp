@@ -610,7 +610,8 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // try to get the reader from cache and return it's data type
     // usually when leaf node is in cache
     if (_column_reader_cache->get_path_column_reader(unique_id, relative_path, &v_reader,
-                                                     nullptr)) {
+                                                     nullptr) &&
+        v_reader != nullptr) {
         return v_reader->get_vec_data_type();
     }
 

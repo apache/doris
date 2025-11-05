@@ -306,8 +306,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         _record_rowids = true;
     }
 
-    RETURN_IF_ERROR(init_iterators());
-
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
@@ -344,6 +342,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
         }
     }
+
+    RETURN_IF_ERROR(init_iterators());
 
     RETURN_IF_ERROR(_construct_compound_expr_context());
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();

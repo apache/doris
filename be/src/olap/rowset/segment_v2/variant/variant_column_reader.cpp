@@ -435,14 +435,15 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
             Status st = column_reader_cache->get_path_column_reader(
                     col_uid, relative_path, &leaf_column_reader, opt->stats, nullptr);
             DCHECK(!has_prefix_path(relative_path));
-            if (st.ok()) {
+            RETURN_IF_ERROR(st);
+            if (st.ok() && leaf_column_reader != nullptr) {
                 // Try external meta fallback: build a leaf reader on demand from externalized meta
                 RETURN_IF_ERROR(leaf_column_reader->new_iterator(iterator, nullptr));
                 return Status::OK();
             }
-            if (!st.is<ErrorCode::NOT_FOUND>()) {
-                return st;
-            }
+            // if (!st.is<ErrorCode::NOT_FOUND>()) {
+            //     return st;
+            // }
             // not found, need continue
         }
         if (exceeded_sparse_column_limit) {
@@ -600,7 +601,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(
     // if parent column has index, add index to _variant_subcolumns_indexes
     else if (!parent_index.empty() &&
              data_type->get_storage_field_type() != doris::FieldType::OLAP_FIELD_TYPE_VARIANT &&
-             data_type->get_storage_field_type() != doris::FieldType::OLAP_FIELD_TYPE_MAP /*SPARSE COLUMN*/) {
+             data_type->get_storage_field_type() !=
+                     doris::FieldType::OLAP_FIELD_TYPE_MAP /*SPARSE COLUMN*/) {
         // type in column maynot be real type, so use data_type to get the real type
         TabletColumn target_column = vectorized::schema_util::get_column_by_type(
                 data_type, column.name(),
