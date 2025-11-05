@@ -156,7 +156,8 @@ public class MTMVPartitionDefinition {
                 List<Column> partitionColumns = pctTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(pctTable));
                 if (partitionColumns.size() != 1) {
                     throw new AnalysisException(String.format(
-                            "only List PartitionType support multi columns partition, but [%s] have [%s] partitionColumns.",
+                            "only List PartitionType support multi columns partition, "
+                                    + "but [%s] have [%s] partitionColumns.",
                             baseColInfo.getTableInfo(), partitionColumns.size()));
                 }
             }
