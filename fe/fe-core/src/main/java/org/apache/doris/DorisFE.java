@@ -188,7 +188,12 @@ public class DorisFE {
                     "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
 
             if (cmdLineOpts.getClusterSnapshotPath() != null) {
-                Env.getCurrentEnv().setClusterSnapshotFile(dorisHomeDir + "/" + cmdLineOpts.getClusterSnapshotPath());
+                String clusterSnapshotPath = cmdLineOpts.getClusterSnapshotPath();
+                if (!clusterSnapshotPath.startsWith("/")) {
+                    // relative path
+                    clusterSnapshotPath = dorisHomeDir + "/" + clusterSnapshotPath;
+                }
+                Env.getCurrentEnv().setClusterSnapshotFile(clusterSnapshotPath);
             }
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);

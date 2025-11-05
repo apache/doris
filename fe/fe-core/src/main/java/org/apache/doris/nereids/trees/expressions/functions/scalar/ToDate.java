@@ -42,7 +42,7 @@ public class ToDate extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable, PropagateNullLiteral, Monotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
