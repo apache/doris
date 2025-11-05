@@ -160,6 +160,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         if (icebergMetadataOps != null) {
             icebergMetadataOps.close();
+            icebergMetadataOps = null;
         }
     }
 
