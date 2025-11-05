@@ -33,8 +33,8 @@
 #include "vec/columns/column_varbinary.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/string_container.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/string_view.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -87,7 +87,7 @@ TEST_F(DataTypeVarbinaryTest, CreateColumnAndCheckColumn) {
 TEST_F(DataTypeVarbinaryTest, GetDefaultField) {
     DataTypeVarbinary dt;
     Field def = dt.get_default();
-    const auto& sv = get<const doris::StringContainer&>(def);
+    const auto& sv = get<const doris::StringView&>(def);
     EXPECT_EQ(sv.size(), 0U);
 }
 
@@ -175,7 +175,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataType) {
 
     auto fwd = dt.get_field_with_data_type(*col, 0);
     EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
-    const auto& sv = get<const doris::StringContainer&>(fwd.field);
+    const auto& sv = get<const doris::StringView&>(fwd.field);
     ASSERT_EQ(sv.size(), v.size());
     ASSERT_EQ(memcmp(sv.data(), v.data(), sv.size()), 0);
 }
@@ -188,7 +188,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNode) {
     node.__isset.varbinary_literal = true;
 
     Field f = dt.get_field(node);
-    const auto& sv = get<const doris::StringContainer&>(f);
+    const auto& sv = get<const doris::StringView&>(f);
     ASSERT_EQ(sv.size(), 5U);
     ASSERT_EQ(memcmp(sv.data(), "hello", 5), 0);
 }

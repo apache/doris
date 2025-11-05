@@ -31,6 +31,8 @@
 #include <google/protobuf/stubs/callback.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <bthread/mutex.h>
+
 #include <atomic>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
@@ -702,7 +704,7 @@ private:
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
     // index_channel
-    std::mutex _stop_check_channel;
+    bthread::Mutex _stop_check_channel;
     std::vector<std::shared_ptr<IndexChannel>> _channels;
     std::unordered_map<int64_t, std::shared_ptr<IndexChannel>> _index_id_to_channel;
 

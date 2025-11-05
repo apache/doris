@@ -44,7 +44,7 @@ public class MonthsSub extends ScalarFunction implements BinaryExpression, Expli
     // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
     // without loss, we handle it by ComputeSignatureForDateArithmetic.
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
                     IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
 

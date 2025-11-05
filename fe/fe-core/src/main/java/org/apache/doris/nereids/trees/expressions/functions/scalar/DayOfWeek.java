@@ -41,7 +41,7 @@ public class DayOfWeek extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
