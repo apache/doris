@@ -2551,7 +2551,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int defaultVariantMaxSubcolumnsCount = 0;
+    public int defaultVariantMaxSubcolumnsCount = 10000;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
             checker = "checkSqlConvertorFeatures",
