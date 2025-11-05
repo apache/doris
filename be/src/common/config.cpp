@@ -1085,6 +1085,7 @@ DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
+DEFINE_mBool(enable_variant_external_meta, "true");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");

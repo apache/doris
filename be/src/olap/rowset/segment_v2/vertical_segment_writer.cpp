@@ -1448,10 +1448,12 @@ Status VerticalSegmentWriter::_write_primary_key_index() {
 Status VerticalSegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
 
-    // Externalize variant subcolumns into ext meta and prune them from footer.columns.
-    auto variant_ext_meta_agg =
-            std::make_unique<VariantExtMetaWriter>(_file_writer, _opts.compression_type);
-    RETURN_IF_ERROR(variant_ext_meta_agg->externalize_from_footer(&_footer));
+    if (config::enable_variant_external_meta) {
+        // Externalize variant subcolumns into ext meta and prune them from footer.columns.
+        auto variant_ext_meta_agg =
+                std::make_unique<VariantExtMetaWriter>(_file_writer, _opts.compression_type);
+        RETURN_IF_ERROR(variant_ext_meta_agg->externalize_from_footer(&_footer));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     VLOG_DEBUG << "footer " << _footer.DebugString();
