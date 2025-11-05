@@ -146,13 +146,34 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     }
 
     bool eos = request->eos();
+    Status exec_status =
+            request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
     if (!request->blocks().empty()) {
-        for (int i = 0; i < request->blocks_size(); i++) {
-            // Previously there was a const_cast here, but in our internal tests this occasionally caused a hard-to-reproduce core dump.
-            // We suspect it was caused by the const_cast, so we switched to making a copy here.
-            // In fact, for PBlock, most of the data resides in the PColumnMeta column_metas field, so the copy overhead is small.
-            // To make the intent explicit, we do not use
-            // std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>(request->blocks(i));
+        const int blocks_size = request->blocks_size();
+        const int sender_id = request->sender_id();
+        const int be_number = request->be_number();
+        const int64_t base_packet_seq = request->packet_seq() - blocks_size;
+
+        // Note: The done pointer will be saved in add_block and may be called in another thread via done->Run().
+        // For example, when blocks_size == 1, the process is as follows:
+        // transmit_block (i=0)
+        //   └─> recvr->add_block(..., done, ...)  // Pass done
+        //        └─> SenderQueue::add_block
+        //             └─> _pending_closures.push(done)  // done is saved
+
+        // get_batch() [another thread]
+        //   └─> closure_pair.first->Run()  // ⚠️ done->Run() is called
+        //        └─> brpc releases request and response
+
+        // transmit_block (i=1)  [original thread continues]
+        //   └─> request->blocks_size()  // ⚠️ request has already been released!
+
+        // At this point, a use-after-free issue occurs.
+
+        /// TODO: We should consider refactoring this part because add_block may release the request.
+        // We should not access the request after calling add_block.
+
+        for (int i = 0; i < blocks_size; i++) {
             std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
             pblock_ptr->CopyFrom(request->blocks(i));
             auto pass_done = [&]() -> ::google::protobuf::Closure** {
@@ -161,7 +182,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
                     return nullptr;
                 }
                 // If it is the last block, a callback is needed, pass done
-                if (i == request->blocks_size() - 1) {
+                if (i == blocks_size - 1) {
                     return done;
                 } else {
                     // If it is not the last block, the blocks in the request currently belong to the same queue,
@@ -169,15 +190,11 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
                     return nullptr;
                 }
             };
-            RETURN_IF_ERROR(recvr->add_block(
-                    std::move(pblock_ptr), request->sender_id(), request->be_number(),
-                    request->packet_seq() - request->blocks_size() + i, pass_done(),
-                    wait_for_worker, cpu_time_stop_watch.elapsed_time()));
+            RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), sender_id, be_number,
+                                             base_packet_seq + i, pass_done(), wait_for_worker,
+                                             cpu_time_stop_watch.elapsed_time()));
         }
-    }
-
-    // old logic, for compatibility
-    if (request->has_block()) {
+    } else if (request->has_block()) {
         std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
         pblock_ptr->CopyFrom(request->block());
         RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
@@ -185,10 +202,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
                                          eos ? nullptr : done, wait_for_worker,
                                          cpu_time_stop_watch.elapsed_time()));
     }
-
     if (eos) {
-        Status exec_status =
-                request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
         recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
     }
     return Status::OK();
