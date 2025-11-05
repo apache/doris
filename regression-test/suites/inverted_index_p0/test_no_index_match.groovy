@@ -97,6 +97,12 @@ suite("test_no_index_match", "p0") {
           qt_sql """ select count() from ${testTable} where (request match_phrase_prefix '欧冶工业品');  """
 
           qt_sql """ select count() from ${testTable} where (request match_regexp '');  """
+
+          qt_sql """ select count() from ${testTable} where (match_phrase(request, 'request'));  """
+          qt_sql """ select count() from ${testTable} where (match_phrase('request', 'request'));  """
+
+          qt_sql """ select count() from ${testTable} where (match_regexp(request, 'request'));  """
+          qt_sql """ select count() from ${testTable} where (match_regexp('request', 'request'));  """
       } finally {
       }
 
