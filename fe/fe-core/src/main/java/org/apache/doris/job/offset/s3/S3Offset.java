@@ -52,11 +52,11 @@ public class S3Offset implements Offset {
 
     @Override
     public String showRange() {
-        return "{\"start\":\"" + startFile + "\",\"end\":\"" + endFile + "\"}";
+        return "{\"startFileName\":\"" + startFile + "\",\"endFileName\":\"" + endFile + "\"}";
     }
 
     @Override
     public String toString() {
-        return "{\"start\":\"" + startFile + "\",\"end\":\"" + endFile + "\",\"fileNum\":" + fileNum + "}";
+        return "{\"startFileName\":\"" + startFile + "\",\"endFileName\":\"" + endFile + "\",\"fileNum\":" + fileNum + "}";
     }
 }

@@ -115,7 +115,7 @@ suite("test_streaming_insert_job") {
     log.info("taskInfo is : " + taskInfo + ", size: " + taskInfo.size())
     assert taskInfo.size() > 0
     taskInfo.get(taskInfo.size()-1).get(0) == "SUCCESS"
-    taskInfo.get(taskInfo.size()-1).get(1) == "{\"start\":\"regression/load/data/example_0.csv\",\"end\":\"regression/load/data/example_0.csv\"}"
+    taskInfo.get(taskInfo.size()-1).get(1) == "{\"startFileName\":\"regression/load/data/example_0.csv\",\"endFileName\":\"regression/load/data/example_0.csv\"}"
 
     // alter streaming job
     sql """
