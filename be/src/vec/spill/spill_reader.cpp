@@ -142,7 +142,9 @@ Status SpillReader::read(Block* block, bool* eos) {
             if (!pb_block_.ParseFromArray(result.data, cast_set<int>(result.size))) {
                 return Status::InternalError("Failed to read spilled block");
             }
-            RETURN_IF_ERROR(block->deserialize(pb_block_));
+            size_t uncompressed_size = 0;
+            int64_t uncompressed_time = 0;
+            RETURN_IF_ERROR(block->deserialize(pb_block_, &uncompressed_size, &uncompressed_time));
         }
         COUNTER_UPDATE(_read_block_data_size, block->bytes());
         COUNTER_UPDATE(_read_rows_count, block->rows());
