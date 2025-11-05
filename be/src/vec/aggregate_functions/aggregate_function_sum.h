@@ -25,7 +25,6 @@
 #include <memory>
 #include <vector>
 
-#include "common/exception.h"
 #include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -77,7 +76,10 @@ public:
     AggregateFunctionSum(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>(
                       argument_types_) {}
-    String get_name() const override { return "sum"; }
+    String get_name() const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "not implement get_name of AggregateFunctionSum");
+    }
     DataTypePtr get_return_type() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "not implement get_return_type of AggregateFunctionSum");
@@ -85,7 +87,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement get_return_type of AggregateFunctionSum");
+                               "not implement add of AggregateFunctionSum");
     }
     void reset(AggregateDataPtr place) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -433,12 +435,13 @@ template <PrimitiveType T>
 using AggregateFunctionSumSimple = typename SumSimple<T>::Function;
 
 template <PrimitiveType InputType, PrimitiveType ResultType>
-struct SumSimpleNew {
+struct SumDecimalV3 {
+    static_assert(is_decimalv3(InputType) && is_decimalv3(ResultType));
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<InputType, ResultType, AggregateDataType>;
 };
 template <PrimitiveType InputType, PrimitiveType ResultType>
-using AggregateFunctionSumSimpleNew = typename SumSimpleNew<InputType, ResultType>::Function;
+using AggregateFunctionSumDecimalV3 = typename SumDecimalV3<InputType, ResultType>::Function;
 
 template <PrimitiveType T>
 struct SumSimpleForAggReader {

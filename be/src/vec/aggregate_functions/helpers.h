@@ -358,24 +358,23 @@ struct creator_with_type_list_base {
         };
         AggregateFunctionPtr result = nullptr;
         auto type = argument_types[define_index]->get_primitive_type();
-        if (type == PrimitiveType::TYPE_CHAR || type == PrimitiveType::TYPE_STRING ||
-            type == PrimitiveType::TYPE_JSONB) {
-            type = PrimitiveType::TYPE_VARCHAR;
-        }
 
         (
                 [&] {
                     if (type == AllowedTypes) {
+                        static_assert(is_decimalv3(AllowedTypes));
                         auto call = [&](const auto& type) -> bool {
                             using DispatchType = std::decay_t<decltype(type)>;
                             result =
                                     create.template operator()<AllowedTypes, DispatchType::PType>();
                             return true;
                         };
-                        if (!dispatch_switch_decimal(result_type->get_primitive_type(), call)) {
-                            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                   "agg function {} not support result type {}",
-                                                   name, result_type->get_name());
+                        if (!dispatch_switch_decimalv3(result_type->get_primitive_type(), call)) {
+                            throw doris::Exception(
+                                    ErrorCode::INTERNAL_ERROR,
+                                    "agg function {} error, arg type {}, result type {}", name,
+                                    argument_types[define_index]->get_name(),
+                                    result_type->get_name());
                         }
                     }
                 }(),
@@ -393,6 +392,8 @@ struct creator_with_type_list_base {
                                                                    result_is_nullable, attr);
     }
 
+    // Create agg function with result type from FE.
+    // Currently only used for decimalv3 sum and avg.
     template <template <PrimitiveType, PrimitiveType> class AggregateFunctionTemplate>
     static AggregateFunctionPtr creator_with_result_type(const std::string& name,
                                                          const DataTypes& argument_types,

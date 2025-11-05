@@ -260,8 +260,6 @@ struct PrimitiveTypeTraits;
  * DataType: DataType which is mapping to this PrimitiveType
  * ColumnType: ColumnType which is mapping to this PrimitiveType
  * NearestFieldType: Nearest Doris type in execution engine
- * AvgNearestFieldType: Nearest Doris type in execution engine for Avg
- * AvgNearestFieldType256: Nearest Doris type in execution engine  for Avg
  * NearestPrimitiveType: Nearest primitive type
  */
 template <>
@@ -273,8 +271,6 @@ struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
     using DataType = vectorized::DataTypeBool;
     using ColumnType = vectorized::ColumnUInt8;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType256 = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
@@ -288,8 +284,6 @@ struct PrimitiveTypeTraits<TYPE_TINYINT> {
     using DataType = vectorized::DataTypeInt8;
     using ColumnType = vectorized::ColumnInt8;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType256 = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
@@ -303,8 +297,6 @@ struct PrimitiveTypeTraits<TYPE_SMALLINT> {
     using DataType = vectorized::DataTypeInt16;
     using ColumnType = vectorized::ColumnInt16;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType256 = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
@@ -318,8 +310,6 @@ struct PrimitiveTypeTraits<TYPE_INT> {
     using DataType = vectorized::DataTypeInt32;
     using ColumnType = vectorized::ColumnInt32;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType256 = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
@@ -333,8 +323,6 @@ struct PrimitiveTypeTraits<TYPE_BIGINT> {
     using DataType = vectorized::DataTypeInt64;
     using ColumnType = vectorized::ColumnInt64;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int128;
-    using AvgNearestFieldType256 = vectorized::Int128;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_LARGEINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_LARGEINT;
@@ -348,8 +336,6 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
     using DataType = vectorized::DataTypeInt128;
     using ColumnType = vectorized::ColumnInt128;
     using NearestFieldType = vectorized::Int128;
-    using AvgNearestFieldType = vectorized::Int128;
-    using AvgNearestFieldType256 = vectorized::Int128;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_LARGEINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_LARGEINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_LARGEINT;
@@ -363,8 +349,6 @@ struct PrimitiveTypeTraits<TYPE_NULL> {
     using DataType = vectorized::DataTypeNothing;
     using ColumnType = vectorized::IColumnDummy;
     using NearestFieldType = vectorized::Null;
-    using AvgNearestFieldType = vectorized::Null;
-    using AvgNearestFieldType256 = vectorized::Null;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_NULL;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_NULL;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_NULL;
@@ -378,8 +362,6 @@ struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using DataType = vectorized::DataTypeFloat32;
     using ColumnType = vectorized::ColumnFloat32;
     using NearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
@@ -393,8 +375,6 @@ struct PrimitiveTypeTraits<TYPE_DOUBLE> {
     using DataType = vectorized::DataTypeFloat64;
     using ColumnType = vectorized::ColumnFloat64;
     using NearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
@@ -408,8 +388,6 @@ struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using DataType = vectorized::DataTypeTimeV2;
     using ColumnType = vectorized::ColumnTimeV2;
     using NearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
@@ -423,8 +401,6 @@ struct PrimitiveTypeTraits<TYPE_TIME> {
     using DataType = vectorized::DataTypeTimeV2;
     using ColumnType = vectorized::ColumnTime;
     using NearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
@@ -439,8 +415,6 @@ struct PrimitiveTypeTraits<TYPE_DATE> {
     using DataType = vectorized::DataTypeDate;
     using ColumnType = vectorized::ColumnDate;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType256 = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATE;
@@ -454,8 +428,6 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using DataType = vectorized::DataTypeDateTime;
     using ColumnType = vectorized::ColumnDateTime;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType256 = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIME;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATETIME;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATETIME;
@@ -469,8 +441,6 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using DataType = vectorized::DataTypeDateTimeV2;
     using ColumnType = vectorized::ColumnDateTimeV2;
     using NearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType256 = vectorized::UInt64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIMEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATETIMEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATETIMEV2;
@@ -484,8 +454,6 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using DataType = vectorized::DataTypeDateV2;
     using ColumnType = vectorized::ColumnDateV2;
     using NearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType = vectorized::UInt32;
-    using AvgNearestFieldType256 = vectorized::UInt32;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATEV2;
@@ -500,8 +468,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using DataType = vectorized::DataTypeDecimalV2;
     using ColumnType = vectorized::ColumnDecimal128V2;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V2>;
-    using AvgNearestFieldType = vectorized::Decimal128V2;
-    using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMALV2;
@@ -515,8 +481,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
     using DataType = vectorized::DataTypeDecimal32;
     using ColumnType = vectorized::ColumnDecimal32;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal32>;
-    using AvgNearestFieldType = vectorized::Decimal128V3;
-    using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL32;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL128I;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
@@ -530,8 +494,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using DataType = vectorized::DataTypeDecimal64;
     using ColumnType = vectorized::ColumnDecimal64;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal64>;
-    using AvgNearestFieldType = vectorized::Decimal128V3;
-    using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL64;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL128I;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
@@ -545,8 +507,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using DataType = vectorized::DataTypeDecimal128;
     using ColumnType = vectorized::ColumnDecimal128V3;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V3>;
-    using AvgNearestFieldType = vectorized::Decimal128V3;
-    using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL128I;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL128I;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
@@ -560,8 +520,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
     using DataType = vectorized::DataTypeDecimal256;
     using ColumnType = vectorized::ColumnDecimal256;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal256>;
-    using AvgNearestFieldType = vectorized::Decimal256;
-    using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL256;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL256;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
@@ -575,8 +533,6 @@ struct PrimitiveTypeTraits<TYPE_IPV4> {
     using DataType = vectorized::DataTypeIPv4;
     using ColumnType = vectorized::ColumnIPv4;
     using NearestFieldType = IPv4;
-    using AvgNearestFieldType = IPv4;
-    using AvgNearestFieldType256 = IPv4;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_IPV4;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_IPV4;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_IPV4;
@@ -590,8 +546,6 @@ struct PrimitiveTypeTraits<TYPE_IPV6> {
     using DataType = vectorized::DataTypeIPv6;
     using ColumnType = vectorized::ColumnIPv6;
     using NearestFieldType = IPv6;
-    using AvgNearestFieldType = IPv6;
-    using AvgNearestFieldType256 = IPv6;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_IPV6;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_IPV6;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_IPV6;
@@ -605,8 +559,6 @@ struct PrimitiveTypeTraits<TYPE_CHAR> {
     using DataType = vectorized::DataTypeString;
     using ColumnType = vectorized::ColumnString;
     using NearestFieldType = vectorized::String;
-    using AvgNearestFieldType = vectorized::String;
-    using AvgNearestFieldType256 = vectorized::String;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_CHAR;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_CHAR;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_CHAR;
@@ -620,8 +572,6 @@ struct PrimitiveTypeTraits<TYPE_VARCHAR> {
     using DataType = vectorized::DataTypeString;
     using ColumnType = vectorized::ColumnString;
     using NearestFieldType = vectorized::String;
-    using AvgNearestFieldType = vectorized::String;
-    using AvgNearestFieldType256 = vectorized::String;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARCHAR;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARCHAR;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARCHAR;
@@ -635,8 +585,6 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     using DataType = vectorized::DataTypeString;
     using ColumnType = vectorized::ColumnString;
     using NearestFieldType = vectorized::String;
-    using AvgNearestFieldType = vectorized::String;
-    using AvgNearestFieldType256 = vectorized::String;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_STRING;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_STRING;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRING;
@@ -650,8 +598,6 @@ struct PrimitiveTypeTraits<TYPE_VARBINARY> {
     using DataType = vectorized::DataTypeVarbinary;
     using ColumnType = vectorized::ColumnVarbinary;
     using NearestFieldType = doris::StringView;
-    using AvgNearestFieldType = doris::StringView;
-    using AvgNearestFieldType256 = doris::StringView;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARBINARY;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARBINARY;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARBINARY;
@@ -665,8 +611,6 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using DataType = vectorized::DataTypeHLL;
     using ColumnType = vectorized::ColumnHLL;
     using NearestFieldType = HyperLogLog;
-    using AvgNearestFieldType = HyperLogLog;
-    using AvgNearestFieldType256 = HyperLogLog;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_HLL;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_HLL;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_HLL;
@@ -680,8 +624,6 @@ struct PrimitiveTypeTraits<TYPE_JSONB> {
     using DataType = vectorized::DataTypeJsonb;
     using ColumnType = vectorized::ColumnString;
     using NearestFieldType = vectorized::JsonbField;
-    using AvgNearestFieldType = vectorized::JsonbField;
-    using AvgNearestFieldType256 = vectorized::JsonbField;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_JSONB;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_JSONB;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_JSONB;
@@ -695,8 +637,6 @@ struct PrimitiveTypeTraits<TYPE_ARRAY> {
     using DataType = vectorized::DataTypeArray;
     using ColumnType = vectorized::ColumnArray;
     using NearestFieldType = vectorized::Array;
-    using AvgNearestFieldType = vectorized::Array;
-    using AvgNearestFieldType256 = vectorized::Array;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_ARRAY;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_ARRAY;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_ARRAY;
@@ -710,8 +650,6 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
     using DataType = vectorized::DataTypeMap;
     using ColumnType = vectorized::ColumnMap;
     using NearestFieldType = vectorized::Map;
-    using AvgNearestFieldType = vectorized::Map;
-    using AvgNearestFieldType256 = vectorized::Map;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_MAP;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_MAP;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_MAP;
@@ -725,8 +663,6 @@ struct PrimitiveTypeTraits<TYPE_STRUCT> {
     using DataType = vectorized::DataTypeStruct;
     using ColumnType = vectorized::ColumnStruct;
     using NearestFieldType = vectorized::Tuple;
-    using AvgNearestFieldType = vectorized::Tuple;
-    using AvgNearestFieldType256 = vectorized::Tuple;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_STRUCT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_STRUCT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRUCT;
@@ -740,8 +676,6 @@ struct PrimitiveTypeTraits<TYPE_VARIANT> {
     using DataType = vectorized::DataTypeVariant;
     using ColumnType = vectorized::ColumnVariant;
     using NearestFieldType = vectorized::VariantMap;
-    using AvgNearestFieldType = vectorized::VariantMap;
-    using AvgNearestFieldType256 = vectorized::VariantMap;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARIANT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARIANT;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARIANT;
@@ -755,8 +689,6 @@ struct PrimitiveTypeTraits<TYPE_BITMAP> {
     using DataType = vectorized::DataTypeBitMap;
     using ColumnType = vectorized::ColumnBitmap;
     using NearestFieldType = BitmapValue;
-    using AvgNearestFieldType = BitmapValue;
-    using AvgNearestFieldType256 = BitmapValue;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BITMAP;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BITMAP;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BITMAP;
@@ -770,8 +702,6 @@ struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {
     using DataType = vectorized::DataTypeQuantileState;
     using ColumnType = vectorized::ColumnQuantileState;
     using NearestFieldType = QuantileState;
-    using AvgNearestFieldType = QuantileState;
-    using AvgNearestFieldType256 = QuantileState;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_QUANTILE_STATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_QUANTILE_STATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_QUANTILE_STATE;
@@ -785,8 +715,6 @@ struct PrimitiveTypeTraits<TYPE_UINT32> {
     using DataType = vectorized::DataTypeNothing;
     using ColumnType = vectorized::ColumnOffset32;
     using NearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType256 = vectorized::UInt64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_UINT32;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_UINT32;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_UINT32;
@@ -800,8 +728,6 @@ struct PrimitiveTypeTraits<TYPE_UINT64> {
     using DataType = vectorized::DataTypeNothing;
     using ColumnType = vectorized::ColumnOffset64;
     using NearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_UINT64;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;

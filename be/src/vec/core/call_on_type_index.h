@@ -156,6 +156,7 @@ struct DispatchDataTypeMask {
     static constexpr uint32_t DATETIME = 1 << 3;
     static constexpr uint32_t IP = 1 << 4;
     static constexpr uint32_t STRING = 1 << 5;
+    static constexpr uint32_t DECIMALV3 = 1 << 6;
 
     static constexpr uint32_t SCALAR = INT | FLOAT | DECIMAL | DATETIME | IP;
     static constexpr uint32_t NUMBER = INT | FLOAT | DECIMAL;
@@ -189,6 +190,21 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
             return f(DispatchDataType<TYPE_FLOAT>());
         case PrimitiveType::TYPE_DOUBLE:
             return f(DispatchDataType<TYPE_DOUBLE>());
+        default:
+            break;
+        }
+    }
+
+    if constexpr ((TypeMaskV & DispatchDataTypeMask::DECIMALV3) != 0) {
+        switch (number) {
+        case PrimitiveType::TYPE_DECIMAL32:
+            return f(DispatchDataType<TYPE_DECIMAL32>());
+        case PrimitiveType::TYPE_DECIMAL64:
+            return f(DispatchDataType<TYPE_DECIMAL64>());
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return f(DispatchDataType<TYPE_DECIMAL128I>());
+        case PrimitiveType::TYPE_DECIMAL256:
+            return f(DispatchDataType<TYPE_DECIMAL256>());
         default:
             break;
         }
@@ -271,6 +287,11 @@ bool dispatch_switch_number(PrimitiveType number, F&& f) {
 template <typename F>
 bool dispatch_switch_decimal(PrimitiveType number, F&& f) {
     return dispatch_type_base<F, DispatchDataTypeMask::DECIMAL>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_decimalv3(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::DECIMALV3>(number, std::forward<F>(f));
 }
 
 } // namespace doris::vectorized
