@@ -46,10 +46,7 @@ public interface ComputeSignatureForSingleTimeArithmetic extends ComputeSignatur
                     new TimeV2Literal(s); // check legality
                     TimeV2Type t = TimeV2Type.forTypeFromString(s);
                     int scale = t.getScale();
-                    FunctionSignature timeSignature = FunctionSignature.ret(IntegerType.INSTANCE)
-                            .args(TimeV2Type.of(scale));
-                    // Apply the same signature computation chain to the time signature
-                    return ComputeSignature.super.computeSignature(timeSignature);
+                    return FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.of(scale));
                 }
 
             } catch (Exception e) {
