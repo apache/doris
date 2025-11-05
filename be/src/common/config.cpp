@@ -1105,6 +1105,7 @@ DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
+DEFINE_mBool(enable_variant_external_meta, "true");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -2091,6 +2092,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
+    fuzzy_field_and_value["enable_variant_external_meta"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     if (config::enable_fuzzy_storage_encoding) {
         fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
                 ((distribution(*generator) % 2) == 0) ? "v1" : "v2";

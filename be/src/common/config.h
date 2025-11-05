@@ -1328,6 +1328,8 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
+// Enable variant external meta
+DECLARE_mBool(enable_variant_external_meta);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
