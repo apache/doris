@@ -149,6 +149,9 @@ private:
                         const std::vector<int64_t>& success_tablet_ids,
                         const FailedTablets& failed_tablets, bool eos);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
+    void _collect_tablet_load_info_from_tablets(
+            const std::vector<int64_t>& tablet_ids,
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_load_infos);
 
     // report failure for one message
     void _report_failure(StreamId stream, const Status& status, const PStreamHeader& header) {
