@@ -39,7 +39,7 @@ public class MicroSecondsSub extends ScalarFunction implements BinaryExpression,
         PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList
-            .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE));
+            .of(FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE));
 
     public MicroSecondsSub(Expression arg0, Expression arg1) {
         super("microseconds_sub", arg0, arg1);

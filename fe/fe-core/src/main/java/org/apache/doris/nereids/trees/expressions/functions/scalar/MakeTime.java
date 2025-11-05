@@ -36,7 +36,7 @@ import java.util.List;
  */
 public class MakeTime extends ScalarFunction implements ExplicitlyCastableSignature, AlwaysNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.INSTANCE)
+            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT)
                 .args(BigIntType.INSTANCE, BigIntType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.MAX)
                 .args(BigIntType.INSTANCE, BigIntType.INSTANCE, DoubleType.INSTANCE)

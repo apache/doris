@@ -40,11 +40,11 @@ public class Timestamp extends ScalarFunction
     //When enable_date_conversion is true, we prefer to V2 signature.
     // This preference follows original planner. refer to ScalarType.getDefaultDateType()
     public static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE)
     ) : ImmutableList.of(
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT)
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD)
     );
 
     /**

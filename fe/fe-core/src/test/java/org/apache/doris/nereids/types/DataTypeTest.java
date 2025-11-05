@@ -113,7 +113,7 @@ public class DataTypeTest {
         // datev2
         Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
         // time
-        Assertions.assertEquals(TimeV2Type.INSTANCE, DataType.convertFromString("time"));
+        Assertions.assertEquals(TimeV2Type.SYSTEM_DEFAULT, DataType.convertFromString("time"));
 
         // datetime
         Assertions.assertEquals(DateTimeType.INSTANCE, DataType.convertFromString("datetime"));
