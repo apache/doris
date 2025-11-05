@@ -254,7 +254,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                 vectorized::MutableColumnPtr column_ptr =
                         std::move(*block->get_by_position(i).column).mutate();
                 column_ptr->insert_range_from(
-                        *src_block.get_by_position(dest_slot_desc->id()).column, 0,
+                        *src_block.safe_get_by_position(dest_slot_desc->id()).column, 0,
                         src_block.rows());
             }
             RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
