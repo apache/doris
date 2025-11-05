@@ -147,10 +147,7 @@ public class HttpServer extends SpringBootServletInitializer {
             properties.put("server.address", "0.0.0.0");
         }
         properties.put("server.servlet.context-path", "/");
-        properties.put("spring.resources.static-locations", "classpath:/static");
         properties.put("spring.http.encoding.charset", "UTF-8");
-        properties.put("spring.web.resources.add-mappings", true);
-        properties.put("debug", true);
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
         // enable jetty config
@@ -181,6 +178,6 @@ public class HttpServer extends SpringBootServletInitializer {
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)
-                .run(new String[]{});
+                .run();
     }
 }
