@@ -81,10 +81,10 @@ public class UtcTimestamp extends ScalarFunction
     public void checkLegalityAfterRewrite() {
         if (arity() == 1) {
             if (child(0).isNullLiteral()) {
-                throw new AnalysisException("UTC_TIME argument cannot be NULL.");
+                throw new AnalysisException("UTC_TIMESTAMP argument cannot be NULL.");
             }
             if (!child(0).isLiteral()) {
-                throw new AnalysisException("UTC_TIME scale argument must be a constant literal.");
+                throw new AnalysisException("UTC_TIMESTAMP scale argument must be a constant literal.");
             }
         }
     }
