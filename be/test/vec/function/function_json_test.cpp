@@ -78,7 +78,7 @@ TEST(FunctionJsonTEST, GetJsonStringTest) {
             {{VARCHAR(R"({"k1.key":{"k2":["v1", "v2"]}})"), VARCHAR("$.\"k1.key\".k2[0]")},
              VARCHAR("v1")},
             {{VARCHAR(R"([{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4"}])"), VARCHAR("$.k1")},
-             Null()}};
+             VARCHAR(R"(["v1","v3","v4"])")}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
