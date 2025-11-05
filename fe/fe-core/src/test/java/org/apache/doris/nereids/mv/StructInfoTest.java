@@ -136,7 +136,7 @@ public class StructInfoTest extends SqlTestBase {
     }
 
     @Test
-    public void testCheckLimitTmpRewrittenPlanInValid() {
+    public void testCheckWindowTmpRewrittenPlanInValid() {
         PlanChecker.from(connectContext)
                 .checkExplain("select o_orderkey, c2\n"
                                 + "from (select o_orderkey from orders_arr limit 1) orders_a\n"
@@ -149,9 +149,9 @@ public class StructInfoTest extends SqlTestBase {
     }
 
     @Test
-    public void testCheckLimitTmpRewrittenPlanIsValid() {
+    public void testCheckWindowTmpRewrittenPlanIsValid() {
         PlanChecker.from(connectContext)
-                .checkExplain("select o_orderkey from orders_arr limit 1",
+                .checkExplain("select o_orderkey from orders_arr where o_orderkey > 1",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
                             Assertions.assertTrue(StructInfo.checkWindowTmpRewrittenPlanIsValid(rewrittenPlan));
