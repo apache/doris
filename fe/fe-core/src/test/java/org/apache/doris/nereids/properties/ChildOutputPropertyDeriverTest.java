@@ -34,11 +34,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-<<<<<<< HEAD
-=======
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
->>>>>>> f0abb0c8653 ([fix](nereids) adjust distribute expr lists after project common sub expression for aggregation (#57258))
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
