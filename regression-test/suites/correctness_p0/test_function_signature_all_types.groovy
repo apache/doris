@@ -24,6 +24,12 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     def originDisableDatev1 = configResult[0][1]
     logger.info("disable_datev1: $originDisableDatev1")
     
+    // Save and set config to control date conversion
+    def enableDateConvResult = sql "SHOW FRONTEND CONFIG LIKE 'enable_date_conversion'"
+    assert enableDateConvResult.size() == 1
+    def originEnableDateConversion = enableDateConvResult[0][1]
+    logger.info("enable_date_conversion: $originEnableDateConversion")
+
     sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'false')"
     logger.info("set disable_datev1 to false")
 
@@ -1033,4 +1039,6 @@ suite("test_function_signature_all_types", 'nonConcurrent') {
     // Restore config
     sql "ADMIN SET FRONTEND CONFIG ('disable_datev1' = '${originDisableDatev1}')"
     logger.info("restore disable_datev1 to ${originDisableDatev1}")
+    sql "ADMIN SET FRONTEND CONFIG ('enable_date_conversion' = '${originEnableDateConversion}')"
+    logger.info("restore enable_date_conversion to ${originEnableDateConversion}")
 }
