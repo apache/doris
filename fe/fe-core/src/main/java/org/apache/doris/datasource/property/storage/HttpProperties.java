@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.storage;
 
 import com.baidubce.services.cdn.model.OriginPeer;
-import com.uber.m3.util.ImmutableSet;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.hadoop.conf.Configuration;
@@ -26,6 +25,8 @@ import org.apache.http.annotation.Immutable;
 import org.apache.hudi.common.util.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
 
@@ -94,5 +95,9 @@ public class HttpProperties extends StorageProperties {
             hadoopStorageConfig.set(entry.getKey(), entry.getValue());
         }
     }
-
+   
+     @Override
+     protected Set<String> schemas() {
+        return ImmutableSet.of("http");
+    }
 }
