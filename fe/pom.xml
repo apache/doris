@@ -445,6 +445,12 @@ under the License.
                 <artifactId>ivy</artifactId>
                 <version>${ivy.version}</version>
             </dependency>
+            <!-- has conflict with jakarta.servlet-api-->
+            <dependency>
+                <groupId>org.eclipse.jetty.toolchain</groupId>
+                <artifactId>jetty-jakarta-servlet-api</artifactId>
+                <scope>test</scope>
+            </dependency>
             <dependency>
                 <groupId>com.ibm.icu</groupId>
                 <artifactId>icu4j</artifactId>

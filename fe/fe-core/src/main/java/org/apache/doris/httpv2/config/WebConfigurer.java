@@ -58,6 +58,8 @@ public class WebConfigurer implements WebMvcConfigurer {
         registry.addViewController("/notFound")
                 .setStatusCode(HttpStatus.OK)
                 .setViewName("forward:/index.html");
+        registry.addViewController("/{path:[^\\.]*}")
+                .setViewName("forward:/index.html");
     }
 
     @Bean
