@@ -348,6 +348,15 @@ struct TGetRealtimeExecStatusResponse {
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
 }
 
+struct TTestStorageConnectivityRequest {
+    1: optional Types.TStorageBackendType type;
+    2: optional map<string, string> properties;
+}
+
+struct TTestStorageConnectivityResponse {
+    1: optional Status.TStatus status;
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -416,4 +425,7 @@ service BackendService {
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
+
+    // Test storage connectivity (S3, HDFS, etc.)
+    TTestStorageConnectivityResponse test_storage_connectivity(1:TTestStorageConnectivityRequest request);
 }

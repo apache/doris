@@ -139,6 +139,9 @@ public:
     void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
                                   const TGetRealtimeExecStatusRequest& request) override;
 
+    void test_storage_connectivity(TTestStorageConnectivityResponse& response,
+                                   const TTestStorageConnectivityRequest& request) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
