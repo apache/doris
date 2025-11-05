@@ -63,7 +63,7 @@ Status MemFileCacheStorage::append(const FileCacheKey& key, const Slice& value) 
     return Status::OK();
 }
 
-Status MemFileCacheStorage::finalize(const FileCacheKey& key) {
+Status MemFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
     // do nothing for in memory cache coz nothing to persist
     // download state in FileBlock::finalize will inform the readers when finish
     return Status::OK();
@@ -104,14 +104,15 @@ Status MemFileCacheStorage::remove(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status MemFileCacheStorage::change_key_meta_type(const FileCacheKey& key,
-                                                 const FileCacheType type) {
+Status MemFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
+                                                 const size_t size) {
     // do nothing for in memory cache coz nothing to persist
     return Status::OK();
 }
 
 Status MemFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
-                                                       const uint64_t expiration) {
+                                                       const uint64_t expiration,
+                                                       const size_t size) {
     // do nothing for in memory cache coz nothing to persist
     return Status::OK();
 }
