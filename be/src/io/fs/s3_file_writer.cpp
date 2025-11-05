@@ -188,10 +188,12 @@ Status S3FileWriter::_build_upload_buffer() {
         // that this instance of S3FileWriter might have been destructed when we
         // try to do writing into file cache, so we make the lambda capture the variable
         // we need by value to extend their lifetime
-        builder.set_allocate_file_blocks_holder(
-                [builder = *_cache_builder, offset = _bytes_appended]() -> FileBlocksHolderPtr {
-                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size);
-                });
+        int64_t id = get_tablet_id(_obj_storage_path_opts.path.native()).value_or(0);
+        builder.set_allocate_file_blocks_holder([builder = *_cache_builder,
+                                                 offset = _bytes_appended,
+                                                 tablet_id = id]() -> FileBlocksHolderPtr {
+            return builder.allocate_cache_holder(offset, config::s3_write_buffer_size, tablet_id);
+        });
     }
     RETURN_IF_ERROR(builder.build(&_pending_buf));
     auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
