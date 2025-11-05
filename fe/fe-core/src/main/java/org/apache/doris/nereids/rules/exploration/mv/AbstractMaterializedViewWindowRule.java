@@ -24,11 +24,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -90,7 +87,7 @@ public abstract class AbstractMaterializedViewWindowRule extends AbstractMateria
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping, Plan tempRewrittenPlan, MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
-        if (!checkTmpRewrittenPlanIsValid(tempRewrittenPlan)) {
+        if (!StructInfo.checkWindowTmpRewrittenPlanIsValid(tempRewrittenPlan)) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Window rewriteQueryByView fail",
                     () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
@@ -123,29 +120,5 @@ public abstract class AbstractMaterializedViewWindowRule extends AbstractMateria
                         .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
                         .map(NamedExpression.class::cast)
                         .collect(Collectors.toList()), tempRewrittenPlan);
-    }
-
-    // Check the tempRewrittenPlan is valid, should only contain logical project, scan or filter
-    protected boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
-        if (tempRewrittenPlan == null) {
-            return false;
-        }
-        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
-            @Override
-            public Boolean visit(Plan plan, Void context) {
-                if (plan instanceof LogicalProject || plan instanceof CatalogRelation
-                        || plan instanceof LogicalFilter) {
-                    boolean isValid;
-                    for (Plan child : plan.children()) {
-                        isValid = child.accept(this, context);
-                        if (!isValid) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }
-        }, null);
     }
 }

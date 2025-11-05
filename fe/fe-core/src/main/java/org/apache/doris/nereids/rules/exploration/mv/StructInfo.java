@@ -622,7 +622,7 @@ public class StructInfo {
      * The context for plan check context, make sure that the plan in query and mv is valid or not
      */
     public static class PlanCheckContext {
-        // the aggregate above join
+        // Record if aggregate is above join or not
         private boolean containsTopAggregate = false;
         private int topAggregateNum = 0;
         // This indicates whether the operators above the join contain any window operator.
@@ -630,8 +630,9 @@ public class StructInfo {
         // This records the number of window operators above the join.
         private int topWindowNum = 0;
         private boolean alreadyMeetJoin = false;
+        // Records whether an Aggregate operator has been meet when check window operator
         private boolean alreadyMeetAggregate = false;
-        // Indicates if a window operator is under an Aggregate operator, because the window operator above
+        // Indicates if a window operator is under an Aggregate operator, because the window operator under
         // aggregate is not supported now.
         private boolean windowUnderAggregate = false;
         private final Set<JoinType> supportJoinTypes;
@@ -733,11 +734,12 @@ public class StructInfo {
         @Override
         public Boolean visitLogicalWindow(LogicalWindow<? extends Plan> window, PlanCheckContext checkContext) {
             if (!checkContext.isAlreadyMeetJoin()) {
-                checkContext.setContainsTopWindow(true);
-                checkContext.plusTopWindowNum();
                 if (checkContext.isAlreadyMeetAggregate()) {
                     checkContext.setWindowUnderAggregate(true);
+                    return false;
                 }
+                checkContext.setContainsTopWindow(true);
+                checkContext.plusTopWindowNum();
             }
             return visit(window, checkContext);
         }
@@ -878,5 +880,31 @@ public class StructInfo {
         NODE_COULD_MOVE,
         NODE_COULD_NOT_MOVE,
         FILTER_EDGE
+    }
+
+    /**
+     * Check the tempRewrittenPlan is valid, should only contain project, scan or filter
+     */
+    public static boolean checkWindowTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
+        if (tempRewrittenPlan == null) {
+            return false;
+        }
+        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
+            @Override
+            public Boolean visit(Plan plan, Void context) {
+                if (plan instanceof LogicalProject || plan instanceof CatalogRelation
+                        || plan instanceof LogicalFilter) {
+                    boolean isValid;
+                    for (Plan child : plan.children()) {
+                        isValid = child.accept(this, context);
+                        if (!isValid) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+        }, null);
     }
 }
