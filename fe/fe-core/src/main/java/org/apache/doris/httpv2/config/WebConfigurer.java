@@ -29,7 +29,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.multipart.support.StandardServletMultipartResolver;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
-import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -59,18 +58,6 @@ public class WebConfigurer implements WebMvcConfigurer {
         registry.addViewController("/notFound")
                 .setStatusCode(HttpStatus.OK)
                 .setViewName("forward:/index.html");
-    }
-
-    @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        registry.addResourceHandler("/**")
-                .addResourceLocations(
-                        "classpath:/META-INF/resources/**",
-                        "classpath:/resources/**",
-                        "classpath:/static/**",
-                        "classpath:/public/**",
-                        "classpath:/lib/**"
-                );
     }
 
     @Bean
