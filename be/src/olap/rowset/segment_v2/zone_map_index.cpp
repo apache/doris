@@ -107,7 +107,7 @@ void TypedZoneMapIndexWriter<Type>::moidfy_index_before_flush(
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
+void TypedZoneMapIndexWriter<Type>::invalid_page_zone_map() {
     _page_zone_map.pass_all = true;
 }
 
