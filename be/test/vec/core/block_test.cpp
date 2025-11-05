@@ -74,8 +74,10 @@ void block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
-                                &uncompressed_bytes, &compressed_bytes, compression_type);
+    int64_t compress_time = 0;
+    Status st =
+            block.serialize(BeExecVersionManager::get_newest_version(), pblock, &uncompressed_bytes,
+                            &compressed_bytes, &compress_time, compression_type);
     EXPECT_TRUE(st.ok());
     // const column maybe uncompressed_bytes<compressed_bytes
     // as the serialize_bytes add some additional byets: STREAMVBYTE_PADDING=16;
@@ -147,7 +149,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -169,7 +173,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -192,7 +198,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -219,7 +227,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -240,7 +250,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -263,7 +275,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -287,7 +301,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -303,7 +319,9 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -328,7 +346,9 @@ void serialize_and_deserialize_test_one() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -354,7 +374,9 @@ void serialize_and_deserialize_test_int() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -378,7 +400,9 @@ void serialize_and_deserialize_test_int() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -403,7 +427,9 @@ void serialize_and_deserialize_test_long() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -427,7 +453,9 @@ void serialize_and_deserialize_test_long() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -452,7 +480,9 @@ void serialize_and_deserialize_test_string() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -477,7 +507,9 @@ void serialize_and_deserialize_test_string() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -505,7 +537,9 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -530,7 +564,9 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -554,7 +590,9 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -576,7 +614,9 @@ void serialize_and_deserialize_test_nullable() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
@@ -602,7 +642,9 @@ void serialize_and_deserialize_test_decimal() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -626,7 +668,9 @@ void serialize_and_deserialize_test_decimal() {
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
@@ -658,7 +702,9 @@ void serialize_and_deserialize_test_bitmap() {
         std::string s1 = pblock.DebugString();
         std::string bb1 = block.dump_data(0, 1024);
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
         PBlock pblock2;
@@ -688,7 +734,9 @@ void serialize_and_deserialize_test_bitmap() {
         std::string s1 = pblock.DebugString();
         std::string bb1 = block.dump_data(0, 1024);
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         std::string bb2 = block2.dump_data(0, 1024);
         EXPECT_EQ(bb1, bb2);
         EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
@@ -709,7 +757,9 @@ void serialize_and_deserialize_test_array() {
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
         std::string s1 = pblock.DebugString();
         vectorized::Block block2;
-        static_cast<void>(block2.deserialize(pblock));
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
