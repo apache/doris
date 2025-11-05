@@ -37,7 +37,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -76,18 +75,13 @@ public class LoadProcessor extends AbstractJobProcessor {
 
         topFragmentTasks = Lists.newArrayList();
 
-        LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet());
+        LOG.info("dispatch load job: {} to {}",
+                DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
+        );
     }
 
     @Override
     protected void afterSetPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {
-        Map<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks = this.backendFragmentTasks.get();
-        MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>(backendFragmentTasks.size());
-        for (BackendFragmentId backendFragmentId : backendFragmentTasks.keySet()) {
-            latch.addMark(backendFragmentId.fragmentId, backendFragmentId.backendId);
-        }
-        this.latch = Optional.of(latch);
-
         int topFragmentId = coordinatorContext.topDistributedPlan
                 .getFragmentJob()
                 .getFragment()
@@ -102,6 +96,13 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
         this.topFragmentTasks = topFragmentTasks;
+
+        // only wait top fragments
+        MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>(topFragmentTasks.size());
+        for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
+            latch.addMark(topFragmentTask.getFragmentId(), topFragmentTask.getBackend().getId());
+        }
+        this.latch = Optional.of(latch);
     }
 
     @Override
@@ -225,7 +226,11 @@ public class LoadProcessor extends AbstractJobProcessor {
                 LOG.debug("Query {} fragment {} is marked done",
                         DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
             }
-            latch.get().markedCountDown(params.getFragmentId(), params.getBackendId());
+            MarkedCountDownLatch<Integer, Long> latch = this.latch.get();
+            latch.markedCountDown(params.getFragmentId(), params.getBackendId());
+            if (latch.getCount() == 0) {
+                tryFinishSchedule();
+            }
         }
     }
 
