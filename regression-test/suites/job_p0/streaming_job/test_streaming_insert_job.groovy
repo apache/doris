@@ -114,8 +114,8 @@ suite("test_streaming_insert_job") {
     def taskInfo = sql """select Status,RunningOffset from tasks("type"="insert") where jobName='${jobName}'"""
     log.info("taskInfo is : " + taskInfo + ", size: " + taskInfo.size())
     assert taskInfo.size() > 0
-    taskInfo.get(taskInfo.size()-1).get(0) == "SUCCESS"
-    taskInfo.get(taskInfo.size()-1).get(1) == "{\"startFileName\":\"regression/load/data/example_0.csv\",\"endFileName\":\"regression/load/data/example_0.csv\"}"
+    assert taskInfo.get(taskInfo.size()-1).get(0) == "SUCCESS"
+    assert taskInfo.get(taskInfo.size()-1).get(1) == "{\"startFileName\":\"regression/load/data/example_0.csv\",\"endFileName\":\"regression/load/data/example_0.csv\"}"
 
     // alter streaming job
     sql """
