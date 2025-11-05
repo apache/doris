@@ -26,13 +26,12 @@
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "util/binary_cast.hpp"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/functions/function.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -51,6 +50,27 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status prepare_with_children(FunctionContext* fn_context, RuntimeState* state,
+                                 const RowDescriptor& desc, VExprContext* context,
+                                 const std::vector<VExprSPtr>& children) override {
+        if (!children.empty()) {
+            auto default_state = std::make_shared<DefaultFunctionState>();
+            auto* slot_ref = dynamic_cast<VSlotRef*>(children[0].get());
+            if (slot_ref != nullptr && slot_ref->slot_id() != -1) {
+                const auto* slot_desc = state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
+
+                default_state->slot_id = slot_ref->slot_id();
+                default_state->is_nullable = slot_desc->is_nullable();
+                default_state->has_default_value = slot_desc->has_default_value();
+                if (default_state->has_default_value) {
+                    default_state->default_value = slot_desc->col_default_value();
+                }
+            }
+            fn_context->set_function_state(FunctionContext::FRAGMENT_LOCAL, default_state);
+        }
+        return Status::OK();
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -150,10 +170,6 @@ private:
         MutableColumnPtr res_col = nested_type->create_column();
 
         switch (primitive_type) {
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            insert_min_datetime_value<TYPE_DATETIME>(res_col);
-            break;
         case TYPE_DATEV2:
             insert_min_datetime_value<TYPE_DATEV2>(res_col);
             break;
@@ -175,13 +191,11 @@ private:
 
     template <PrimitiveType Type>
     static void insert_min_datetime_value(MutableColumnPtr& res_col) {
+        DCHECK(Type == TYPE_DATEV2 || Type == TYPE_DATETIMEV2);
         using ItemType = typename PrimitiveTypeTraits<Type>::ColumnItemType;
         ItemType min_value;
 
-        if constexpr (Type == TYPE_DATE || Type == TYPE_DATETIME) {
-            min_value =
-                    binary_cast<VecDateTimeValue, ItemType>(VecDateTimeValue::datetime_min_value());
-        } else if constexpr (Type == TYPE_DATEV2) {
+        if constexpr (Type == TYPE_DATEV2) {
             min_value = MIN_DATE_V2;
         } else if constexpr (Type == TYPE_DATETIMEV2) {
             min_value = MIN_DATETIME_V2;
