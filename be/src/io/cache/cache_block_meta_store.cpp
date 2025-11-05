@@ -536,11 +536,6 @@ std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status*
                 *status = Status::InternalError("Failed to deserialize value: invalid size");
             return std::nullopt;
         }
-        if (pb.ttl() < 0) {
-            LOG(WARNING) << "Invalid ttl value: " << pb.ttl();
-            if (status) *status = Status::InternalError("Failed to deserialize value: invalid ttl");
-            return std::nullopt;
-        }
 
         if (status) *status = Status::OK();
         return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
@@ -572,11 +567,6 @@ std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* 
             LOG(WARNING) << "Invalid size value: " << pb.size();
             if (status)
                 *status = Status::InternalError("Failed to deserialize value: invalid size");
-            return std::nullopt;
-        }
-        if (pb.ttl() < 0) {
-            LOG(WARNING) << "Invalid ttl value: " << pb.ttl();
-            if (status) *status = Status::InternalError("Failed to deserialize value: invalid ttl");
             return std::nullopt;
         }
 
