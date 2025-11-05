@@ -26,10 +26,12 @@
 #include <list>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
@@ -433,6 +435,139 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
 
     g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;
+}
+
+Status CachedRemoteFileReader::prefetch(size_t offset, size_t size, const IOContext* io_ctx) {
+    if (!_cache) {
+        VLOG_DEBUG << "Prefetch: No cache available, skipping";
+        return Status::OK();
+    }
+    
+    if (offset >= this->size()) {
+        VLOG_DEBUG << fmt::format(
+            "Prefetch: Invalid offset {} >= file size {}, skipping",
+            offset, this->size());
+        return Status::OK();
+    }
+    
+    size_t adjusted_size = std::min(size, this->size() - offset);
+    if (adjusted_size == 0) {
+        return Status::OK();
+    }
+    
+    IOContext ctx_copy;
+    if (io_ctx) {
+        ctx_copy = *io_ctx;
+    }
+    
+    VLOG_DEBUG << fmt::format(
+        "Prefetch: Submitting range [offset={}, size={}] for file {}",
+        offset, adjusted_size, path().native());
+    
+    return _submit_prefetch_task(offset, adjusted_size, std::move(ctx_copy));
+}
+
+Status CachedRemoteFileReader::prefetch_batch(
+        const std::vector<std::pair<size_t, size_t>>& ranges,
+        const IOContext* io_ctx) {
+    
+    if (!_cache) {
+        VLOG_DEBUG << "Prefetch: No cache available, skipping batch";
+        return Status::OK();
+    }
+    
+    if (ranges.empty()) {
+        return Status::OK();
+    }
+    
+    IOContext ctx_copy;
+    if (io_ctx) {
+        ctx_copy = *io_ctx;
+    }
+    
+    VLOG_DEBUG << fmt::format(
+        "Prefetch: Submitting batch of {} ranges for file {}",
+        ranges.size(), path().native());
+    
+    size_t submitted = 0;
+    for (const auto& [offset, size] : ranges) {
+        if (offset >= this->size()) {
+            VLOG_DEBUG << fmt::format(
+                "Prefetch: Skipping invalid range [offset={}, size={}]",
+                offset, size);
+            continue;
+        }
+        
+        size_t adjusted_size = std::min(size, this->size() - offset);
+        if (adjusted_size == 0) {
+            continue;
+        }
+        
+        Status st = _submit_prefetch_task(offset, adjusted_size, ctx_copy);
+        if (st.ok()) {
+            submitted++;
+        } else {
+            VLOG(1) << fmt::format(
+                "Prefetch: Failed to submit range [offset={}, size={}]: {}",
+                offset, size, st.to_string());
+        }
+    }
+    
+    VLOG_DEBUG << fmt::format(
+        "Prefetch: Successfully submitted {}/{} ranges",
+        submitted, ranges.size());
+    
+    return Status::OK();
+}
+
+Status CachedRemoteFileReader::_submit_prefetch_task(size_t offset, size_t size, 
+                                                      IOContext io_ctx) {
+    auto* engine = dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
+    if (!engine) {
+        VLOG_DEBUG << "Prefetch: Not in cloud mode, skipping";
+        return Status::OK();
+    }
+    
+    auto& downloader = engine->file_cache_block_downloader();
+    
+    std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
+    
+    auto prefetch_task = [weak_this, offset, size, io_ctx = std::move(io_ctx)]() {
+        auto reader = weak_this.lock();
+        if (!reader) {
+            VLOG_DEBUG << "Prefetch: Reader destroyed before prefetch executed";
+            return;
+        }
+        
+        std::vector<char> dummy_buffer(0);
+        size_t bytes_read = 0;
+        
+        auto io_ctx_copy = io_ctx;
+        io_ctx_copy.is_dryrun = true;
+        
+        Status st = reader->read_at(offset, Slice(dummy_buffer.data(), size), 
+                                    &bytes_read, &io_ctx_copy);
+        
+        if (st.ok()) {
+            VLOG_DEBUG << fmt::format(
+                "Prefetch: Successfully cached range [offset={}, size={}] for file {}",
+                offset, size, reader->path().native());
+        } else {
+            VLOG(1) << fmt::format(
+                "Prefetch: Failed for range [offset={}, size={}] on file {}: {}",
+                offset, size, reader->path().native(), st.to_string());
+        }
+    };
+    
+    Status st = downloader.submit_io_task(std::move(prefetch_task));
+    if (!st.ok()) {
+        VLOG(1) << fmt::format(
+            "Prefetch: Failed to submit task to threadpool: {}", 
+            st.to_string());
+        return st;
+    }
+    
+    return Status::OK();
 }
 
 } // namespace doris::io
