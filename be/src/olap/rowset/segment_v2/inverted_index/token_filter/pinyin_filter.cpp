@@ -49,12 +49,13 @@ PinyinFilter::PinyinFilter(const TokenStreamPtr& in, std::shared_ptr<PinyinConfi
         config_ = std::make_shared<PinyinConfig>();
     }
 
-    // Validate configuration (same as Java validation)
+    // Validate configuration
     if (!(config_->keepFirstLetter || config_->keepSeparateFirstLetter || config_->keepFullPinyin ||
           config_->keepJoinedFullPinyin || config_->keepSeparateChinese)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "pinyin config error, can't disable separate_first_letter, "
-                        "first_letter and full_pinyin at the same time.");
+                        "pinyin config error, at least one output format must be enabled "
+                        "(keep_first_letter, keep_separate_first_letter, keep_full_pinyin, "
+                        "keep_joined_full_pinyin, or keep_separate_chinese).");
     }
 }
 
@@ -240,7 +241,7 @@ bool PinyinFilter::processCurrentToken() {
     std::string first_letters_buffer;
     std::string full_pinyin_buffer;
 
-    // Buffer for accumulating ASCII characters (like Java's buff)
+    // Buffer for accumulating ASCII characters
     std::string ascii_buffer;
     int ascii_buffer_start_pos = -1;
 
