@@ -131,6 +131,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         LOG.info("Removed catalog with id {}, name {}", catalogId, catalog == null ? "N/A" : catalog.getName());
         if (catalog != null) {
+            Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
             if (ConnectContext.get() != null) {
