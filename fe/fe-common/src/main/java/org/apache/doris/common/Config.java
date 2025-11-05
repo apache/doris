@@ -3316,6 +3316,9 @@ public class Config extends ConfigBase {
     public static long cloud_tablet_rebalancer_interval_second = 20;
 
     @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_tablet_rebalancer_fixed_interval = true;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_cloud_partition_balance = true;
 
     @ConfField(mutable = true, masterOnly = true)
