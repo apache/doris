@@ -623,11 +623,13 @@ public class TypeCoercionUtils {
                 ret = new VarcharLiteral(value, ((VarcharType) dataType).getLen());
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
-            } else if (dataType.isDateTimeV2Type() && DateTimeChecker.isValidDateTime(value)) {
+            } else if (dataType instanceof TimeV2Type) {
+                ret = new TimeV2Literal(value);
+            }
+            else if ((dataType.isDateTimeV2Type() || dataType.isDateTimeType())
+                    && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
-            } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
-            } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
+            } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
@@ -638,8 +640,6 @@ public class TypeCoercionUtils {
                         ret = parseResult2.get();
                     }
                 }
-            } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateLiteral.parseDateLiteral(value, false).orElse(null);
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
