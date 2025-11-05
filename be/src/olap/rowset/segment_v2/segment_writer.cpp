@@ -50,6 +50,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_ext_meta_writer.h"
 #include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
@@ -73,7 +74,6 @@
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
-
 namespace doris {
 namespace segment_v2 {
 
@@ -1207,6 +1207,13 @@ Status SegmentWriter::_write_primary_key_index() {
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+
+    if (config::enable_variant_external_meta) {
+        // Externalize variant subcolumns into ext meta and prune them from footer.columns.
+        auto variant_ext_meta_agg =
+                std::make_unique<VariantExtMetaWriter>(_file_writer, _opts.compression_type);
+        RETURN_IF_ERROR(variant_ext_meta_agg->externalize_from_footer(&_footer));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;

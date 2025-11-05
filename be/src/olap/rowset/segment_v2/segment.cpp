@@ -580,19 +580,20 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
 
     // Path exists, proceed with variant logic.
     vectorized::PathInData relative_path = path->copy_pop_front();
-    int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
+    int32_t unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
 
     // Find the reader for the base variant column.
     if (!_column_uid_to_footer_ordinal.contains(unique_id)) {
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
-    std::shared_ptr<ColumnReader> reader;
+    std::shared_ptr<ColumnReader> v_reader;
+
     // get the parent variant column reader
     OlapReaderStatistics stats;
     // If status is not ok, it will throw exception(data corruption)
-    THROW_IF_ERROR(get_column_reader(unique_id, &reader, &stats));
-    const auto* variant_reader = static_cast<const VariantColumnReader*>(reader.get());
+    THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
+    const auto* variant_reader = static_cast<const VariantColumnReader*>(v_reader.get());
 
     // Find the specific node within the variant structure using the relative path.
     const auto* node = variant_reader->get_subcolumn_meta_by_path(relative_path);
@@ -601,11 +602,27 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
-    // Case 1: Node not found for the given path within the variant reader.
-    // If relative_path is empty, it means the original path pointed to the root
-    // of the variant column itself. We should return the Variant type.
+    // Use variant type when the path is a prefix of any existing subcolumn path.
+    if (variant_reader->has_prefix_path(relative_path)) {
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
+    }
+
+    // try to get the reader from cache and return it's data type
+    // usually when leaf node is in cache
+    if (_column_reader_cache->get_path_column_reader(unique_id, relative_path, &v_reader,
+                                                     nullptr) &&
+        v_reader != nullptr) {
+        return v_reader->get_vec_data_type();
+    }
+
+    // Node not found for the given path within the variant reader.
     // If node is nullptr, it means the path is not exist in the variant sub columns.
-    if (node == nullptr || relative_path.empty()) {
+    if (node == nullptr) {
+        // nested subcolumn is not exist in the sparse column
+        if (column.is_nested_subcolumn()) {
+            return vectorized::DataTypeFactory::instance().create_data_type(column);
+        }
+
         // when the path is in the sparse column or exceeded the limit, return the variant type.
         if (variant_reader->exist_in_sparse_column(relative_path) ||
             variant_reader->is_exceeded_sparse_column_limit()) {
@@ -624,19 +641,18 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
         }
     }
 
-    bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
-    bool is_physical_leaf = node->children.empty();
-
-    if (is_physical_leaf && column.is_nested_subcolumn()) {
+    if (column.is_nested_subcolumn()) {
         return node->data.file_column_type;
     }
+
+    bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
 
     // Condition to return the specific underlying type of the node:
     // 1. We are reading flat leaves (ignoring hierarchy).
     // 2. OR It's a leaf in the physical column structure AND it doesn't *also* exist
     //    in the sparse column (meaning it's purely a materialized leaf).
-    if (read_flat_leaves || (is_physical_leaf && !exist_in_sparse &&
-                             !variant_reader->is_exceeded_sparse_column_limit())) {
+    if (read_flat_leaves ||
+        (!exist_in_sparse && !variant_reader->is_exceeded_sparse_column_limit())) {
         return node->data.file_column_type;
     }
 
