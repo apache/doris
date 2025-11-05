@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
@@ -167,6 +168,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(RegrIntercept.class, "regr_intercept"),
             agg(RegrSlope.class, "regr_slope"),
             agg(Retention.class, "retention"),
+            agg(Sem.class, "sem"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Skew.class, "skew", "skew_pop", "skewness"),

@@ -155,8 +155,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         qt_oss oss
         qt_obs obs
         qt_cos cos
-        // java.lang.ClassNotFoundException: Class org.apache.hadoop.fs.CosFileSystem not found
-        // qt_cosn cosn
+        qt_cosn cosn
 
     } finally {
         sql """set force_jni_scanner=false"""
