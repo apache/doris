@@ -277,6 +277,8 @@ supportedAlterStatement
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER WORKLOAD GROUP name=identifierOrText (FOR computeGroup=identifierOrText)?
         properties=propertyClause?                                                          #alterWorkloadGroup
+    | ALTER COMPUTE GROUP name=identifierOrText
+        properties=propertyClause?                                                          #alterComputeGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
     | ALTER WORKLOAD POLICY name=identifierOrText
@@ -1753,7 +1755,7 @@ interval
     ;
 
 unitIdentifier
-	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND
     ;
 
 dataTypeWithNullable
@@ -2039,6 +2041,7 @@ nonReserved
     | IMMEDIATE
     | INCREMENTAL
     | INDEXES
+    | INSERT
     | INVERTED
     | IP_TRIE
     | IPV4

@@ -117,7 +117,7 @@ jobs:
 
         echo "PULL_REQUEST_NUM=${PULL_REQUEST_NUM}" | tee -a "$GITHUB_OUTPUT"
         echo "COMMIT_ID_FROM_TRIGGER=${COMMIT_ID_FROM_TRIGGER}" | tee -a "$GITHUB_OUTPUT"
-        echo "TARGET_BRANCH='${TARGET_BRANCH}'" | tee -a "$GITHUB_OUTPUT"
+        echo "TARGET_BRANCH=${TARGET_BRANCH}" | tee -a "$GITHUB_OUTPUT"
         echo "COMMENT_BODY='${COMMENT_BODY}'" | tee -a "$GITHUB_OUTPUT"
 
         reg="run (buildall|compile|p0|p1|feut|beut|cloudut|external|clickbench|cloud_p0|cloud_p1|vault_p0|nonConcurrent|performance|check_coverage)( [1-9]*[0-9]+)*"

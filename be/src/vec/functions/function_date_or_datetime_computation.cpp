@@ -17,6 +17,7 @@
 
 #include "vec/functions/function_date_or_datetime_computation.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -58,7 +59,9 @@ struct CurTimeFunctionName {
 };
 
 using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
-using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
+using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATETIMEV2>>;
+using FunctionUtcDate = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATEV2>>;
+using FunctionUtcTime = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_TIMEV2>>;
 using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
 using FunctionSecToTime = FunctionCurrentDateOrDateTime<SecToTimeImpl>;
 using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
@@ -88,6 +91,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);
     factory.register_function<FunctionCurTime>();
     factory.register_function<FunctionUtcTimeStamp>();
+    factory.register_function<FunctionUtcDate>();
+    factory.register_function<FunctionUtcTime>();
     factory.register_function<FunctionTimeToSec>();
     factory.register_function<FunctionSecToTime>();
     factory.register_function<FunctionMicroSecToDateTime>();

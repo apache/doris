@@ -22,6 +22,7 @@
 #include <optional>
 #include <roaring/roaring.hh>
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/null_bitmap_fetcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
@@ -70,27 +71,9 @@ private:
 
         _null_bitmap_checked = true;
 
-        auto iterator = resolver->iterator_for(*this, _logical_field);
-        if (iterator == nullptr) {
-            return;
-        }
-
-        auto has_null_result = iterator->has_null();
-        if (!has_null_result.has_value() || !has_null_result.value()) {
-            return;
-        }
-
-        segment_v2::InvertedIndexQueryCacheHandle cache_handle;
-        auto status = iterator->read_null_bitmap(&cache_handle);
-        if (!status.ok()) {
-            LOG(WARNING) << "TermScorer failed to read null bitmap for field '" << _logical_field
-                         << "': " << status.to_string();
-            return;
-        }
-
-        auto bitmap_ptr = cache_handle.get_bitmap();
-        if (bitmap_ptr != nullptr) {
-            _null_bitmap = *bitmap_ptr;
+        auto bitmap = FieldNullBitmapFetcher::fetch(resolver, _logical_field, this);
+        if (bitmap != nullptr) {
+            _null_bitmap = *bitmap;
         }
     }
 

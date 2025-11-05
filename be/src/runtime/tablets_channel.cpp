@@ -239,7 +239,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         auto delta_writer = create_delta_writer(wrequest);
         {
             // here we modify _tablet_writers. so need lock.
-            std::lock_guard<std::mutex> l(_tablet_writers_lock);
+            std::lock_guard<std::mutex> lt(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
 
@@ -612,10 +612,16 @@ Status BaseTabletsChannel::_write_block_data(
     };
 
     SCOPED_TIMER(_write_block_timer);
+    auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
             return writer->write(&send_data, tablet_to_rowidxs_it.second);
         }));
+
+        auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
+        if (tablet_writer_it != _tablet_writers.end()) {
+            tablet_writer_it->second->set_tablet_load_rowset_num_info(tablet_load_infos);
+        }
     }
 
     {

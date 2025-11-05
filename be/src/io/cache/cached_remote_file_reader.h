@@ -22,6 +22,7 @@
 #include <map>
 #include <shared_mutex>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
@@ -60,15 +61,21 @@ protected:
 
 private:
     void _insert_file_reader(FileBlockSPtr file_block);
+
+    // Execute remote read (S3 or peer).
+    Status _execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
+                                size_t& size, std::unique_ptr<char[]>& buffer,
+                                ReadStatistics& stats, const IOContext* io_ctx);
+
+    void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
+                       bool is_inverted_index) const;
+
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
-
-    void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
-                       bool is_inverted_index) const;
 };
 
 } // namespace doris::io

@@ -304,7 +304,7 @@ public abstract class DataType {
             case "timev2":
                 switch (types.size()) {
                     case 1:
-                        dataType = TimeV2Type.INSTANCE;
+                        dataType = TimeV2Type.SYSTEM_DEFAULT;
                         break;
                     case 2:
                         dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
@@ -472,7 +472,8 @@ public abstract class DataType {
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount());
             }
             return VariantType.INSTANCE;
         } else {

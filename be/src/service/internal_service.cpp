@@ -1661,6 +1661,14 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
     // The response is accessed when done->Run is called in transmit_block(),
     // give response a default value to avoid null pointers in high concurrency.
     Status st;
+    // Temporary code for debugging; it will be removed in the future.
+    CHECK(request->IsInitialized());
+    for (int i = 0; i < request->blocks_size(); ++i) {
+        CHECK(request->blocks(i).IsInitialized());
+    }
+    if (request->has_block()) {
+        CHECK(request->block().IsInitialized());
+    }
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done, wait_for_worker);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
