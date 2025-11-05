@@ -206,6 +206,12 @@ public:
         return Status::OK();
     }
 
+    virtual Status prepare_with_children(FunctionContext* fn_context, RuntimeState* state,
+                                         const RowDescriptor& desc, VExprContext* context,
+                                         const std::vector<VExprSPtr>& children) {
+        return Status::OK();
+    }
+
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
     virtual bool is_udf_function() const { return false; }
@@ -457,6 +463,12 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
+    }
+
+    Status prepare_with_children(FunctionContext* fn_context, RuntimeState* state,
+                                 const RowDescriptor& desc, VExprContext* context,
+                                 const std::vector<VExprSPtr>& children) override {
+        return function->prepare_with_children(fn_context, state, desc, context, children);
     }
 
     Status evaluate_inverted_index(
