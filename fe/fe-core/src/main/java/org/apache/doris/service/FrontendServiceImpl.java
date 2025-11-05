@@ -1459,7 +1459,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         List<Table> tables;
         List<Long> tableIds = null;
-        
+
         if (request.isSetTableId() && request.getTableId() > 0) {
             // Single table by ID
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
@@ -1496,7 +1496,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             }
         }
-        
+
         if (tables.size() > 1) {
             tables.sort(Comparator.comparing(Table::getId));
         }
