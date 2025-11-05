@@ -62,6 +62,15 @@ namespace doris::cloud {
 using namespace std::chrono;
 
 int OperationLogRecycleChecker::init() {
+    source_snapshot_versionstamp_ = Versionstamp::min();
+    if (instance_info_.has_source_snapshot_id() &&
+        !SnapshotManager::parse_snapshot_versionstamp(instance_info_.source_snapshot_id(),
+                                                      &source_snapshot_versionstamp_)) {
+        LOG_WARNING("failed to parse versionstamp from source snapshot id")
+                .tag("source_snapshot_id", instance_info_.source_snapshot_id());
+        return -1;
+    }
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -99,6 +108,11 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
     Versionstamp log_min_read_timestamp(log_min_timestamp, 0);
     if (log_versionstamp > max_versionstamp_) {
         // Not recycleable.
+        return false;
+    }
+
+    // Do not recycle operation logs referenced by active snapshots.
+    if (log_min_read_timestamp < source_snapshot_versionstamp_) {
         return false;
     }
 
@@ -609,7 +623,7 @@ int InstanceRecycler::recycle_operation_logs() {
                 .tag("recycled_operation_log_data_size", recycled_operation_log_data_size);
     };
 
-    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get());
+    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get(), instance_info_);
     int init_res = recycle_checker.init();
     if (init_res != 0) {
         LOG_WARNING("failed to initialize recycle checker").tag("error_code", init_res);
