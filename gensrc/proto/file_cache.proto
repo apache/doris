@@ -47,3 +47,17 @@ message LRUDumpMetaPb{
     repeated EntryGroupOffsetSizePb group_offset_size = 3;
 }
 
+// corresponding to FileCacheType in file_cache_common.h
+enum FileCacheType {
+    DISPOSABLE = 0;
+    NORMAL = 1;
+    INDEX = 2;
+    TTL = 3;
+}
+
+message BlockMetaPb {
+    optional FileCacheType type = 1;
+    optional uint64 size = 2;
+    optional uint64 ttl = 3;
+}
+
