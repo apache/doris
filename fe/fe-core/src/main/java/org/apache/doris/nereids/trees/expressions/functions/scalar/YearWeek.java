@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -44,10 +43,7 @@ public class YearWeek extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE)
-    );
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE));
 
     /**
      * constructor with 1 argument.
