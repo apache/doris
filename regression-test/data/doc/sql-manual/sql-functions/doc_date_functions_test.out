@@ -419,6 +419,15 @@ Sabtu
 -- !from_iso8601_date_5 --
 0521-12-29
 
+-- !from_iso8601_date_6 --
+\N
+
+-- !from_iso8601_date_7 --
+\N
+
+-- !from_iso8601_date_8 --
+\N
+
 -- !from_iso8601_date_9 --
 \N
 
@@ -1469,17 +1478,29 @@ da fanadur
 -- !str_to_date_3 --
 2023-07-13
 
+-- !str_to_date_4 --
+\N
+
 -- !str_to_date_5 --
 2004-10-18
 
 -- !str_to_date_6 --
 2023-10-05T15:45
 
+-- !str_to_date_7 --
+\N
+
+-- !str_to_date_8 --
+2023-01-01T10:00
+
 -- !str_to_date_9 --
 2023-07-13T12:34:56.789
 
 -- !str_to_date_10 --
 \N	\N
+
+-- !str_to_date_11 --
+\N
 
 -- !timediff_1 --
 216:24:09

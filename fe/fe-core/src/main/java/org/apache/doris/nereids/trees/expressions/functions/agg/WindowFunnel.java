@@ -43,7 +43,7 @@ public class WindowFunnel extends NullableAggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
-                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT,
+                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.WILDCARD,
                             BooleanType.INSTANCE)
 
     );

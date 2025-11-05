@@ -311,7 +311,7 @@ public class TypeCoercionUtilsTest {
         // Hll type
         Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(HllType.INSTANCE));
         // Time type
-        Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(TimeV2Type.INSTANCE));
+        Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(TimeV2Type.SYSTEM_DEFAULT));
         // Json
         Assertions.assertEquals(DoubleType.INSTANCE, TypeCoercionUtils.getNumResultType(JsonType.INSTANCE));
         // Other

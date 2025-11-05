@@ -21,11 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -33,24 +30,19 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'array_range_day_unit'.
+ * ScalarFunction 'strip_null_value'.
  */
-public class ArrayRangeDayUnit extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
-                .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD, IntegerType.INSTANCE)
+public class StripNullValue extends ScalarFunction implements ExplicitlyCastableSignature, AlwaysNullable {
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE)
     );
 
-    /**
-     * constructor with 3 arguments.
-     */
-    public ArrayRangeDayUnit(Expression arg0, Expression arg1, Expression arg2) {
-        super("array_range_day_unit", arg0, arg1, arg2);
+    public StripNullValue(Expression arg) {
+        super("strip_null_value", arg);
     }
 
     /** constructor for withChildren and reuse signature */
-    private ArrayRangeDayUnit(ScalarFunctionParams functionParams) {
+    private StripNullValue(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
@@ -58,9 +50,9 @@ public class ArrayRangeDayUnit extends ScalarFunction
      * withChildren.
      */
     @Override
-    public ArrayRangeDayUnit withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3);
-        return new ArrayRangeDayUnit(getFunctionParams(children));
+    public StripNullValue withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new StripNullValue(getFunctionParams(children));
     }
 
     @Override
@@ -70,6 +62,6 @@ public class ArrayRangeDayUnit extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitArrayRangeDayUnit(this, context);
+        return visitor.visitStripNullValue(this, context);
     }
 }

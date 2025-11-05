@@ -87,11 +87,8 @@ struct StrToDate {
     static bool skip_return_type_check() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         // it's FAKE. takes no effect.
-        return std::make_shared<DataTypeDateTimeV2>(6);
+        return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
     }
-
-    // Handle nulls manually to prevent invalid default values from causing errors
-    static bool use_default_implementation_for_nulls() { return false; }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
         const static std::string specific_format_strs[3] = {"yyyyMMdd", "yyyy-MM-dd",
@@ -110,7 +107,6 @@ struct StrToDate {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
         NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
 
@@ -121,10 +117,6 @@ struct StrToDate {
         for (int i = 0; i < 2; ++i) {
             const ColumnPtr& col = block.get_by_position(arguments[i]).column;
             col_const[i] = is_column_const(*col);
-            const NullMap* null_map = VectorizedUtils::get_null_map(col);
-            if (null_map) {
-                VectorizedUtils::update_null_map(result_null_map, *null_map, col_const[i]);
-            }
         }
 
         // Extract nested columns from const(nullable) wrappers
@@ -132,11 +124,8 @@ struct StrToDate {
                                                      *block.get_by_position(arguments[0]).column)
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[0]).column;
-        argument_columns[0] = remove_nullable(argument_columns[0]);
-
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        argument_columns[1] = remove_nullable(argument_columns[1]);
 
         const auto* specific_str_column =
                 assert_cast<const ColumnString*>(argument_columns[0].get());
@@ -196,7 +185,7 @@ private:
     static void execute_impl(
             FunctionContext* context, const ColumnString::Chars& ldata,
             const ColumnString::Offsets& loffsets, const ColumnString::Chars& rdata,
-            const ColumnString::Offsets& roffsets, const NullMap& result_null_map,
+            const ColumnString::Offsets& roffsets, NullMap& result_null_map,
             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res) {
         size_t size = loffsets.size();
         res.resize(size);
@@ -212,15 +201,14 @@ private:
             size_t r_str_size = roffsets[i] - roffsets[i - 1];
             const StringRef format_str = rewrite_specific_format(r_raw_str, r_str_size);
             _execute_inner_loop<PType>(l_raw_str, l_str_size, format_str.data, format_str.size,
-                                       context, res, i);
+                                       result_null_map, context, res, i);
         }
     }
 
     template <PrimitiveType PType>
     static void execute_impl_const_right(
             FunctionContext* context, const ColumnString::Chars& ldata,
-            const ColumnString::Offsets& loffsets, const StringRef& rdata,
-            const NullMap& result_null_map,
+            const ColumnString::Offsets& loffsets, const StringRef& rdata, NullMap& result_null_map,
             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res) {
         size_t size = loffsets.size();
         res.resize(size);
@@ -234,21 +222,20 @@ private:
             size_t l_str_size = loffsets[i] - loffsets[i - 1];
 
             _execute_inner_loop<PType>(l_raw_str, l_str_size, format_str.data, format_str.size,
-                                       context, res, i);
+                                       result_null_map, context, res, i);
         }
     }
 
     template <PrimitiveType PType>
     static void _execute_inner_loop(
             const char* l_raw_str, size_t l_str_size, const char* r_raw_str, size_t r_str_size,
-            FunctionContext* context,
+            NullMap& result_null_map, FunctionContext* context,
             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res, size_t index) {
         auto& ts_val =
                 *reinterpret_cast<typename PrimitiveTypeTraits<PType>::CppType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size))
                 [[unlikely]] {
-            throw_invalid_strings("str_to_date", std::string_view(l_raw_str, l_str_size),
-                                  std::string_view(r_raw_str, r_str_size));
+            result_null_map[index] = 1;
         }
     }
 };
@@ -1222,6 +1209,8 @@ struct FromIso8601DateV2 {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
 
         ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
         auto& result_data = res->get_data();
@@ -1332,32 +1321,32 @@ struct FromIso8601DateV2 {
             if (iso_string_format_value == 1) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &month, &day) != 3)
                         [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
                       ts_value.template set_time_unit<MONTH>(month) &&
                       ts_value.template set_time_unit<DAY>(day))) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
             } else if (iso_string_format_value == 2) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &month) != 2)
                         [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
                       ts_value.template set_time_unit<MONTH>(month))) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
                 ts_value.template unchecked_set_time_unit<DAY>(1);
             } else if (iso_string_format_value == 3) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (!ts_value.template set_time_unit<YEAR>(year)) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
                 ts_value.template unchecked_set_time_unit<MONTH>(1);
                 ts_value.template unchecked_set_time_unit<DAY>(1);
@@ -1366,17 +1355,17 @@ struct FromIso8601DateV2 {
                 if (iso_string_format_value == 5) {
                     if (sscanf(src_string.data(), iso_format_string.data(), &year, &week) != 2)
                             [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 } else {
                     if (sscanf(src_string.data(), iso_format_string.data(), &year, &week,
                                &weekday) != 3) [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 }
                 // weekday [1,7]    week [1,53]
                 if (weekday < 1 || weekday > 7 || week < 1 || week > 53) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 auto first_day_of_week = getFirstDayOfISOWeek(year);
@@ -1393,16 +1382,16 @@ struct FromIso8601DateV2 {
             } else if (iso_string_format_value == 4) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
                         [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (is_leap(year)) {
                     if (day_of_year < 0 || day_of_year > 366) [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 } else {
                     if (day_of_year < 0 || day_of_year > 365) [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 }
                 ts_value.template unchecked_set_time_unit<YEAR>(year);
@@ -1411,10 +1400,11 @@ struct FromIso8601DateV2 {
                 TimeInterval interval(DAY, day_of_year - 1, false);
                 ts_value.template date_add_interval<DAY>(interval);
             } else {
-                throw_invalid_string(name, src_string);
+                result_null_map[i] = 1;
             }
         }
-        block.replace_by_position(result, std::move(res));
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res), std::move(result_null_map_column)));
         return Status::OK();
     }
 

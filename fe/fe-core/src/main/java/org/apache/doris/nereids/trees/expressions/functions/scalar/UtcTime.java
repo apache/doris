@@ -40,8 +40,8 @@ public class UtcTime extends ScalarFunction
         implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(IntegerType.INSTANCE)
+            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(),
+            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(IntegerType.INSTANCE)
     );
 
     /**
