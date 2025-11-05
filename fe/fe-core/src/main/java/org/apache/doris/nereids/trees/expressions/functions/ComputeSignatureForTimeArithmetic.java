@@ -40,7 +40,7 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
                 if (isTimeFormat(s)) {
                     new TimeV2Literal(s); // check legality
                     TimeV2Type t1 = TimeV2Type.forTypeFromString(s);
-                    TimeV2Type t2 = TimeV2Type.INSTANCE;
+                    TimeV2Type t2 = TimeV2Type.WILDCARD;
                     if (child(1) instanceof StringLikeLiteral) {
                         String s2 = ((StringLikeLiteral) child(1)).getStringValue().trim();
                         new TimeV2Literal(s2); // check legality

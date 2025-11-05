@@ -184,8 +184,9 @@ suite("test_date_function_v2") {
     testFoldConst("select sub_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
     qt_sql_subtime3("select sub_time(dt, '22:35:22.123456') from ${tableName};")
     qt_sql_subtime4("select sub_time('-421:01:01', '822:35:22');")
+    testFoldConst("select sub_time('-421:01:01', '822:35:22');")
     qt_sql_subtime5("select sub_time('421:01:01', '-82:35:22.123456');")
-    
+    testFoldConst("select sub_time('421:01:01', '-82:35:22.123456');")
     // test time string and datetime type in table
     qt_sql_subtime6("select sub_time(datetime_val, time_str) from ${tableName} order by id;")
     qt_sql_subtime7("select sub_time(cast(time_str as time), cast('02:00:00.123' as time(3))) from ${tableName} order by id;")
@@ -199,15 +200,22 @@ suite("test_date_function_v2") {
     //test computetimearithmetic regular
 
     qt_sql_addtime9 "select add_time('221222', cast('221010' as time));"
+    testFoldConst("select add_time('221222', cast('221010' as time));")
     qt_sql_addtime10 "select add_time('22:12:22', '221010');"
+    testFoldConst("select add_time('22:12:22', '221010');")
     qt_sql_addtime11 "select add_time('+22:12:22', '221010');"
-
+    testFoldConst("select add_time('+22:12:22', '221010');")
     //datetime parameter
     qt_sql_addtime12 "select add_time('22/12/22', '221010');"
+    testFoldConst("select add_time('22/12/22', '221010');")
 
     qt_sql_subtime9 "select sub_time('221222', cast('221010' as time));"
+    testFoldConst("select sub_time('221222', cast('221010' as time));")
     qt_sql_subtime10 "select sub_time('22:12:22', '221010');"
+    testFoldConst("select sub_time('22:12:22', '221010');")
     qt_sql_subtime11 "select sub_time('-22:12:22', '221010');"
+    testFoldConst("select sub_time('-22:12:22', '221010');")
     //datetime parameter
     qt_sql_subtime12 "select sub_time('22/12/22', '221010');"
+    testFoldConst("select sub_time('22/12/22', '221010');")
 }

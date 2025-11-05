@@ -41,8 +41,8 @@ public class SubTime extends ScalarFunction implements BinaryExpression, Explici
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    TimeV2Type.INSTANCE),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE));
+                    TimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeV2Type.WILDCARD).args(TimeV2Type.WILDCARD, TimeV2Type.WILDCARD));
 
     public SubTime(Expression arg0, Expression arg1) {
         super("sub_time", arg0, arg1);
