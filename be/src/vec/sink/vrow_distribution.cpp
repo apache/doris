@@ -105,7 +105,8 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
     if (_state && _state->get_query_ctx()) {
-        request.__set_is_stream_load(_state->get_query_ctx()->get_query_source() == QuerySource::STREAM_LOAD);
+        request.__set_is_stream_load(_state->get_query_ctx()->get_query_source() == 
+                                     QuerySource::STREAM_LOAD);
     }
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
