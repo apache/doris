@@ -85,6 +85,8 @@ bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_total_bytes_1min_windo
 bvar::Adder<uint64_t> g_failed_get_peer_addr_counter(
         "cached_remote_reader_failed_get_peer_addr_counter");
 
+std::unique_ptr<ThreadPool> CachedRemoteFileReader::_file_cache_fill_thread_pool = nullptr;
+
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
@@ -411,6 +413,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     size_t empty_start = 0;
     size_t empty_end = 0;
+    size_t buffer_size = 0;
+    size_t old_buffer_size = 0;
+    std::unique_ptr<char[]> buffer_moved;
     if (!empty_blocks.empty()) {
         empty_start = empty_blocks.front()->range().left;
         empty_end = empty_blocks.back()->range().right;
@@ -450,6 +455,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             memcpy(dst, src, copy_size);
             indirect_read_bytes += copy_size;
         }
+        buffer_moved = std::move(buffer);
     }
 
     size_t current_offset = offset;
@@ -527,7 +533,44 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     g_read_cache_indirect_bytes << indirect_read_bytes;
     g_read_cache_indirect_total_bytes << *bytes_read;
+    if (config::enable_file_cache_fill_async && !_is_doris_table &&
+        old_buffer_size + buffer_size <= config::file_cache_fill_buffer_max_size) {
+        BlockFileCache::file_cache_fill_buffer_size_sptr.get()->fetch_sub(buffer_size);
+        /*
+         * Capturing variable holder is necessary to ensure its destructor is called after the async
+         * file_cache_fill thread completes
+         */
+        auto task = [this, _holder = std::move(holder), _empty_blocks = std::move(empty_blocks),
+                     _buffer = std::move(buffer_moved), empty_start]() {
+            // variable _holder must be visited
+            (void)_holder;
 
+            for (auto& block : _empty_blocks) {
+                if (block->state() == FileBlock::State::SKIP_CACHE) {
+                    continue;
+                }
+                char* cur_ptr = _buffer.get() + block->range().left - empty_start;
+                size_t block_size = block->range().size();
+                Status st = block->append(Slice(cur_ptr, block_size));
+                if (st.ok()) {
+                    st = block->finalize();
+                }
+                if (!st.ok()) {
+                    LOG_EVERY_N(WARNING, 100)
+                            << "Write data to file cache failed. err=" << st.msg();
+                } else {
+                    _insert_file_reader(block);
+                }
+            }
+        };
+        auto taskSPtr = std::make_shared<decltype(task)>(std::move(task));
+        Status submit_status =
+                _file_cache_fill_thread_pool->submit_func([taskSPtr]() { (*taskSPtr)(); });
+        if (!submit_status.ok()) [[unlikely]] {
+            LOG(WARNING) << "File cache write back task submission failed: "
+                         << submit_status.to_string();
+        }
+    }
     DCHECK(*bytes_read == bytes_req);
     return Status::OK();
 }
