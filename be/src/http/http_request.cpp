@@ -145,6 +145,10 @@ const char* HttpRequest::remote_host() const {
 }
 
 void HttpRequest::finish_send_reply() {
+    if (_send_reply_type == REPLY_SYNC) {
+        return;
+    }
+
     std::string infos;
     if (_handler_ctx != nullptr) {
         infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
