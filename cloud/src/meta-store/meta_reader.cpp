@@ -1058,6 +1058,32 @@ TxnErrorCode MetaReader::get_snapshot(Transaction* txn, Versionstamp snapshot_ve
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::has_snapshot(bool* has, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return has_snapshot(txn.get(), has, snapshot);
+}
+
+TxnErrorCode MetaReader::has_snapshot(Transaction* txn, bool* has, bool snapshot) {
+    std::string snapshot_key = versioned::snapshot_full_key({instance_id_});
+    std::string snapshot_full_key = encode_versioned_key(snapshot_key, Versionstamp::max());
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(snapshot_key, snapshot_full_key, &it, snapshot, 1);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    *has = it->has_next();
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::has_snapshot_references(Versionstamp snapshot_version,
                                                  bool* has_references, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";

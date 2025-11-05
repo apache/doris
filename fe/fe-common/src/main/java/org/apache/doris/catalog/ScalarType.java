@@ -844,6 +844,16 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public boolean isWildcardTimeV2() {
+        return type == PrimitiveType.TIMEV2 && scale == -1;
+    }
+
+    @Override
+    public boolean isWildcardDatetimeV2() {
+        return type == PrimitiveType.DATETIMEV2 && scale == -1;
+    }
+
+    @Override
     public boolean isWildcardDecimal() {
         return (type.isDecimalV2Type() || type.isDecimalV3Type())
                 && precision == -1 && scale == -1;
@@ -897,12 +907,6 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType scalarType = (ScalarType) t;
-        if (type == PrimitiveType.VARCHAR && scalarType.isWildcardVarchar()) {
-            return true;
-        }
-        if (type == PrimitiveType.CHAR && scalarType.isWildcardChar()) {
-            return true;
-        }
         if (type.isStringType() && scalarType.isStringType()) {
             return true;
         }
@@ -917,10 +921,12 @@ public class ScalarType extends Type {
         if (isDecimalV2() && scalarType.isDecimalV2()) {
             return true;
         }
-        if (isDecimalV3() && scalarType.isDecimalV3()) {
-            return precision == scalarType.precision && scale == scalarType.scale;
+        if (isDatetimeV2() && scalarType.isWildcardDatetimeV2()) {
+            Preconditions.checkState(!isWildcardDatetimeV2());
+            return true;
         }
-        if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+        if (isTimeV2() && scalarType.isWildcardTimeV2()) {
+            Preconditions.checkState(!isWildcardTimeV2());
             return true;
         }
         if (isVariantType() && scalarType.isVariantType()) {
@@ -957,51 +963,6 @@ public class ScalarType extends Type {
             return precision == other.precision && scale == other.scale;
         }
         return true;
-    }
-
-    /**
-     * Returns the smallest decimal type that can safely store this type. Returns
-     * INVALID if this type cannot be stored as a decimal.
-     */
-    public ScalarType getMinResolutionDecimal() {
-        switch (type) {
-            case NULL_TYPE:
-                return Type.NULL;
-            case DECIMALV2:
-                return this;
-            case TINYINT:
-                return createDecimalType(3);
-            case SMALLINT:
-                return createDecimalType(5);
-            case INT:
-                return createDecimalType(10);
-            case BIGINT:
-                return createDecimalType(19);
-            case FLOAT:
-                return createDecimalTypeInternal(MAX_DECIMAL128_PRECISION, 9, false);
-            case DOUBLE:
-                return createDecimalTypeInternal(MAX_DECIMAL128_PRECISION, 17, false);
-            default:
-                return ScalarType.INVALID;
-        }
-    }
-
-    /**
-     * Returns true if this decimal type is a supertype of the other decimal type.
-     * e.g. (10,3) is a supertype of (3,3) but (5,4) is not a supertype of (3,0).
-     * To be a super type of another decimal, the number of digits before and after
-     * the decimal point must be greater or equal.
-     */
-    public boolean isSupertypeOf(ScalarType o) {
-        Preconditions.checkState(isDecimalV2() || isDecimalV3());
-        Preconditions.checkState(o.isDecimalV2() || o.isDecimalV3());
-        if (isWildcardDecimal()) {
-            return true;
-        }
-        if (o.isWildcardDecimal()) {
-            return false;
-        }
-        return scale >= o.scale && precision - scale >= o.precision - o.scale;
     }
 
     /**
@@ -1182,13 +1143,6 @@ public class ScalarType extends Type {
                 targetPrecision, targetScale);
     }
 
-    public static ScalarType getAssignmentCompatibleDecimalV3Type(ScalarType t1, ScalarType t2) {
-        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
-        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
-                - t2.decimalScale()) + targetScale;
-        return ScalarType.createDecimalV3Type(targetPrecision, targetScale);
-    }
-
     /**
      * Returns true t1 can be implicitly cast to t2, false otherwise.
      * If strict is true, only consider casts that result in no loss of precision.
@@ -1200,16 +1154,6 @@ public class ScalarType extends Type {
 
     public static boolean canCastTo(ScalarType type, ScalarType targetType) {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
-    }
-
-    /**
-     * Decimal default precision is 9 and scale is 0, this method return whether this is
-     * default decimal v3 or v2
-     */
-    public boolean isDefaultDecimal() {
-        return (isDecimalV3() || isDecimalV2())
-                && DEFAULT_PRECISION == this.precision
-                && DEFAULT_SCALE == this.scale;
     }
 
     @Override
@@ -1259,6 +1203,15 @@ public class ScalarType extends Type {
         // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
+        }
+        return 0; // The old variant type had a default value of 0.
+    }
+
+    public int getVariantSparseHashShardCount() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantSparseHashShardCount();
         }
         return 0; // The old variant type had a default value of 0.
     }

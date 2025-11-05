@@ -88,17 +88,19 @@ suite("test_show_data_warehouse") {
         boolean hitDb1 = false;
         boolean hitDb2 = false;
 
-        long db1Size = 945 * replicaCount1
-        long db2Size = 922 * replicaCount1
+        long db1Size = 988 * replicaCount1
+        long db2Size = 875 * replicaCount2
         def result;
         do {
             current = System.currentTimeMillis()
             result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
+            log.info("show data warehouse db1 result: ${result}");
             if ((result.size() == 2) && result[0][1].toInteger() >= db1Size) {
                 hitDb1 = true;
             }
 
             result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+            log.info("show data warehouse db2 result: ${result}");
             if (result.size() == 2 && result[0][1].toInteger() >= db2Size) {
                 hitDb2 = true;
             }
@@ -112,6 +114,7 @@ suite("test_show_data_warehouse") {
         assertTrue((hitDb1 && hitDb2), "data size check fail after 1200s")
 
         result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
+        log.info("show data warehouse db1 and db2 result: ${result}");
         assertEquals(result.size(), 3)
         assert result[0][1].toInteger() >= db1Size
         assert result[1][1].toInteger() >= db2Size

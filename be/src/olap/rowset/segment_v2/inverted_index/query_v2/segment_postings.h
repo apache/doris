@@ -55,15 +55,9 @@ public:
 
     uint32_t size_hint() const override { return _iter->docFreq(); }
 
-    virtual int32_t freq() const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "freq() method not implemented in base SegmentPostingsBase class");
-    }
+    uint32_t freq() const override { return _iter->freq(); }
 
-    virtual int32_t norm() const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "norm() method not implemented in base SegmentPostingsBase class");
-    }
+    uint32_t norm() const override { return _iter->norm(); }
 
 protected:
     TermIterator _iter;
@@ -77,8 +71,26 @@ class SegmentPostings final : public SegmentPostingsBase<TermIterator> {
 public:
     SegmentPostings(TermIterator iter) : SegmentPostingsBase<TermIterator>(std::move(iter)) {}
 
-    int32_t freq() const override { return this->_iter->freq(); }
-    int32_t norm() const override { return this->_iter->norm(); }
+    void positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) {
+        output.clear();
+        append_positions_with_offset(offset, output);
+    }
+
+    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) {
+        static_assert(
+                requires(TermIterator it) {
+                    it->freq();
+                    it->nextPosition();
+                }, "TermIterator must expose freq() and nextPosition()");
+
+        auto freq = this->_iter->freq();
+        size_t prev_len = output.size();
+        output.resize(prev_len + freq);
+        for (int32_t i = 0; i < freq; ++i) {
+            auto pos = this->_iter->nextPosition();
+            output[prev_len + i] = offset + static_cast<uint32_t>(pos);
+        }
+    }
 };
 
 template <typename TermIterator>
@@ -86,8 +98,8 @@ class NoScoreSegmentPosting final : public SegmentPostingsBase<TermIterator> {
 public:
     NoScoreSegmentPosting(TermIterator iter) : SegmentPostingsBase<TermIterator>(std::move(iter)) {}
 
-    int32_t freq() const override { return 1; }
-    int32_t norm() const override { return 1; }
+    uint32_t freq() const override { return 1; }
+    uint32_t norm() const override { return 1; }
 };
 
 template <typename TermIterator>
@@ -100,8 +112,8 @@ public:
     uint32_t doc() const override { return TERMINATED; }
     uint32_t size_hint() const override { return 0; }
 
-    int32_t freq() const override { return 1; }
-    int32_t norm() const override { return 1; }
+    uint32_t freq() const override { return 1; }
+    uint32_t norm() const override { return 1; }
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

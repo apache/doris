@@ -412,9 +412,11 @@ class Suite implements GroovyInterceptable {
      *   - If using externalMsCluster, the referenced cluster must appear earlier in the map
      *
      * @param clusterConfigs LinkedHashMap of cluster name to ClusterOptions
+     * @param manual_init_clusters Set of cluster names to skip automatic initialization
      * @param actionSupplier Closure receiving Map<String, SuiteCluster> for test execution
      */
-    void dockers(LinkedHashMap<String, ClusterOptions> clusterConfigs, Closure actionSupplier) throws Exception {
+    void dockers(LinkedHashMap<String, ClusterOptions> clusterConfigs,
+        Set<String> manual_init_clusters = new HashSet<>(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             logger.info("do not run the docker suite {}, because regression config excludeDockerTest=true", name)
             return
@@ -477,6 +479,11 @@ class Suite implements GroovyInterceptable {
                 String clusterName = entry.key
                 ClusterOptions options = entry.value
                 SuiteCluster cluster = clusters.get(clusterName)
+
+                if (manual_init_clusters.contains(clusterName)) {
+                    logger.info("Skipping initialization of cluster: ${clusterName}")
+                    continue
+                }
 
                 // Determine cloud mode
                 boolean isCloud = false

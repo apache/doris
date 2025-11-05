@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -83,7 +84,6 @@ public class StructInfo {
     public static final ScanPlanPatternChecker SCAN_PLAN_PATTERN_CHECKER = new ScanPlanPatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
-    private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
     private static final PredicateCollector PREDICATE_COLLECTOR = new PredicateCollector();
     // source data
     private final Plan originalPlan;
@@ -453,23 +453,15 @@ public class StructInfo {
         return "StructInfo{ originalPlanId = " + originalPlanId + ", relations = " + relations + '}';
     }
 
-    private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
-        @Override
-        public Void visit(Plan plan, List<CatalogRelation> collectedRelations) {
-            if (plan instanceof CatalogRelation) {
-                collectedRelations.add((CatalogRelation) plan);
-            }
-            return super.visit(plan, collectedRelations);
-        }
-    }
-
     private static class PredicateCollector extends DefaultPlanVisitor<Void, Set<Expression>> {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
             // Just collect the filter in top plan, if meet other node except project and filter, return
             if (!(plan instanceof LogicalProject)
                     && !(plan instanceof LogicalFilter)
-                    && !(plan instanceof LogicalAggregate)) {
+                    && !(plan instanceof LogicalAggregate)
+                    && !(plan instanceof LogicalSort)
+                    && !(plan instanceof LogicalRepeat)) {
                 return null;
             }
             if (plan instanceof LogicalFilter) {
@@ -725,12 +717,11 @@ public class StructInfo {
      *         need to add filter.
      *         return null if add filter fail.
      */
-    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo,
-            Set<String>> partitionOnOriginPlan, String partitionColumn, CascadesContext parentCascadesContext) {
+    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan,
+            Map<BaseColInfo, Set<String>> partitionOnBaseTableMap, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
-        PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);
-        Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(),
-                predicateAddContext);
+        PredicateAddContext predicateAddContext = new PredicateAddContext(null, partitionOnBaseTableMap);
+        Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(), predicateAddContext);
         if (!predicateAddContext.isHandleSuccess()) {
             return null;
         }

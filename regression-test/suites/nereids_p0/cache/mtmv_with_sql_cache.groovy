@@ -185,7 +185,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -286,7 +285,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -401,7 +399,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -504,7 +501,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -542,7 +538,6 @@ suite("mtmv_with_sql_cache") {
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name1)
 
-                            sleep(10000)
                             assertHasCache "select * from ${mv_name1}"
                             assertHasCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -599,7 +594,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -635,7 +629,6 @@ suite("mtmv_with_sql_cache") {
 
                             // refresh mtmv complete
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} complete;"
-                            sleep(10000)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -699,7 +692,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -735,7 +727,6 @@ suite("mtmv_with_sql_cache") {
 
                             // base table insert overwrite
                             sql "INSERT OVERWRITE table ${tb_name1} PARTITION(p5) VALUES (5, 6);"
-                            sleep(10000)
                             assertHasCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -746,7 +737,6 @@ suite("mtmv_with_sql_cache") {
 
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name1)
-                            sleep(30 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -809,7 +799,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -855,7 +844,6 @@ suite("mtmv_with_sql_cache") {
 
                             // base table insert data
                             sql "insert into ${tb_name1} values(6, 1)"
-                            sleep(10000)
                             assertHasCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1  // mtmv no work -> directly base table -> no cache
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -919,7 +907,6 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-                            sleep(10000)
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
@@ -955,7 +942,6 @@ suite("mtmv_with_sql_cache") {
 
                             // recreate mtmv to add column
                             cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql3, "(id)")
-                            sleep(15 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertHasCache "select * from ${mv_name2}"
                             assertNoCache mtmv_sql1
@@ -967,7 +953,6 @@ suite("mtmv_with_sql_cache") {
 
                             sql "REFRESH MATERIALIZED VIEW ${mv_name2} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name2)
-                            sleep(10000)
                             assertHasCache "select * from ${mv_name2}"
 
                             retryUntilHasSqlCache mtmv_sql1
@@ -976,6 +961,7 @@ suite("mtmv_with_sql_cache") {
                             assertHasCache nested_mtmv_sql1
                         }
                     })
+
             ).get()
         }
 

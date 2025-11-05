@@ -102,12 +102,21 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (DebugPointUtil.isEnable("OlapInsertExecutor.beginTransaction.failed")) {
                 throw new BeginTransactionException("current running txns on db is larger than limit");
             }
+            LoadJobSourceType loadJobSourceType = LoadJobSourceType.INSERT_STREAMING;
+            StreamingInsertTask streamingInsertTask = Env.getCurrentEnv()
+                    .getJobManager()
+                    .getStreamingTaskManager()
+                    .getStreamingInsertTaskById(jobId);
+
+            if (streamingInsertTask != null) {
+                loadJobSourceType = LoadJobSourceType.STREAMING_JOB;
+            }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), ImmutableList.of(table.getId()), labelName,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
+                    loadJobSourceType, ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }

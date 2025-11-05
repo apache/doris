@@ -588,33 +588,27 @@ public class InsertUtils {
     }
 
     private static NamedExpression generateDefaultExpression(Column column) {
-        try {
-            GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
-            // Using NullLiteral as a placeholder.
-            // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
-            // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
-            if (generatedColumnInfo != null) {
-                return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+        GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
+        // Using NullLiteral as a placeholder.
+        // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
+        // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
+        if (generatedColumnInfo != null) {
+            return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+        }
+        if (column.getDefaultValue() == null) {
+            if (!column.isAllowNull() && !column.isAutoInc()) {
+                throw new AnalysisException("Column has no default value, column=" + column.getName());
             }
-            if (column.getDefaultValue() == null) {
-                if (!column.isAllowNull() && !column.isAutoInc()) {
-                    throw new AnalysisException("Column has no default value, column=" + column.getName());
-                }
+            return new Alias(Literal.of(column.getDefaultValue())
+                    .checkedCastWithStrictChecking(DataType.fromCatalogType(column.getType())),
+                    column.getName());
+        } else {
+            Expression defualtValueExpression = new NereidsParser().parseExpression(
+                    column.getDefaultValueSql());
+            if (!(defualtValueExpression instanceof UnboundAlias)) {
+                defualtValueExpression = new UnboundAlias(defualtValueExpression);
             }
-            if (column.getDefaultValueExpr() != null) {
-                Expression defualtValueExpression = new NereidsParser().parseExpression(
-                        column.getDefaultValueExpr().toSqlWithoutTbl());
-                if (!(defualtValueExpression instanceof UnboundAlias)) {
-                    defualtValueExpression = new UnboundAlias(defualtValueExpression);
-                }
-                return (NamedExpression) defualtValueExpression;
-            } else {
-                return new Alias(Literal.of(column.getDefaultValue())
-                        .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
-                        column.getName());
-            }
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
+            return (NamedExpression) defualtValueExpression;
         }
     }
 

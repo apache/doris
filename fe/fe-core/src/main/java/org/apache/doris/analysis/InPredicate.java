@@ -28,7 +28,6 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -238,32 +237,6 @@ public class InPredicate extends Predicate {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        final Expr leftChildValue = getChild(0);
-        if (!(leftChildValue instanceof LiteralExpr) || !isLiteralChildren()) {
-            return this;
-        }
-
-        if (leftChildValue instanceof NullLiteral) {
-            return leftChildValue;
-        }
-
-        List<Expr> inListChildren = children.subList(1, children.size());
-        boolean containsLeftChild = inListChildren.contains(leftChildValue);
-
-        // See QueryPlanTest.java testConstantInPredicate() for examples.
-        // This logic should be same as logic in in_predicate.cpp: get_boolean_val()
-        if (containsLeftChild) {
-            return new BoolLiteral(!isNotIn);
-        }
-        if (inListChildren.contains(NULL_LITERAL)) {
-            return new NullLiteral();
-        }
-        return new BoolLiteral(isNotIn);
     }
 
     @Override

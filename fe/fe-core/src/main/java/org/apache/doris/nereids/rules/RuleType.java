@@ -233,6 +233,7 @@ public enum RuleType {
     LOGICAL_SEMI_JOIN_COMMUTE(RuleTypeClass.REWRITE),
     TRANSPOSE_LOGICAL_SEMI_JOIN_AGG(RuleTypeClass.REWRITE),
     TRANSPOSE_LOGICAL_SEMI_JOIN_AGG_PROJECT(RuleTypeClass.REWRITE),
+    PUSH_DOWN_JOIN_ON_ASSERT_NUM_ROWS(RuleTypeClass.REWRITE),
 
     // expression of plan rewrite
     EXTRACT_IN_PREDICATE_FROM_OR(RuleTypeClass.REWRITE),
@@ -261,6 +262,8 @@ public enum RuleType {
     REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD(RuleTypeClass.REWRITE),
     // add post filter node for load
     ADD_POST_FILTER_FOR_LOAD(RuleTypeClass.REWRITE),
+    // add post project node for load
+    ADD_POST_PROJECT_FOR_LOAD(RuleTypeClass.REWRITE),
 
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),

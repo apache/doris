@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -76,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
@@ -128,6 +130,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Covar.class, "covar", "covar_pop"),
             agg(CovarSamp.class, "covar_samp"),
             agg(GroupArrayIntersect.class, "group_array_intersect"),
+            agg(GroupArrayUnion.class, "group_array_union"),
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
             agg(GroupBitXor.class, "group_bit_xor"),
@@ -165,6 +168,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(RegrIntercept.class, "regr_intercept"),
             agg(RegrSlope.class, "regr_slope"),
             agg(Retention.class, "retention"),
+            agg(Sem.class, "sem"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Skew.class, "skew", "skew_pop", "skewness"),

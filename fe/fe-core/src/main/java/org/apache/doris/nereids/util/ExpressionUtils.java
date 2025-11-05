@@ -291,6 +291,10 @@ public class ExpressionUtils {
         }
     }
 
+    public static Expression notIsNull(Expression expression) {
+        return new Not(new IsNull(expression));
+    }
+
     public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
         if (values.size() < 2) {
             return or(values.stream().map(value -> new EqualTo(reference, value)).collect(Collectors.toList()));

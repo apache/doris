@@ -34,7 +34,6 @@ import org.apache.doris.cloud.master.CloudReportHandler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
-import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -448,15 +447,6 @@ public class MasterImpl {
                 for (int i = 0; i < tabletMetaList.size(); i++) {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
                     checkReplica(finishTabletInfos.get(i), tabletMeta);
-                    long tabletId = tabletIds.get(i);
-                    Replica replica = findRelatedReplica(
-                            olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
-                    // if the replica is under schema change, could not find the replica with aim schema hash
-                    if (replica != null) {
-                        if (job instanceof IngestionLoadJob) {
-                            ((IngestionLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
-                        }
-                    }
                 }
             }
 

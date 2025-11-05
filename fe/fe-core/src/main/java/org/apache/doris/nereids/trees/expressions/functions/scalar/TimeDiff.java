@@ -39,9 +39,9 @@ public class TimeDiff extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.INSTANCE)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
+            FunctionSignature.ret(TimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
 
     /**
      * constructor with 2 arguments.

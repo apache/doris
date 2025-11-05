@@ -81,6 +81,13 @@ suite("test_search_null_semantics") {
         WHERE not search('content:Round')
     """
 
+    // Test Case 2b: Phrase NOT queries must treat NULL rows as UNKNOWN
+    qt_test_case_2_phrase_not """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
+        WHERE NOT search('content:"Selma Blair"')
+        ORDER BY id
+    """
+
     // Test Case 3: NULL handling in OR queries
     // Verify that NULL OR TRUE = TRUE logic works
     qt_test_case_3_or_with_null """

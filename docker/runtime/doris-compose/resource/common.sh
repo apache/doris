@@ -184,3 +184,44 @@ create_doris_instance() {
         break
     done
 }
+
+is_doris_instance_exists() {
+    output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_instance?token=greedisgood9999&instance_id=${INSTANCE_ID}")
+
+    health_log "get instance output: $output"
+    code=$(jq -r '.code' <<<$output)
+
+    if [ "$code" != "OK" ]; then
+        health_log "get instance failed"
+        return 1
+    fi
+
+    return 0
+}
+
+# Like wait_create_instance, but query meta service directly.
+wait_doris_instance_ready() {
+    ok=0
+    for ((i = 0; i < 30; i++)); do
+        is_doris_instance_exists
+        if [ $? -eq 0 ]; then
+            ok=1
+            break
+        fi
+
+        health_log "doris instance not exist yet."
+
+        sleep 1
+    done
+
+    if [ $ok -eq 0 ]; then
+        health_log "wait doris instance too long, exit"
+        exit 1
+    fi
+
+    if [ ! -f $HAS_CREATE_INSTANCE_FILE ]; then
+        touch $HAS_CREATE_INSTANCE_FILE
+    fi
+
+    health_log "check doris instance ok"
+}

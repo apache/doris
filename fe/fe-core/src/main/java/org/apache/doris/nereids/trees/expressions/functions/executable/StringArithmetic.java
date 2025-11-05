@@ -1242,4 +1242,59 @@ public class StringArithmetic {
 
         return new VarcharLiteral(result.toString());
     }
+
+    /**
+     * Executable arithmetic functions is_uuid
+     */
+    @ExecFunction(name = "is_uuid")
+    public static Expression isUuid(StringLikeLiteral first) {
+        String uuid = first.getValue();
+        return isUuidImpl(uuid);
+    }
+
+    private static boolean isHexChar(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    private static Expression isUuidImpl(String uuid) {
+        final int uuid_without_dash_length = 32;
+        final int uuid_with_dash_length = 36;
+        final int uuid_with_braces_and_dash_length = 38;
+        int len = uuid.length();
+        int start = 0;
+        int end = len - 1;
+        switch (len) {
+            case uuid_without_dash_length:
+                for (int i = 0; i < len; i++) {
+                    if (!isHexChar(uuid.charAt(i))) {
+                        return BooleanLiteral.of(false);
+                    }
+                }
+                break;
+            case uuid_with_braces_and_dash_length:
+                if (uuid.charAt(0) != '{' || uuid.charAt(end) != '}') {
+                    return BooleanLiteral.of(false);
+                }
+                start++;
+                end--;
+                // fall through
+            case uuid_with_dash_length:
+                for (int i = start; i <= end; i++) {
+                    char c = uuid.charAt(i);
+                    if (i == start + 8 || i == start + 13 || i == start + 18 || i == start + 23) {
+                        if (c != '-') {
+                            return BooleanLiteral.of(false);
+                        }
+                    } else {
+                        if (!isHexChar(c)) {
+                            return BooleanLiteral.of(false);
+                        }
+                    }
+                }
+                break;
+            default:
+                return BooleanLiteral.of(false);
+        }
+        return BooleanLiteral.of(true);
+    }
 }
