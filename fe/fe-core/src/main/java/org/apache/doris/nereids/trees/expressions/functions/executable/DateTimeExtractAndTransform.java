@@ -722,7 +722,7 @@ public class DateTimeExtractAndTransform {
         double secondValue = second.getValue();
 
         if (minuteValue < 0 || minuteValue >= 60 || secondValue < 0 || secondValue >= 60) {
-            return new NullLiteral(TimeV2Type.INSTANCE);
+            return new NullLiteral(TimeV2Type.SYSTEM_DEFAULT);
         }
         if (Math.abs(hourValue) > 838) {
             hourValue = hourValue > 0 ? 838 : -838;

@@ -26,6 +26,9 @@
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_dict_page_pre_decoder.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2_pre_decoder.h"
+#include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/types.h"
 #include "runtime/exec_env.h"
 
@@ -121,6 +124,174 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
 
     // Reset to default
     config::binary_plain_encoding_default_impl = "v1";
+}
+
+// Comprehensive test for _data_page_pre_decoder for all encoding types
+TEST_F(EncodingInfoTest, test_all_pre_decoders) {
+    // Test BIT_SHUFFLE encoding - should have BitShufflePagePreDecoder
+    // Test various integer types
+    std::vector<FieldType> bitshuffle_types = {
+            FieldType::OLAP_FIELD_TYPE_TINYINT,      FieldType::OLAP_FIELD_TYPE_SMALLINT,
+            FieldType::OLAP_FIELD_TYPE_INT,          FieldType::OLAP_FIELD_TYPE_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_LARGEINT,     FieldType::OLAP_FIELD_TYPE_FLOAT,
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,       FieldType::OLAP_FIELD_TYPE_BOOL,
+            FieldType::OLAP_FIELD_TYPE_DATE,         FieldType::OLAP_FIELD_TYPE_DATEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,   FieldType::OLAP_FIELD_TYPE_DATETIME,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL,      FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL64,    FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL256,   FieldType::OLAP_FIELD_TYPE_IPV4,
+            FieldType::OLAP_FIELD_TYPE_IPV6,         FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT,
+    };
+
+    for (auto type : bitshuffle_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, BIT_SHUFFLE, &encoding_info);
+        if (status.ok()) {
+            ASSERT_NE(nullptr, encoding_info);
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                            << " with BIT_SHUFFLE should have pre_decoder";
+            auto* bitshuffle_decoder = dynamic_cast<BitShufflePagePreDecoder*>(pre_decoder);
+            EXPECT_NE(nullptr, bitshuffle_decoder)
+                    << "Type " << static_cast<int>(type)
+                    << " with BIT_SHUFFLE should have BitShufflePagePreDecoder";
+        }
+    }
+
+    // Test DICT_ENCODING - should have BinaryDictPagePreDecoder
+    std::vector<FieldType> dict_types = {
+            FieldType::OLAP_FIELD_TYPE_CHAR,    FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            FieldType::OLAP_FIELD_TYPE_STRING,  FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_VARIANT,
+    };
+
+    for (auto type : dict_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, DICT_ENCODING, &encoding_info);
+        ASSERT_TRUE(status.ok()) << "Type " << static_cast<int>(type)
+                                 << " should support DICT_ENCODING";
+        ASSERT_NE(nullptr, encoding_info);
+        auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+        ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                        << " with DICT_ENCODING should have pre_decoder";
+        auto* dict_decoder = dynamic_cast<BinaryDictPagePreDecoder*>(pre_decoder);
+        EXPECT_NE(nullptr, dict_decoder)
+                << "Type " << static_cast<int>(type)
+                << " with DICT_ENCODING should have BinaryDictPagePreDecoder";
+    }
+
+    // Test PLAIN_ENCODING_V2 with Slice types - should have BinaryPlainPageV2PreDecoder
+    std::vector<FieldType> plain_v2_types = {
+            FieldType::OLAP_FIELD_TYPE_CHAR,      FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            FieldType::OLAP_FIELD_TYPE_STRING,    FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_VARIANT,   FieldType::OLAP_FIELD_TYPE_HLL,
+            FieldType::OLAP_FIELD_TYPE_BITMAP,    FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,
+            FieldType::OLAP_FIELD_TYPE_AGG_STATE,
+    };
+
+    for (auto type : plain_v2_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, PLAIN_ENCODING_V2, &encoding_info);
+        ASSERT_TRUE(status.ok()) << "Type " << static_cast<int>(type)
+                                 << " should support PLAIN_ENCODING_V2";
+        ASSERT_NE(nullptr, encoding_info);
+        auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+        ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                        << " with PLAIN_ENCODING_V2 should have pre_decoder";
+        auto* v2_decoder = dynamic_cast<BinaryPlainPageV2PreDecoder*>(pre_decoder);
+        EXPECT_NE(nullptr, v2_decoder) << "Type " << static_cast<int>(type)
+                                       << " with PLAIN_ENCODING_V2 should have "
+                                          "BinaryPlainPageV2PreDecoder";
+    }
+
+    // Test PLAIN_ENCODING - should NOT have pre_decoder
+    std::vector<FieldType> plain_encoding_types = {
+            FieldType::OLAP_FIELD_TYPE_TINYINT,
+            FieldType::OLAP_FIELD_TYPE_SMALLINT,
+            FieldType::OLAP_FIELD_TYPE_INT,
+            FieldType::OLAP_FIELD_TYPE_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_LARGEINT,
+            FieldType::OLAP_FIELD_TYPE_FLOAT,
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            FieldType::OLAP_FIELD_TYPE_BOOL,
+            FieldType::OLAP_FIELD_TYPE_DATE,
+            FieldType::OLAP_FIELD_TYPE_DATEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIME,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL256,
+            FieldType::OLAP_FIELD_TYPE_IPV4,
+            FieldType::OLAP_FIELD_TYPE_IPV6,
+            FieldType::OLAP_FIELD_TYPE_CHAR,
+            FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            FieldType::OLAP_FIELD_TYPE_STRING,
+            FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_VARIANT,
+            FieldType::OLAP_FIELD_TYPE_HLL,
+            FieldType::OLAP_FIELD_TYPE_BITMAP,
+            FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,
+            FieldType::OLAP_FIELD_TYPE_AGG_STATE,
+    };
+
+    for (auto type : plain_encoding_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, PLAIN_ENCODING, &encoding_info);
+        if (status.ok() && encoding_info != nullptr) {
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                            << " with PLAIN_ENCODING should NOT have pre_decoder";
+        }
+    }
+
+    // Test FOR_ENCODING - should NOT have pre_decoder
+    std::vector<FieldType> for_encoding_types = {
+            FieldType::OLAP_FIELD_TYPE_TINYINT,  FieldType::OLAP_FIELD_TYPE_SMALLINT,
+            FieldType::OLAP_FIELD_TYPE_INT,      FieldType::OLAP_FIELD_TYPE_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_LARGEINT, FieldType::OLAP_FIELD_TYPE_DATE,
+            FieldType::OLAP_FIELD_TYPE_DATEV2,   FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIME,
+    };
+
+    for (auto type : for_encoding_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, FOR_ENCODING, &encoding_info);
+        if (status.ok() && encoding_info != nullptr) {
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                            << " with FOR_ENCODING should NOT have pre_decoder";
+        }
+    }
+
+    // Test PREFIX_ENCODING - should NOT have pre_decoder
+    std::vector<FieldType> prefix_encoding_types = {
+            FieldType::OLAP_FIELD_TYPE_CHAR,    FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            FieldType::OLAP_FIELD_TYPE_STRING,  FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_VARIANT,
+    };
+
+    for (auto type : prefix_encoding_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, PREFIX_ENCODING, &encoding_info);
+        if (status.ok() && encoding_info != nullptr) {
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                            << " with PREFIX_ENCODING should NOT have pre_decoder";
+        }
+    }
+
+    // Test RLE - should NOT have pre_decoder (only for BOOL)
+    {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_BOOL, RLE, &encoding_info);
+        if (status.ok() && encoding_info != nullptr) {
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            EXPECT_EQ(nullptr, pre_decoder) << "BOOL with RLE should NOT have pre_decoder";
+        }
+    }
 }
 
 } // namespace segment_v2

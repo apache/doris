@@ -1636,6 +1636,8 @@ DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& confi
 
 DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
 
+DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2089,8 +2091,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-            ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
+    if (config::enable_fuzzy_storage_encoding) {
+        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
+                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
+    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
