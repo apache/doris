@@ -1457,16 +1457,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
+        List<Table> tables;
+        List<Long> tableIds = null;
+        
         if (request.isSetTableId() && request.getTableId() > 0) {
+            // Single table by ID
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
             if (table == null) {
                 throw new MetaNotFoundException("unknown table, table_id=" + request.getTableId());
             }
             return Collections.singletonList(table);
-        }
-        // Use table IDs if available (for multi-table loads)
-        if (CollectionUtils.isNotEmpty(request.getTableIds())) {
-            List<Table> tables = new ArrayList<>(request.getTableIds().size());
+        } else if (CollectionUtils.isNotEmpty(request.getTableIds())) {
+            // Use table IDs if available (for multi-table loads)
+            tables = new ArrayList<>(request.getTableIds().size());
             for (Long tableId : request.getTableIds()) {
                 Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
                 if (table == null) {
@@ -1474,42 +1477,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 tables.add(table);
             }
-            if (tables.size() > 1) {
-                tables.sort(Comparator.comparing(Table::getId));
-            }
-            // Update multi table running transaction table ids
-            Env.getCurrentGlobalTransactionMgr()
-                    .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), request.getTableIds());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTableIds());
-            }
-            return tables;
-        }
-
-        // Fallback to table names (backward compatibility)
-        List<String> tbNames;
-        // check has multi table
-        if (CollectionUtils.isNotEmpty(request.getTbls())) {
-            tbNames = request.getTbls();
+            tableIds = request.getTableIds();
         } else {
-            tbNames = Collections.singletonList(request.getTbl());
+            // Fallback to table names (backward compatibility)
+            List<String> tbNames;
+            if (CollectionUtils.isNotEmpty(request.getTbls())) {
+                tbNames = request.getTbls();
+            } else {
+                tbNames = Collections.singletonList(request.getTbl());
+            }
+            tables = new ArrayList<>(tbNames.size());
+            for (String tbl : tbNames) {
+                OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
+                tables.add(table);
+            }
+            // if it has multi table, collect table ids for transaction update
+            if (CollectionUtils.isNotEmpty(request.getTbls())) {
+                tableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
+            }
         }
-        List<Table> tables = new ArrayList<>(tbNames.size());
-        for (String tbl : tbNames) {
-            OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
-            tables.add(table);
-        }
+        
         if (tables.size() > 1) {
             tables.sort(Comparator.comparing(Table::getId));
         }
-        // if it has multi table, use multi table and update multi table running
-        // transaction table ids
-        if (CollectionUtils.isNotEmpty(request.getTbls())) {
-            List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
+        // Update multi table running transaction table ids
+        if (tableIds != null) {
             Env.getCurrentGlobalTransactionMgr()
-                    .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), multiTableIds);
+                    .updateMultiTableRunningTransactionTableIds(db.getId(), request.getTxnId(), tableIds);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTbls());
+                LOG.debug("txn {} has multi table {}", request.getTxnId(), tableIds);
             }
         }
         return tables;
