@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -482,7 +483,8 @@ public class StructInfo {
         @Override
         public Void visit(Plan plan, PredicateCollectorContext collectorContext) {
             // Just collect the filter in top plan, if meet other node except the following node, return
-            if (!(plan instanceof LogicalProject)
+            if (!(plan instanceof LogicalSink)
+                    && !(plan instanceof LogicalProject)
                     && !(plan instanceof LogicalFilter)
                     && !(plan instanceof LogicalAggregate)
                     && !(plan instanceof LogicalWindow)

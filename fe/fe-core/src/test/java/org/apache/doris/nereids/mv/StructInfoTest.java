@@ -20,7 +20,9 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PredicateCollectorContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -155,6 +157,86 @@ public class StructInfoTest extends SqlTestBase {
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
                             Assertions.assertTrue(StructInfo.checkWindowTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
+    public void testPredicateCollectorWithCouldPullUp() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select \n"
+                                + "o_orderkey, o_orderdate,\n"
+                                + "FIRST_VALUE(o_custkey) OVER (\n"
+                                + "        PARTITION BY o_orderdate \n"
+                                + "        ORDER BY o_totalprice NULLS LAST\n"
+                                + "        RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n"
+                                + "    ) AS first_value\n"
+                                + "from \n"
+                                + "(\n"
+                                + "select * from orders_arr where o_orderdate > '2025-01-01' and o_custkey = 1\n"
+                                + ") t;",
+                        nereidsPlanner -> {
+
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            PredicateCollectorContext predicateCollectorContext = new PredicateCollectorContext();
+                            rewrittenPlan.accept(StructInfo.PREDICATE_COLLECTOR, predicateCollectorContext);
+                            Assertions.assertEquals(1,
+                                    predicateCollectorContext.getCouldPullUpPredicates().size());
+                            Assertions.assertTrue(
+                                    predicateCollectorContext.getCouldPullUpPredicates().stream().allMatch(
+                                            expr -> expr.collectFirst(
+                                                            node -> node instanceof SlotReference
+                                                                    && ((SlotReference) node).getName()
+                                                                    .equalsIgnoreCase("o_orderdate"))
+                                                    .isPresent()));
+                            Assertions.assertEquals(1,
+                                    predicateCollectorContext.getCouldNotPullUpPredicates().size());
+                            Assertions.assertTrue(
+                                    predicateCollectorContext.getCouldNotPullUpPredicates().stream().allMatch(
+                                            expr -> expr.collectFirst(
+                                                            node -> node instanceof SlotReference
+                                                                    && ((SlotReference) node).getName()
+                                                                    .equalsIgnoreCase("o_custkey"))
+                                                    .isPresent()));
+                        });
+    }
+
+    @Test
+    public void testPredicateCollectorWithCouldNotPullUp() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, first_value\n"
+                                + "from\n"
+                                + "(\n"
+                                + "select \n"
+                                + "o_orderkey, o_orderdate,\n"
+                                + "FIRST_VALUE(o_custkey) OVER (\n"
+                                + "        PARTITION BY o_orderdate \n"
+                                + "        ORDER BY o_totalprice NULLS LAST\n"
+                                + "        RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n"
+                                + "    ) AS first_value,\n"
+                                + "RANK() OVER (\n"
+                                + "        PARTITION BY o_orderdate, o_orderstatus \n"
+                                + "        ORDER BY o_totalprice NULLS LAST\n"
+                                + "        RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n"
+                                + "    ) AS rank_value\n"
+                                + "from \n"
+                                + "orders_arr\n"
+                                + ") t\n"
+                                + "where first_value > 0;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            PredicateCollectorContext predicateCollectorContext = new PredicateCollectorContext();
+                            rewrittenPlan.accept(StructInfo.PREDICATE_COLLECTOR, predicateCollectorContext);
+                            Assertions.assertEquals(1,
+                                    predicateCollectorContext.getCouldPullUpPredicates().size());
+                            Assertions.assertEquals(0,
+                                    predicateCollectorContext.getCouldNotPullUpPredicates().size());
+                            Assertions.assertTrue(
+                                    predicateCollectorContext.getCouldPullUpPredicates().stream().allMatch(
+                                            expr -> expr.collectFirst(
+                                                            node -> node instanceof SlotReference
+                                                                    && ((SlotReference) node).getName()
+                                                                    .equalsIgnoreCase("first_value"))
+                                                    .isPresent()));
                         });
     }
 }
