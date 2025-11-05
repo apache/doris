@@ -106,10 +106,17 @@ suite("test_streaming_insert_job") {
         select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
     """
     log.info("jobInfo: " + jobInfo)
-    assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+    assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
-    
+
+    // check task show
+    def taskInfo = sql """select Status,RunningOffset from tasks("type"="insert") where jobName='${jobName}'"""
+    log.info("taskInfo is : " + taskInfo + ", size: " + taskInfo.size())
+    assert taskInfo.size() > 0
+    taskInfo.get(taskInfo.size()-1).get(0) == "SUCCESS"
+    taskInfo.get(taskInfo.size()-1).get(1) == "{\"start\":\"regression/load/data/example_0.csv\",\"end\":\"regression/load/data/example_0.csv\"}"
+
     // alter streaming job
     sql """
        ALTER JOB ${jobName}
@@ -135,7 +142,7 @@ suite("test_streaming_insert_job") {
     """
     assert alterJobProperties.get(0).get(0) == "PAUSED"
     assert alterJobProperties.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
-    assert alterJobProperties.get(0).get(2) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert alterJobProperties.get(0).get(2) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
 
     sql """
         RESUME JOB where jobname =  '${jobName}'
@@ -145,7 +152,7 @@ suite("test_streaming_insert_job") {
     """
     assert resumeJobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
     assert resumeJobStatus.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
-    assert resumeJobStatus.get(0).get(2) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert resumeJobStatus.get(0).get(2) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
 
 
     Awaitility.await().atMost(60, SECONDS)

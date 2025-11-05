@@ -28,10 +28,12 @@ import org.apache.commons.lang3.StringUtils;
 @Getter
 @Setter
 public class S3Offset implements Offset {
+    String startFile;
     @SerializedName("endFile")
     String endFile;
     // s3://bucket/path/{1.csv,2.csv}
     String fileLists;
+    int fileNum;
 
     @Override
     public String toSerializedJson() {
@@ -49,7 +51,12 @@ public class S3Offset implements Offset {
     }
 
     @Override
+    public String showRange() {
+        return "{\"start\":\"" + startFile + "\",\"end\":\"" + endFile + "\"}";
+    }
+
+    @Override
     public String toString() {
-        return "{\"endFile\": \"" + endFile + "\"}";
+        return "{\"start\":\"" + startFile + "\",\"end\":\"" + endFile + "\",\"fileNum\":" + fileNum + "}";
     }
 }
