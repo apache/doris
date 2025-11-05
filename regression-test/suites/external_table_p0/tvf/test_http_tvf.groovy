@@ -29,7 +29,6 @@ suite("test_http_tvf", "p2") {
     def httpRoot = "/tmp/http_test_files"
     def httpHost = "http://127.0.0.1:${port}"
 
-    // 准备几个测试文件
     new File(httpRoot).mkdirs()
     new File("${httpRoot}/test.csv").text = """id,name,score
 1,Alice,95
