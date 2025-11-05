@@ -1005,7 +1005,7 @@ public class Backend implements Writable {
         @SerializedName("isActive")
         public volatile boolean isActive = true;
         @SerializedName("isShutdown")
-        public volatile boolean isShutdown = true;
+        public volatile boolean isShutdown = false;
 
         // cloud mode, cloud control just query master, so not need SerializedName
         public volatile long currentFragmentNum = 0;
