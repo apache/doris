@@ -48,7 +48,7 @@ PhysicalResultSink
 -- !eliminate_not_null_with_subquery --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t.score = t.score)) otherCondition=()
-----filter(( not score IS NULL) and (t.score > 0))
+----filter((t.score > 0))
 ------PhysicalOlapScan[t]
 ----filter((t.score > 0))
 ------PhysicalOlapScan[t]
