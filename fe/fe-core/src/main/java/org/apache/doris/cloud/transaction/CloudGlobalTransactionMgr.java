@@ -107,6 +107,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.AutoPartitionCacheManager;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
@@ -126,10 +127,8 @@ import org.apache.doris.transaction.TxnStateChangeCallback;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
@@ -211,75 +210,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     // dbId -> txnId -> signature
     private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
 
-    // To distinguish the idempotence of the createPartition RPC during incremental partition creation
-    // for automatic partitioned tables, record the dbId -> txnId -> tabletId -> BE id
-    private Map<Long, Map<Long, Multimap<Long, Long>>> autoPartitionInfo = Maps.newHashMap();
-    private final Object autoPartitionInfoLock = new Object();
+    private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
 
-
-    // inMap  : partitionId -> tabletId -> BeId
-    // outMap : tabletId -> BeId
-    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId,
-                    Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap) {
-        synchronized (autoPartitionInfoLock) {
-            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-            if (txnMap == null) {
-                txnMap = Maps.newHashMap();
-                autoPartitionInfo.put(dbId, txnMap);
-            }
-            Multimap<Long, Long> tabletMap = txnMap.get(txnId);
-            // first create partition in this txn, so just use the tablet info in inMap
-            if (tabletMap == null) {
-                tabletMap = HashMultimap.create();
-                for (Map.Entry<Long, Multimap<Long, Long>> entry : inMap.entrySet()) {
-                    Multimap<Long, Long> partitionTabletMap = entry.getValue();
-                    for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
-                        Long tabletId = tabletEntry.getKey();
-                        Long beId = tabletEntry.getValue();
-                        tabletMap.put(tabletId, beId);
-                        outMap.put(tabletId, beId);
-                    }
-                }
-                txnMap.put(txnId, tabletMap);
-            } else {
-                // not first create partition, check every partition in inMap
-                for (Map.Entry<Long, Multimap<Long, Long>> entry : inMap.entrySet()) {
-                    Multimap<Long, Long> partitionTabletMap = entry.getValue();
-                    if (partitionTabletMap.isEmpty()) {
-                        continue;
-                    }
-                    Long firstTabletId = partitionTabletMap.keys().iterator().next();
-                    // the tablets in this partition have been cached
-                    if (tabletMap.containsKey(firstTabletId)) {
-                        for (Long tabletId : partitionTabletMap.keySet()) {
-                            if (tabletMap.containsKey(tabletId)) {
-                                outMap.putAll(tabletId, tabletMap.get(tabletId));
-                            }
-                        }
-                    } else {
-                        // newly create partition
-                        for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
-                            Long tabletId = tabletEntry.getKey();
-                            Long beId = tabletEntry.getValue();
-                            tabletMap.put(tabletId, beId);
-                            outMap.put(tabletId, beId);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    public void clearAutoPartitionInfo(Long dbId, Long txnId) {
-        synchronized (autoPartitionInfoLock) {
-            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-            if (txnMap != null) {
-                txnMap.remove(txnId);
-                if (txnMap.isEmpty()) {
-                    autoPartitionInfo.remove(dbId);
-                }
-            }
-        }
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
+        return autoPartitionCacheManager;
     }
 
     public CloudGlobalTransactionMgr() {
@@ -1694,7 +1628,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
-        clearAutoPartitionInfo(dbId, transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(dbId, transactionId);
     }
 
     @Override
@@ -1756,7 +1690,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
-        clearAutoPartitionInfo(dbId, transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(dbId, transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 

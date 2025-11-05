@@ -90,6 +90,5 @@ suite('test_create_partition_idempotence', 'docker') {
         def count = sql "SELECT count(*) FROM ${tableName}"
         logger.info("Total row count: ${count}")
         assertEquals(20001, count[0][0])
-
     }
 }

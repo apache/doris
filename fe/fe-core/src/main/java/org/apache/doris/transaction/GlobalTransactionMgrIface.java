@@ -37,8 +37,6 @@ import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
-import com.google.common.collect.Multimap;
-
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
@@ -223,8 +221,5 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public int getQueueLength();
 
-    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId,
-            Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap);
-
-    public void clearAutoPartitionInfo(Long dbId, Long txnId);
+    public AutoPartitionCacheManager getAutoPartitionCacheMgr();
 }

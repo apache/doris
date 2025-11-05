@@ -1360,6 +1360,8 @@ struct TCreatePartitionRequest {
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
+    // indicate whether this request is from stream load
+    7: optional bool is_stream_load = false
 }
 
 struct TCreatePartitionResult {

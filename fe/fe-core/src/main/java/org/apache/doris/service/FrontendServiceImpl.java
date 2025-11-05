@@ -3669,6 +3669,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        boolean isStreamLoad;
+        if (request.isSetIsStreamLoad()) {
+            isStreamLoad = request.isIsStreamLoad();
+        } else {
+            errorStatus.setErrorMsgs(
+                    Lists.newArrayList("Logical error: please check the RPC transmission between BE and FE."));
+            result.setStatus(errorStatus);
+            LOG.warn("Logical error: please check the RPC transmission between BE and FE: {}", result);
+            return result;
+        }
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
@@ -3832,9 +3842,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // We return the finalResultTablets to be. In getOrSetAutoPartitionInfo we will check
         // the tablets replica distribution per partition, first use the cached partition info.
         Multimap<Long, Long> finalResultTablets = HashMultimap.create();
-        Env.getCurrentGlobalTransactionMgr().getOrSetAutoPartitionInfo(dbId, txnId,
-                tempResultTablets, finalResultTablets);
-
+        if (!isStreamLoad) {
+            Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr().getOrSetAutoPartitionInfo(dbId, txnId,
+                    tempResultTablets, finalResultTablets);
+        } else {
+            // For stream load, directly use the tablet distribution info from tempResultTablets
+            for (Map.Entry<Long, Multimap<Long, Long>> entry : tempResultTablets.entrySet()) {
+                Multimap<Long, Long> partitionTabletMap = entry.getValue();
+                for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
+                    finalResultTablets.put(tabletEntry.getKey(), tabletEntry.getValue());
+                }
+            }
+        }
         for (Long tabletId : finalResultTablets.keySet()) {
             Collection<Long> beIds = finalResultTablets.get(tabletId);
             if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
