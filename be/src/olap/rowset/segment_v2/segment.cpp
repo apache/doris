@@ -622,7 +622,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // Find the specific node within the variant structure using the relative path.
     const auto* node = variant_reader->get_subcolumn_meta_by_path(relative_path);
 
-    if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
+    if (relative_path.get_path().find(BeConsts::SPARSE_COLUMN_PATH) != std::string::npos) {
         return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 

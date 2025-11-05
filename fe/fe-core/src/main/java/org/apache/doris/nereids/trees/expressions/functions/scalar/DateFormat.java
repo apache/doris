@@ -46,7 +46,7 @@ public class DateFormat extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable, PropagateNullLiteral, Monotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.WILDCARD,
                     VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT),

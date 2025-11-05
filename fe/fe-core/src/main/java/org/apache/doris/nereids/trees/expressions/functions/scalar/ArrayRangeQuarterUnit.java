@@ -38,8 +38,8 @@ import java.util.List;
 public class ArrayRangeQuarterUnit extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
+                .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD, IntegerType.INSTANCE)
     );
 
     /**

@@ -1518,7 +1518,13 @@ int InstanceRecycler::recycle_partitions() {
 int InstanceRecycler::recycle_versions() {
     if (instance_info_.has_multi_version_status() &&
         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
-        return recycle_orphan_partitions();
+        // If the data migration is not finished, skip recycling the orphan partitions.
+        if (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
+            (instance_info_.has_snapshot_switch_status() &&
+             instance_info_.snapshot_switch_status() !=
+                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED)) {
+            return recycle_orphan_partitions();
+        }
     }
 
     int64_t num_scanned = 0;

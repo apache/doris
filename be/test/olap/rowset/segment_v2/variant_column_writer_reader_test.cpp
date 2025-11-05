@@ -37,7 +37,7 @@ constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
 static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
                              const std::string& column_type, const std::string& column_name,
                              int variant_max_subcolumns_count = 3, bool is_key = false,
-                             bool is_nullable = false) {
+                             bool is_nullable = false, int variant_sparse_hash_shard_count = 0) {
     column_pb->set_unique_id(col_unique_id);
     column_pb->set_name(column_name);
     column_pb->set_type(column_type);
@@ -46,6 +46,8 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
     if (column_type == "VARIANT") {
         column_pb->set_variant_max_subcolumns_count(variant_max_subcolumns_count);
         column_pb->set_variant_max_sparse_column_statistics_size(10000);
+        // 5 sparse hash shard
+        column_pb->set_variant_sparse_hash_shard_count(variant_sparse_hash_shard_count);
     }
 }
 
@@ -161,7 +163,9 @@ void check_sparse_column_meta(const ColumnMetaPB& column_meta, auto& path_with_s
     for (const auto& [pat, size] : column_meta.variant_statistics().sparse_column_non_null_size()) {
         EXPECT_EQ(size, path_with_size[pat]);
     }
-    EXPECT_EQ(path->copy_pop_front().get_path(), "__DORIS_VARIANT_SPARSE__");
+    auto base_path = path->copy_pop_front().get_path();
+    EXPECT_TRUE(base_path == "__DORIS_VARIANT_SPARSE__" ||
+                base_path.rfind("__DORIS_VARIANT_SPARSE__.b", 0) == 0);
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_statics) {
@@ -198,7 +202,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 1. create tablet_schema
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1");
+    int variant_sparse_hash_shard_count = rand() % 10 + 1;
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 3, false, false,
+                     variant_sparse_hash_shard_count);
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
 
@@ -261,7 +267,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     footer.set_num_rows(1000);
 
     // 6. check footer
-    EXPECT_EQ(footer.columns_size(), 5);
+    int expected_sparse_cols =
+            variant_sparse_hash_shard_count > 1 ? variant_sparse_hash_shard_count : 1;
+    EXPECT_EQ(footer.columns_size(), 1 + 3 + expected_sparse_cols);
     auto column_meta = footer.columns(0);
     EXPECT_EQ(column_meta.type(), (int)FieldType::OLAP_FIELD_TYPE_VARIANT);
 
@@ -422,7 +430,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
         int64_t before_bytes_read = stats.bytes_read;
         read_to_column_object(it);
-        if (before_bytes_read != 0) {
+        // In bucketized mode, different keys may map to different buckets and trigger extra IO.
+        if (variant_sparse_hash_shard_count <= 1 && before_bytes_read != 0) {
             EXPECT_EQ(stats.bytes_read, before_bytes_read);
         }
 
@@ -593,7 +602,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     }
 
     // 16. check compacton sparse column
-    TabletColumn sparse_column = schema_util::create_sparse_column(parent_column);
+    TabletColumn sparse_column = variant_sparse_hash_shard_count > 1
+                                         ? schema_util::create_sparse_shard_column(parent_column, 0)
+                                         : schema_util::create_sparse_column(parent_column);
     ColumnIteratorUPtr it4;
     st = variant_column_reader->new_iterator(&it4, &sparse_column, &storage_read_opts,
                                              &column_reader_cache);
@@ -738,7 +749,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     // 1. create tablet_schema
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 10);
+    int variant_sparse_hash_shard_count = rand() % 10 + 1;
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 10, false, false,
+                     variant_sparse_hash_shard_count);
     _tablet_schema = std::make_shared<TabletSchema>();
     _tablet_schema->init_from_pb(schema_pb);
 
@@ -800,7 +813,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     footer.set_num_rows(1000);
 
     // 6. check footer
-    EXPECT_EQ(footer.columns_size(), 12);
+    int expected_sparse_cols =
+            variant_sparse_hash_shard_count > 1 ? variant_sparse_hash_shard_count : 1;
+    EXPECT_EQ(footer.columns_size(), 1 + 10 + expected_sparse_cols);
     auto column_meta = footer.columns(0);
     EXPECT_EQ(column_meta.type(), (int)FieldType::OLAP_FIELD_TYPE_VARIANT);
 

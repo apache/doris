@@ -287,7 +287,7 @@ public class TryCastTest {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             // When strict mode is false
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
-            SlotReference child = new SlotReference("slot", TimeV2Type.INSTANCE, false);
+            SlotReference child = new SlotReference("slot", TimeV2Type.SYSTEM_DEFAULT, false);
             TryCast cast = new TryCast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             Assertions.assertTrue(cast.parentNullable());

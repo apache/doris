@@ -45,10 +45,10 @@ public class Second extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args, Monotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(TimeV2Type.INSTANCE));
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TimeV2Type.WILDCARD));
 
     /**
      * constructor with 1 argument.

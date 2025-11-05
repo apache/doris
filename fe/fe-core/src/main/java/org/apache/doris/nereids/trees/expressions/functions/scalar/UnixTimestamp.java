@@ -49,7 +49,7 @@ public class UnixTimestamp extends ScalarFunction
     // we got changes when computeSignature
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(),
-            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateType.INSTANCE),

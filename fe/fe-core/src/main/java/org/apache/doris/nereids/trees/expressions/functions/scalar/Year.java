@@ -42,7 +42,7 @@ public class Year extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(SmallIntType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(SmallIntType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
