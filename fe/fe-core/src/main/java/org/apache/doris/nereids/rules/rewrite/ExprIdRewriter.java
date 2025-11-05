@@ -123,18 +123,14 @@ public class ExprIdRewriter extends ExpressionRewrite {
                                 }
                                 GroupingScalarFunction groupingScalarFunction = originExpression.get();
                                 GroupingScalarFunction rewrittenFunction =
-                                        (GroupingScalarFunction) groupingScalarFunction.accept(this, replaceMap);
+                                        (GroupingScalarFunction) groupingScalarFunction.accept(
+                                                SLOT_REPLACER, replaceMap);
                                 if (!rewrittenFunction.children().equals(groupingScalarFunction.children())) {
                                     return virtualSlot.withOriginExpressionAndComputeLongValueMethod(
                                             Optional.of(rewrittenFunction),
                                             rewrittenFunction::computeVirtualSlotValue);
                                 }
                                 return virtualSlot;
-                            }
-
-                            @Override
-                            public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
-                                return slot.accept(SLOT_REPLACER, replaceMap);
                             }
                         }, replaceMap);
                     }).toRule(ExpressionRuleType.VIRTUAL_EXPR_ID_REWRITE_REPLACE)
