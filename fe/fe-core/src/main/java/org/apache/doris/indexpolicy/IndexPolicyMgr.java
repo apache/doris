@@ -276,6 +276,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "char_group":
                 validator = new CharGroupTokenizerValidator();
                 break;
+            case "pinyin":
+                validator = new PinyinTokenizerValidator();
+                break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
                         .filter(t -> !t.equals("empty"))
@@ -304,6 +307,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 break;
             case "lowercase":
                 validator = new NoOperationValidator("lowercase token filter");
+                break;
+            case "pinyin":
+                validator = new PinyinTokenFilterValidator();
                 break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
