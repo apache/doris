@@ -43,8 +43,9 @@ PinyinTokenizer::PinyinTokenizer(std::shared_ptr<doris::segment_v2::PinyinConfig
     if (!(config_->keepFirstLetter || config_->keepSeparateFirstLetter || config_->keepFullPinyin ||
           config_->keepJoinedFullPinyin || config_->keepSeparateChinese)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "pinyin config error, can't disable separate_first_letter, first_letter "
-                        "and full_pinyin at the same time.");
+                        "pinyin config error, at least one output format must be enabled "
+                        "(keep_first_letter, keep_separate_first_letter, keep_full_pinyin, "
+                        "keep_joined_full_pinyin, or keep_separate_chinese).");
     }
     candidate_.clear();
     terms_filter_.clear();
