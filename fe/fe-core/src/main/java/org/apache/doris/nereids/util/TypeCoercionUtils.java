@@ -67,7 +67,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -149,7 +148,8 @@ public class TypeCoercionUtils {
             BigIntType.INSTANCE,
             IntegerType.INSTANCE,
             SmallIntType.INSTANCE,
-            TinyIntType.INSTANCE);
+            TinyIntType.INSTANCE
+    );
 
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
 
@@ -169,7 +169,8 @@ public class TypeCoercionUtils {
             return result;
         }
         return FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.visitCast(
-                new Cast(result, originDataType), context);
+                new Cast(result, originDataType), context
+        );
     }
 
     /**
@@ -258,8 +259,7 @@ public class TypeCoercionUtils {
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof NumericType) {
-                // For any other numeric types, implicitly cast to each other, e.g. bigint ->
-                // int, int -> bigint
+                // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
                 returnType = expected.defaultConcreteType();
             } else if (expected instanceof IPv4Type) {
                 returnType = IPv4Type.INSTANCE;
@@ -298,14 +298,12 @@ public class TypeCoercionUtils {
             returnType = expected.defaultConcreteType();
         }
 
-        // could not do implicit cast, just return null. Throw exception in check
-        // analysis.
+        // could not do implicit cast, just return null. Throw exception in check analysis.
         return Optional.ofNullable(returnType);
     }
 
     /**
-     * return ture if datatype has character type in it, cannot use instance of
-     * CharacterType because of complex type.
+     * return ture if datatype has character type in it, cannot use instance of CharacterType because of complex type.
      */
     public static boolean hasCharacterType(DataType dataType) {
         return hasSpecifiedType(dataType, CharacterType.class);
@@ -476,8 +474,7 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * like castIfNotSameType does, but varchar or char type would be cast to target
-     * length exactly
+     * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
      */
     public static Expression castIfNotSameTypeStrict(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
@@ -626,22 +623,23 @@ public class TypeCoercionUtils {
                 ret = new VarcharLiteral(value, ((VarcharType) dataType).getLen());
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
-            } else if (dataType instanceof TimeV2Type) {
-                ret = new TimeV2Literal(value);
-            }else if ((dataType.isDateTimeV2Type() || dataType.isDateTimeType())
-                    && DateTimeChecker.isValidDateTime(value)) {
+            } else if (dataType.isDateTimeV2Type() && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
-            } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
+            } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
+                ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
+            } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
                 } else {
-                    Result<DateTimeLiteral, AnalysisException> parseResult2 = DateTimeV2Literal
-                            .parseDateTimeLiteral(value, true);
+                    Result<DateTimeLiteral, AnalysisException> parseResult2
+                            = DateTimeV2Literal.parseDateTimeLiteral(value, true);
                     if (parseResult2.isOk()) {
                         ret = parseResult2.get();
                     }
                 }
+            } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
+                ret = DateLiteral.parseDateLiteral(value, false).orElse(null);
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
@@ -653,8 +651,8 @@ public class TypeCoercionUtils {
     }
 
     public static Expression implicitCastInputTypes(Expression expr, List<DataType> expectedInputTypes) {
-        List<Optional<DataType>> inputImplicitCastTypes = getInputImplicitCastTypes(expr.children(),
-                expectedInputTypes);
+        List<Optional<DataType>> inputImplicitCastTypes
+                = getInputImplicitCastTypes(expr.children(), expectedInputTypes);
         return castInputs(expr, inputImplicitCastTypes);
     }
 
@@ -710,8 +708,7 @@ public class TypeCoercionUtils {
                 values.add(createMap.child(i));
             }
         }
-        // TODO: use the find common type to get key and value type after we redefine
-        // type coercion in Doris.
+        // TODO: use the find common type to get key and value type after we redefine type coercion in Doris.
         Array keyArray = new Array(keys.toArray(new Expression[0]));
         Array valueArray = new Array(values.toArray(new Expression[0]));
         keyArray = (Array) implicitCastInputTypes(keyArray, keyArray.expectedInputTypes());
@@ -826,8 +823,7 @@ public class TypeCoercionUtils {
 
         // characterLiteralTypeCoercion
         // we do this because string is cast to double by default
-        // but if string literal could be cast to small type, we could use smaller type
-        // than double.
+        // but if string literal could be cast to small type, we could use smaller type than double.
         binaryArithmetic = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(binaryArithmetic);
 
         // check string literal can cast to double
@@ -907,14 +903,12 @@ public class TypeCoercionUtils {
             return castChildren(binaryArithmetic, left, right, commonType);
         }
 
-        // double and float already process, we only process decimalv3 and fixed point
-        // number.
+        // double and float already process, we only process decimalv3 and fixed point number.
         if (t1 instanceof DecimalV3Type || t2 instanceof DecimalV3Type) {
             return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
-        // double, float and decimalv3 already process, we only process fixed point
-        // number
+        // double, float and decimalv3 already process, we only process fixed point number
         if (t1 instanceof DecimalV2Type || t2 instanceof DecimalV2Type) {
             return castChildren(binaryArithmetic, left, right, DecimalV2Type.SYSTEM_DEFAULT);
         }
@@ -1131,8 +1125,8 @@ public class TypeCoercionUtils {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
                                             IntegralType.class, DecimalV3Type.SYSTEM_DEFAULT),
-                            DateLikeType.class, DateTimeV2Type.MAX),
-                                    DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
+                                    DateLikeType.class, DateTimeV2Type.MAX),
+                            DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
                     FloatType.class, DoubleType.INSTANCE));
         } else if (right instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
@@ -1514,7 +1508,8 @@ public class TypeCoercionUtils {
         }
         return optionalCommonType
                 .map(commonType -> {
-                    List<Expression> newChildren = caseWhen.getWhenClauses().stream()
+                    List<Expression> newChildren
+                            = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
                                 Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
                                         wc.getResult(), commonType);
@@ -1543,7 +1538,6 @@ public class TypeCoercionUtils {
 
     /**
      * find wider common type for input data types.
-     * 
      * @return return a type if find one, return Optional.empty() if not find
      */
     public static Optional<DataType> findWiderCommonType(List<DataType> dataTypes,
@@ -1559,7 +1553,7 @@ public class TypeCoercionUtils {
     }
 
     public static Optional<DataType> findWiderCommonTypeByVariable(List<DataType> dataTypes,
-            boolean overflowToDouble, boolean stringIsHighPriority) {
+                   boolean overflowToDouble, boolean stringIsHighPriority) {
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
             return findWiderCommonType(dataTypes, overflowToDouble, stringIsHighPriority);
         } else {
@@ -1630,8 +1624,7 @@ public class TypeCoercionUtils {
     @Deprecated
     private static Optional<DataType> findWiderTypeForTwoForComparison(
             DataType left, DataType right, boolean intStringToString) {
-        // TODO: need to rethink how to handle char and varchar to return char or
-        // varchar as much as possible.
+        // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
         if (left instanceof ComplexDataType) {
             Optional<DataType> commonType = findCommonComplexTypeForComparison(left, right, intStringToString);
             if (commonType.isPresent()) {
@@ -1870,8 +1863,7 @@ public class TypeCoercionUtils {
      */
     @Deprecated
     private static Optional<DataType> findWiderTypeForTwoForCaseWhen(DataType left, DataType right) {
-        // TODO: need to rethink how to handle char and varchar to return char or
-        // varchar as much as possible.
+        // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
         Optional<DataType> commonType = findCommonComplexTypeForCaseWhen(left, right);
         if (commonType.isPresent()) {
             return commonType;
