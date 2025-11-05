@@ -77,8 +77,8 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(DateTimeType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
+                    .args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
                     .args(StringType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
@@ -115,7 +115,7 @@ public class TopNWeighted extends NullableAggregateFunction
             FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
                     .args(DateV2Type.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT,
+                    .args(DateTimeV2Type.WILDCARD,
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),
