@@ -185,6 +185,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
@@ -1288,6 +1289,16 @@ public class SessionVariable implements Serializable, Writable {
             }
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VariableMgr.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
+            description = {
+                    "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为OFF（即执行此优化）。",
+                    "Skips the removal of always-true predicates after partition pruning. "
+                            + "Defaults to OFF (optimization is active)."
+            }
+    )
+    public boolean skipPrunePredicate = false;
+
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = true;
