@@ -3097,8 +3097,8 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResult = true,
-            description = {"是否启用扩展的正则表达式, 支持如 look-round 类的零宽断言",
-                    "Enable extended regular expressions, support look-round zero-width assertions"})
+            description = {"是否启用扩展的正则表达式, 支持如 look-around 类的零宽断言",
+                    "Enable extended regular expressions, support look-around zero-width assertions"})
     public boolean enableExtendedRegex = false;
 
     @VariableMgr.VarAttr(
@@ -4868,6 +4868,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
+        tResult.setEnableExtendedRegex(enableExtendedRegex);
         return tResult;
     }
 

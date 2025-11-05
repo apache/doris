@@ -215,9 +215,6 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
     _lc_time_names = query_globals.lc_time_names;
-    _enable_extended_regex =
-            query_globals.__isset.enable_extended_regex && query_globals.enable_extended_regex;
-
     if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;

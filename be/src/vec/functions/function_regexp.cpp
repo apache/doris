@@ -68,9 +68,10 @@ struct RegexpExtractEngine {
         if (engine.re2_regex->ok()) {
             return true;
         } else if (!enable_extended_regex) {
-            *error_str =
-                    fmt::format("Invalid regex pattern: {}. Error: {}",
-                                std::string(pattern.data, pattern.size), engine.re2_regex->error());
+            *error_str = fmt::format(
+                    "Invalid regex pattern: {}. Error: {}. If you need advanced regex features, "
+                    "try setting enable_extended_regex=true",
+                    std::string(pattern.data, pattern.size), engine.re2_regex->error());
             return false;
         }
 

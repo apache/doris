@@ -353,7 +353,6 @@ public class CoordinatorContext {
             queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
         queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
-        queryGlobals.setEnableExtendedRegex(context.getSessionVariable().enableExtendedRegex);
         return queryGlobals;
     }
 
