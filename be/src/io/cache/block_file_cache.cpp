@@ -240,6 +240,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_disk_limit_mode", 0);
     _need_evict_cache_in_advance_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_need_evict_cache_in_advance", 0);
+    _meta_store_write_queue_size_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_meta_store_write_queue_size", 0);
 
     _cache_lock_wait_time_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
@@ -460,6 +462,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         key.hash = hash;
         key.meta.type = context.cache_type;
         key.meta.expiration_time = context.expiration_time;
+        key.meta.tablet_id = context.tablet_id;
         _storage->load_blocks_directly_unlocked(this, key, cache_lock);
 
         it = _files.find(hash);
@@ -489,7 +492,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 
             FileCacheType origin_type = cell.file_block->cache_type();
             if (origin_type == FileCacheType::TTL) continue;
-            st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
+            st = cell.file_block->change_cache_type_lock(FileCacheType::TTL, cache_lock);
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
@@ -533,8 +536,8 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
             for (auto& [_, cell] : file_blocks) {
                 auto cache_type = cell.file_block->cache_type();
                 if (cache_type != FileCacheType::TTL) continue;
-                auto st = cell.file_block->change_cache_type_between_ttl_and_others(
-                        FileCacheType::NORMAL);
+                auto st =
+                        cell.file_block->change_cache_type_lock(FileCacheType::NORMAL, cache_lock);
                 if (st.ok()) {
                     if (cell.queue_iterator) {
                         auto& ttl_queue = get_queue(FileCacheType::TTL);
@@ -702,6 +705,7 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
             key.offset = current_pos;
             key.meta.type = context.cache_type;
             key.meta.expiration_time = context.expiration_time;
+            key.meta.tablet_id = context.tablet_id;
             auto file_block = std::make_shared<FileBlock>(key, current_size, this,
                                                           FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
@@ -861,12 +865,13 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     key.offset = offset;
     key.meta.type = context.cache_type;
     key.meta.expiration_time = context.expiration_time;
+    key.meta.tablet_id = context.tablet_id;
     FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
-        st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL);
+        st = cell.file_block->change_cache_type_lock(FileCacheType::NORMAL, cache_lock);
     } else if (context.cache_type != FileCacheType::TTL && context.expiration_time != 0) {
-        st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
+        st = cell.file_block->change_cache_type_lock(FileCacheType::TTL, cache_lock);
     }
     if (!st.ok()) {
         LOG(WARNING) << "Cannot change cache type. expiration_time=" << context.expiration_time
@@ -1157,8 +1162,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                     }
 
                     if (cell.file_block->cache_type() == FileCacheType::NORMAL) continue;
-                    st = cell.file_block->change_cache_type_between_ttl_and_others(
-                            FileCacheType::NORMAL);
+                    st = cell.file_block->change_cache_type_lock(FileCacheType::NORMAL, cache_lock);
                     if (st.ok()) {
                         if (cell.queue_iterator) {
                             ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
@@ -1457,6 +1461,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto offset = file_block->offset();
     auto type = file_block->cache_type();
     auto expiration_time = file_block->expiration_time();
+    auto tablet_id = file_block->tablet_id();
     auto* cell = get_cell(hash, offset, cache_lock);
     file_block->cell = nullptr;
     DCHECK(cell);
@@ -1477,6 +1482,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.offset = offset;
         key.meta.type = type;
         key.meta.expiration_time = expiration_time;
+        key.meta.tablet_id = tablet_id;
         if (sync) {
             int64_t duration_ns = 0;
             Status st;
@@ -2009,6 +2015,18 @@ void BlockFileCache::run_background_monitor() {
             _cur_disposable_queue_element_count_metrics->set_value(
                     _disposable_queue.get_elements_num(cache_lock));
 
+            // Update meta store write queue size if storage is FSFileCacheStorage
+            if (_storage->get_type() == FileCacheStorageType::DISK) {
+                auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get());
+                if (fs_storage != nullptr) {
+                    auto* meta_store = fs_storage->get_meta_store();
+                    if (meta_store != nullptr) {
+                        _meta_store_write_queue_size_metrics->set_value(
+                                meta_store->get_write_queue_size());
+                    }
+                }
+            }
+
             if (_num_read_blocks->get_value() > 0) {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
                                       (double)_num_read_blocks->get_value());
@@ -2214,7 +2232,7 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
 
             FileCacheType origin_type = cell.file_block->cache_type();
             if (origin_type == FileCacheType::TTL) continue;
-            st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
+            st = cell.file_block->change_cache_type_lock(FileCacheType::TTL, cache_lock);
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
