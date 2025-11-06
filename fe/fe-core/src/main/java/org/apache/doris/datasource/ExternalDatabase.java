@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -64,7 +63,7 @@ import java.util.stream.Collectors;
  * @param <T> External table type is ExternalTable or its subclass.
  */
 public abstract class ExternalDatabase<T extends ExternalTable>
-        implements DatabaseIf<T>, GsonPostProcessable {
+        implements DatabaseIfJ<T>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(true);
@@ -173,8 +172,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             buildTableForInit(null, localTableName,
                                     Util.genIdByName(extCatalog.getName(), name, localTableName),
                                     extCatalog,
-                                    this, true)),
-                    (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
+                                    this, true)), null);
         }
     }
 
