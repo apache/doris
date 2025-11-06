@@ -127,7 +127,7 @@ public:
     MOCK_CONST_METHOD0(clone, VExprSPtr());
     MOCK_CONST_METHOD0(expr_name, const std::string&());
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         auto int_column = int_type->create_column();
         for (int i = 0; i < 3; i++) {
