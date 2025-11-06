@@ -38,7 +38,7 @@ public class Now extends DateTimeWithPrecision implements ExplicitlyCastableSign
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(IntegerType.INSTANCE)
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(IntegerType.INSTANCE)
     );
 
     /**

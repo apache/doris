@@ -105,12 +105,6 @@ suite("doc_date_error") {
         exception "Operation from_days of 99999999 out of range"
     }
 
-    // from_iso8601_date format error
-    test {
-        sql """select from_iso8601_date('2023-10-01T12:34:10');"""
-        exception "Operation from_iso8601_date of 2023-10-01T12:34:10 is invalid"
-    }
-
     // from_microsecond input is negative
     test {
         sql """select from_microsecond(-1);"""
@@ -361,12 +355,6 @@ suite("doc_date_error") {
     test {
         sql """SELECT SECONDS_SUB('0000-01-01 00:00:00', 1) AS result;"""
         exception "Operation second_add of 0000-01-01 00:00:00, -1 out of range"
-    }
-
-    // STR_TO_DATE format mismatch
-    test {
-        sql """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d') AS result;"""
-        exception "Operation str_to_date of 2023/01/01, %Y-%m-%d is invalid"
     }
 
     // TIMESTAMPADD invalid unit

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -34,14 +35,14 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * for debug only, compute crc32 hash value as the same way in `VOlapTablePartitionParam::find_tablets()`
+ * for debug only, compute crc32 hash value as the same way in
+ * `VOlapTablePartitionParam::find_tablets()`
  */
 public class Crc32Internal extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, ComputePrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
-    );
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX));
 
     /**
      * constructor with 1 or more arguments.
@@ -78,4 +79,23 @@ public class Crc32Internal extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCrc32Internal(this, context);
     }
+
+    /**
+     * Override computeSignature to skip legacy date type conversion.
+     * This function needs to preserve the original DateTime/Date types without
+     * converting to V2 types.
+     */
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        FunctionSignature sig = signature;
+        sig = ComputeSignatureHelper.implementAnyDataTypeWithOutIndexNoLegacyDateUpgrade(sig, getArguments());
+        sig = ComputeSignatureHelper.implementAnyDataTypeWithIndexNoLegacyDateUpgrade(sig, getArguments());
+        sig = ComputeSignatureHelper.computePrecision(this, sig, getArguments());
+        sig = ComputeSignatureHelper.implementFollowToArgumentReturnType(sig, getArguments());
+        sig = ComputeSignatureHelper.normalizeDecimalV2(sig, getArguments());
+        sig = ComputeSignatureHelper.ensureNestedNullableOfArray(sig, getArguments());
+        sig = ComputeSignatureHelper.dynamicComputeVariantArgs(sig, getArguments());
+        return sig;
+    }
+
 }
