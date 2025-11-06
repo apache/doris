@@ -778,9 +778,11 @@ public class IcebergUtils {
                 return;
         }
 
-        List<Column> childColumns = column.getChildren();
-        for (int idx = 0; idx < childColumns.size(); idx++) {
-            updateIcebergColumnUniqueId(childColumns.get(idx), icebergFields.get(idx));
+        if (column.getChildren() != null) {
+            List<Column> childColumns = column.getChildren();
+            for (int idx = 0; idx < childColumns.size(); idx++) {
+                updateIcebergColumnUniqueId(childColumns.get(idx), icebergFields.get(idx));
+            }
         }
     }
 
