@@ -17,11 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.utframe.TestWithFeService;
