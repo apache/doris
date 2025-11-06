@@ -70,7 +70,7 @@ public:
     InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
     void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
     std::string debug_string() const;
-    
+
     // Get internal file writer (for merge file index collection)
     io::FileWriter* get_file_writer() const { return _idx_v2_writer.get(); }
 

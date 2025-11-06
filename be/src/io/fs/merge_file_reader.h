@@ -19,8 +19,8 @@
 
 #include <memory>
 
-#include "common/status.h"
 #include "butil/macros.h"
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
@@ -58,9 +58,8 @@ private:
     FileReaderSPtr _inner_reader;
     Path _path;
     int64_t _merge_file_offset; // Offset in merge file where this small file starts
-    int64_t _file_size;          // Size of the small file
+    int64_t _file_size;         // Size of the small file
     bool _closed = false;
 };
 
 } // namespace doris::io
-

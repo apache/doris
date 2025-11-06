@@ -12260,7 +12260,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         UpdateMergeFileInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_merge_file_path("/path/to/merged/file1");
-        
+
         // Set merge file info
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(5);
@@ -12271,14 +12271,14 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         merge_info->set_created_at_sec(1666666666);
         merge_info->set_corrected(false);
         merge_info->set_state(MergedFileInfoPB::NORMAL);
-        
+
         // Add small files
         auto* small_file = merge_info->add_small_files();
         small_file->set_path("/small/file1.txt");
         small_file->set_offset(0);
         small_file->set_size(512);
         small_file->set_deleted(false);
-        
+
         small_file = merge_info->add_small_files();
         small_file->set_path("/small/file2.txt");
         small_file->set_offset(512);
@@ -12287,7 +12287,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
@@ -12297,7 +12297,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         UpdateMergeFileInfoRequest req;
         // req.set_cloud_unique_id("test_cloud_unique_id"); // missing cloud_unique_id
         req.set_merge_file_path("/path/to/merged/file");
-        
+
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(1);
         merge_info->set_total_file_num(1);
@@ -12305,7 +12305,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_TRUE(res.status().msg().find("cloud_unique_id is required") != std::string::npos);
     }
@@ -12316,13 +12316,13 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         UpdateMergeFileInfoRequest req;
         req.set_cloud_unique_id(""); // empty cloud_unique_id
         req.set_merge_file_path("/path/to/merged/file");
-        
+
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(1);
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_TRUE(res.status().msg().find("cloud_unique_id is required") != std::string::npos);
     }
@@ -12333,13 +12333,13 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         UpdateMergeFileInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         // req.set_merge_file_path("/path/to/merged/file"); // missing merge_file_path
-        
+
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(1);
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_TRUE(res.status().msg().find("merge_file_path is required") != std::string::npos);
     }
@@ -12350,13 +12350,13 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         UpdateMergeFileInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_merge_file_path(""); // empty merge_file_path
-        
+
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(1);
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_TRUE(res.status().msg().find("merge_file_path is required") != std::string::npos);
     }
@@ -12371,7 +12371,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_TRUE(res.status().msg().find("merge_file_info is required") != std::string::npos);
     }
@@ -12382,7 +12382,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         UpdateMergeFileInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id_multi");
         req.set_merge_file_path("/path/to/merged/file_multi");
-        
+
         // Set merge file info with multiple small files
         auto* merge_info = req.mutable_merge_file_info();
         merge_info->set_ref_cnt(3);
@@ -12393,7 +12393,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         merge_info->set_created_at_sec(1666666777);
         merge_info->set_corrected(true);
         merge_info->set_state(MergedFileInfoPB::NORMAL);
-        
+
         // Add multiple small files
         for (int i = 1; i <= 5; ++i) {
             auto* small_file = merge_info->add_small_files();
@@ -12405,7 +12405,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
 
         UpdateMergeFileInfoResponse res;
         meta_service->update_merge_file_info(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 }

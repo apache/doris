@@ -982,8 +982,7 @@ InstanceRecycler::resolve_merged_file_accessor(const std::string& hint) {
     return {"", nullptr};
 }
 
-int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_info,
-                                               bool* changed,
+int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_info, bool* changed,
                                                MergedFileRecycleStats* stats) {
     bool local_changed = false;
     int64_t left_num = 0;
@@ -1090,8 +1089,9 @@ int InstanceRecycler::process_single_merged_file(const std::string& merged_key,
 
     int64_t now_sec = ::time(nullptr);
     bool corrected = merged_info.corrected();
-    bool due = config::force_immediate_recycle ||
-               now_sec - merged_info.created_at_sec() >= config::merged_file_correction_delay_seconds;
+    bool due =
+            config::force_immediate_recycle ||
+            now_sec - merged_info.created_at_sec() >= config::merged_file_correction_delay_seconds;
 
     if (!corrected && due) {
         bool changed = false;
@@ -2895,7 +2895,7 @@ int InstanceRecycler::recycle_merged_files() {
         g_bvar_recycler_merged_file_corrected_kv_num.put(instance_id_, stats.num_corrected);
         g_bvar_recycler_merged_file_recycled_object_num.put(instance_id_, stats.num_object_deleted);
         g_bvar_recycler_merged_file_bytes_object_deleted.put(instance_id_,
-                                                              stats.bytes_object_deleted);
+                                                             stats.bytes_object_deleted);
         g_bvar_recycler_merged_file_rowset_scanned_num.put(instance_id_, stats.rowset_scan_count);
         LOG_INFO("recycle merged files finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)

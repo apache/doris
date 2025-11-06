@@ -134,11 +134,11 @@ DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 // Merge file manager config
 DEFINE_mBool(enable_merge_file, "true");
 DEFINE_mInt64(merge_file_size_threshold_bytes, "5242880"); // 5MB
-DEFINE_mInt64(merge_file_time_threshold_ms, "100"); // 100ms
-DEFINE_mInt64(small_file_threshold_bytes, "1048576"); // 1MB
-DEFINE_mInt64(uploaded_file_retention_seconds, "60"); // 1 minute
-DEFINE_mInt64(index_retention_seconds, "60"); // 1 minute
-DEFINE_mInt64(merge_file_cleanup_interval_seconds, "60"); // 1 minute
+DEFINE_mInt64(merge_file_time_threshold_ms, "100");        // 100ms
+DEFINE_mInt64(small_file_threshold_bytes, "1048576");      // 1MB
+DEFINE_mInt64(uploaded_file_retention_seconds, "60");      // 1 minute
+DEFINE_mInt64(index_retention_seconds, "60");              // 1 minute
+DEFINE_mInt64(merge_file_cleanup_interval_seconds, "60");  // 1 minute
 
 DEFINE_mBool(enable_standby_passive_compaction, "true");
 

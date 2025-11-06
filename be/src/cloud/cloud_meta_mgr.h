@@ -87,7 +87,7 @@ public:
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
 
     Status update_merge_file_info(const std::string& merge_file_path,
-                                 const cloud::MergedFileInfoPB& merge_file_info);
+                                  const cloud::MergedFileInfoPB& merge_file_info);
 
     Status commit_txn(const StreamLoadContext& ctx, bool is_2pc);
 

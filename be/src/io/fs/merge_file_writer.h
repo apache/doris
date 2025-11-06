@@ -77,10 +77,10 @@ private:
     std::string _buffer;
     size_t _bytes_appended = 0;
     State _state = State::OPENED;
-    bool _is_direct_write = false; // Whether to use direct write mode
+    bool _is_direct_write = false;                   // Whether to use direct write mode
     MergeFileManager* _merge_file_manager = nullptr; // Merge file manager instance
-    mutable MergeFileSegmentIndex _merge_file_index; // Merge file index information (mutable for lazy init in const getter)
+    mutable MergeFileSegmentIndex
+            _merge_file_index; // Merge file index information (mutable for lazy init in const getter)
 };
 
 } // namespace doris::io
-

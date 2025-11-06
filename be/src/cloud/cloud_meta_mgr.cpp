@@ -2215,9 +2215,9 @@ Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status
 }
 
 Status CloudMetaMgr::update_merge_file_info(const std::string& merge_file_path,
-                                           const cloud::MergedFileInfoPB& merge_file_info) {
-    VLOG_DEBUG << "Updating meta service for merge file: " << merge_file_path
-               << " with " << merge_file_info.total_file_num() << " small files"
+                                            const cloud::MergedFileInfoPB& merge_file_info) {
+    VLOG_DEBUG << "Updating meta service for merge file: " << merge_file_path << " with "
+               << merge_file_info.total_file_num() << " small files"
                << ", total bytes: " << merge_file_info.total_file_bytes();
 
     // Create request

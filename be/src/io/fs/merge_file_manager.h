@@ -88,7 +88,7 @@ private:
 
     // Update meta service with merge file information
     Status update_meta_service(const std::string& merge_file_path,
-                              const cloud::MergedFileInfoPB& merge_file_info);
+                               const cloud::MergedFileInfoPB& merge_file_info);
 
     // Process uploading files
     void process_uploading_files();
@@ -98,11 +98,11 @@ private:
 
     // Internal structure to track merge file state
     enum class MergeFileStateEnum {
-        INIT,           // Initial state, no files written yet
-        ACTIVE,         // Has files but doesn't meet upload conditions
-        UPLOADING,      // Ready for upload, updating meta service
-        UPLOADED,       // Upload completed
-        FAILED          // Upload failed
+        INIT,      // Initial state, no files written yet
+        ACTIVE,    // Has files but doesn't meet upload conditions
+        UPLOADING, // Ready for upload, updating meta service
+        UPLOADED,  // Upload completed
+        FAILED     // Upload failed
     };
 
     struct MergeFileState {
@@ -114,11 +114,11 @@ private:
         int64_t create_time;
         int64_t upload_time = 0;
         std::chrono::steady_clock::time_point create_timestamp;
-        std::atomic<MergeFileStateEnum> state{MergeFileStateEnum::INIT};
+        std::atomic<MergeFileStateEnum> state {MergeFileStateEnum::INIT};
         std::condition_variable upload_cv;
         std::mutex upload_mutex;
         std::string last_error;
-        std::atomic<bool> processing{false};
+        std::atomic<bool> processing {false};
     };
 
     // Create a new merge file state with file writer
@@ -130,7 +130,7 @@ private:
     Status wait_for_merge_file_upload(MergeFileState* merge_file_ptr);
 
     // Thread management
-    std::atomic<bool> _stop_background_thread{false};
+    std::atomic<bool> _stop_background_thread {false};
     std::unique_ptr<std::thread> _background_thread;
 
     // File system
@@ -150,7 +150,6 @@ private:
     // Global index mapping small file path to merge file index
     std::unordered_map<std::string, MergeFileSegmentIndex> _global_index_map;
     std::mutex _global_index_mutex;
-
 };
 
 } // namespace doris::io

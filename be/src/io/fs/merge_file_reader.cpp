@@ -44,7 +44,7 @@ MergeFileReader::~MergeFileReader() {
 }
 
 Status MergeFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                      const IOContext* io_ctx) {
+                                     const IOContext* io_ctx) {
     if (_closed) {
         return Status::InternalError("FileReader is already closed");
     }
@@ -78,4 +78,3 @@ Status MergeFileReader::close() {
 }
 
 } // namespace doris::io
-

@@ -237,14 +237,14 @@ public:
 class InstanceRecycler {
 public:
     struct MergedFileRecycleStats {
-        int64_t num_scanned = 0;             // merged-file kv scanned
-        int64_t num_corrected = 0;           // merged-file kv corrected
-        int64_t num_deleted = 0;             // merged-file kv deleted
-        int64_t num_failed = 0;              // merged-file kv failed
-        int64_t bytes_deleted = 0;           // merged-file kv bytes deleted from txn-kv
-        int64_t num_object_deleted = 0;      // merged-file objects deleted from storage (vault/HDFS)
-        int64_t bytes_object_deleted = 0;    // bytes deleted from storage objects
-        int64_t rowset_scan_count = 0;       // rowset metas scanned during correction
+        int64_t num_scanned = 0;          // merged-file kv scanned
+        int64_t num_corrected = 0;        // merged-file kv corrected
+        int64_t num_deleted = 0;          // merged-file kv deleted
+        int64_t num_failed = 0;           // merged-file kv failed
+        int64_t bytes_deleted = 0;        // merged-file kv bytes deleted from txn-kv
+        int64_t num_object_deleted = 0;   // merged-file objects deleted from storage (vault/HDFS)
+        int64_t bytes_object_deleted = 0; // bytes deleted from storage objects
+        int64_t rowset_scan_count = 0;    // rowset metas scanned during correction
     };
 
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,

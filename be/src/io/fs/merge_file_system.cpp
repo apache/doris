@@ -32,10 +32,10 @@ MergeFileSystem::MergeFileSystem(FileSystemSPtr inner_fs,
                                  std::unordered_map<std::string, MergeFileSegmentIndex> index_map)
         : FileSystem(inner_fs->id(), inner_fs->type()),
           _inner_fs(std::move(inner_fs)),
-          _index_map(std::move(index_map)) {} 
+          _index_map(std::move(index_map)) {}
 
 Status MergeFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
-                                          const FileWriterOptions* opts) {
+                                         const FileWriterOptions* opts) {
     // Create file using inner file system
     FileWriterPtr inner_writer;
     RETURN_IF_ERROR(_inner_fs->create_file(file, &inner_writer, opts));

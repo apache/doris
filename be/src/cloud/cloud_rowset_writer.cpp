@@ -170,8 +170,8 @@ Status CloudRowsetWriter::_collect_all_merge_file_indices(RowsetMeta* rowset_met
 }
 
 Status CloudRowsetWriter::_collect_merge_file_index(io::FileWriter* file_writer,
-                                                       const std::string& file_path,
-                                                       RowsetMeta* rowset_meta) {
+                                                    const std::string& file_path,
+                                                    RowsetMeta* rowset_meta) {
     auto* merge_writer = dynamic_cast<io::MergeFileWriter*>(file_writer);
     if (merge_writer == nullptr) {
         return Status::OK(); // Not a merge file writer, skip

@@ -24,13 +24,13 @@
 #include <sstream>
 #include <unordered_set>
 
-#include "common/config.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
+#include "common/config.h"
 #include "gen_cpp/cloud.pb.h"
-#include "runtime/exec_env.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 
 namespace doris::io {
@@ -48,15 +48,15 @@ Status MergeFileManager::init() {
     return Status::OK();
 }
 
-Status MergeFileManager::create_new_merge_file_state(std::unique_ptr<MergeFileState>& merge_file_state) {
+Status MergeFileManager::create_new_merge_file_state(
+        std::unique_ptr<MergeFileState>& merge_file_state) {
     RETURN_IF_ERROR(ensure_file_system());
     if (_file_system == nullptr) {
         return Status::InternalError("File system is not available for merge file creation");
     }
 
     std::stringstream path_stream;
-    path_stream << "data/merge_file/" << std::time(nullptr) << "/"
-                << generate_uuid_string();
+    path_stream << "data/merge_file/" << std::time(nullptr) << "/" << generate_uuid_string();
 
     merge_file_state = std::make_unique<MergeFileState>();
     merge_file_state->merge_file_path = path_stream.str();
@@ -67,8 +67,8 @@ Status MergeFileManager::create_new_merge_file_state(std::unique_ptr<MergeFileSt
     // Create file writer for the merge file
     FileWriterPtr new_writer;
     FileWriterOptions opts;
-    RETURN_IF_ERROR(_file_system->create_file(Path(merge_file_state->merge_file_path),
-                                             &new_writer, &opts));
+    RETURN_IF_ERROR(
+            _file_system->create_file(Path(merge_file_state->merge_file_path), &new_writer, &opts));
     merge_file_state->writer = std::move(new_writer);
 
     return Status::OK();
@@ -110,7 +110,8 @@ Status MergeFileManager::append(const std::string& path, const Slice& data) {
     }
 
     // Check if we need to create a new merge file
-    if (_current_merge_file->total_size + data.get_size() >= config::merge_file_size_threshold_bytes) {
+    if (_current_merge_file->total_size + data.get_size() >=
+        config::merge_file_size_threshold_bytes) {
         RETURN_IF_ERROR(mark_current_merge_file_for_upload_locked());
     }
 
@@ -269,7 +270,8 @@ Status MergeFileManager::mark_current_merge_file_for_upload_locked() {
 
     // Move to uploading files list
     {
-        std::shared_ptr<MergeFileState> uploading_ptr = std::shared_ptr<MergeFileState>(std::move(_current_merge_file));
+        std::shared_ptr<MergeFileState> uploading_ptr =
+                std::shared_ptr<MergeFileState>(std::move(_current_merge_file));
         std::lock_guard<std::mutex> lock(_merge_files_mutex);
         _uploading_merge_files[uploading_ptr->merge_file_path] = uploading_ptr;
     }
@@ -299,7 +301,8 @@ void MergeFileManager::background_manager() {
             if (_current_merge_file && _current_merge_file->state == MergeFileStateEnum::ACTIVE) {
                 auto current_time = std::chrono::steady_clock::now();
                 auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    current_time - _current_merge_file->create_timestamp).count();
+                                          current_time - _current_merge_file->create_timestamp)
+                                          .count();
                 if (elapsed_ms >= config::merge_file_time_threshold_ms) {
                     should_mark_current = true;
                 }
@@ -370,8 +373,7 @@ void MergeFileManager::process_uploading_files() {
         Status meta_status = update_meta_service(merge_file->merge_file_path, merge_file_info);
         if (!meta_status.ok()) {
             LOG(WARNING) << "Failed to update meta service for merge file: "
-                         << merge_file->merge_file_path
-                         << ", error: " << meta_status.to_string();
+                         << merge_file->merge_file_path << ", error: " << meta_status.to_string();
             {
                 std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
                 merge_file->state = MergeFileStateEnum::FAILED;
@@ -388,7 +390,8 @@ void MergeFileManager::process_uploading_files() {
         }
 
         // Now upload the file
-        Status upload_status = upload_merge_file(merge_file->merge_file_path, merge_file->writer.get());
+        Status upload_status =
+                upload_merge_file(merge_file->merge_file_path, merge_file->writer.get());
 
         if (upload_status.ok()) {
             // Mark as uploaded and move to uploaded list
@@ -437,9 +440,9 @@ Status MergeFileManager::upload_merge_file(const std::string& merge_file_path, F
 }
 
 Status MergeFileManager::update_meta_service(const std::string& merge_file_path,
-                                            const cloud::MergedFileInfoPB& merge_file_info) {
-    VLOG_DEBUG << "Updating meta service for merge file: " << merge_file_path
-               << " with " << merge_file_info.total_file_num() << " small files"
+                                             const cloud::MergedFileInfoPB& merge_file_info) {
+    VLOG_DEBUG << "Updating meta service for merge file: " << merge_file_path << " with "
+               << merge_file_info.total_file_num() << " small files"
                << ", total bytes: " << merge_file_info.total_file_bytes();
 
     // Get CloudMetaMgr through StorageEngine
@@ -464,7 +467,8 @@ void MergeFileManager::cleanup_expired_data() {
                 current_time - it->second->upload_time > config::uploaded_file_retention_seconds) {
                 it = _uploaded_merge_files.erase(it);
             } else if (it->second->state == MergeFileStateEnum::FAILED &&
-                       current_time - it->second->upload_time > config::uploaded_file_retention_seconds) {
+                       current_time - it->second->upload_time >
+                               config::uploaded_file_retention_seconds) {
                 it = _uploaded_merge_files.erase(it);
             } else {
                 ++it;

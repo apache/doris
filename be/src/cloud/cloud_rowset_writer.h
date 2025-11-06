@@ -31,7 +31,6 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
-
 private:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false) override;
 

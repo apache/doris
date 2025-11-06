@@ -104,8 +104,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     }
     auto* merge_index = out->mutable_merge_file_segment_index();
     merge_index->clear();
-    merge_index->insert(in.merge_file_segment_index().begin(),
-                        in.merge_file_segment_index().end());
+    merge_index->insert(in.merge_file_segment_index().begin(), in.merge_file_segment_index().end());
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -177,8 +176,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     auto* merge_index = out->mutable_merge_file_segment_index();
     merge_index->clear();
-    merge_index->insert(in.merge_file_segment_index().begin(),
-                        in.merge_file_segment_index().end());
+    merge_index->insert(in.merge_file_segment_index().begin(), in.merge_file_segment_index().end());
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -260,8 +258,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     }
     auto* merge_index = out->mutable_merge_file_segment_index();
     merge_index->clear();
-    merge_index->insert(in.merge_file_segment_index().begin(),
-                        in.merge_file_segment_index().end());
+    merge_index->insert(in.merge_file_segment_index().begin(), in.merge_file_segment_index().end());
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -332,8 +329,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     auto* merge_index = out->mutable_merge_file_segment_index();
     merge_index->clear();
-    merge_index->insert(in.merge_file_segment_index().begin(),
-                        in.merge_file_segment_index().end());
+    merge_index->insert(in.merge_file_segment_index().begin(), in.merge_file_segment_index().end());
 }
 
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB& in) {

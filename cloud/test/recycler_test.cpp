@@ -86,7 +86,7 @@ int64_t read_status_bvar_value(const std::string& module, const std::string& nam
     }
 }
 
-}  // namespace
+} // namespace
 
 std::vector<std::string> index_v2_file_path = {
         "data/1753202639945/0200000000001a5c92f4e7d9j8f2b4c8a3e6f8b1c9d2e5f8_0.idx",
@@ -5512,9 +5512,9 @@ TEST(RecyclerTest, delete_rowset_data_merged_file_multiple_groups) {
             small_file->set_deleted(false);
 
             segment_paths.push_back(small_path);
-            index_paths.push_back(inverted_index_path_v1(
-                    kTabletId, rowset.rowset_id_v2(), seg, index_schema->index_id(),
-                    index_schema->index_suffix_name()));
+            index_paths.push_back(inverted_index_path_v1(kTabletId, rowset.rowset_id_v2(), seg,
+                                                         index_schema->index_id(),
+                                                         index_schema->index_suffix_name()));
             ++segment_seq;
         }
 
@@ -5638,7 +5638,9 @@ TEST(RecyclerTest, recycle_merged_files_correct_and_delete) {
 
     auto old_grace = config::merged_file_correction_delay_seconds;
     config::merged_file_correction_delay_seconds = 0;
-    DORIS_CLOUD_DEFER { config::merged_file_correction_delay_seconds = old_grace; };
+    DORIS_CLOUD_DEFER {
+        config::merged_file_correction_delay_seconds = old_grace;
+    };
 
     g_bvar_recycler_merged_file_recycled_kv_num.put(instance_id, 0);
     g_bvar_recycler_merged_file_recycled_kv_bytes.put(instance_id, 0);
@@ -5707,13 +5709,13 @@ TEST(RecyclerTest, recycle_merged_files_correct_partial_missing_references) {
 
     constexpr int kTotalFiles = 10;
     const std::array<int64_t, kTotalFiles> sizes = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19};
-    const std::array<int64_t, kTotalFiles> tablet_ids = {
-            5001, 5002, 5003, 6001, 6002, 6003, 7001, 7002, 7003, 7004};
+    const std::array<int64_t, kTotalFiles> tablet_ids = {5001, 5002, 5003, 6001, 6002,
+                                                         6003, 7001, 7002, 7003, 7004};
     const std::array<std::string, kTotalFiles> rowset_ids = {
             "rowset_0", "rowset_1", "rowset_2", "rowset_3", "rowset_4",
             "rowset_5", "rowset_6", "rowset_7", "rowset_8", "rowset_9"};
-    const std::array<bool, kTotalFiles> initially_deleted = {
-            true, true, true, false, false, false, false, false, false, false};
+    const std::array<bool, kTotalFiles> initially_deleted = {true,  true,  true,  false, false,
+                                                             false, false, false, false, false};
 
     constexpr int kValidCountAfterCorrection = 3;
     const std::array<int, kValidCountAfterCorrection> valid_indices = {3, 4, 5};
@@ -5768,7 +5770,9 @@ TEST(RecyclerTest, recycle_merged_files_correct_partial_missing_references) {
 
     auto old_grace = config::merged_file_correction_delay_seconds;
     config::merged_file_correction_delay_seconds = 0;
-    DORIS_CLOUD_DEFER { config::merged_file_correction_delay_seconds = old_grace; };
+    DORIS_CLOUD_DEFER {
+        config::merged_file_correction_delay_seconds = old_grace;
+    };
 
     g_bvar_recycler_merged_file_recycled_kv_num.put(instance_id, -1);
     g_bvar_recycler_merged_file_recycled_kv_bytes.put(instance_id, -1);
@@ -5902,7 +5906,9 @@ TEST(RecyclerTest, recycle_merged_files_skip_recent) {
 
     auto old_grace = config::merged_file_correction_delay_seconds;
     config::merged_file_correction_delay_seconds = 259200; // 3 days
-    DORIS_CLOUD_DEFER { config::merged_file_correction_delay_seconds = old_grace; };
+    DORIS_CLOUD_DEFER {
+        config::merged_file_correction_delay_seconds = old_grace;
+    };
 
     g_bvar_recycler_merged_file_recycled_kv_num.put(instance_id, -1);
     g_bvar_recycler_merged_file_recycled_kv_bytes.put(instance_id, -1);

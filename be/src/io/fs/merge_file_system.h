@@ -33,12 +33,13 @@ class MergeFileSystem final : public FileSystem {
 public:
     MergeFileSystem(FileSystemSPtr inner_fs);
 
-    MergeFileSystem(FileSystemSPtr inner_fs, std::unordered_map<std::string, MergeFileSegmentIndex> index_map);
+    MergeFileSystem(FileSystemSPtr inner_fs,
+                    std::unordered_map<std::string, MergeFileSegmentIndex> index_map);
 
     ~MergeFileSystem() override = default;
 
-    MergeFileSystem(const MergeFileSystem &) = delete;
-    MergeFileSystem &operator=(const MergeFileSystem &) = delete;
+    MergeFileSystem(const MergeFileSystem&) = delete;
+    MergeFileSystem& operator=(const MergeFileSystem&) = delete;
 
 protected:
     // Create file and wrap writer with MergeFileWriter
@@ -95,4 +96,3 @@ private:
 };
 
 } // namespace doris::io
-

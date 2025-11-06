@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "io/fs/merge_file_manager.h"
+
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -27,16 +29,13 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
-
-#include "cloud/config.h"
-
-#include "io/fs/merge_file_manager.h"
 
 namespace doris::io {
 
@@ -126,9 +125,7 @@ protected:
 
     Status delete_file_impl(const Path& /*file*/) override { return Status::OK(); }
 
-    Status batch_delete_impl(const std::vector<Path>& /*files*/) override {
-        return Status::OK();
-    }
+    Status batch_delete_impl(const std::vector<Path>& /*files*/) override { return Status::OK(); }
 
     Status delete_directory_impl(const Path& /*dir*/) override { return Status::OK(); }
 
