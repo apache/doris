@@ -402,4 +402,22 @@ INSERT INTO test_invalid_avro_name_orc VALUES
     (4, 'row4'),
     (5, 'row5');
 
+-- create table for testing query partitions with snapshot has been expired
 
+CREATE TABLE test_partitions_with_expired_snapshot (
+    id BIGINT,
+    name STRING,
+    value DOUBLE,
+    dt TIMESTAMP
+) USING ICEBERG PARTITIONED BY (month(dt));
+
+INSERT INTO test_partitions_with_expired_snapshot VALUES (1, 'a', 1.0, TIMESTAMP '2024-01-01 00:00:00');
+INSERT INTO test_partitions_with_expired_snapshot VALUES (2, 'b', 2.0, TIMESTAMP '2024-02-02 00:00:00');
+INSERT INTO test_partitions_with_expired_snapshot VALUES (3, 'c', 3.0, TIMESTAMP '2024-03-03 00:00:00');
+
+-- Expire snapshots older than futurama, retaining only the last 1 snapshot
+CALL demo.system.expire_snapshots(
+    table => 'transform_partition_db.test_partitions_with_expired_snapshot',
+    older_than => TIMESTAMP '3000-01-01 00:00:00',
+    retain_last => 1
+);

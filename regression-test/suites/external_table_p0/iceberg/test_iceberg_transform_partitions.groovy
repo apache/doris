@@ -196,9 +196,17 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         """
     }
 
+    def test_iceberg_query_partitions_with_expired_snapshot = {
+        // Query partitions with snapshot has been expired
+        qt_query_partitions_with_expired_snapshot_select """
+            select * from test_partitions_with_expired_snapshot order by id;
+        """
+    }
+
     try {
         sql """ set time_zone = 'Asia/Shanghai'; """
         test_iceberg_transform_partitions()
+        test_iceberg_query_partitions_with_expired_snapshot()
     } finally {
         sql """ unset variable time_zone; """
     }
