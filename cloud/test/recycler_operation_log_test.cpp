@@ -2249,7 +2249,8 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
 
     // Test initialization without snapshots
     {
-        OperationLogRecycleChecker checker(test_instance_id, txn_kv.get());
+        InstanceInfoPB instance_info;
+        OperationLogRecycleChecker checker(test_instance_id, txn_kv.get(), instance_info);
         ASSERT_EQ(checker.init(), 0);
 
         // All logs should be recyclable when no snapshots exist
@@ -2276,7 +2277,8 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
     insert_empty_value();
 
     {
-        OperationLogRecycleChecker checker(test_instance_id, txn_kv.get());
+        InstanceInfoPB instance_info;
+        OperationLogRecycleChecker checker(test_instance_id, txn_kv.get(), instance_info);
         ASSERT_EQ(checker.init(), 0);
 
         // case 1, old operation log can be recycled.
@@ -2293,6 +2295,20 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
 
         // case 4: [min_version, operation log version)
         ASSERT_TRUE(checker.can_recycle(version1, version1.version()));
+    }
+
+    {
+        Versionstamp snapshot_versionstamp = get_current_versionstamp();
+        InstanceInfoPB instance_info;
+        instance_info.set_source_snapshot_id(
+                SnapshotManager::serialize_snapshot_id(snapshot_versionstamp));
+        OperationLogRecycleChecker checker(test_instance_id, txn_kv.get(), instance_info);
+        ASSERT_EQ(checker.init(), 0);
+
+        Versionstamp version5 = get_current_versionstamp();
+
+        ASSERT_FALSE(checker.can_recycle(version5, version2.version()))
+                << "version5: " << version5.version() << ", version2: " << version2.version();
     }
 }
 

@@ -26,27 +26,16 @@
 
 namespace doris::vectorized {
 
-using FunctionWeekOfYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekOfYearImpl<TYPE_DATETIME>>;
 using FunctionWeekOfYearV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekOfYearImpl<TYPE_DATEV2>>;
-using FunctionDayOfYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt16, DayOfYearImpl<TYPE_DATETIME>>;
 using FunctionDayOfYearV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, DayOfYearImpl<TYPE_DATEV2>>;
-using FunctionDayOfWeek =
-        FunctionDateOrDateTimeToSomething<DataTypeInt8, DayOfWeekImpl<TYPE_DATETIME>>;
 using FunctionDayOfWeekV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, DayOfWeekImpl<TYPE_DATEV2>>;
-using FunctionDayOfMonth =
-        FunctionDateOrDateTimeToSomething<DataTypeInt8, DayOfMonthImpl<TYPE_DATETIME>>;
 using FunctionDayOfMonthV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, DayOfMonthImpl<TYPE_DATEV2>>;
-using FunctionYearWeek =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<TYPE_DATETIME>>;
 using FunctionYearWeekV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<TYPE_DATEV2>>;
-using FunctionWeekDay = FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<TYPE_DATETIME>>;
 using FunctionWeekDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<TYPE_DATEV2>>;
 
 using FunctionDateTimeV2WeekOfYear =
@@ -63,12 +52,6 @@ using FunctionDateTimeV2WeekDay =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<TYPE_DATETIMEV2>>;
 
 void register_function_time_of_function(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionDayOfWeek>();
-    factory.register_function<FunctionDayOfMonth>();
-    factory.register_function<FunctionDayOfYear>();
-    factory.register_function<FunctionWeekOfYear>();
-    factory.register_function<FunctionYearWeek>();
-    factory.register_function<FunctionWeekDay>();
     factory.register_function<FunctionDayOfWeekV2>();
     factory.register_function<FunctionDayOfMonthV2>();
     factory.register_function<FunctionDayOfYearV2>();
