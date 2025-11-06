@@ -26,7 +26,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext.ExpressionRewriteMode;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.MaterializedViewExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -320,7 +320,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 queryExpression,
                 queryStructInfo.getTopPlan(),
                 queryStructInfo.getTableBitSet());
-        ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(
+        MaterializedViewExpressionRewriteContext
+                expressionRewriteContext = new MaterializedViewExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
                 queryStructInfo.getTableBitSet());
         Expression rewrittenExpression = queryFunctionShuttled.accept(EXPRESSION_REWRITER,
@@ -699,11 +700,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * aggregate function expression
      */
     protected static class ExpressionRewriter
-            extends DefaultExpressionRewriter<ExpressionRewriteContext> {
+            extends DefaultExpressionRewriter<MaterializedViewExpressionRewriteContext> {
 
         @Override
         public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
-                ExpressionRewriteContext rewriteContext) {
+                MaterializedViewExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return aggregateFunction;
             }
@@ -743,7 +744,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         @Override
         public Expression visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction,
-                ExpressionRewriteContext context) {
+                MaterializedViewExpressionRewriteContext context) {
             List<Expression> children = groupingScalarFunction.children();
             List<Expression> rewrittenChildren = new ArrayList<>();
             for (Expression child : children) {
@@ -757,7 +758,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
 
         @Override
-        public Expression visitSlot(Slot slot, ExpressionRewriteContext rewriteContext) {
+        public Expression visitSlot(Slot slot, MaterializedViewExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return slot;
             }
@@ -785,7 +786,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
 
         @Override
-        public Expression visit(Expression expr, ExpressionRewriteContext rewriteContext) {
+        public Expression visit(Expression expr, MaterializedViewExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return expr;
             }
@@ -814,14 +815,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     /**
      * AggregateExpressionRewriteContext
      */
-    public static class ExpressionRewriteContext {
+    public static class MaterializedViewExpressionRewriteContext {
         private boolean valid = true;
         private final ExpressionRewriteMode expressionRewriteMode;
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
         private final BitSet queryTableBitSet;
 
-        public ExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
+        public MaterializedViewExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
                 Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan,
                 BitSet queryTableBitSet) {
             this.expressionRewriteMode = expressionRewriteMode;

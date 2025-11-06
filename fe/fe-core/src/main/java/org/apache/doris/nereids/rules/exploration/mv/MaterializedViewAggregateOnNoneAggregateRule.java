@@ -24,7 +24,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext.ExpressionRewriteMode;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.MaterializedViewExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.plans.Plan;

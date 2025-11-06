@@ -31,8 +31,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext.ExpressionRewriteMode;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.MaterializedViewExpressionRewriteContext;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.MaterializedViewExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
@@ -645,7 +645,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             extendMappingByVariant(variants, targetToTargetReplacementMappingQueryBased);
 
             // use common expression rewriter
-            ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(
+            MaterializedViewExpressionRewriteContext
+                    expressionRewriteContext = new MaterializedViewExpressionRewriteContext(
                     ExpressionRewriteMode.EXPRESSION_DIRECT, targetToTargetReplacementMappingQueryBased,
                     sourcePlan, sourcePlanBitSet);
             Expression replacedExpression = expressionShuttledToRewrite.accept(
