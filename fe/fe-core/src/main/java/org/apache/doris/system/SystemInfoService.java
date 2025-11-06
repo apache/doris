@@ -80,11 +80,11 @@ public class SystemInfoService {
     public static final String NOT_USING_VALID_CLUSTER_MSG =
             "Not using valid cloud clusters, please use a cluster before issuing any queries";
 
-    public static final String CLOUD_RETRY_E230 = "E-230";
+    public static final String ERROR_E230 = "E-230";
 
     public static final ImmutableSet<String> NEED_REPLAN_ERRORS = ImmutableSet.of(
             NO_SCAN_NODE_BACKEND_AVAILABLE_MSG,
-            CLOUD_RETRY_E230
+            ERROR_E230
     );
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();

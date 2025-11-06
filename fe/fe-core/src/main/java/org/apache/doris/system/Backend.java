@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,6 +38,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -49,6 +51,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -538,6 +541,12 @@ public class Backend implements Writable {
     }
 
     public boolean isQueryAvailable() {
+        String debugDeadBeIds = DebugPointUtil.getDebugParamOrDefault(
+                "Backend.isQueryAvailable", "unavailableBeIds", "");
+        if (!Strings.isNullOrEmpty(debugDeadBeIds)
+                && Arrays.stream(debugDeadBeIds.split(",")).anyMatch(id -> Long.parseLong(id) == this.id)) {
+            return false;
+        }
         return isAlive() && !isQueryDisabled() && !isShutDown();
     }
 
@@ -1117,3 +1126,4 @@ public class Backend implements Writable {
     }
 
 }
+
