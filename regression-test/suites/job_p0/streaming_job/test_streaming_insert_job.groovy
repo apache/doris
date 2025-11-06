@@ -110,6 +110,9 @@ suite("test_streaming_insert_job") {
     assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
 
+    def showTask = sql """select * from tasks("type"="insert") where jobName='${jobName}'"""
+    log.info("showTask is : " + showTask )
+
     // check task show
     def taskInfo = sql """select Status,RunningOffset from tasks("type"="insert") where jobName='${jobName}'"""
     log.info("taskInfo is : " + taskInfo + ", size: " + taskInfo.size())
