@@ -903,7 +903,7 @@ TEST(ResourceTest, RollbackInstance) {
     create_instance(meta_service.get(), new_instance_id);
 
     // Set source_instance_id and original_instance_id for new instance
-    // Set succeed_instance_id for old instance
+    // Set successor_instance_id for old instance
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -929,8 +929,8 @@ TEST(ResourceTest, RollbackInstance) {
         new_instance.mutable_clusters()->CopyFrom(original_instance.clusters());
         txn->put(new_key, new_instance.SerializeAsString());
 
-        // Update original instance with succeed_instance_id
-        original_instance.set_succeed_instance_id(new_instance_id);
+        // Update original instance with successor_instance_id
+        original_instance.set_successor_instance_id(new_instance_id);
         txn->put(original_key, original_instance.SerializeAsString());
 
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
