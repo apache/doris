@@ -3836,18 +3836,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Log.warn("tabletIdToBeID is empty, maybe create partition something wrong");
             }
         }
-
         // Use AutoPartitionCacheManager to get or cache tablet locations
-        // For stream load, skip caching to avoid stale data
+        // For stream load, skip caching, reason as follow:
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica distribution issues,
+        //    while stream load is always a single-instance import.
+        // 2. From a necessity perspective: Stream load triggers FE commit/abort txn requests from BE.
+        //    If a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
         List<TTabletLocation> tablets;
         List<TTabletLocation> slaveTablets;
-
+        boolean isWriteSingleReplica = request.isSetWriteSingleReplica() && request.isWriteSingleReplica();
         if (!isStreamLoad) {
-            boolean isWriteSingleReplica = request.isSetWriteSingleReplica() && request.isWriteSingleReplica();
             AutoPartitionCacheManager.PartitionTabletCache cache =
                     Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getOrSetAutoPartitionInfo(dbId, txnId, tempResultTablets, isWriteSingleReplica);
-
             tablets = cache.tablets;
             slaveTablets = cache.slaveTablets;
         } else {
@@ -3855,22 +3856,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             slaveTablets = new ArrayList<>();
             for (Map.Entry<Long, Map<Long, Set<Long>>> entry : tempResultTablets.entrySet()) {
                 Map<Long, Set<Long>> tabletBeMap = entry.getValue();
-                for (Map.Entry<Long, Set<Long>> tabletEntry : tabletBeMap.entrySet()) {
-                    Long tabletId = tabletEntry.getKey();
-                    Set<Long> beIds = tabletEntry.getValue();
-
-                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                        Long[] nodes = beIds.toArray(new Long[0]);
-                        Random random = new SecureRandom();
-                        Long masterNode = nodes[random.nextInt(nodes.length)];
-                        List<Long> slaveNodesList = new ArrayList<>(beIds);
-                        slaveNodesList.remove(masterNode);
-                        tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(masterNode)));
-                        slaveTablets.add(new TTabletLocation(tabletId, slaveNodesList));
-                    } else {
-                        tablets.add(new TTabletLocation(tabletId, new ArrayList<>(beIds)));
-                    }
+                if (tabletBeMap == null || tabletBeMap.isEmpty()) {
+                    continue;
                 }
+                AutoPartitionCacheManager.PartitionTabletCache cache =
+                        AutoPartitionCacheManager.buildTabletLocations(tabletBeMap, isWriteSingleReplica);
+                tablets.addAll(cache.tablets);
+                slaveTablets.addAll(cache.slaveTablets);
             }
         }
 
