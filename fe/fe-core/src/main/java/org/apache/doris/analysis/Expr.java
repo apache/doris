@@ -1273,10 +1273,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         originCastNullable = Optional.of(nullable);
     }
 
-    public void clearNullableFromNereids() {
-        nullableFromNereids = Optional.empty();
-    }
-
     public Set<SlotRef> getInputSlotRef() {
         Set<SlotRef> slots = new HashSet<>();
         if (this instanceof SlotRef) {
