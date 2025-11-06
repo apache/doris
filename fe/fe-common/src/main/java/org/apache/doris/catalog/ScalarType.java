@@ -1152,10 +1152,6 @@ public class ScalarType extends Type {
         return getAssignmentCompatibleType(t1, t2, strict, enableDecimal256).matchesType(t2);
     }
 
-    public static boolean canCastTo(ScalarType type, ScalarType targetType) {
-        return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
-    }
-
     @Override
     public TColumnType toColumnTypeThrift() {
         TColumnType thrift = new TColumnType();

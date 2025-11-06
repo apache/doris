@@ -1780,8 +1780,8 @@ void MetaServiceImpl::commit_txn_immediately(
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                    tablet_idx, stats_pb);
+                internal_get_load_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                               tablet_idx, stats_pb);
                 if (code != MetaServiceCode::OK) {
                     LOG(WARNING) << "update versioned tablet stats failed, code=" << code
                                  << " msg=" << msg << " txn_id=" << txn_id
@@ -2828,8 +2828,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                    tablet_idx, stats_pb);
+                internal_get_load_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                               tablet_idx, stats_pb);
                 if (code != MetaServiceCode::OK) {
                     LOG(WARNING) << "update versioned tablet stats failed, code=" << code
                                  << " msg=" << msg << " txn_id=" << txn_id

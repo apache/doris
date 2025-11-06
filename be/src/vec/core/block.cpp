@@ -244,9 +244,6 @@ void Block::erase_tail(size_t start) {
             ++it;
         }
     }
-    if (start < row_same_bit.size()) {
-        row_same_bit.erase(row_same_bit.begin() + start, row_same_bit.end());
-    }
 }
 
 void Block::erase(size_t position) {
@@ -277,9 +274,6 @@ void Block::erase_impl(size_t position) {
                 ++it;
             }
         }
-    }
-    if (position < row_same_bit.size()) {
-        row_same_bit.erase(row_same_bit.begin() + position);
     }
 }
 
@@ -433,9 +427,6 @@ void Block::set_num_rows(size_t length) {
                 elem.column = elem.column->shrink(length);
             }
         }
-        if (length < row_same_bit.size()) {
-            row_same_bit.resize(length);
-        }
     }
 }
 
@@ -449,9 +440,6 @@ void Block::skip_num_rows(int64_t& length) {
             if (elem.column) {
                 elem.column = elem.column->cut(length, origin_rows - length);
             }
-        }
-        if (length < row_same_bit.size()) {
-            row_same_bit.assign(row_same_bit.begin() + length, row_same_bit.end());
         }
     }
 }
@@ -783,7 +771,6 @@ DataTypes Block::get_data_types() const {
 void Block::clear() {
     data.clear();
     index_by_name.clear();
-    row_same_bit.clear();
 }
 
 void Block::clear_column_data(int64_t column_size) noexcept {
@@ -802,7 +789,6 @@ void Block::clear_column_data(int64_t column_size) noexcept {
             (*std::move(d.column)).assume_mutable()->clear();
         }
     }
-    row_same_bit.clear();
 }
 
 void Block::erase_tmp_columns() noexcept {
@@ -836,14 +822,12 @@ void Block::swap(Block& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
-    row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
-    row_same_bit = std::move(other.row_same_bit);
 }
 
 void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
@@ -1167,9 +1151,6 @@ void MutableBlock::erase(const String& name) {
             ++it;
         }
     }
-    // if (position < row_same_bit.size()) {
-    //     row_same_bit.erase(row_same_bit.begin() + position);
-    // }
 }
 
 Block MutableBlock::to_block(int start_column) {

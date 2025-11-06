@@ -513,6 +513,8 @@ private:
     bool _find_condition_cache = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     static constexpr int CONDITION_CACHE_OFFSET = 2048;
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            _common_expr_to_slotref_map;
 };
 
 } // namespace segment_v2

@@ -21,6 +21,7 @@
 #include <cstring>
 #include <memory>
 
+#include "common/logging.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nothing.h"
 
@@ -79,12 +80,15 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
 
     _size = n;
 
-    std::string msg;
-    for (const auto& pair : _row_id_to_idx) {
-        msg += fmt::format("{}: {}, ", pair.first, pair.second);
+    if (VLOG_DEBUG_IS_ON) {
+        std::string msg;
+        for (const auto& pair : _row_id_to_idx) {
+            msg += fmt::format("{}: {}, ", pair.first, pair.second);
+        }
+
+        VLOG_DEBUG << fmt::format("virtual column iterator, row_idx_to_idx:\n{}", msg);
     }
 
-    VLOG_DEBUG << fmt::format("virtual column iterator, row_idx_to_idx:\n{}", msg);
     _filter = doris::vectorized::IColumn::Filter(_size, 0);
 }
 

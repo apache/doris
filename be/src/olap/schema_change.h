@@ -170,6 +170,9 @@ protected:
 private:
     uint64_t _filtered_rows {};
     uint64_t _merged_rows {};
+
+protected:
+    std::vector<bool> _row_same_bit;
 };
 
 class LinkedSchemaChange : public SchemaChange {
