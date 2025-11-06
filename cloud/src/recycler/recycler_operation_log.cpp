@@ -330,7 +330,6 @@ int OperationLogRecycler::recycle_schema_change_log(const SchemaChangeLogPB& sch
     MetaReader meta_reader(instance_id_, log_version_);
     int64_t new_tablet_id = schema_change_log.new_tablet_id();
     RETURN_ON_FAILURE(recycle_tablet_meta(new_tablet_id));
-    RETURN_ON_FAILURE(recycle_tablet_load_stats(new_tablet_id));
     RETURN_ON_FAILURE(recycle_tablet_compact_stats(new_tablet_id));
 
     for (const RecycleRowsetPB& recycle_rowset_pb : schema_change_log.recycle_rowsets()) {
