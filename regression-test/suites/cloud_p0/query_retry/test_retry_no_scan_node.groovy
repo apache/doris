@@ -18,7 +18,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_retry_no_scan_node", 'p0, docker') {
+suite("test_retry_no_scan_node", "p0, docker") {
     if (!isCloudMode()) {
         return
     }
@@ -67,7 +67,7 @@ suite("test_retry_no_scan_node", 'p0, docker') {
             def queryThread = Thread.start(queryTask)
 
             // inject query not available error
-            cluster.injectDebugPoints(NodeType.FE, ['Backend.isQueryAvailable' : [unavailableBeIds:'${beId}'])
+            cluster.injectDebugPoints(NodeType.FE, ['Backend.isQueryAvailable' : [unavailableBeIds:beId]])
             // query should have no failure
             // wait query thread finish
             queryThread.join(15000);
