@@ -48,7 +48,7 @@ public:
     TExprNodeType::type node_type() const override { return _mock_node_type; }
 
     Status execute(vectorized::VExprContext* context, vectorized::Block* block,
-                   int32_t* result_column_id) override {
+                   int32_t* result_column_id) const override {
         return Status::OK();
     }
 
