@@ -120,8 +120,10 @@ public class BDBEnvironment {
             sslConfig.setSSLPemCaCertFile(Config.tls_ca_certificate_path);
             sslConfig.setSSLCipherSuites("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384");
             sslConfig.setSSLProtocols("TLSv1.2,TLSv1.3");
-            sslConfig.setSSLAuthenticator("mirror");
-            sslConfig.setSSLHostVerifier("mirror");
+            if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                sslConfig.setSSLAuthenticator("mirror");
+                sslConfig.setSSLHostVerifier("mirror");
+            }
             sslConfig.setSSLCertRefreshIntervalSeconds(Config.tls_cert_refresh_interval_seconds);
             sslConfig.setSSLClientAuthMode(Config.tls_verify_mode);
             replicationConfig.setRepNetConfig(sslConfig);
