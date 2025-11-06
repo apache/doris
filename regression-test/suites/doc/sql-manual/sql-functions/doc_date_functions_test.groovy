@@ -469,22 +469,23 @@ suite("doc_date_functions_test") {
     qt_extract_3 """select extract(week from '2024-01-06') as week"""
     qt_extract_4 """select extract(week from '2024-01-07') as week"""
     qt_extract_5 """select extract(week from '2024-12-31') as week"""
-    
+
     // 20. FROM_DAYS function tests
     qt_from_days_1 """select from_days(730669),from_days(5),from_days(59), from_days(60)"""
     // qt_from_days_2 """select from_days(-60)"""
     qt_from_days_3 """select from_days(NULL)"""
-    
+
     // 21. FROM_ISO8601_DATE function tests
     qt_from_iso8601_date_1 """select from_iso8601_date('2023') as year_only, from_iso8601_date('2023-10') as year_month, from_iso8601_date('2023-10-05') as full_date"""
     qt_from_iso8601_date_2 """select from_iso8601_date('2021-001') as day_1, from_iso8601_date('2021-059') as day_59, from_iso8601_date('2021-060') as day_60, from_iso8601_date('2024-366') as day_366"""
     qt_from_iso8601_date_3 """select from_iso8601_date('0522-W01-1') as week_1"""
     qt_from_iso8601_date_4 """select from_iso8601_date('0522-W01-4') as week_4"""
     qt_from_iso8601_date_5 """select from_iso8601_date('0522-W01') as week_1"""
-    // qt_from_iso8601_date_6 """select from_iso8601_date('2023-10-01T12:34:10')"""
-    // qt_from_iso8601_date_7 """select from_iso8601_date('0522-W61') as week_61"""
-    // qt_from_iso8601_date_8 """select from_iso8601_date('0522-661') as day_661"""
+    qt_from_iso8601_date_6 """select from_iso8601_date('2023-10-01T12:34:10')"""
+    qt_from_iso8601_date_7 """select from_iso8601_date('0522-W61') as week_61"""
+    qt_from_iso8601_date_8 """select from_iso8601_date('0522-661') as day_661"""
     qt_from_iso8601_date_9 """select from_iso8601_date(NULL)"""
+            sql """select from_iso8601_date('2023-10-01T12:34:10');"""
     
     // 22. FROM_MICROSECOND function tests
     qt_from_microsecond_1 """SELECT FROM_MICROSECOND(0)"""
@@ -1135,14 +1136,14 @@ suite("doc_date_functions_test") {
     qt_str_to_date_1 """SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')"""
     qt_str_to_date_2 """SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')"""
     qt_str_to_date_3 """SELECT STR_TO_DATE('20230713', 'yyyyMMdd')"""
-    // qt_str_to_date_4 """SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')"""
+    qt_str_to_date_4 """SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')"""
     qt_str_to_date_5 """SELECT STR_TO_DATE('200442 Monday', '%X%V %W')"""
     qt_str_to_date_6 """SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')"""
-    // qt_str_to_date_7 """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d')"""
-    // qt_str_to_date_8 """SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')"""
+    qt_str_to_date_7 """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d')"""
+    qt_str_to_date_8 """SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')"""
     qt_str_to_date_9 """SELECT STR_TO_DATE('2023-07-13 12:34:56.789', '%Y-%m-%d %H:%i:%s.%f')"""
     qt_str_to_date_10 """SELECT STR_TO_DATE(NULL, '%Y-%m-%d'), STR_TO_DATE('2023-01-01', NULL)"""
-    // qt_str_to_date_11 """SELECT STR_TO_DATE('2023-01-01', '')"""
+    qt_str_to_date_11 """SELECT STR_TO_DATE('2023-01-01', '')"""
     
     // 72. TIMEDIFF function tests
     qt_timediff_1 """SELECT TIMEDIFF('2024-07-20 16:59:30', '2024-07-11 16:35:21')"""
@@ -1539,9 +1540,9 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT FROM_ISO8601_DATE('2021-060') as day_60")
     testFoldConst("SELECT FROM_ISO8601_DATE('2024-366') as day_366")
     testFoldConst("SELECT FROM_ISO8601_DATE('0522-W01-1') as week_1")
-    // testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-01T12:34:10')")
-    // testFoldConst("SELECT FROM_ISO8601_DATE('0522-661') as day_661")
-    // testFoldConst("SELECT FROM_ISO8601_DATE('invalid-date')")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-01T12:34:10')")
+    testFoldConst("SELECT FROM_ISO8601_DATE('0522-661') as day_661")
+    testFoldConst("SELECT FROM_ISO8601_DATE('invalid-date')")
     testFoldConst("SELECT FROM_ISO8601_DATE(NULL)")
 
     // 22. FROM_MILLISECOND function constant folding tests
@@ -1834,12 +1835,12 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')")
     testFoldConst("SELECT STR_TO_DATE('20230713', 'yyyyMMdd')")
-    // testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
+    testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('200442 Monday', '%X%V %W')")
     testFoldConst("SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')")
     testFoldConst("SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('2023-07-13 12:34:56.789', '%Y-%m-%d %H:%i:%s.%f')")
-    // testFoldConst("SELECT STR_TO_DATE('2023-01-01', '')")
+    testFoldConst("SELECT STR_TO_DATE('2023-01-01', '')")
 
     // 72. TIMEDIFF function constant folding tests
     testFoldConst("SELECT TIMEDIFF('2024-07-20 16:59:30', '2024-07-11 16:35:21')")
@@ -2107,4 +2108,67 @@ suite("doc_date_functions_test") {
     // testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56', -5)")
     // testFoldConst("SELECT WEEK_CEIL('2023-07-13 22:28:18', -2)")
     // testFoldConst("SELECT YEAR_CEIL('2023-07-13 22:28:18', -5)")
+
+
+    sql "DROP TABLE IF EXISTS test_datetime_ceil"
+
+    sql """
+    CREATE TABLE test_datetime_ceil (
+        id INT,
+        dt DATETIME,
+        f DECIMAL
+    ) ENGINE=OLAP
+    PROPERTIES("replication_num" = "1");
+    """
+
+   sql "INSERT INTO test_datetime_ceil VALUES (1, '2025-10-10 12:34:56', 123.12);"
+   sql "INSERT INTO test_datetime_ceil VALUES (2, '2025-01-01 00:00:00', 2.22);"
+   sql "INSERT INTO test_datetime_ceil VALUES (3, '2025-12-31 23:59:59', 3.34);"
+
+   qt_dateceil """
+   SELECT
+       dt,
+        year_ceil(dt) AS year_ceil,
+        month_ceil(dt) AS month_ceil,
+        day_ceil(dt) AS day_ceil,
+        hour_ceil(dt) AS hour_ceil,
+        minute_ceil(dt) AS minute_ceil,
+        second_ceil(dt) AS second_ceil
+    FROM test_datetime_ceil ORDER BY id;
+    """
+
+    qt_todays """
+    SELECT
+        id,
+        dt,
+        to_days(dt) AS to_days_result
+    FROM test_datetime_ceil ORDER BY id;
+"""
+
+    qt_ceil """
+    SELECT
+        id,
+        ceil(f) AS ceil_f from test_datetime_ceil ORDER BY id;
+    """
+
+    testFoldConst("""SELECT
+       dt,
+        year_ceil(dt) AS year_ceil,
+        month_ceil(dt) AS month_ceil,
+        day_ceil(dt) AS day_ceil,
+        hour_ceil(dt) AS hour_ceil,
+        minute_ceil(dt) AS minute_ceil,
+        second_ceil(dt) AS second_ceil
+    FROM test_datetime_ceil ORDER BY id;""")
+
+    testFoldConst("""SELECT
+        id,
+        dt,
+        to_days(dt) AS to_days_result
+    FROM test_datetime_ceil ORDER BY id;""")
+
+    testFoldConst("""SELECT
+        id,
+        ceil(f) AS ceil_f from test_datetime_ceil ORDER BY id;""")
+
 }

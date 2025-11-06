@@ -41,7 +41,7 @@ public class MicroSecondsDiff extends ScalarFunction implements BinaryExpression
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD)
             );
 
     /**

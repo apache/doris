@@ -104,9 +104,15 @@ under the License.
         </dependency>
         <!-- For BE CosN Access -->
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
+            <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
-            <version>3.3.5</version>
+            <version>${tencentcos.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.json</groupId>
+                    <artifactId>json</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- For BE Paimon OSS/S3 Access -->
         <dependency>
@@ -157,6 +163,10 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3tables</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
         </dependency>
         <dependency>
             <groupId>software.amazon.s3tables</groupId>

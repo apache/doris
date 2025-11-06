@@ -100,7 +100,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -134,7 +134,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint is always nullable
@@ -172,7 +172,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint and smallint is always nullable
@@ -212,7 +212,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint, smallint and int is always nullable
@@ -258,7 +258,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To tinyint, smallint, int and bigint is always nullable
@@ -297,7 +297,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To integral and decimal is always nullable
@@ -340,7 +340,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
 
             // To integral and decimal is always nullable
@@ -423,7 +423,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -451,14 +451,14 @@ public class CastTest {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             // When strict mode is false
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
-            SlotReference child = new SlotReference("slot", TimeV2Type.INSTANCE, false);
+            SlotReference child = new SlotReference("slot", TimeV2Type.SYSTEM_DEFAULT, false);
             Cast cast = new Cast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, SmallIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IntegerType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -493,7 +493,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv4Type.INSTANCE);
             Assertions.assertTrue(cast.nullable());
@@ -532,7 +532,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv4Type.INSTANCE);
             Assertions.assertTrue(cast.nullable());
@@ -571,7 +571,7 @@ public class CastTest {
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
-            cast = new Cast(child, TimeV2Type.INSTANCE);
+            cast = new Cast(child, TimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, IPv4Type.INSTANCE);
             Assertions.assertTrue(cast.nullable());
