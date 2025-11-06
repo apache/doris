@@ -78,7 +78,7 @@ suite("test_hive_pct_mtmv", "p0,external,hive,external_docker,external_docker_hi
         logger.info("hive sql: " + drop_table_str1)
         hive_docker """ ${drop_table_str1} """
         logger.info("hive sql: " + drop_table_str2)
-        hive_docker """ ${drop_table_str3} """
+        hive_docker """ ${drop_table_str2} """
         logger.info("hive sql: " + drop_database_str)
         hive_docker """ ${drop_database_str} """
         logger.info("hive sql: " + create_database_str)
