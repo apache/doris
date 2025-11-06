@@ -517,9 +517,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                             }
                             resultValues.add(new RangeValue(context, reference, Range.all()));
                         }
-                    } if (newSourceValues.size() == 1) {
+                    } else if (newSourceValues.size() == 1) {
                         resultValues.add(newSourceValues.get(0));
-                    } else if (newSourceValues.size() > 1) {
+                    } else {
                         resultValues.add(new CompoundValue(context, reference, newSourceValues, compoundValue.isAnd));
                     }
                 }
@@ -619,16 +619,18 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
     }
 
+    /** union two value result */
     public enum UnionType {
-        TRUE,
-        RANGE_ALL,
-        OTHERS,
+        TRUE, // equals TRUE
+        RANGE_ALL, // trueOrNull(reference)
+        OTHERS, // other case
     }
 
+    /** intersect two value result */
     public enum IntersectType {
-        FALSE,
-        EMPTY_VALUE,
-        OTHERS,
+        FALSE, // equals FALSE
+        EMPTY_VALUE, // falseOrNull(reference)
+        OTHERS, // other case
     }
 
     /**
@@ -1198,14 +1200,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      * Represents processing compound predicate.
      */
     public static class CompoundValue extends ValueDesc {
+        private static final int MAX_SEARCH_DEPTH = 1;
         private final List<ValueDesc> sourceValues;
         private final boolean isAnd;
         private final Set<Class<? extends ValueDesc>> subClasses;
         private final boolean hasNullable;
         private final boolean hasNoneNullable;
-        // since depth is 1, will not search two compound values
-        private final static int MAX_SEARCH_DEPTH = 1;
 
+        /** constructor */
         public CompoundValue(ExpressionRewriteContext context, Expression reference,
                 List<ValueDesc> sourceValues, boolean isAnd) {
             super(context, reference);
