@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
@@ -28,8 +28,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.planner.FileLoadScanNode;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.FileGroupInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -61,29 +61,30 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
- * FileTable encapsulates a set of files to be scanned into a Table like structure,
- * which has table attributes such as Schema, and file attributes such as row and column separators.
- * Mainly used to unify HMSTableScan and FileScan
+ * NereidsFileGroupInfo
  */
-public class FileGroupInfo {
-    private static final Logger LOG = LogManager.getLogger(FileGroupInfo.class);
+public class NereidsFileGroupInfo {
+    private static final Logger LOG = LogManager.getLogger(NereidsFileGroupInfo.class);
 
     private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
     private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
 
+    /**
+     * JobType
+     */
     public enum JobType {
         BULK_LOAD,
         STREAM_LOAD
     }
 
-    private JobType jobType;
+    private FileGroupInfo.JobType jobType;
 
     private TUniqueId loadId;
     private long loadJobId;
     private long txnId;
     private Table targetTable;
     private BrokerDesc brokerDesc;
-    private BrokerFileGroup fileGroup;
+    private NereidsBrokerFileGroup fileGroup;
     private List<TBrokerFileStatus> fileStatuses;
     private int filesAdded;
     private boolean strictMode;
@@ -97,11 +98,13 @@ public class FileGroupInfo {
     private TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     private String sequenceMapCol = null;
 
-    // for broker load
-    public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, List<TBrokerFileStatus> fileStatuses, int filesAdded, boolean strictMode,
+    /**
+     * for broker load
+     */
+    public NereidsFileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
+            NereidsBrokerFileGroup fileGroup, List<TBrokerFileStatus> fileStatuses, int filesAdded, boolean strictMode,
             int loadParallelism) {
-        this.jobType = JobType.BULK_LOAD;
+        this.jobType = FileGroupInfo.JobType.BULK_LOAD;
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.targetTable = targetTable;
@@ -114,12 +117,14 @@ public class FileGroupInfo {
         this.fileType = brokerDesc.getFileType();
     }
 
-    // for stream load
-    public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
+    /**
+     * for stream load
+     */
+    public NereidsFileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
+            NereidsBrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
             TFileType fileType, List<String> hiddenColumns, TUniqueKeyUpdateMode uniqueKeyUpdateMode,
             String sequenceMapCol) {
-        this.jobType = JobType.STREAM_LOAD;
+        this.jobType = FileGroupInfo.JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
         this.targetTable = targetTable;
@@ -143,7 +148,7 @@ public class FileGroupInfo {
         return brokerDesc;
     }
 
-    public BrokerFileGroup getFileGroup() {
+    public NereidsBrokerFileGroup getFileGroup() {
         return fileGroup;
     }
 
@@ -185,17 +190,19 @@ public class FileGroupInfo {
         return uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
     }
 
-
     public String getSequenceMapCol() {
         return sequenceMapCol;
     }
 
+    /**
+     * getFileStatusAndCalcInstance
+     */
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {
         if (filesAdded == 0) {
             throw new UserException("No source file in this table(" + targetTable.getName() + ").");
         }
 
-        if (jobType == JobType.BULK_LOAD) {
+        if (jobType == FileGroupInfo.JobType.BULK_LOAD) {
             long totalBytes = 0;
             for (TBrokerFileStatus fileStatus : fileStatuses) {
                 totalBytes += fileStatus.size;
@@ -219,22 +226,25 @@ public class FileGroupInfo {
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
-    public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
-                                         FederationBackendPolicy backendPolicy,
-                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    /**
+     * createScanRangeLocations
+     */
+    public void createScanRangeLocations(NereidsParamCreateContext context,
+            FederationBackendPolicy backendPolicy,
+            List<TScanRangeLocations> scanRangeLocations) throws UserException {
         // Currently, we do not support mixed file types (or compress types).
         // If any of the file is unsplittable, all files will be treated as unsplittable.
         boolean isSplittable = true;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
                     fileStatus.path);
-            TFileCompressType compressType =
-                    Util.getOrInferCompressType(context.fileGroup.getFileFormatProperties().getCompressionType(),
-                            fileStatus.path);
+            TFileCompressType compressType = Util.getOrInferCompressType(
+                    context.fileGroup.getFileFormatProperties().getCompressionType(),
+                    fileStatus.path);
             // Now only support split plain text
             if (compressType == TFileCompressType.PLAIN
                     && ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
-                    || formatType == TFileFormatType.FORMAT_JSON)) {
+                            || formatType == TFileFormatType.FORMAT_JSON)) {
                 // is splittable
             } else {
                 isSplittable = false;
@@ -249,10 +259,13 @@ public class FileGroupInfo {
         }
     }
 
-    public void createScanRangeLocationsUnsplittable(FileLoadScanNode.ParamCreateContext context,
-                                                      FederationBackendPolicy backendPolicy,
-                                                      List<TScanRangeLocations> scanRangeLocations)
-                                                      throws UserException {
+    /**
+     * createScanRangeLocationsUnsplittable
+     */
+    public void createScanRangeLocationsUnsplittable(NereidsParamCreateContext context,
+            FederationBackendPolicy backendPolicy,
+            List<TScanRangeLocations> scanRangeLocations)
+            throws UserException {
         List<Long> fileSizes = fileStatuses.stream().map(x -> x.size).collect(Collectors.toList());
         List<List<Integer>> groups = assignFilesToInstances(fileSizes, numInstances);
         for (List<Integer> group : groups) {
@@ -262,9 +275,9 @@ public class FileGroupInfo {
                 TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
                         fileStatus.path);
                 context.params.setFormatType(formatType);
-                TFileCompressType compressType =
-                        Util.getOrInferCompressType(context.fileGroup.getFileFormatProperties().getCompressionType(),
-                                fileStatus.path);
+                TFileCompressType compressType = Util.getOrInferCompressType(
+                        context.fileGroup.getFileFormatProperties().getCompressionType(),
+                        fileStatus.path);
                 context.params.setCompressType(compressType);
                 List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                         context.fileGroup.getColumnNamesFromPath());
@@ -277,6 +290,9 @@ public class FileGroupInfo {
         }
     }
 
+    /**
+     * assignFilesToInstances
+     */
     public static List<List<Integer>> assignFilesToInstances(List<Long> fileSizes, int instances) {
         int n = Math.min(fileSizes.size(), instances);
         PriorityQueue<Pair<Long, List<Integer>>> pq = new PriorityQueue<>(n, Comparator.comparingLong(Pair::key));
@@ -293,14 +309,17 @@ public class FileGroupInfo {
         return pq.stream().map(Pair::value).collect(Collectors.toList());
     }
 
-    public void createScanRangeLocationsSplittable(FileLoadScanNode.ParamCreateContext context,
-                                                   FederationBackendPolicy backendPolicy,
-                                                   List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    /**
+     * createScanRangeLocationsSplittable
+     */
+    public void createScanRangeLocationsSplittable(NereidsParamCreateContext context,
+            FederationBackendPolicy backendPolicy,
+            List<TScanRangeLocations> scanRangeLocations) throws UserException {
 
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
         long curInstanceBytes = 0;
         long curFileOffset = 0;
-        for (int i = 0; i < fileStatuses.size(); ) {
+        for (int i = 0; i < fileStatuses.size();) {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
@@ -308,16 +327,16 @@ public class FileGroupInfo {
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
                     fileStatus.path);
             context.params.setFormatType(formatType);
-            TFileCompressType compressType =
-                    Util.getOrInferCompressType(context.fileGroup.getFileFormatProperties().getCompressionType(),
-                            fileStatus.path);
+            TFileCompressType compressType = Util.getOrInferCompressType(
+                    context.fileGroup.getFileFormatProperties().getCompressionType(),
+                    fileStatus.path);
             context.params.setCompressType(compressType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
             // Assign scan range locations only for broker load.
             // stream load has only one file, and no need to set multi scan ranges.
-            if (tmpBytes > bytesPerInstance && jobType != JobType.STREAM_LOAD) {
+            if (tmpBytes > bytesPerInstance && jobType != FileGroupInfo.JobType.STREAM_LOAD) {
                 long rangeBytes = bytesPerInstance - curInstanceBytes;
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
                         columnsFromPath, columnsFromPathKeys);
@@ -375,7 +394,7 @@ public class FileGroupInfo {
         TScanRangeLocations locations = new TScanRangeLocations();
         locations.setScanRange(scanRange);
 
-        if (jobType == JobType.BULK_LOAD) {
+        if (jobType == FileGroupInfo.JobType.BULK_LOAD) {
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(selectedBackend.getId());
             location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
@@ -403,7 +422,7 @@ public class FileGroupInfo {
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,
             List<String> columnsFromPath, List<String> columnsFromPathKeys) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        if (jobType == JobType.BULK_LOAD) {
+        if (jobType == FileGroupInfo.JobType.BULK_LOAD) {
             rangeDesc.setPath(fileStatus.path);
             rangeDesc.setStartOffset(curFileOffset);
             rangeDesc.setSize(rangeBytes);
