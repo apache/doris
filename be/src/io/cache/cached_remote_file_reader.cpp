@@ -50,6 +50,16 @@ bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
         "cached_remote_reader_skip_local_cache_io_sum_bytes");
 bvar::LatencyRecorder g_read_at_req_bytes("cached_remote_reader_read_at_req_bytes");
+bvar::Adder<uint64_t> g_read_at_impl_bytes_req_total("cached_remote_reader",
+                                                     "read_at_impl_bytes_req_total");
+bvar::PerSecond<bvar::Adder<uint64_t>> g_read_at_impl_bytes_req_per_second(
+        "cached_remote_reader", "read_at_impl_bytes_req_per_second",
+        &g_read_at_impl_bytes_req_total, 10);
+bvar::Adder<uint64_t> g_bytes_write_into_file_cache_total("cached_remote_reader",
+                                                          "bytes_write_into_file_cache_total");
+bvar::PerSecond<bvar::Adder<uint64_t>> g_bytes_write_into_file_cache_per_second(
+        "cached_remote_reader", "bytes_write_into_file_cache_per_second",
+        &g_bytes_write_into_file_cache_total, 10);
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -146,12 +156,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     size_t bytes_req = result.size;
     bytes_req = std::min(bytes_req, size() - offset);
+    g_read_at_impl_bytes_req_total << bytes_req;
     if (UNLIKELY(bytes_req == 0)) {
         *bytes_read = 0;
         return Status::OK();
     }
     ReadStatistics stats;
     auto defer_func = [&](int*) {
+        g_bytes_write_into_file_cache_total << stats.bytes_write_into_file_cache;
         if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
