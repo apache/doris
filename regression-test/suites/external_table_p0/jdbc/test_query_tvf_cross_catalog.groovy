@@ -61,7 +61,7 @@ suite("test_query_tvf_cross_catalog", "p0,external,mysql,external_docker,externa
         order_qt_cross_catalog_tvf_join """
             select *  from 
             query("catalog" = "test_query_tvf_cross_catalog_mysql", "query" = "select * from doris_test.ex_tb0 limit 10") a 
-            left join query("catalog" = "doris", "query" = "select * from test_query_tvf_cross_catalog_db.order_qt_cross_catalog_tvf_join limit 10") b 
+            left join query("catalog" = "test_query_tvf_cross_catalog_doris", "query" = "select * from test_query_tvf_cross_catalog_db.order_qt_cross_catalog_tvf_join limit 10") b 
             on a.id = b.k1;
             """
         
