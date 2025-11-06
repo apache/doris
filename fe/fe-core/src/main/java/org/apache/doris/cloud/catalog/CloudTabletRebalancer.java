@@ -112,6 +112,54 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private CloudSystemInfoService cloudSystemInfoService;
 
+    private BalanceTypeEnum globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
+
+    /**
+     * Get the current balance type for a compute group, falling back to global balance type if not found
+     */
+    private BalanceTypeEnum getCurrentBalanceType(String clusterId) {
+        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        if (cg == null) {
+            LOG.debug("compute group not found, use global balance type, id {}", clusterId);
+            return globalBalanceTypeEnum;
+        }
+
+        BalanceTypeEnum computeGroupBalanceType = cg.getBalanceType();
+        if (isComputeGroupBalanceChanged(clusterId)) {
+            return computeGroupBalanceType;
+        }
+        return globalBalanceTypeEnum;
+    }
+
+    /**
+     * Get the current task timeout for a compute group, falling back to global timeout if not found
+     */
+    private int getCurrentTaskTimeout(String clusterId) {
+        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        if (cg == null) {
+            return Config.cloud_pre_heating_time_limit_sec;
+        }
+
+        int computeGroupTimeout = cg.getBalanceWarmUpTaskTimeout();
+        if (isComputeGroupBalanceChanged(clusterId)) {
+            return computeGroupTimeout;
+        }
+
+        return Config.cloud_pre_heating_time_limit_sec;
+    }
+
+    private boolean isComputeGroupBalanceChanged(String clusterId) {
+        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        if (cg == null) {
+            return false;
+        }
+
+        BalanceTypeEnum computeGroupBalanceType = cg.getBalanceType();
+        int computeGroupTimeout = cg.getBalanceWarmUpTaskTimeout();
+        return computeGroupBalanceType != ComputeGroup.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
+               || computeGroupTimeout != ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
+    }
+
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
         super("cloud tablet rebalancer", Config.cloud_tablet_rebalancer_interval_second * 1000);
         this.cloudSystemInfoService = cloudSystemInfoService;
@@ -239,6 +287,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
         LOG.info("cloud tablet rebalance begin");
         long start = System.currentTimeMillis();
+        globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
 
         buildClusterToBackendMap();
         if (!completeRouteInfo()) {
@@ -417,10 +466,25 @@ public class CloudTabletRebalancer extends MasterDaemon {
     public void checkInflightWarmUpCacheAsync() {
         Map<Long, List<InfightTask>> beToInfightTasks = new HashMap<Long, List<InfightTask>>();
 
+        Set<InfightTablet> invalidTasks = new HashSet<>();
         for (Map.Entry<InfightTablet, InfightTask> entry : tabletToInfightTask.entrySet()) {
+            String clusterId = entry.getKey().getClusterId();
+            BalanceTypeEnum balanceTypeEnum = getCurrentBalanceType(clusterId);
+            if (balanceTypeEnum == BalanceTypeEnum.WITHOUT_WARMUP) {
+                // no need check warmup cache async
+                invalidTasks.add(entry.getKey());
+                continue;
+            }
             beToInfightTasks.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
             beToInfightTasks.get(entry.getValue().destBe).add(entry.getValue());
         }
+        invalidTasks.forEach(key -> {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove inflight warmup task tablet {} cluster {} no need warmup",
+                        key.getTabletId(), key.getClusterId());
+            }
+            tabletToInfightTask.remove(key);
+        });
 
         List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
@@ -432,6 +496,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 destBackend = null;
             }
             if (destBackend == null || (!destBackend.isAlive() && destBackend.getLastUpdateMs() < needRehashDeadTime)) {
+                // dest backend not exist or dead too long, need remove all inflight tasks in this dest backend
                 List<InfightTablet> toRemove = new LinkedList<>();
                 for (InfightTask task : entry.getValue()) {
                     for (InfightTablet key : tabletToInfightTask.keySet()) {
@@ -447,10 +512,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 continue;
             }
             if (!destBackend.isAlive()) {
+                // dest backend dead, dead time smaller than rehash_tablet_after_be_dead_seconds, wait next time
                 continue;
             }
             List<Long> tablets = entry.getValue().stream()
                     .map(task -> task.pickedTablet.getId()).collect(Collectors.toList());
+            // check dest backend whether warmup cache done
             Map<Long, Boolean> taskDone = sendCheckWarmUpCacheAsyncRpc(tablets, entry.getKey());
             if (taskDone == null) {
                 LOG.warn("sendCheckWarmUpCacheAsyncRpc return null be {}, inFight tasks {}",
@@ -461,17 +528,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (Map.Entry<Long, Boolean> result : taskDone.entrySet()) {
                 InfightTask task = tabletToInfightTask
                         .getOrDefault(new InfightTablet(result.getKey(), clusterId), null);
-                if (task != null && (result.getValue() || System.currentTimeMillis() / 1000 - task.startTimestamp
-                            > Config.cloud_pre_heating_time_limit_sec)) {
-                    if (!result.getValue()) {
-                        LOG.info("{} pre cache timeout, forced to change the mapping", result.getKey());
-                    }
-                    updateClusterToBeMap(task.pickedTablet, task.destBe, clusterId, infos);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("remove tablet {}-{}", clusterId, task.pickedTablet.getId());
-                    }
-                    tabletToInfightTask.remove(new InfightTablet(task.pickedTablet.getId(), clusterId));
-                }
+                handleWarmupCompletion(task, clusterId, result.getValue(), result.getKey(), infos);
             }
         }
         long oldSize = infos.size();
@@ -855,6 +912,70 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return null;
     }
 
+    private void handleWarmupCompletion(InfightTask task, String clusterId, boolean isDone, long tabletId,
+                                           List<UpdateCloudReplicaInfo> infos) {
+        if (task == null) {
+            LOG.warn("cannot find inflight task for tablet {}-{}", clusterId, tabletId);
+            return;
+        }
+        boolean shouldUpdateMapping = false;
+        BalanceTypeEnum currentBalanceType = getCurrentBalanceType(clusterId);
+        LOG.debug("cluster id {}, balance type {}, tabletId {}, ", clusterId, currentBalanceType, tabletId);
+
+        switch (currentBalanceType) {
+            case ASYNC_WARMUP: {
+                int currentTaskTimeout = getCurrentTaskTimeout(clusterId);
+                boolean timeExceeded = System.currentTimeMillis() / 1000 - task.startTimestamp > currentTaskTimeout;
+                LOG.debug("tablet {}-{} warmup cache isDone {} timeExceeded {}",
+                        clusterId, tabletId, isDone, timeExceeded);
+                if (isDone || timeExceeded) {
+                    if (!isDone) {
+                        // timeout but not done, not normal, info log
+                        LOG.info("{}-{} warmup cache timeout {}, forced to change the mapping",
+                                clusterId, tabletId, currentTaskTimeout);
+                    } else {
+                        // done, normal
+                        LOG.debug("{}-{} warmup cache done, change the mapping", clusterId, tabletId);
+                    }
+                    shouldUpdateMapping = true;
+                }
+                break;
+            }
+            case SYNC_WARMUP: {
+                if (isDone) {
+                    // done, normal
+                    LOG.debug("{} sync cache done, change the mapping", tabletId);
+                    shouldUpdateMapping = true;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+
+        if (!shouldUpdateMapping) {
+            return;
+        }
+
+        updateClusterToBeMap(task.pickedTablet, task.destBe, clusterId, infos);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("remove tablet {}-{}", clusterId, task.pickedTablet.getId());
+        }
+        tabletToInfightTask.remove(new InfightTablet(task.pickedTablet.getId(), clusterId));
+
+        if (BalanceTypeEnum.SYNC_WARMUP.equals(currentBalanceType)) {
+            try {
+                // send sync cache rpc again, ignore the result, the best effort to sync some new data
+                sendPreHeatingRpc(task.pickedTablet, task.srcBe, task.destBe);
+            } catch (Exception e) {
+                LOG.warn("Failed to preheat tablet {} from {} to {}, "
+                                + "help msg turn off fe config enable_cloud_warm_up_for_rebalance",
+                        task.pickedTablet.getId(), task.srcBe, task.destBe, e);
+            }
+        }
+    }
+
     private void updateBeToTablets(Tablet pickedTablet, long srcBe, long destBe,
             Map<Long, Set<Tablet>> globalBeToTablets,
             Map<Long, Map<Long, Set<Tablet>>> beToTabletsInTable,
@@ -1050,6 +1171,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long avgNum = totalTabletsNum / beNum;
         long transferNum = calculateTransferNum(avgNum);
 
+        BalanceTypeEnum currentBalanceType = getCurrentBalanceType(clusterId);
+        LOG.debug("balance type {}, be num {}, total tablets num {}, avg num {}, transfer num {}",
+                currentBalanceType, beNum, totalTabletsNum, avgNum, transferNum);
+
         for (int i = 0; i < transferNum; i++) {
             TransferPairInfo pairInfo = new TransferPairInfo();
             if (!getTransferPair(bes, beToTablets, avgNum, pairInfo)) {
@@ -1069,17 +1194,34 @@ public class CloudTabletRebalancer extends MasterDaemon {
             CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
             Backend srcBackend = Env.getCurrentSystemInfo().getBackend(srcBe);
 
-            if (Config.enable_cloud_warm_up_for_rebalance && srcBackend != null && srcBackend.isAlive()) {
+            if ((BalanceTypeEnum.WITHOUT_WARMUP.equals(currentBalanceType)
+                    || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.equals(currentBalanceType))
+                    && srcBackend != null && srcBackend.isAlive()) {
+                // direct switch, update fe meta directly, not send preheating task
+                if (isConflict(srcBe, destBe, cloudReplica, balanceType, partitionToTablets, beToTabletsInTable)) {
+                    continue;
+                }
+                transferTablet(pickedTablet, srcBe, destBe, clusterId, balanceType, infos);
+                if (BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.equals(currentBalanceType)) {
+                    LOG.debug("directly switch {} from {} to {}, cluster {}", pickedTablet.getId(), srcBe, destBe,
+                            clusterId);
+                    // send sync cache rpc, best effort
+                    try {
+                        sendPreHeatingRpc(pickedTablet, srcBe, destBe);
+                    } catch (Exception e) {
+                        LOG.debug("Failed to preheat tablet {} from {} to {}, "
+                                + "directly policy, just ignore the error",
+                                pickedTablet.getId(), srcBe, destBe, e);
+                        return;
+                    }
+                }
+            } else {
+                // cache warm up
                 if (isConflict(srcBe, destBe, cloudReplica, balanceType,
                         futurePartitionToTablets, futureBeToTabletsInTable)) {
                     continue;
                 }
                 preheatAndUpdateTablet(pickedTablet, srcBe, destBe, clusterId, balanceType, beToTablets);
-            } else {
-                if (isConflict(srcBe, destBe, cloudReplica, balanceType, partitionToTablets, beToTabletsInTable)) {
-                    continue;
-                }
-                transferTablet(pickedTablet, srcBe, destBe, clusterId, balanceType, infos);
             }
         }
     }
@@ -1147,7 +1289,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private void transferTablet(Tablet pickedTablet, long srcBe, long destBe, String clusterId,
                             BalanceType balanceType, List<UpdateCloudReplicaInfo> infos) {
-        LOG.info("transfer {} from {} to {}, cluster {}", pickedTablet.getId(), srcBe, destBe, clusterId);
+        LOG.info("transfer {} from {} to {}, cluster {}, type {}",
+                pickedTablet.getId(), srcBe, destBe, clusterId, balanceType);
         updateBeToTablets(pickedTablet, srcBe, destBe,
                 beToTabletsGlobal, beToTabletsInTable, partitionToTablets);
         updateBeToTablets(pickedTablet, srcBe, destBe,
