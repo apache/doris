@@ -41,6 +41,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -1391,6 +1392,30 @@ public class ConnectContext {
 
         String cluster = null;
         String choseWay = null;
+        // 1 get cluster from session
+        String sessionCluster = getSessionVariable().getCloudCluster();
+        if (!Strings.isNullOrEmpty(sessionCluster)) {
+            choseWay = "use session";
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
+                        sessionCluster, getCurrentUserIdentity(), choseWay);
+            }
+            return sessionCluster;
+        }
+
+        // 2 get cluster from user
+        String userPropCluster = getDefaultCloudClusterFromUser(true);
+        if (!StringUtils.isEmpty(userPropCluster)) {
+            choseWay = "user property";
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
+                        getCurrentUserIdentity(), choseWay);
+            }
+            return userPropCluster;
+        }
+
+        // 3 get cluster from a cached variable in connect context
+        // this value comes from a cluster selection policy
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
             choseWay = "use context cluster";
@@ -1429,15 +1454,47 @@ public class ConnectContext {
         return cluster;
     }
 
-    // TODO implement this function
-    public String getDefaultCloudCluster() {
-        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+    private String getDefaultCloudClusterFromUser(boolean checkExist) {
         String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
-        if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
+        if (Strings.isNullOrEmpty(defaultCluster)) {
+            return null;
+        }
+        if (!checkExist) {
+            // default cluster may be dropped.
             return defaultCluster;
         }
 
+        // Validate cluster existence
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        if (cloudClusterNames.contains(defaultCluster)) {
+            return defaultCluster;
+        }
+        LOG.warn("default compute group {} of user {} is invalid, all cluster: {}", defaultCluster,
+                getQualifiedUser(), cloudClusterNames);
         return null;
+    }
+
+    // for log use, compute group name and the way to get it
+    // the way may be context policy, session, default compute group from user
+    public static Pair<String, String> computeGroupFromHintMsg() {
+        String clusterName = "";
+        try {
+            if (ConnectContext.get() != null) {
+                clusterName = ConnectContext.get().getCloudCluster();
+            }
+        } catch (Exception e) {
+            clusterName = "ctx empty cant get clusterName";
+
+        }
+        String fromSession = ConnectContext.get().getSessionVariable().getCloudCluster();
+        String fromDefaultComputeGroup = ConnectContext.get().getDefaultCloudClusterFromUser(false);
+        String clusterFrom = "context policy";
+        if (clusterName.equalsIgnoreCase(fromSession)) {
+            clusterFrom = "session variable";
+        } else if (clusterName.equalsIgnoreCase(fromDefaultComputeGroup)) {
+            clusterFrom = "default compute group from user";
+        }
+        return Pair.of(clusterName, clusterFrom);
     }
 
     public StatsErrorEstimator getStatsErrorEstimator() {
