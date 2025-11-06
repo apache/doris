@@ -39,6 +39,8 @@ public:
     void clean_up_on_failure();
 
 private:
+    bool static _should_cache_sc_output(const std::vector<RowsetSharedPtr>& input_rowsets);
+
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
                                        cloud::TabletJobInfoPB& job);
 
