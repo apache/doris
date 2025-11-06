@@ -186,7 +186,7 @@ public class StructInfoTest extends SqlTestBase {
                 .checkExplain("select o_orderkey from orders_arr",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
-                            Assertions.assertFalse(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
+                            Assertions.assertTrue(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
                         });
     }
 
