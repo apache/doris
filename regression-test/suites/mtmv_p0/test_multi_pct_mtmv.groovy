@@ -192,4 +192,11 @@ suite("test_multi_pct_mtmv","mtmv") {
          """
      waitingMTMVTaskFinishedByMvName(mvName)
      order_qt_refresh_mode_overwrite "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
+
+     test {
+         sql """
+             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20180501_20180601);
+             """
+         exception "exist"
+     }
 }
