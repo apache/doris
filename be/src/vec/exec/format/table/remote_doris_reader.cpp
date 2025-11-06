@@ -105,6 +105,11 @@ Status RemoteDorisReader::get_columns(std::unordered_map<std::string, DataTypePt
     return Status::OK();
 }
 
+Status RemoteDorisReader::close() {
+    RETURN_DORIS_STATUS_IF_ERROR(_flight_client->Close());
+    return Status::OK();
+}
+
 arrow::Status RemoteDorisReader::init_stream() {
     ARROW_ASSIGN_OR_RAISE(auto location,
                           arrow::flight::Location::Parse(
@@ -112,8 +117,8 @@ arrow::Status RemoteDorisReader::init_stream() {
     ARROW_ASSIGN_OR_RAISE(auto ticket,
                           arrow::flight::Ticket::Deserialize(
                                   _range.table_format_params.remote_doris_params.ticket));
-    ARROW_ASSIGN_OR_RAISE(auto flight_client, arrow::flight::FlightClient::Connect(location));
-    ARROW_ASSIGN_OR_RAISE(_stream, flight_client->DoGet(ticket));
+    ARROW_ASSIGN_OR_RAISE(_flight_client, arrow::flight::FlightClient::Connect(location));
+    ARROW_ASSIGN_OR_RAISE(_stream, _flight_client->DoGet(ticket));
 
     return arrow::Status::OK();
 }

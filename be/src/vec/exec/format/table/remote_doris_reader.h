@@ -56,11 +56,14 @@ public:
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status close() override;
+
 private:
     arrow::Status init_stream();
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     cctz::time_zone _ctzz;
+    std::unique_ptr<arrow::flight::FlightClient> _flight_client;
     std::unique_ptr<arrow::flight::FlightStreamReader> _stream;
 };
 #include "common/compile_check_end.h"
