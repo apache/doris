@@ -277,6 +277,7 @@ import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.AutoPartitionCacheManager;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -288,7 +289,6 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -3755,16 +3755,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         */
 
         // first we collect all the tablets replica distribution
-        Map<Long, Multimap<Long, Long>> tempResultTablets = new HashMap<>();
+        Map<Long, Map<Long, Set<Long>>> tempResultTablets = new HashMap<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
-        List<TTabletLocation> tablets = Lists.newArrayList();
-        List<TTabletLocation> slaveTablets = new ArrayList<>();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
-            Multimap<Long, Long> tabletIdToBeID = HashMultimap.create();
+            Map<Long, Set<Long>> tabletIdToBeID = new HashMap<>();
             try {
                 OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
             } catch (UserException ex) {
@@ -3807,7 +3805,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Long selectedBeId = beId;
 
                         if (Config.isCloudMode()
-                                && DebugPointUtil.isEnable("FE.FrontendServiceImpl.initHttpStreamPlan.MockRebalance")) {
+                                && DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
                             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                                     "FE.FrontendServiceImpl.createPartition.MockRebalance");
                             int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
@@ -3828,7 +3826,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                         currentExecuteNum, switchAfter);
                             }
                         }
-                        tabletIdToBeID.put(tablet.getId(), selectedBeId);
+                        tabletIdToBeID.computeIfAbsent(tablet.getId(), k -> new HashSet<>()).add(selectedBeId);
                     }
                 }
             }
@@ -3839,33 +3837,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
-        // We return the finalResultTablets to be. In getOrSetAutoPartitionInfo we will check
-        // the tablets replica distribution per partition, first use the cached partition info.
-        Multimap<Long, Long> finalResultTablets = HashMultimap.create();
+        // Use AutoPartitionCacheManager to get or cache tablet locations
+        // For stream load, skip caching to avoid stale data
+        List<TTabletLocation> tablets;
+        List<TTabletLocation> slaveTablets;
+
         if (!isStreamLoad) {
-            Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr().getOrSetAutoPartitionInfo(dbId, txnId,
-                    tempResultTablets, finalResultTablets);
+            boolean isWriteSingleReplica = request.isSetWriteSingleReplica() && request.isWriteSingleReplica();
+            AutoPartitionCacheManager.PartitionTabletCache cache =
+                    Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                            .getOrSetAutoPartitionInfo(dbId, txnId, tempResultTablets, isWriteSingleReplica);
+
+            tablets = cache.tablets;
+            slaveTablets = cache.slaveTablets;
         } else {
-            // For stream load, directly use the tablet distribution info from tempResultTablets
-            for (Map.Entry<Long, Multimap<Long, Long>> entry : tempResultTablets.entrySet()) {
-                Multimap<Long, Long> partitionTabletMap = entry.getValue();
-                for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
-                    finalResultTablets.put(tabletEntry.getKey(), tabletEntry.getValue());
+            tablets = new ArrayList<>();
+            slaveTablets = new ArrayList<>();
+            for (Map.Entry<Long, Map<Long, Set<Long>>> entry : tempResultTablets.entrySet()) {
+                Map<Long, Set<Long>> tabletBeMap = entry.getValue();
+                for (Map.Entry<Long, Set<Long>> tabletEntry : tabletBeMap.entrySet()) {
+                    Long tabletId = tabletEntry.getKey();
+                    Set<Long> beIds = tabletEntry.getValue();
+
+                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                        Long[] nodes = beIds.toArray(new Long[0]);
+                        Random random = new SecureRandom();
+                        Long masterNode = nodes[random.nextInt(nodes.length)];
+                        List<Long> slaveNodesList = new ArrayList<>(beIds);
+                        slaveNodesList.remove(masterNode);
+                        tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(masterNode)));
+                        slaveTablets.add(new TTabletLocation(tabletId, slaveNodesList));
+                    } else {
+                        tablets.add(new TTabletLocation(tabletId, new ArrayList<>(beIds)));
+                    }
                 }
-            }
-        }
-        for (Long tabletId : finalResultTablets.keySet()) {
-            Collection<Long> beIds = finalResultTablets.get(tabletId);
-            if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                Long[] nodes = beIds.toArray(new Long[0]);
-                Random random = new SecureRandom();
-                Long masterNode = nodes[random.nextInt(nodes.length)];
-                List<Long> slaveNodes = new ArrayList<>(beIds);
-                slaveNodes.remove(masterNode);
-                tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(Sets.newHashSet(masterNode))));
-                slaveTablets.add(new TTabletLocation(tabletId, Lists.newArrayList(slaveNodes)));
-            } else {
-                tablets.add(new TTabletLocation(tabletId, Lists.newArrayList(beIds)));
             }
         }
 

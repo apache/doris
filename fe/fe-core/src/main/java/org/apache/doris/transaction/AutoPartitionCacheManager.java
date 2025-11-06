@@ -17,109 +17,125 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
+import org.apache.doris.thrift.TTabletLocation;
 
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * AutoPartitionCacheManager is used to manage the cache of auto partition info.
  * To distinguish the idempotence of the createPartition RPC during incremental partition creation
- * for automatic partitioned tables, record the dbId -> txnId -> tabletId -> BE id
+ * for automatic partitioned tables, cache tablet locations per partition.
  */
 public class AutoPartitionCacheManager {
-    // dbId -> txnId -> tabletId -> BE id
-    private final Map<Long, Map<Long, Multimap<Long, Long>>> autoPartitionInfo = new ConcurrentHashMap<>();
-    // Per-transaction locks: "dbId:txnId" -> lock
-    private final Map<String, ReentrantLock> transactionLocks = new ConcurrentHashMap<>();
 
-    private ReentrantLock getTransactionLock(Long dbId, Long txnId) {
-        String key = dbId + ":" + txnId;
-        return transactionLocks.computeIfAbsent(key, k -> new ReentrantLock());
+    /**
+     * Cache structure to store tablet and slave tablet locations.
+     */
+    public static class PartitionTabletCache {
+        public final List<TTabletLocation> tablets;
+        public final List<TTabletLocation> slaveTablets;
+
+        public PartitionTabletCache(List<TTabletLocation> tablets, List<TTabletLocation> slaveTablets) {
+            this.tablets = tablets;
+            this.slaveTablets = slaveTablets;
+        }
     }
 
-    private void removeTransactionLock(Long dbId, Long txnId) {
-        String key = dbId + ":" + txnId;
-        transactionLocks.remove(key);
-    }
+    // dbId -> txnId -> partitionId -> PartitionTabletCache
+    private final ConcurrentHashMap<Long,
+            ConcurrentHashMap<Long, ConcurrentHashMap<Long, PartitionTabletCache>>> autoPartitionInfo
+                    = new ConcurrentHashMap<>();
 
     /**
      * Get or set auto partition info for a transaction.
+     * For each partition, if it's already cached, use the cached tablet locations;
+     * otherwise, cache the new tablet locations from tempResultTablets.
      *
      * @param dbId database id
      * @param txnId transaction id
-     * @param inMap input map: partitionId -> tabletId -> BeId
-     * @param outMap output map: tabletId -> BeId
+     * @param tempResultTablets input map: partitionId -> (tabletId -> Set of BEids)
+     * @param isWriteSingleReplica whether to write single replica (randomly select master)
+     * @return PartitionTabletCache containing tablets and slaveTablets
      */
-    public void getOrSetAutoPartitionInfo(Long dbId, Long txnId,
-                    Map<Long, Multimap<Long, Long>> inMap, Multimap<Long, Long> outMap) {
-        ReentrantLock txnLock = getTransactionLock(dbId, txnId);
-        txnLock.lock();
-        try {
-            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.computeIfAbsent(dbId,
-                    k -> new ConcurrentHashMap<>());
-            Multimap<Long, Long> tabletMap = txnMap.get(txnId);
-            // first create partition in this txn, so just use the tablet info in inMap
-            if (tabletMap == null) {
-                tabletMap = HashMultimap.create();
-                for (Map.Entry<Long, Multimap<Long, Long>> entry : inMap.entrySet()) {
-                    Multimap<Long, Long> partitionTabletMap = entry.getValue();
-                    for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
-                        Long tabletId = tabletEntry.getKey();
-                        Long beId = tabletEntry.getValue();
-                        tabletMap.put(tabletId, beId);
-                        outMap.put(tabletId, beId);
-                    }
-                }
-                txnMap.put(txnId, tabletMap);
-            } else {
-                // not first create partition, check every partition in inMap
-                for (Map.Entry<Long, Multimap<Long, Long>> entry : inMap.entrySet()) {
-                    Multimap<Long, Long> partitionTabletMap = entry.getValue();
-                    if (partitionTabletMap.isEmpty()) {
+    public PartitionTabletCache getOrSetAutoPartitionInfo(Long dbId, Long txnId,
+                    Map<Long, Map<Long, Set<Long>>> tempResultTablets, boolean isWriteSingleReplica) {
+        List<TTabletLocation> allTablets = new ArrayList<>();
+        List<TTabletLocation> allSlaveTablets = new ArrayList<>();
+
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, PartitionTabletCache>> txnMap =
+                autoPartitionInfo.computeIfAbsent(dbId, k -> new ConcurrentHashMap<>());
+
+        ConcurrentHashMap<Long, PartitionTabletCache> partitionMap =
+                txnMap.computeIfAbsent(txnId, k -> new ConcurrentHashMap<>());
+
+        for (Map.Entry<Long, Map<Long, Set<Long>>> entry : tempResultTablets.entrySet()) {
+            Long partitionId = entry.getKey();
+            Map<Long, Set<Long>> tabletBeMap = entry.getValue();
+
+            if (tabletBeMap == null || tabletBeMap.isEmpty()) {
+                continue;
+            }
+
+            // This ensures that for the same partition, tablet locations are created only once
+            // which is critical for write_single_replica mode where master selection must be consistent
+            PartitionTabletCache tabletBeMapCache = partitionMap.computeIfAbsent(partitionId, k -> {
+                List<TTabletLocation> tablets = new ArrayList<>();
+                List<TTabletLocation> slaveTablets = new ArrayList<>();
+
+                for (Map.Entry<Long, Set<Long>> tabletEntry : tabletBeMap.entrySet()) {
+                    Long tabletId = tabletEntry.getKey();
+                    Set<Long> beIds = tabletEntry.getValue();
+
+                    if (beIds == null || beIds.isEmpty()) {
                         continue;
                     }
-                    Long firstTabletId = partitionTabletMap.keys().iterator().next();
-                    // the tablets in this partition have been cached
-                    if (tabletMap.containsKey(firstTabletId)) {
-                        for (Long tabletId : partitionTabletMap.keySet()) {
-                            if (tabletMap.containsKey(tabletId)) {
-                                outMap.putAll(tabletId, tabletMap.get(tabletId));
+
+                    if (isWriteSingleReplica) {
+                        // Randomly select one BE as master, others as slaves
+                        Long[] nodes = beIds.toArray(new Long[0]);
+                        Random random = new SecureRandom();
+                        Long masterNode = nodes[random.nextInt(nodes.length)];
+                        List<Long> masterNodes = new ArrayList<>();
+                        masterNodes.add(masterNode);
+
+                        List<Long> slaveNodes = new ArrayList<>();
+                        for (Long beId : beIds) {
+                            if (!beId.equals(masterNode)) {
+                                slaveNodes.add(beId);
                             }
                         }
-                    } else {
-                        // newly create partition
-                        for (Map.Entry<Long, Long> tabletEntry : partitionTabletMap.entries()) {
-                            Long tabletId = tabletEntry.getKey();
-                            Long beId = tabletEntry.getValue();
-                            tabletMap.put(tabletId, beId);
-                            outMap.put(tabletId, beId);
+
+                        tablets.add(new TTabletLocation(tabletId, masterNodes));
+                        if (!slaveNodes.isEmpty()) {
+                            slaveTablets.add(new TTabletLocation(tabletId, slaveNodes));
                         }
+                    } else {
+                        // All BEs as nodes
+                        tablets.add(new TTabletLocation(tabletId, new ArrayList<>(beIds)));
                     }
                 }
-            }
-        } finally {
-            txnLock.unlock();
+
+                return new PartitionTabletCache(tablets, slaveTablets);
+            });
+
+            allTablets.addAll(tabletBeMapCache.tablets);
+            allSlaveTablets.addAll(tabletBeMapCache.slaveTablets);
         }
+
+        return new PartitionTabletCache(allTablets, allSlaveTablets);
     }
 
     public void clearAutoPartitionInfo(Long dbId, Long txnId) {
-        ReentrantLock txnLock = getTransactionLock(dbId, txnId);
-        txnLock.lock();
-        try {
-            Map<Long, Multimap<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
-            if (txnMap != null) {
-                txnMap.remove(txnId);
-                if (txnMap.isEmpty()) {
-                    autoPartitionInfo.remove(dbId);
-                }
-            }
-        } finally {
-            txnLock.unlock();
-            removeTransactionLock(dbId, txnId);
-        }
+        autoPartitionInfo.computeIfPresent(dbId, (key, txnMap) -> {
+            txnMap.remove(txnId);
+            return txnMap.isEmpty() ? null : txnMap;
+        });
     }
 }
 
