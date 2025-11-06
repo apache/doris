@@ -371,9 +371,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA is not null", "TA is not null");
         assertRewriteNotNull("TA is not null", "TA is not null");
         assertRewrite("TA is null and null or TA is null", "TA is null");
-        assertRewriteNotNull("TA is null and null or TA is null", "FALSE");
-        assertRewrite("TA is null and null or TA is not null", "TA is null and null or TA is not null");
-        assertRewriteNotNull("TA is null and null or TA is not null", "true");
+        assertRewriteNotNull("TA is null and null or TA is null", "TA is null");
+        assertRewrite("TA is null and null or TA is not null", "TA is not null or TA is null and null");
+        assertRewriteNotNull("TA is null and null or TA is not null", "not TA is null");
         assertRewrite("TA is null or TA is not null", "TRUE");
         assertRewriteNotNull("TA is null or TA is not null", "TRUE");
         assertRewrite("(TA is null and null) and TA is null", "TA is null and null");
@@ -415,7 +415,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA + TC > 40) and TA + TC > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA + TC > 40");
         assertRewrite("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB < 10 or TB > 20))");
+        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
+                "(TA + TC > 5 and TB > 10) or TB > 20");
         assertRewriteNotNull("TA + TC in (1,2,3) and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC in (1,2,3) and TA + TC > 10", "(TA + TC) is null and null");
         assertRewrite("TA + TC in (1,2,3) and TA + TC >= 1", "TA + TC in (1,2,3)");

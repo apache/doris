@@ -381,6 +381,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         Set<ComparableLiteral> mergeNotDiscreteValues = Sets.newLinkedHashSet();
+        boolean hasRangeAll = false;
         if (!collector.notDiscreteValues.isEmpty()) {
             mergeNotDiscreteValues.addAll(collector.notDiscreteValues.get(0).values);
             // a not in (1, 2) or a not in (1, 2, 3) => a not in (1, 2)
@@ -401,12 +402,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 resultValues.add(new DiscreteValue(context, reference, discreteValues));
             }
             for (Range<ComparableLiteral> range : rangeSet.asRanges()) {
+                hasRangeAll = hasRangeAll || !range.hasUpperBound() && !range.hasLowerBound();
                 resultValues.add(new RangeValue(context, reference, range));
             }
         }
 
         boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && !reference.nullable();
-        if (hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
+        boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent() || hasRangeAll;
+        if (hasIsNullValue && hasIsNotNullValue) {
             return new UnknownValue(context, BooleanLiteral.TRUE);
         } else if (collector.hasIsNullValue) {
             resultValues.add(new IsNullValue(context, reference));
@@ -465,13 +468,18 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                         if (isAnd) {
                             skipWholeCompoundValue = skipWholeCompoundValue || innerValue.containsAll(outerValue);
                             IntersectType type = outerValue.getIntersectType(innerValue);
-                            if (type != IntersectType.OTHERS && intersectType != IntersectType.FALSE) {
+                            if (type == IntersectType.EMPTY_VALUE
+                                    && intersectType != IntersectType.FALSE
+                                    && outerValue.nullable()) {
+                                intersectType = type;
+                            }
+                            if (type == IntersectType.FALSE) {
                                 intersectType = type;
                             }
                         } else {
                             skipWholeCompoundValue = skipWholeCompoundValue || outerValue.containsAll(innerValue);
                             UnionType type = outerValue.getUnionType(innerValue);
-                            if (type != UnionType.OTHERS && unionType != UnionType.TRUE) {
+                            if (type == UnionType.TRUE) {
                                 unionType = type;
                             }
                         }
