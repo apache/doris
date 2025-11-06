@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/regex.hpp>
 #include <functional>
 #include <memory>
 #include <string>
@@ -99,6 +100,9 @@ struct LikeSearchState {
 
     /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
     std::unique_ptr<re2::RE2> regex;
+
+    /// Used for REGEXP predicates when RE2 doesn't support the pattern (e.g., zero-width assertions like `?=`, `?!`, `?<=`, `?<!`)
+    std::unique_ptr<boost::regex> boost_regex;
 
     template <typename Deleter, Deleter deleter>
     struct HyperscanDeleter {

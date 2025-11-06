@@ -106,9 +106,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
     {
         do {
-            // if step 2 filter all rows of block, and block will be reused to get next rows,
-            // must clear row_same_bit of block, or will get wrong row_same_bit.size() which not equal block.rows()
-            block->clear_same_bit();
             // 1. Get input block from scanner
             {
                 // get block time

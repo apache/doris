@@ -167,6 +167,8 @@ public:
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
+    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
+
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
     virtual bool is_literal() const { return false; }
@@ -308,7 +310,9 @@ public:
                                           segment_v2::AnnRangeSearchRuntime& range_search_runtime,
                                           bool& suitable_for_ann_index);
 
-    bool has_been_executed();
+    bool ann_range_search_executedd();
+
+    bool ann_dist_is_fulfilled() const;
 
     virtual uint64_t get_digest(uint64_t seed) const;
 
@@ -394,7 +398,12 @@ protected:
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
 
+    // Indicates whether the expr row_bitmap has been updated.
     bool _has_been_executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
+    bool _virtual_column_is_fulfilled = false;
 };
 
 } // namespace vectorized

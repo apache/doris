@@ -25,6 +25,8 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
@@ -463,12 +465,45 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        const std::unordered_map<vectorized::VExprContext*,
+                                 std::unordered_map<ColumnId, vectorized::VExpr*>>&
+                common_expr_to_slotref_map,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
-    if (_root != nullptr) {
-        return _root->evaluate_ann_range_search(_ann_range_search_runtime, cid_to_index_iterators,
-                                                idx_to_cid, column_iterators, row_bitmap,
-                                                ann_index_stats);
+    if (_root == nullptr) {
+        return Status::OK();
     }
+
+    RETURN_IF_ERROR(_root->evaluate_ann_range_search(
+            _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
+            row_bitmap, ann_index_stats));
+
+    if (!_root->ann_range_search_executedd()) {
+        return Status::OK();
+    }
+
+    if (!_root->ann_dist_is_fulfilled()) {
+        // Do not perform index scan in this case.
+        return Status::OK();
+    }
+
+    auto src_col_idx = _ann_range_search_runtime.src_col_idx;
+    auto slot_ref_map_it = common_expr_to_slotref_map.find(this);
+    if (slot_ref_map_it == common_expr_to_slotref_map.end()) {
+        return Status::OK();
+    }
+    auto& slot_ref_map = slot_ref_map_it->second;
+    ColumnId cid = idx_to_cid[src_col_idx];
+    if (slot_ref_map.find(cid) == slot_ref_map.end()) {
+        return Status::OK();
+    }
+    const VExpr* slot_ref_expr_addr = slot_ref_map.find(cid)->second;
+    _inverted_index_context->set_true_for_inverted_index_status(slot_ref_expr_addr,
+                                                                idx_to_cid[cid]);
+
+    VLOG_DEBUG << fmt::format(
+            "Evaluate ann range search for expr {}, src_col_idx {}, cid {}, row_bitmap "
+            "cardinality {}",
+            _root->debug_string(), src_col_idx, cid, row_bitmap.cardinality());
     return Status::OK();
 }
 
