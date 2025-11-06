@@ -1923,6 +1923,18 @@ message DeleteStreamingJobResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message ResetStreamingJobOffsetRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    optional string offset = 4;
+    optional string request_ip = 5;
+}
+
+message ResetStreamingJobOffsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckKeyInfos {
     repeated int64 db_ids = 1;
     repeated int64 table_ids = 2;
@@ -2133,6 +2145,7 @@ service MetaService {
     // streaming job meta
     rpc get_streaming_task_commit_attach(GetStreamingTaskCommitAttachRequest) returns (GetStreamingTaskCommitAttachResponse);
     rpc delete_streaming_job(DeleteStreamingJobRequest) returns (DeleteStreamingJobResponse);
+    rpc reset_streaming_job_offset(ResetStreamingJobOffsetRequest) returns (ResetStreamingJobOffsetResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
