@@ -324,7 +324,7 @@ std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candida
     candidates.push_back(base + "_cold_normal");
     return candidates;
 }
-  
+
 std::string FSFileCacheStorage::get_path_in_local_cache_v3(const UInt128Wrapper& value) const {
     auto str = value.to_string();
     try {

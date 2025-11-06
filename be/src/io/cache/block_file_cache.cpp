@@ -959,10 +959,10 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
-        st = cell.file_block->change_cache_type_lock(
-                config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL
-                                                             : FileCacheType::NORMAL
-                                                             , cache_lock);
+        st = cell.file_block->change_cache_type_lock(config::enable_file_cache_normal_queue_2qlru
+                                                             ? FileCacheType::COLD_NORMAL
+                                                             : FileCacheType::NORMAL,
+                                                     cache_lock);
     } else if (context.cache_type != FileCacheType::TTL && context.expiration_time != 0) {
         st = cell.file_block->change_cache_type_lock(FileCacheType::TTL, cache_lock);
     }

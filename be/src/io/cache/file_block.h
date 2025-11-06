@@ -115,7 +115,7 @@ public:
     FileCacheType cache_type() const { return _key.meta.type; }
 
     void set_cache_type(FileCacheType new_type);
-  
+
     int64_t tablet_id() const { return _key.meta.tablet_id; }
 
     void set_tablet_id(int64_t id) { _key.meta.tablet_id = id; }
