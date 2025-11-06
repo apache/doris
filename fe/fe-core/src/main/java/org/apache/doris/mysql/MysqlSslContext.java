@@ -169,6 +169,24 @@ public class MysqlSslContext {
         return protocol;
     }
 
+    public void cleanup() {
+        if (trustManagerCloseable != null) {
+            try {
+                trustManagerCloseable.close();
+                LOG.debug("Closed TrustManager certificate reload task");
+            } catch (Exception e) {
+                LOG.warn("Failed to close TrustManager closeable", e);
+            }
+        }
+        if (keyManagerCloseable != null) {
+            try {
+                keyManagerCloseable.close();
+                LOG.debug("Closed KeyManager certificate reload task");
+            } catch (Exception e) {
+                LOG.warn("Failed to close KeyManager closeable", e);
+            }
+        }
+    }
 
     /*
       There may several steps for a successful handshake,

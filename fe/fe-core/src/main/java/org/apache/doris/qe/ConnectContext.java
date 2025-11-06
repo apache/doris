@@ -890,6 +890,9 @@ public class ConnectContext {
      */
     public void cleanup() {
         closeChannel();
+        if (mysqlSslContext != null) {
+            mysqlSslContext.cleanup();
+        }
         threadLocalInfo.remove();
         returnRows = 0;
         deleteTempTable();
