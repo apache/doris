@@ -186,7 +186,16 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
+        LogicalAggregate<Plan> copiedAggregate = aggregate.withChildGroupByAndOutput(groupByExpressions,
+                outputExpressions, child);
+        if (copiedAggregate.getSourceRepeat().isPresent()) {
+            Optional<LogicalRepeat<? extends Plan>> childRepeat =
+                    copiedAggregate.collectFirst(LogicalRepeat.class::isInstance);
+            if (childRepeat.isPresent()) {
+                return copiedAggregate.withSourceRepeat(childRepeat.get());
+            }
+        }
+        return copiedAggregate;
     }
 
     @Override
