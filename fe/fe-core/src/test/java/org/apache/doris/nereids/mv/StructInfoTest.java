@@ -171,12 +171,22 @@ public class StructInfoTest extends SqlTestBase {
     }
 
     @Test
-    public void testCheckLimitTmpRewrittenPlanIsValid() {
+    public void testCheckLimitTmpRewrittenPlanIsInValid() {
         PlanChecker.from(connectContext)
                 .checkExplain("select o_orderkey from orders_arr limit 1",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
-                            Assertions.assertTrue(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
+                            Assertions.assertFalse(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
+    public void testCheckLimitTmpRewrittenPlanIsValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey from orders_arr",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertFalse(StructInfo.checkLimitTmpRewrittenPlanIsValid(rewrittenPlan));
                         });
     }
 
