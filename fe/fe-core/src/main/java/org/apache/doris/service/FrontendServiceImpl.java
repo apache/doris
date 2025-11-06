@@ -3838,8 +3838,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         // Use AutoPartitionCacheManager to get or cache tablet locations
         // For stream load, skip caching, reason as follow:
-        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica distribution issues,
-        //    while stream load is always a single-instance import.
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent
+        //    replica distribution issues, while stream load is always a single-instance import.
         // 2. From a necessity perspective: Stream load triggers FE commit/abort txn requests from BE.
         //    If a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
         List<TTabletLocation> tablets;
