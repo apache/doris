@@ -162,6 +162,13 @@ public class MysqlProto {
                 handshakeResponse = clientRequestPacket;
             }
         } else {
+            // Client doesn't request SSL
+            if (Config.enable_tls) {
+                // Server requires TLS but client doesn't use it, reject the connection
+                ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE, "Server requires TLS connection");
+                sendResponsePacket(context);
+                return false;
+            }
             handshakeResponse = clientRequestPacket;
         }
 
