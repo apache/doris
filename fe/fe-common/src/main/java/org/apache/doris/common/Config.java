@@ -562,6 +562,15 @@ public class Config extends ConfigBase {
             "Whether to enable parallel publish version"})
     public static boolean enable_parallel_publish_version = true;
 
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的数目",
+        "Num of thread to handle tablet report task"})
+    public static int tablet_report_thread_pool_num = 10;
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的队列大小",
+        "Queue size to store tablet report task in publish thread pool"})
+    public static int tablet_report_queue_size = 1024;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -3129,6 +3138,41 @@ public class Config extends ConfigBase {
             "Profile will be spilled to storage after query has finished for this time"})
     public static int profile_waiting_time_for_spill_seconds = 10;
 
+    // Enable profile archive feature. When enabled, profiles exceeding storage limits
+    // will be archived to compressed ZIP files instead of being directly deleted.
+    @ConfField(mutable = true, description = {"是否启用 profile 归档功能。启用后，超过存储限制的 profile 将被归档到压缩文件而不是直接删除",
+            "Enable profile archive feature. When enabled, profiles exceeding storage limits "
+                    + "will be archived to compressed ZIP files instead of being directly deleted"})
+    public static boolean enable_profile_archive = true;
+
+    // Number of profiles to include in each archive ZIP file.
+    // Recommended value: 1000
+    @ConfField(mutable = true, description = {"每个归档 ZIP 文件包含的 profile 数量。推荐值 1000",
+            "Number of profiles per archive ZIP file. Recommended: 1000"})
+    public static int profile_archive_batch_size = 1000;
+
+    // Storage path for archived profiles.
+    // If empty, defaults to ${spilled_profile_storage_path}/archive
+    @ConfField(description = {"profile 归档文件的存储路径。为空时使用 ${spilled_profile_storage_path}/archive",
+            "Storage path for archived profiles. Use ${spilled_profile_storage_path}/archive if empty"})
+    public static String profile_archive_path = "";
+
+    // Retention period for archive files in seconds.
+    // -1: keep forever
+    // 0: disable archiving (equivalent to enable_profile_archive = false)
+    // >0: delete archives older than specified seconds (e.g., 604800 = 30 days)
+    @ConfField(mutable = true, description = {"归档文件的保留时长（秒）。-1 表示永久保留，0 表示不保留",
+            "Retention period for archive files in seconds. -1 for unlimited, 0 to disable archiving"})
+    public static int profile_archive_retention_seconds = 28800; // 8 hours
+
+    // Maximum waiting time for pending archive files in seconds.
+    // If the oldest file in pending directory exceeds this time, archive will be forced
+    // even if the batch size is not reached.
+    @ConfField(mutable = true, description = {"待归档缓冲区的最大等待时间（秒）。超过此时间即使未满批次也会强制归档",
+            "Maximum waiting time for pending archive files in seconds. "
+                    + "Force archive even if batch is not full"})
+    public static int profile_archive_pending_timeout_seconds = 3600; // 1 hours
+
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
             "SHould abort txn by checking coorinator be heartbeat"})
@@ -3339,7 +3383,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+    @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
             + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
             + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
             + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"

@@ -104,7 +104,7 @@ using VARCHAR = std::string;
 using CHAR = std::string;
 using STRING = std::string;
 
-using VARBINARY = doris::StringContainer;
+using VARBINARY = doris::StringView;
 
 using DOUBLE = double;
 using FLOAT = float;
@@ -133,8 +133,8 @@ struct ut_input_type<DataTypeString> {
 };
 template <>
 struct ut_input_type<DataTypeVarbinary> {
-    using type = doris::StringContainer;
-    inline static type default_value = doris::StringContainer("test_default");
+    using type = doris::StringView;
+    inline static type default_value = doris::StringView("test_default");
 };
 template <>
 struct ut_input_type<DataTypeDate> {

@@ -187,9 +187,7 @@ private:
     }
 };
 
-using FunctionDayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIME>>;
 using FunctionDayNameV2 = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATEV2>>;
-using FunctionMonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIME>>;
 using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATEV2>>;
 
 using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2>>;
@@ -199,8 +197,6 @@ using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DA
 using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionDayName>();
-    factory.register_function<FunctionMonthName>();
     factory.register_function<FunctionDayNameV2>();
     factory.register_function<FunctionMonthNameV2>();
     factory.register_function<FunctionDateTimeV2DayName>();

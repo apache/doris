@@ -40,7 +40,7 @@ public class ToMonday extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT)
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.WILDCARD)
     );
 
     /**
