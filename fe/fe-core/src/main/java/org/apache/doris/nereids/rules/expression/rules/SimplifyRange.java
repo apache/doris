@@ -130,12 +130,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVis
 
     @Override
     public Expression visitDiscreteValue(DiscreteValue value, Void context) {
-        return getDiscreteExpression(value.reference, value.values);
+        return getDiscreteExpression(value.getReference(), value.values);
     }
 
     @Override
     public Expression visitNotDiscreteValue(NotDiscreteValue value, Void context) {
-        return new Not(getDiscreteExpression(value.reference, value.values));
+        return new Not(getDiscreteExpression(value.getReference(), value.values));
     }
 
     @Override
