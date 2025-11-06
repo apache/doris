@@ -114,10 +114,8 @@ public:
 #endif
 
     Status init_reader(
-            const std::vector<std::string>& all_column_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const std::vector<std::string>& all_column_names, const VExprContextSPtrs& conjuncts,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
@@ -206,25 +204,42 @@ private:
     RowGroupReader::PositionDeleteContext _get_position_delete_ctx(
             const tparquet::RowGroup& row_group,
             const RowGroupReader::RowGroupIndex& row_group_index);
-    Status _init_row_groups(const bool& is_filter_groups);
     void _init_system_properties();
     void _init_file_description();
-    // Page Index Filter
-    bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
-    // At the beginning of reading next row group, index should be loaded and used to filter data efficiently.
-    Status _process_page_index(const tparquet::RowGroup& row_group,
-                               const RowGroupReader::RowGroupIndex& row_group_index,
-                               std::vector<RowRange>& candidate_row_ranges);
 
-    // Row Group Filter
+    // At the beginning of reading next row group, index should be loaded and used to filter data efficiently.
+    Status _process_page_index_filter(
+            const tparquet::RowGroup& row_group,
+            const RowGroupReader::RowGroupIndex& row_group_index,
+            const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
+            RowRanges* candidate_row_ranges);
+
+    // check this range contain this tow group.
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
-    Status _process_column_stat_filter(const tparquet::RowGroup& row_group, bool* filter_group);
-    Status _process_row_group_filter(const RowGroupReader::RowGroupIndex& row_group_index,
-                                     const tparquet::RowGroup& row_group, bool* filter_group);
+
+    // Row Group min-max Filter
+    Status _process_column_stat_filter(
+            const tparquet::RowGroup& row_group,
+            const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
+            bool* filter_group);
     void _init_chunk_dicts();
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
+
+    /*
+     * 1. row group min-max filter
+     * 2. row group bloom filter
+     * 3. page index min-max filter
+     *
+     * return Status && row_ranges (lines to be read)
+     */
+    Status _process_min_max_bloom_filter(
+            const RowGroupReader::RowGroupIndex& row_group_index,
+            const tparquet::RowGroup& row_group,
+            const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
+            RowRanges* row_ranges);
+
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
@@ -261,6 +276,8 @@ private:
     io::FileReaderSPtr _file_reader = nullptr;
     io::FileReaderSPtr _tracing_file_reader = nullptr;
     std::unique_ptr<RowGroupReader> _current_group_reader;
+
+    RowGroupReader::RowGroupIndex _current_row_group_index {-1, 0, 0};
     // read to the end of current reader
     bool _row_group_eof = true;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
@@ -269,13 +286,10 @@ private:
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
 
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
-
     //sequence in file, need to read
     std::vector<std::string> _read_table_columns;
     std::vector<std::string> _read_file_columns;
 
-    RowRange _whole_range = RowRange(0, 0);
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
@@ -283,7 +297,7 @@ private:
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
 
-    std::list<RowGroupReader::RowGroupIndex> _read_row_groups;
+    //    std::list<RowGroupReader::RowGroupIndex> _read_row_groups;
     // parquet file reader object
     size_t _batch_size;
     int64_t _range_start_offset;
@@ -311,14 +325,12 @@ private:
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 
-    std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
-
     bool _filter_groups;
 
-    // for page index filter. slot id => expr
-    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> _push_down_simple_predicates;
+    // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
+    VExprSPtrs _top_runtime_vexprs;
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     std::vector<std::unique_ptr<ColumnPredicate>> _useless_predicates;
     Arena _arena;
