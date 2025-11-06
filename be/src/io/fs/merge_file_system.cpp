@@ -1,0 +1,75 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "io/fs/merge_file_system.h"
+
+#include <utility>
+
+#include "common/status.h"
+#include "io/fs/merge_file_reader.h"
+#include "io/fs/merge_file_writer.h"
+
+namespace doris::io {
+
+MergeFileSystem::MergeFileSystem(FileSystemSPtr inner_fs)
+        : FileSystem(inner_fs->id(), inner_fs->type()), _inner_fs(std::move(inner_fs)) {}
+
+MergeFileSystem::MergeFileSystem(FileSystemSPtr inner_fs,
+                                 std::unordered_map<std::string, MergeFileSegmentIndex> index_map)
+        : FileSystem(inner_fs->id(), inner_fs->type()),
+          _inner_fs(std::move(inner_fs)),
+          _index_map(std::move(index_map)) {} 
+
+Status MergeFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
+                                          const FileWriterOptions* opts) {
+    // Create file using inner file system
+    FileWriterPtr inner_writer;
+    RETURN_IF_ERROR(_inner_fs->create_file(file, &inner_writer, opts));
+
+    // Wrap with MergeFileWriter
+    *writer = std::make_unique<MergeFileWriter>(std::move(inner_writer), file);
+    return Status::OK();
+}
+
+Status MergeFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
+                                       const FileReaderOptions* opts) {
+    // Check if this file is in a merge file
+    std::string file_path = file.native();
+    auto it = _index_map.find(file_path);
+    bool is_merge_file = (it != _index_map.end());
+
+    if (is_merge_file) {
+        // File is in merge file, open merge file and wrap with MergeFileReader
+        const auto& index = it->second;
+        FileReaderSPtr inner_reader;
+        // Create a new FileReaderOptions with the correct file size
+        FileReaderOptions local_opts = opts ? *opts : FileReaderOptions();
+        // DCHECK(opts->file_size == index.size)
+        //         << "file size is not correct, expected: " << index.size
+        //         << ", actual: " << opts->file_size;
+        local_opts.file_size = index.size + index.offset;
+        RETURN_IF_ERROR(
+                _inner_fs->open_file(Path(index.merge_file_path), &inner_reader, &local_opts));
+
+        *reader = std::make_shared<MergeFileReader>(std::move(inner_reader), index.merge_file_path,
+                                                    index.offset, index.size);
+    } else {
+        RETURN_IF_ERROR(_inner_fs->open_file(file, reader, opts));
+    }
+    return Status::OK();
+}
+} // namespace doris::io

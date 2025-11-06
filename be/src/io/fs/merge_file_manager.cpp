@@ -231,19 +231,14 @@ Status MergeFileManager::wait_write_done(const std::string& path) {
 }
 
 Status MergeFileManager::get_merge_file_index(const std::string& path,
-                                              std::vector<MergeFileSegmentIndex>* indices) {
-    if (indices == nullptr) {
-        return Status::InvalidArgument("indices output parameter is null");
-    }
-
+                                              MergeFileSegmentIndex* index) {
     std::lock_guard<std::mutex> lock(_global_index_mutex);
     auto it = _global_index_map.find(path);
     if (it == _global_index_map.end()) {
         return Status::NotFound("File not found in global merge index: {}", path);
     }
 
-    indices->clear();
-    indices->push_back(it->second);
+    *index = it->second;
     return Status::OK();
 }
 

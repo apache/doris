@@ -60,8 +60,7 @@ public:
     Status wait_write_done(const std::string& path);
 
     // Get merge file index information for a small file
-    Status get_merge_file_index(const std::string& path,
-                                std::vector<MergeFileSegmentIndex>* indices);
+    Status get_merge_file_index(const std::string& path, MergeFileSegmentIndex* index);
 
     // Start the background management thread
     void start_background_manager();

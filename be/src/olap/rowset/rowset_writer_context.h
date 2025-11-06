@@ -22,11 +22,14 @@
 
 #include <functional>
 #include <optional>
+#include <unordered_map>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/merge_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"
@@ -163,9 +166,22 @@ struct RowsetWriterContext {
 #else
             encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 #endif
-            return fs;
         }
-        return io::make_file_system(fs, encrypt_algorithm.value());
+
+        // Apply encryption if needed
+        if (encrypt_algorithm.has_value()) {
+            fs = io::make_file_system(fs, encrypt_algorithm.value());
+        }
+
+        // Apply merge file system for write path if enabled
+        // Create empty index_map for write path
+        // Index information will be populated after write completes
+        if (config::enable_merge_file) {
+            std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
+            fs = std::make_shared<io::MergeFileSystem>(fs, index_map);
+        }
+
+        return fs;
     }
 
     io::FileSystem& fs_ref() { return *fs(); }
