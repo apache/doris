@@ -26,7 +26,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -86,8 +86,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     BothCombinatorRollupHandler.INSTANCE,
                     ContainDistinctFunctionRollupHandler.INSTANCE);
 
-    protected static final AggregateExpressionRewriter AGGREGATE_EXPRESSION_REWRITER =
-            new AggregateExpressionRewriter();
+    public static final ExpressionRewriter EXPRESSION_REWRITER =
+            new ExpressionRewriter();
 
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
@@ -320,10 +320,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 queryExpression,
                 queryStructInfo.getTopPlan(),
                 queryStructInfo.getTableBitSet());
-        AggregateExpressionRewriteContext expressionRewriteContext = new AggregateExpressionRewriteContext(
+        ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
                 queryStructInfo.getTableBitSet());
-        Expression rewrittenExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
+        Expression rewrittenExpression = queryFunctionShuttled.accept(EXPRESSION_REWRITER,
                 expressionRewriteContext);
         if (!expressionRewriteContext.isValid()) {
             materializationContext.recordFailReason(queryStructInfo, summaryIfFail, detailIfFail);
@@ -698,12 +698,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * Aggregate expression rewriter which is responsible for rewriting group by and
      * aggregate function expression
      */
-    protected static class AggregateExpressionRewriter
-            extends DefaultExpressionRewriter<AggregateExpressionRewriteContext> {
+    protected static class ExpressionRewriter
+            extends DefaultExpressionRewriter<ExpressionRewriteContext> {
 
         @Override
         public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
-                AggregateExpressionRewriteContext rewriteContext) {
+                ExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return aggregateFunction;
             }
@@ -743,7 +743,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         @Override
         public Expression visitGroupingScalarFunction(GroupingScalarFunction groupingScalarFunction,
-                AggregateExpressionRewriteContext context) {
+                ExpressionRewriteContext context) {
             List<Expression> children = groupingScalarFunction.children();
             List<Expression> rewrittenChildren = new ArrayList<>();
             for (Expression child : children) {
@@ -757,7 +757,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
 
         @Override
-        public Expression visitSlot(Slot slot, AggregateExpressionRewriteContext rewriteContext) {
+        public Expression visitSlot(Slot slot, ExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return slot;
             }
@@ -785,7 +785,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
 
         @Override
-        public Expression visit(Expression expr, AggregateExpressionRewriteContext rewriteContext) {
+        public Expression visit(Expression expr, ExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
                 return expr;
             }
@@ -814,14 +814,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     /**
      * AggregateExpressionRewriteContext
      */
-    public static class AggregateExpressionRewriteContext {
+    public static class ExpressionRewriteContext {
         private boolean valid = true;
         private final ExpressionRewriteMode expressionRewriteMode;
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
         private final BitSet queryTableBitSet;
 
-        public AggregateExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
+        public ExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
                 Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan,
                 BitSet queryTableBitSet) {
             this.expressionRewriteMode = expressionRewriteMode;

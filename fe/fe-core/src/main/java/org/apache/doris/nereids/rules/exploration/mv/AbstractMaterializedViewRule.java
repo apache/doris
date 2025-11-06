@@ -31,13 +31,14 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.ExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -423,7 +424,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 rewrittenPlanOutput, queryPlan.getOutput()));
                 continue;
             }
-            // Merge project
+            // Merge project if contains mult same project
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getCteChildrenRewriter(childContext,
@@ -438,6 +439,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         () -> String.format("planOutput logical"
                                         + " properties = %s,\n groupOutput logical properties = %s",
                                 logicalProperties, queryPlan.getLogicalProperties()));
+
                 continue;
             }
             // need to collect table partition again, because the rewritten plan would contain new relation
@@ -641,10 +643,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     expressionShuttledToRewrite.collectToSet(expression -> expression instanceof SlotReference
                             && ((SlotReference) expression).getDataType() instanceof VariantType);
             extendMappingByVariant(variants, targetToTargetReplacementMappingQueryBased);
-            Expression replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
-                    targetToTargetReplacementMappingQueryBased);
-            Set<Expression> replacedExpressionSlotQueryUsed = replacedExpression.collect(slotsToRewrite::contains);
-            if (!replacedExpressionSlotQueryUsed.isEmpty()) {
+
+            // use common expression rewriter
+            ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(
+                    ExpressionRewriteMode.EXPRESSION_DIRECT, targetToTargetReplacementMappingQueryBased,
+                    sourcePlan, sourcePlanBitSet);
+            Expression replacedExpression = expressionShuttledToRewrite.accept(
+                    AbstractMaterializedViewAggregateRule.EXPRESSION_REWRITER,
+                    expressionRewriteContext);
+            if (!expressionRewriteContext.isValid()) {
                 // if contains any slot to rewrite, which means could not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
@@ -672,7 +679,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 Expression dateTruncWithLiteral = ExpressionUtils.replace(
                         viewExprParamToDateTruncMap.get(queryShuttledExprParam), datetruncMap);
                 Expression foldedExpressionWithLiteral = FoldConstantRuleOnFE.evaluate(dateTruncWithLiteral,
-                        new ExpressionRewriteContext(cascadesContext));
+                        new org.apache.doris.nereids.rules.expression.ExpressionRewriteContext(cascadesContext));
                 if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
                     return ImmutableList.of();
                 }
