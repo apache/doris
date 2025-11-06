@@ -47,18 +47,21 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 // Merge `detached_stats` `stats` to `stats`.
 void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats);
 
+// Detach tablet stats from `stats` to `detached_stats`.
+void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats);
+
 // Get merged tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot = false);
 
-// Get versioned tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
-// NOTE: this function returns original `TabletStatsPB` and detached tablet stats val stored in kv store,
-//  MUST call `merge_tablet_stats(stats, detached_stats)` to get the real tablet stats.
-void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
-                                         CloneChainReader& meta_reader, Transaction* txn,
-                                         const std::string& instance_id, const TabletIndexPB& idx,
-                                         TabletStatsPB& stats, bool snapshot = false);
+// Get versioned load tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
+//
+// If the versioned load stats doesn't exist, fall back to get single version detached tablet stats.
+void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                    CloneChainReader& meta_reader, Transaction* txn,
+                                    const std::string& instance_id, const TabletIndexPB& idx,
+                                    TabletStatsPB& stats, bool snapshot = false);
 
 // clang-format off
 /**
@@ -91,8 +94,5 @@ MetaServiceResponseStatus fix_tablet_stats_internal(
 MetaServiceResponseStatus check_new_tablet_stats(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
         const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch);
-
-std::pair<TabletStatsPB, TabletStatsPB> split_tablet_stats_into_load_and_compact_parts(
-        const TabletStatsPB& stats);
 
 } // namespace doris::cloud

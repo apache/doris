@@ -1074,14 +1074,27 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     CloneChainReader meta_reader(instance_id, resource_mgr);
     TabletStats detached_stats;
     if (is_versioned_read) {
-        TxnErrorCode err =
-                meta_reader.get_tablet_compact_stats(txn.get(), tablet_id, stats, nullptr, true);
+        // The compact stats = tablet stats, the load stats = detached stats
+        TxnErrorCode err = meta_reader.get_tablet_compact_stats(
+                txn.get(), tablet_id, stats, nullptr, config::snapshot_get_tablet_stats);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet stats, tablet_id={}, err={}", tablet_id, err);
+            msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
+                              err);
             LOG(WARNING) << msg;
             return;
         }
+        TabletStatsPB load_stats;
+        err = meta_reader.get_tablet_load_stats(txn.get(), tablet_id, &load_stats, nullptr,
+                                                config::snapshot_get_tablet_stats);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet load stats, tablet_id={}, err={}", tablet_id,
+                              err);
+            LOG(WARNING) << msg;
+            return;
+        }
+        detach_tablet_stats(load_stats, detached_stats);
     } else {
         // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
         //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
@@ -1098,68 +1111,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
     }
 
-    if (is_versioned_write) {
-        // read old TabletCompactStatsKey -> TabletStatsPB
-        TabletStatsPB tablet_compact_stats;
-        TxnErrorCode err = TxnErrorCode::TXN_OK;
-        if (is_versioned_read) {
-            // Reuse the above txn::get result.
-            tablet_compact_stats.CopyFrom(*stats);
-        } else {
-            err = meta_reader.get_tablet_compact_stats(txn.get(), tablet_id, &tablet_compact_stats,
-                                                       nullptr, false);
-        }
-        if (err == TxnErrorCode::TXN_OK) {
-            // tablet_compact_stats exists, update TabletStatsPB
-            if (compaction_update_tablet_stats(compaction, &tablet_compact_stats, code, msg, now) ==
-                -1) {
-                LOG_WARNING("compaction_update_tablet_stats failed.")
-                        .tag("instance_id", instance_id)
-                        .tag("tablet_id", tablet_id)
-                        .tag("compact_stats", tablet_compact_stats.ShortDebugString());
-                return;
-            }
-        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // First time switching from single write to double write mode
-            // Step 1: Copy from single version stats as baseline
-            tablet_compact_stats.CopyFrom(*stats);
-            // Step 2: Reset size fields to zero because compact_stats + load_stats = single_stats
-            // Since data_size/index_size are inherited by load_stats, compact_stats must start from 0
-            tablet_compact_stats.set_num_rows(0);
-            tablet_compact_stats.set_data_size(0);
-            tablet_compact_stats.set_num_rowsets(0);
-            tablet_compact_stats.set_num_segments(0);
-            tablet_compact_stats.set_index_size(0);
-            tablet_compact_stats.set_segment_size(0);
-            // Step 3: Apply compaction updates
-            if (compaction_update_tablet_stats(compaction, &tablet_compact_stats, code, msg, now) ==
-                -1) {
-                LOG_WARNING("first set compaction_update_tablet_stats failed.")
-                        .tag("tablet_id", tablet_id)
-                        .tag("compact_stats", tablet_compact_stats.ShortDebugString());
-                return;
-            }
-        } else if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
-                              err);
-            return;
-        }
-        // Write new TabletCompactStatsKey -> TabletStatsPB for versioned storage
-        auto tablet_compact_stats_val = tablet_compact_stats.SerializeAsString();
-        std::string tablet_compact_stats_version_key =
-                versioned::tablet_compact_stats_key({instance_id, tablet_id});
-        LOG_INFO("put versioned tablet compact stats key")
-                .tag("compact_stats_key", hex(tablet_compact_stats_version_key))
-                .tag("tablet_id", tablet_id)
-                .tag("value_size", tablet_compact_stats_val.size())
-                .tag("instance_id", instance_id);
-        versioned_put(txn.get(), tablet_compact_stats_version_key, tablet_compact_stats_val);
-    }
-
     if (compaction_update_tablet_stats(compaction, stats, code, msg, now) == -1) {
         return;
     }
+
     auto stats_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     auto stats_val = stats->SerializeAsString();
 
@@ -1178,8 +1133,20 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                << " compaction.size_output_rowsets=" << compaction.size_output_rowsets()
                << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
     txn->put(stats_key, stats_val);
+
+    if (is_versioned_write) {
+        std::string compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        LOG_INFO("put versioned tablet compact stats key")
+                .tag("compact_stats_key", hex(compact_stats_key))
+                .tag("tablet_id", tablet_id)
+                .tag("value_size", stats_val.size())
+                .tag("instance_id", instance_id);
+        versioned_put(txn.get(), compact_stats_key, stats_val);
+    }
+
     merge_tablet_stats(*stats, detached_stats); // this is to check
-    if (!is_versioned_read && (stats->data_size() < 0 || stats->num_rowsets() < 1)) [[unlikely]] {
+    if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
         INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
                             << " stats.num_rows=" << stats->num_rows()
                             << " stats.data_size=" << stats->data_size()
@@ -1869,15 +1836,27 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     auto stats = response->mutable_stats();
     TabletStats detached_stats;
     if (is_versioned_read) {
-        TxnErrorCode err =
-                reader.get_tablet_merged_stats(txn.get(), new_tablet_id, stats, nullptr, true);
+        TxnErrorCode err = reader.get_tablet_compact_stats(txn.get(), new_tablet_id, stats, nullptr,
+                                                           config::snapshot_get_tablet_stats);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet stats, tablet_id={}, err={}", new_tablet_id,
-                              err);
+            msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}",
+                              new_tablet_id, err);
             LOG(WARNING) << msg;
             return;
         }
+
+        TabletStatsPB load_stats;
+        err = reader.get_tablet_load_stats(txn.get(), new_tablet_id, &load_stats, nullptr,
+                                           config::snapshot_get_tablet_stats);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet load stats, tablet_id={}, err={}",
+                              new_tablet_id, err);
+            LOG(WARNING) << msg;
+            return;
+        }
+        detach_tablet_stats(load_stats, detached_stats);
     } else {
         // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
         //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
@@ -1893,59 +1872,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             return;
         }
     }
-    if (is_versioned_write) {
-        // read new TabletLoadStatsKey -> TabletStatsPB
-        TabletStatsPB new_tablet_stats;
-        CloneChainReader meta_reader(instance_id, resource_mgr);
-        Versionstamp* versionstamp = nullptr;
-        TxnErrorCode err = TxnErrorCode::TXN_OK;
-        if (is_versioned_read) {
-            new_tablet_stats.CopyFrom(*stats);
-        } else {
-            err = meta_reader.get_tablet_merged_stats(txn.get(), new_tablet_id, &new_tablet_stats,
-                                                      versionstamp, false);
-        }
-        if (err == TxnErrorCode::TXN_OK) {
-            // new_tablet_load_stats exists, update TabletStatsPB
-            schema_change_update_tablet_stats(schema_change, &new_tablet_stats, num_remove_rows,
-                                              size_remove_rowsets, num_remove_rowsets,
-                                              num_remove_segments, index_size_remove_rowsets,
-                                              segment_size_remove_rowsets);
-        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // First time switching from single write to double write mode
-            // Step 1: Copy from single version stats as baseline
-            new_tablet_stats.CopyFrom(*stats);
-            // Step 2: Apply schema change updates
-            schema_change_update_tablet_stats(schema_change, &new_tablet_stats, num_remove_rows,
-                                              size_remove_rowsets, num_remove_rowsets,
-                                              num_remove_segments, index_size_remove_rowsets,
-                                              segment_size_remove_rowsets);
-        } else if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
-                              err);
-            return;
-        }
-
-        auto [load_stats, compact_stats] =
-                split_tablet_stats_into_load_and_compact_parts(new_tablet_stats);
-        std::string load_value = load_stats.SerializeAsString();
-        std::string compact_value = compact_stats.SerializeAsString();
-        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
-        std::string compact_stats_key =
-                versioned::tablet_compact_stats_key({instance_id, new_tablet_id});
-
-        LOG_INFO("put versioned tablet load/compact stats key")
-                .tag("tablet_id", tablet_id)
-                .tag("new_tablet_id", new_tablet_id)
-                .tag("load_value_size", load_value.size())
-                .tag("compact_value_size", compact_value.size())
-                .tag("load_stats_key", hex(load_stats_key))
-                .tag("compact_stats_key", hex(compact_stats_key))
-                .tag("instance_id", instance_id);
-        versioned_put(txn.get(), load_stats_key, load_value);
-        versioned_put(txn.get(), compact_stats_key, compact_value);
-    }
     schema_change_update_tablet_stats(schema_change, stats, num_remove_rows, size_remove_rowsets,
                                       num_remove_rowsets, num_remove_segments,
                                       index_size_remove_rowsets, segment_size_remove_rowsets);
@@ -1953,6 +1879,20 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             {instance_id, new_table_id, new_index_id, new_partition_id, new_tablet_id});
     auto stats_val = stats->SerializeAsString();
     txn->put(stats_key, stats_val);
+
+    if (is_versioned_write) {
+        std::string compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, new_tablet_id});
+        versioned_put(txn.get(), compact_stats_key, stats_val);
+
+        LOG_INFO("put versioned tablet compact stats key")
+                .tag("tablet_id", tablet_id)
+                .tag("new_tablet_id", new_tablet_id)
+                .tag("compact_value_size", stats_val.size())
+                .tag("compact_stats_key", hex(compact_stats_key))
+                .tag("instance_id", instance_id);
+    }
+
     merge_tablet_stats(*stats, detached_stats);
     VLOG_DEBUG << "update tablet stats tablet_id=" << tablet_id << " key=" << hex(stats_key)
                << " stats=" << proto_to_json(*stats);
