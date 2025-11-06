@@ -90,7 +90,6 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                     String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
                     offset.setStartFile(lastFile);
                     offset.setEndFile(lastFile);
-                    offset.setFileNum(1);
                 } else {
                     // base is dir
                     String normalizedPrefix = basePrefix.endsWith("/")
@@ -101,8 +100,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                     offset.setFileLists(finalFileLists);
                     offset.setStartFile(beginFile);
                     offset.setEndFile(lastFile);
-                    offset.setFileNum(rfiles.size());
                 }
+                offset.setFileNum(rfiles.size());
                 maxEndFile = globListResult.getMaxFile();
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
