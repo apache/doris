@@ -17,12 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -74,75 +71,6 @@ public class MatchPredicate extends Predicate {
 
         public TExprOpcode getOpcode() {
             return opcode;
-        }
-    }
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        String symbolNotUsed = "symbol_not_used";
-
-        for (Type t : Type.getStringTypes()) {
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ANY.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(t, t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ANY.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ALL.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(t, t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_ALL.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_PHRASE.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(t, t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_PHRASE.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_PHRASE_PREFIX.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(t, t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_PHRASE_PREFIX.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_REGEXP.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(t, t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_REGEXP.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_PHRASE_EDGE.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(t, t),
-                    Type.BOOLEAN));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.MATCH_PHRASE_EDGE.getName(),
-                    symbolNotUsed,
-                    Lists.<Type>newArrayList(new ArrayType(t), t),
-                    Type.BOOLEAN));
         }
     }
 
