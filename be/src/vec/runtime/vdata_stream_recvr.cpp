@@ -101,8 +101,8 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     RETURN_IF_ERROR(block_item.get_block(next_block));
     size_t block_byte_size = block_item.block_byte_size();
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, block_item.deserialize_time());
-    COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
-    COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
+    COUNTER_UPDATE(_recvr->_decompress_timer, block_item.decompress_time());
+    COUNTER_UPDATE(_recvr->_decompress_bytes, block_item.decompress_bytes());
     _recvr->_memory_used_counter->update(-(int64_t)block_byte_size);
     INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
     sub_blocks_memory_usage(block_byte_size);

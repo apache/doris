@@ -112,7 +112,8 @@ Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
     *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
 }
 
-Status Block::deserialize(const PBlock& pblock) {
+Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
+                          int64_t* decompress_time) {
     swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
@@ -121,7 +122,7 @@ Status Block::deserialize(const PBlock& pblock) {
     std::string compression_scratch;
     if (pblock.compressed()) {
         // Decompress
-        SCOPED_RAW_TIMER(&_decompress_time_ns);
+        SCOPED_RAW_TIMER(decompress_time);
         const char* compressed_data = pblock.column_values().c_str();
         size_t compressed_size = pblock.column_values().size();
         size_t uncompressed_size = 0;
@@ -144,7 +145,7 @@ Status Block::deserialize(const PBlock& pblock) {
                                             compression_scratch.data());
             DCHECK(success) << "snappy::RawUncompress failed";
         }
-        _decompressed_bytes = uncompressed_size;
+        *uncompressed_bytes = uncompressed_size;
         buf = compression_scratch.data();
     } else {
         buf = pblock.column_values().data();
@@ -958,7 +959,8 @@ Status Block::filter_block(Block* block, size_t filter_column_id, size_t column_
 
 Status Block::serialize(int be_exec_version, PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
-                        size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
+                        size_t* compressed_bytes, int64_t* compress_time,
+                        segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
     pblock->set_be_exec_version(be_exec_version);
@@ -998,7 +1000,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
-        SCOPED_RAW_TIMER(&_compress_time_ns);
+        SCOPED_RAW_TIMER(compress_time);
         pblock->set_compression_type(compression_type);
         pblock->set_uncompressed_size(serialize_bytes);
 
