@@ -75,6 +75,7 @@ void LoadChannelMgr::stop() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _last_success_channels = std::make_unique<LastSuccessChannelCache>(1024);
+    _last_cancel_channels = std::make_unique<LastCancelChannelCache>(1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -117,15 +118,23 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
     if (it == _load_channels.end()) {
-        auto* handle = _last_success_channels->lookup(load_id.to_string());
+        auto* handle_success = _last_success_channels->lookup(load_id.to_string());
         // success only when eos be true
-        if (handle != nullptr) {
-            _last_success_channels->release(handle);
+        if (handle_success != nullptr) {
+            _last_success_channels->release(handle_success);
             if (request.has_eos() && request.eos()) {
                 is_eof = true;
                 return Status::OK();
             }
         }
+
+        auto* handle_failed = _last_cancel_channels->lookup(load_id.to_string());
+        // for case
+        if (handle_failed != nullptr) {
+            _last_cancel_channels->release(handle_failed);
+            return Status::OK();
+        }
+
         return Status::InternalError<false>(
                 "Fail to add batch in load channel: unknown load_id={}. "
                 "This may be due to a BE restart. Please retry the load.",
@@ -197,6 +206,8 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             cancelled_channel = _load_channels[load_id];
             _load_channels.erase(load_id);
         }
+        auto* handle = _last_cancel_channels->insert(load_id.to_string(), nullptr, 1, 1);
+        _last_cancel_channels->release(handle);
     }
 
     if (cancelled_channel != nullptr) {
