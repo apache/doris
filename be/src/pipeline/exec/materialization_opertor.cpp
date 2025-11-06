@@ -59,8 +59,11 @@ Status MaterializationSharedState::merge_multi_response() {
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             vectorized::Block partial_block;
+            size_t uncompressed_size = 0;
+            int64_t uncompressed_time = 0;
             DCHECK(rpc_struct.response.blocks_size() > i);
-            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
+            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block(),
+                                                      &uncompressed_size, &uncompressed_time));
             if (rpc_struct.response.blocks(i).has_profile()) {
                 auto response_profile =
                         RuntimeProfile::from_proto(rpc_struct.response.blocks(i).profile());
