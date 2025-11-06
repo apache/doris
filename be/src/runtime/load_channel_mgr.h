@@ -88,7 +88,6 @@ private:
                                  LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
-    
 
     class LastCancelChannelCache : public LRUCachePolicy {
     public:
@@ -96,7 +95,7 @@ private:
                 : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
                                  LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
-        };
+    };
 
 protected:
     // lock protect the load channel map
