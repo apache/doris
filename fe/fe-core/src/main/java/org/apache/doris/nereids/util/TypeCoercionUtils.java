@@ -487,7 +487,7 @@ public class TypeCoercionUtils {
         }
     }
 
-    private static boolean canCastTo(DataType input, DataType target) {
+    public static boolean canCastTo(DataType input, DataType target) {
         return CheckCast.checkWithLooseAggState(input, target, SessionVariable.enableStrictCast());
     }
 
