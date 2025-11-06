@@ -76,7 +76,6 @@ private:
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     Container data;
     IndexByName index_by_name;
-    std::vector<bool> row_same_bit;
 
 public:
     Block() = default;
@@ -358,22 +357,6 @@ public:
 
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
-
-    void set_same_bit(std::vector<bool>::const_iterator begin,
-                      std::vector<bool>::const_iterator end) {
-        row_same_bit.insert(row_same_bit.end(), begin, end);
-
-        DCHECK_EQ(row_same_bit.size(), rows());
-    }
-
-    bool get_same_bit(size_t position) {
-        if (position >= row_same_bit.size()) {
-            return false;
-        }
-        return row_same_bit[position];
-    }
-
-    void clear_same_bit() { row_same_bit.clear(); }
 
     // remove tmp columns in block
     // in inverted index apply logic, in order to optimize query performance,

@@ -169,6 +169,15 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
     stats.set_segment_size(stats.segment_size() + detached_stats.segment_size);
 }
 
+void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats) {
+    detached_stats.data_size = stats.data_size();
+    detached_stats.num_rows = stats.num_rows();
+    detached_stats.num_rowsets = stats.num_rowsets();
+    detached_stats.num_segs = stats.num_segments();
+    detached_stats.index_size = stats.index_size();
+    detached_stats.segment_size = stats.segment_size();
+}
+
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot) {
@@ -179,11 +188,10 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
     }
 }
 
-void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
-                                         CloneChainReader& meta_reader, Transaction* txn,
-                                         const std::string& instance_id,
-                                         const TabletIndexPB& tablet_idx, TabletStatsPB& stats,
-                                         bool snapshot) {
+void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                    CloneChainReader& meta_reader, Transaction* txn,
+                                    const std::string& instance_id, const TabletIndexPB& tablet_idx,
+                                    TabletStatsPB& stats, bool snapshot) {
     int64_t tablet_id = tablet_idx.tablet_id();
     Versionstamp versionstamp;
 
@@ -192,7 +200,14 @@ void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg
             meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // If versioned stats doesn't exist, read from single version
-        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);
+        TabletStatsPB compact_stats;
+        TabletStats detached_stats;
+        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
+                                  detached_stats, snapshot);
+        if (code == MetaServiceCode::OK) {
+            // Only the detached stats are valid for load tablet stats.
+            merge_tablet_stats(stats, detached_stats);
+        }
     } else if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get versioned tablet stats, err={}", err);
@@ -535,29 +550,6 @@ MetaServiceResponseStatus check_new_tablet_stats(
     }
 
     return st;
-}
-
-std::pair<TabletStatsPB, TabletStatsPB> split_tablet_stats_into_load_and_compact_parts(
-        const TabletStatsPB& stats) {
-    TabletStatsPB load_stats, compact_stats;
-    compact_stats.set_base_compaction_cnt(stats.base_compaction_cnt());
-    compact_stats.set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
-    compact_stats.set_cumulative_point(stats.cumulative_point());
-    compact_stats.set_last_base_compaction_time_ms(stats.last_base_compaction_time_ms());
-    compact_stats.set_last_cumu_compaction_time_ms(stats.last_cumu_compaction_time_ms());
-    compact_stats.set_full_compaction_cnt(stats.full_compaction_cnt());
-    compact_stats.set_last_full_compaction_time_ms(stats.last_full_compaction_time_ms());
-    compact_stats.mutable_idx()->CopyFrom(stats.idx());
-
-    load_stats.set_num_rows(stats.num_rows());
-    load_stats.set_num_rowsets(stats.num_rowsets());
-    load_stats.set_num_segments(stats.num_segments());
-    load_stats.set_data_size(stats.data_size());
-    load_stats.set_index_size(stats.index_size());
-    load_stats.set_segment_size(stats.segment_size());
-    load_stats.mutable_idx()->CopyFrom(stats.idx());
-
-    return {load_stats, compact_stats};
 }
 
 } // namespace doris::cloud

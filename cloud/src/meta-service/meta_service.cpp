@@ -835,19 +835,6 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
               << " index_id=" << index_id << " partition_id=" << partition_id
               << " key=" << hex(stats_key);
     if (is_versioned_write) {
-        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
-        TabletStatsPB stats_pb_copy(stats_pb);
-        if (!versioned::document_put(txn.get(), load_stats_key, std::move(stats_pb_copy))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet stats, key={}",
-                              hex(load_stats_key));
-            return;
-        }
-
-        // The compact stats is initialized with zero values
-        stats_pb.set_num_rows(0);
-        stats_pb.set_num_rowsets(0);
-        stats_pb.set_num_segments(0);
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         if (!versioned::document_put(txn.get(), compact_stats_key, std::move(stats_pb))) {
@@ -856,6 +843,17 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                               hex(compact_stats_key));
             return;
         }
+
+        // The load stats is initialized with zero values
+        TabletStatsPB empty_stats_pb;
+        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        if (!versioned::document_put(txn.get(), load_stats_key, std::move(empty_stats_pb))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet stats, key={}",
+                              hex(load_stats_key));
+            return;
+        }
+
         LOG(INFO) << "put versioned tablet load and compact stats, tablet_id=" << tablet_id
                   << " load_stats_key=" << hex(load_stats_key)
                   << " compact_stats_key=" << hex(compact_stats_key);
