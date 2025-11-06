@@ -38,7 +38,6 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/merge_file_writer.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -925,27 +924,6 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
-
-    // Collect merge file segment index information
-    if (config::enable_merge_file) {
-        const auto& file_writers = _seg_files.get_file_writers();
-        for (const auto& [seg_id, writer_ptr] : file_writers) {
-            auto* merge_writer = dynamic_cast<io::MergeFileWriter*>(writer_ptr.get());
-            if (merge_writer != nullptr) {
-                io::MergeFileSegmentIndex index;
-                RETURN_IF_ERROR(merge_writer->get_merge_file_index(&index));
-                if (!index.merge_file_path.empty()) {
-                    auto segment_path = _context.segment_path(seg_id);
-                    rowset_meta->add_merge_file_segment_index(segment_path, index.merge_file_path,
-                                                              index.offset, index.size);
-                    LOG(INFO) << "Add merge file segment index: " << segment_path << " is "
-                              << index.merge_file_path << ", offset: " << index.offset
-                              << ", size: " << index.size;
-                }
-            }
-        }
-    }
-
     return Status::OK();
 }
 

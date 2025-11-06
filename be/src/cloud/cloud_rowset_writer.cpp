@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/fs/file_system.h"
+#include "io/fs/merge_file_writer.h"
 #include "olap/rowset/rowset_factory.h"
 
 namespace doris {
@@ -63,6 +63,16 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
+    return Status::OK();
+}
+
+Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
+    // Call base class implementation
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num));
+
+    // Collect merge file segment index information (only for cloud rowset writer)
+    RETURN_IF_ERROR(_collect_all_merge_file_indices(rowset_meta));
+
     return Status::OK();
 }
 
@@ -127,6 +137,56 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
                                          &rowset),
             "rowset init failed when build new rowset");
     _already_built = true;
+    return Status::OK();
+}
+
+Status CloudRowsetWriter::_collect_all_merge_file_indices(RowsetMeta* rowset_meta) {
+    if (!config::enable_merge_file) {
+        return Status::OK();
+    }
+
+    // Collect segment file merge indices
+    const auto& file_writers = _seg_files.get_file_writers();
+    for (const auto& [seg_id, writer_ptr] : file_writers) {
+        auto segment_path = _context.segment_path(seg_id);
+        RETURN_IF_ERROR(_collect_merge_file_index(writer_ptr.get(), segment_path, rowset_meta));
+    }
+
+    // Collect inverted index file merge indices
+    const auto& idx_file_writers = _idx_files.get_file_writers();
+    for (const auto& [seg_id, idx_writer_ptr] : idx_file_writers) {
+        if (idx_writer_ptr != nullptr && idx_writer_ptr->get_file_writer() != nullptr) {
+            auto segment_path = _context.segment_path(seg_id);
+            auto index_prefix_view =
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
+            std::string index_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(std::string(index_prefix_view));
+            RETURN_IF_ERROR(_collect_merge_file_index(idx_writer_ptr->get_file_writer(), index_path,
+                                                      rowset_meta));
+        }
+    }
+
+    return Status::OK();
+}
+
+Status CloudRowsetWriter::_collect_merge_file_index(io::FileWriter* file_writer,
+                                                       const std::string& file_path,
+                                                       RowsetMeta* rowset_meta) {
+    auto* merge_writer = dynamic_cast<io::MergeFileWriter*>(file_writer);
+    if (merge_writer == nullptr) {
+        return Status::OK(); // Not a merge file writer, skip
+    }
+
+    io::MergeFileSegmentIndex index;
+    RETURN_IF_ERROR(merge_writer->get_merge_file_index(&index));
+    if (index.merge_file_path.empty()) {
+        return Status::OK(); // File not in merge file, skip
+    }
+
+    rowset_meta->add_merge_file_segment_index(file_path, index.merge_file_path, index.offset,
+                                              index.size);
+    VLOG(1) << "Add merge file index: " << file_path << " -> " << index.merge_file_path
+            << ", offset: " << index.offset << ", size: " << index.size;
     return Status::OK();
 }
 

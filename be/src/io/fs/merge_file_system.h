@@ -51,36 +51,36 @@ protected:
 
     // Other operations not supported for MergeFileSystem
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override {
-        return Status::NotSupported("MergeFileSystem does not support create_directory");
+        return Status::InternalError("MergeFileSystem does not support create_directory");
     }
 
     Status delete_file_impl(const Path& file) override {
-        return Status::NotSupported("MergeFileSystem does not support delete_file");
+        return Status::InternalError("MergeFileSystem does not support delete_file");
     }
 
     Status batch_delete_impl(const std::vector<Path>& files) override {
-        return Status::NotSupported("MergeFileSystem does not support batch_delete");
+        return Status::InternalError("MergeFileSystem does not support batch_delete");
     }
 
     Status delete_directory_impl(const Path& dir) override {
-        return Status::NotSupported("MergeFileSystem does not support delete_directory");
+        return Status::InternalError("MergeFileSystem does not support delete_directory");
     }
 
     Status exists_impl(const Path& path, bool* res) const override {
-        return Status::NotSupported("MergeFileSystem does not support exists");
+        return Status::InternalError("MergeFileSystem does not support exists");
     }
 
     Status file_size_impl(const Path& file, int64_t* file_size) const override {
-        return Status::NotSupported("MergeFileSystem does not support file_size");
+        return Status::InternalError("MergeFileSystem does not support file_size");
     }
 
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override {
-        return Status::NotSupported("MergeFileSystem does not support list");
+        return Status::InternalError("MergeFileSystem does not support list");
     }
 
     Status rename_impl(const Path& orig_name, const Path& new_name) override {
-        return Status::NotSupported("MergeFileSystem does not support rename");
+        return Status::InternalError("MergeFileSystem does not support rename");
     }
 
     Status absolute_path(const Path& path, Path& abs_path) const override {

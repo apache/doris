@@ -58,15 +58,15 @@ Status MergeFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
         FileReaderSPtr inner_reader;
         // Create a new FileReaderOptions with the correct file size
         FileReaderOptions local_opts = opts ? *opts : FileReaderOptions();
-        // DCHECK(opts->file_size == index.size)
-        //         << "file size is not correct, expected: " << index.size
-        //         << ", actual: " << opts->file_size;
+        DCHECK(opts->file_size == -1 || opts->file_size == index.size)
+                << "file size is not correct, expected: " << index.size
+                << ", actual: " << opts->file_size;
         local_opts.file_size = index.size + index.offset;
         RETURN_IF_ERROR(
                 _inner_fs->open_file(Path(index.merge_file_path), &inner_reader, &local_opts));
 
-        *reader = std::make_shared<MergeFileReader>(std::move(inner_reader), index.merge_file_path,
-                                                    index.offset, index.size);
+        *reader = std::make_shared<MergeFileReader>(std::move(inner_reader), file, index.offset,
+                                                    index.size);
     } else {
         RETURN_IF_ERROR(_inner_fs->open_file(file, reader, opts));
     }

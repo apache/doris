@@ -173,6 +173,7 @@ Status MergeFileWriter::_send_to_merge_manager() {
     if (_merge_file_manager == nullptr) {
         return Status::InternalError("MergeFileManager is not available");
     }
+    LOG(INFO) << "send_to_merge_manager: " << _file_path << " buffer size: " << _buffer.size();
 
     Slice data_slice(_buffer.data(), _buffer.size());
     RETURN_IF_ERROR(_merge_file_manager->append(_file_path, data_slice));
@@ -181,12 +182,20 @@ Status MergeFileWriter::_send_to_merge_manager() {
 }
 
 Status MergeFileWriter::get_merge_file_index(MergeFileSegmentIndex* index) const {
-    DCHECK(_state == State::CLOSED);
+    if (_bytes_appended == 0) {
+        *index = MergeFileSegmentIndex {};
+        return Status::OK();
+    }
+
+    DCHECK(_state == State::CLOSED)
+            << " file_path: " << _file_path << " bytes_appended: " << _bytes_appended;
     if (_is_direct_write) {
         *index = MergeFileSegmentIndex {};
         return Status::OK();
     }
     RETURN_IF_ERROR(_merge_file_manager->get_merge_file_index(_file_path, index));
+    LOG(INFO) << "get_merge_file_index: " << _file_path << " index: " << index->merge_file_path
+              << " " << index->offset << " " << index->size;
     return Status::OK();
 }
 } // namespace doris::io
