@@ -20,17 +20,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,15 +40,6 @@ public class CompoundPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(CompoundPredicate.class);
     @SerializedName("op")
     private Operator op;
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
-    }
 
     private CompoundPredicate() {
         // use for serde only
