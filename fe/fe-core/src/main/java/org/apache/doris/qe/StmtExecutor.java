@@ -1769,10 +1769,10 @@ public class StmtExecutor {
 
             for (PlanProcess row : result) {
                 serializer.reset();
-                serializer.writeLenEncodedString(row.ruleName+"\n\n");
-                serializer.writeLenEncodedString(row.inputPlan +"\n\n");
-                serializer.writeLenEncodedString(row.changeNode +"\n\n");
-                serializer.writeLenEncodedString(row.rewrittenSubTree +"\n\n");
+                serializer.writeLenEncodedString(row.ruleName + "\n\n");
+                serializer.writeLenEncodedString(row.inputPlan + "\n\n");
+                serializer.writeLenEncodedString(row.changeNode + "\n\n");
+                serializer.writeLenEncodedString(row.rewrittenSubTree + "\n\n");
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
         }
