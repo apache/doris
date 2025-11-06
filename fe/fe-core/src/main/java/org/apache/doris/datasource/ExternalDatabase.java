@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
  * @param <T> External table type is ExternalTable or its subclass.
  */
 public abstract class ExternalDatabase<T extends ExternalTable>
-        implements DatabaseIfJ<T>, GsonPostProcessable {
+        implements DatabaseIf<T>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(true);
