@@ -812,5 +812,4 @@ CloudWarmUpManager::get_all_balanced_tablets() const {
     return result;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris
