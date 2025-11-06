@@ -88,6 +88,15 @@ private:
                                  LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
+    
+
+    class LastCancelChannelCache : public LRUCachePolicy {
+    public:
+        LastCancelChannelCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+        };
 
 protected:
     // lock protect the load channel map
@@ -95,6 +104,7 @@ protected:
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     std::unique_ptr<LastSuccessChannelCache> _last_success_channels;
+    std::unique_ptr<LastCancelChannelCache> _last_cancel_channels;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 
