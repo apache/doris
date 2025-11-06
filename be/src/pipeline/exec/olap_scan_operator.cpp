@@ -28,6 +28,7 @@
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -402,6 +403,16 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
         }
+
+        const OlapReaderStatistics* stats = scanner_builder.builder_stats();
+        io::FileCacheProfileReporter cache_profile(_segment_profile.get());
+        cache_profile.update(&stats->file_cache_stats);
+
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats->file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats->file_cache_stats.bytes_read_from_remote);
+
         return Status::OK();
     }
 
