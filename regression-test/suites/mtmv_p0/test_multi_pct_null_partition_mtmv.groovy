@@ -30,8 +30,8 @@ suite("test_multi_pct_null_partition_mtmv","mtmv") {
     sql """
         CREATE TABLE ${tableName1}
         (
-            k1 INT not null,
-            k2 INT not null
+            k1 INT,
+            k2 INT
         )
         PARTITION BY RANGE(`k1`)
         (
@@ -48,8 +48,8 @@ suite("test_multi_pct_null_partition_mtmv","mtmv") {
     sql """
         CREATE TABLE ${tableName2}
         (
-            k1 INT not null,
-            k2 INT not null
+            k1 INT,
+            k2 INT
         )
         PARTITION BY RANGE(`k1`)
         (
@@ -84,8 +84,8 @@ suite("test_multi_pct_null_partition_mtmv","mtmv") {
     sql """
         CREATE TABLE ${tableName1}
         (
-            k1 INT not null,
-            k2 INT not null
+            k1 INT,
+            k2 INT
         )
         PARTITION BY RANGE(`k1`)
         (
