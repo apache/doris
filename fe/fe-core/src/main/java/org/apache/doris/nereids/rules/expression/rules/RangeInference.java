@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
@@ -401,7 +402,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
         }
 
-        if (collector.hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
+        boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && !reference.nullable();
+        if (hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
             return new UnknownValue(context, BooleanLiteral.TRUE);
         } else if (collector.hasIsNullValue) {
             resultValues.add(new IsNullValue(context, reference));
@@ -413,8 +415,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             // for IsNotNull OR EmptyValue, need keep the EmptyValue
             boolean ignoreEmptyValue = !resultValues.isEmpty() && !reference.nullable();
             for (ValueDesc valueDesc : resultValues) {
-                if (valueDesc instanceof CompoundValue && !((CompoundValue) valueDesc).hasNoneNullable) {
-                    ignoreEmptyValue = true;
+                if (valueDesc instanceof CompoundValue) {
+                    ignoreEmptyValue = ignoreEmptyValue || !((CompoundValue) valueDesc).hasNoneNullable;
                 } else if (valueDesc.nullable() || valueDesc instanceof IsNullValue) {
                     ignoreEmptyValue = true;
                 }
@@ -602,7 +604,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // then will have:
         // use in 'A and (B or C)', if B containsAll A, then rewrite it to 'A',
         // use in 'A or (B and C)', if A containsAll B, then rewrite it to 'A'.
-        final boolean containsAll(ValueDesc other) {
+        @VisibleForTesting
+        public final boolean containsAll(ValueDesc other) {
             return containsAll(other, 0);
         }
 
@@ -614,7 +617,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // this function is non-commutative if X and Y's nullable not equal,
         // the caller should be the outer side, 'other' should be inner side.
         // use in 'A and (B or C)', if A, B intersectWithIsEmpty, then rewrite it to 'A and C'
-        final boolean intersectWithIsEmpty(ValueDesc other) {
+        @VisibleForTesting
+        public final boolean intersectWithIsEmpty(ValueDesc other) {
             return intersectWithIsEmpty(other, 0);
         }
 
@@ -626,7 +630,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // this function is non-commutative if X and Y's nullable not equal,
         // the caller should be the outer side, 'other' should be inner side.
         // use in 'A or (B and C)', if A, B unionWithIsAll, then rewrite it to 'A or C'
-        final boolean unionWithIsAll(ValueDesc other) {
+        @VisibleForTesting
+        public final boolean unionWithIsAll(ValueDesc other) {
             return unionWithIsAll(other, 0);
         }
 
@@ -712,7 +717,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return range.encloses(((RangeValue) other).range);
             } else if (other instanceof DiscreteValue) {
                 return range.containsAll(((DiscreteValue) other).values);
-            } else if (other instanceof NotDiscreteValue) {
+            } else if (other instanceof NotDiscreteValue || other instanceof IsNotNullValue) {
                 return isRangeAll();
             } else if (other instanceof CompoundValue) {
                 return ((CompoundValue) other).isContainedAllBy(this, depth);
@@ -796,7 +801,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
         }
 
-        private boolean isRangeAll() {
+        @VisibleForTesting
+        public boolean isRangeAll() {
             return !range.hasLowerBound() && !range.hasUpperBound();
         }
     }
@@ -1102,7 +1108,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // since depth is 1, will not search two compound values
         private final static int MAX_SEARCH_DEPTH = 1;
 
-        private CompoundValue(ExpressionRewriteContext context, Expression reference,
+        public CompoundValue(ExpressionRewriteContext context, Expression reference,
                 List<ValueDesc> sourceValues, boolean isAnd) {
             super(context, reference);
             this.sourceValues = ImmutableList.copyOf(sourceValues);
@@ -1303,7 +1309,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
      */
     public static class UnknownValue extends ValueDesc {
 
-        private UnknownValue(ExpressionRewriteContext context, Expression expression) {
+        public UnknownValue(ExpressionRewriteContext context, Expression expression) {
             super(context, expression);
         }
 
