@@ -471,8 +471,9 @@ private:
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps
 class OperationLogRecycleChecker {
 public:
-    OperationLogRecycleChecker(std::string_view instance_id, TxnKv* txn_kv)
-            : instance_id_(instance_id), txn_kv_(txn_kv) {}
+    OperationLogRecycleChecker(std::string_view instance_id, TxnKv* txn_kv,
+                               const InstanceInfoPB& instance_info)
+            : instance_id_(instance_id), txn_kv_(txn_kv), instance_info_(instance_info) {}
 
     // Initialize the checker by loading snapshots and setting max version stamp
     int init();
@@ -485,7 +486,9 @@ public:
 private:
     std::string_view instance_id_;
     TxnKv* txn_kv_;
+    const InstanceInfoPB& instance_info_;
     Versionstamp max_versionstamp_;
+    Versionstamp source_snapshot_versionstamp_;
     std::map<Versionstamp, size_t> snapshot_indexes_;
     std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots_;
 };

@@ -575,12 +575,8 @@ public:
         switch (compare_type) {
         case TYPE_BOOLEAN:
             return execute_num_type<TYPE_BOOLEAN>(block, result, col_left_ptr, col_right_ptr);
-        case TYPE_DATE:
-            return execute_num_type<TYPE_DATE>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATEV2:
             return execute_num_type<TYPE_DATEV2>(block, result, col_left_ptr, col_right_ptr);
-        case TYPE_DATETIME:
-            return execute_num_type<TYPE_DATETIME>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATETIMEV2:
             return execute_num_type<TYPE_DATETIMEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TINYINT:
