@@ -1208,7 +1208,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 }
 
 // test timestamptz zonemap index
-TEST_F(BlockColumnPredicateTest, test_timestamptz_single_column_predicate) {
+TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
     FieldType type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     std::unique_ptr<WrapperField> min_field(WrapperField::create_by_type(type, 0));
     std::unique_ptr<WrapperField> max_field(WrapperField::create_by_type(type, 0));
@@ -1320,6 +1320,62 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_single_column_predicate) {
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
                     {min_field.get(), max_field.get()}, tz, true);
         }
+    }
+}
+
+template <PrimitiveType T, PredicateType PT>
+void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
+                                       typename PrimitiveTypeTraits<T>::CppType check_value,
+                                       bool expect_match) {
+    int col_idx = 0;
+    std::unique_ptr<ColumnPredicate> pred(new ComparisonPredicateBase<T, PT>(col_idx, check_value));
+    SingleColumnBlockPredicate single_column_block_pred(pred.get());
+
+    bool matched = single_column_block_pred.evaluate_and(bf);
+    EXPECT_EQ(matched, expect_match);
+}
+// test timestamptz bloom filter
+TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
+    cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
+    TimezoneUtils::load_offsets_to_cache();
+    vectorized::CastParameters params;
+    params.is_strict = true;
+
+    std::vector<std::string> str_values = {"0001-01-01 00:00:00", "2023-01-01 15:00:00",
+                                           "1111-01-01 01:01:01", "5555-05-05 05:05:05",
+                                           "6666-06-06 06:06:06", "7777-07-07 07:07:07",
+                                           "6666-12-01 23:00:00", "8999-12-31 23:59:59"};
+
+    std::unique_ptr<BloomFilter> bf;
+    auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf);
+    st = bf->init(1024, 0.05, HASH_MURMUR3_X64_64);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf->size() > 0);
+
+    std::vector<TimestampTzValue> values;
+    for (const auto& str : str_values) {
+        TimestampTzValue tz {};
+        EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params));
+        bf->add_bytes((char*)&tz, sizeof(TimestampTzValue));
+        values.push_back(tz);
+    }
+
+    for (const auto& v : values) {
+        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(bf.get(), v, true);
+    }
+    {
+        auto str = "0000-01-01 00:00:00";
+        TimestampTzValue tz {};
+        EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params));
+        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(bf.get(), tz, false);
+    }
+    {
+        auto str = "9999-12-31 23:59:59.999999";
+        TimestampTzValue tz {};
+        EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params));
+        single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(bf.get(), tz, false);
     }
 }
 
