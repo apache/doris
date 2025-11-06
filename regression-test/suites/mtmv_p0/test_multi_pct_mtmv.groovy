@@ -174,7 +174,7 @@ suite("test_multi_pct_mtmv","mtmv") {
     order_qt_partitions_4 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
-        alter table ${tableName2} add partition p201704 VALUES [("2017-04-01"),  ("2017-05-01")),;
+        alter table ${tableName2} add partition p201704 VALUES [("2017-04-01"),("2017-05-01"));
         """
     order_qt_partitions_5 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
