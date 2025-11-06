@@ -305,26 +305,6 @@ std::string FSFileCacheStorage::get_path_in_local_cache_v2(const std::string& di
     }
 }
 
-std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std::string& dir,
-                                                                       size_t offset,
-                                                                       FileCacheType type,
-                                                                       bool is_tmp) {
-    DCHECK(type == FileCacheType::TTL);
-    return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
-}
-
-std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candidates(
-        const std::string& dir, size_t offset) {
-    std::vector<std::string> candidates;
-    std::string base = get_path_in_local_cache(dir, offset, FileCacheType::NORMAL);
-    candidates.push_back(base);
-    candidates.push_back(base + "_idx");
-    candidates.push_back(base + "_ttl");
-    candidates.push_back(base + "_disposable");
-    candidates.push_back(base + "_cold_normal");
-    return candidates;
-}
-
 std::string FSFileCacheStorage::get_path_in_local_cache_v3(const UInt128Wrapper& value) const {
     auto str = value.to_string();
     try {
