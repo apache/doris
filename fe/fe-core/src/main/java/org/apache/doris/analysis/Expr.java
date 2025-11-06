@@ -22,14 +22,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.AggStateType;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -46,7 +42,6 @@ import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -70,7 +65,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Root of the expr node hierarchy.
@@ -982,85 +976,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     }
 
     /**
-     * Looks up in the catalog the builtin for 'name' and 'argTypes'.
-     * Returns null if the function is not found.
-     */
-    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
-            throws AnalysisException {
-        FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
-                true);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
-        if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
-            if (this.children.size() == 1 && !(this.children.get(0) instanceof LiteralExpr)) {
-                throw new AnalysisException("The param of rand function must be literal");
-            }
-        }
-        if (f != null) {
-            return f;
-        }
-
-        boolean isUnion = name.toLowerCase().endsWith(AGG_UNION_SUFFIX);
-        boolean isMerge = name.toLowerCase().endsWith(AGG_MERGE_SUFFIX);
-        boolean isState = name.toLowerCase().endsWith(AGG_STATE_SUFFIX);
-        if (isUnion || isMerge || isState) {
-            if (isUnion) {
-                name = name.substring(0, name.length() - AGG_UNION_SUFFIX.length());
-            }
-            if (isMerge) {
-                name = name.substring(0, name.length() - AGG_MERGE_SUFFIX.length());
-            }
-            if (isState) {
-                name = name.substring(0, name.length() - AGG_STATE_SUFFIX.length());
-            }
-
-            List<Type> argList = Arrays.asList(getActualArgTypes(argTypes));
-            List<Type> nestedArgList;
-            if (isState) {
-                nestedArgList = argList;
-            } else {
-                if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
-                    throw new AnalysisException("merge/union function must input one agg_state");
-                }
-                AggStateType aggState = (AggStateType) argList.get(0);
-                nestedArgList = aggState.getSubTypes();
-            }
-
-            searchDesc = new Function(new FunctionName(name), nestedArgList, Type.INVALID, false, true);
-
-            f = Env.getCurrentEnv().getFunction(searchDesc, mode);
-            if (f == null || !(f instanceof AggregateFunction)) {
-                return null;
-            }
-
-            if (isState) {
-                f = new ScalarFunction(new FunctionName(name + AGG_STATE_SUFFIX), Arrays.asList(f.getArgs()),
-                        Expr.createAggStateType(name, nestedArgList,
-                                nestedArgList.stream().map(e -> true).collect(Collectors.toList())),
-                        f.hasVarArgs(), f.isUserVisible());
-                f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-            } else {
-                Function original = f;
-                f = f.clone();
-                f.setArgs(argList);
-                if (isUnion) {
-                    f.setName(new FunctionName(name + AGG_UNION_SUFFIX));
-                    f.setReturnType(argList.get(0));
-                    f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-                }
-                if (isMerge) {
-                    f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
-                    f.setNullableMode(NullableMode.CUSTOM);
-                    f.setNestedFunction(original);
-                }
-            }
-            f.setBinaryType(TFunctionBinaryType.AGG_STATE);
-        }
-
-        return f;
-    }
-
-    /**
      * Negates a boolean Expr.
      */
     public Expr negate() {
@@ -1242,19 +1157,9 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return true;
     }
 
-    public static Boolean getResultIsNullable(String name, List<Type> typeList, List<Boolean> nullableList) {
-        if (name == null || typeList == null || nullableList == null) {
-            return false;
-        }
-        FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, typeList, Type.INVALID, false, true);
-        List<Expr> mockedExprs = getMockedExprs(typeList, nullableList);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        return isNullable(f, mockedExprs);
-    }
-
-    public static AggStateType createAggStateType(String name, List<Type> typeList, List<Boolean> nullableList) {
-        return new AggStateType(name, Expr.getResultIsNullable(name, typeList, nullableList), typeList, nullableList);
+    public static AggStateType createAggStateType(String name, List<Type> typeList,
+            List<Boolean> nullableList, boolean resultNullable) {
+        return new AggStateType(name, resultNullable, typeList, nullableList);
     }
 
     public static List<Expr> getMockedExprs(List<Type> typeList, List<Boolean> nullableList) {

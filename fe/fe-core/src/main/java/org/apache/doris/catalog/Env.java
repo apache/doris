@@ -745,7 +745,6 @@ public class Env {
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
-        this.functionSet.init();
 
         this.functionRegistry = new FunctionRegistry();
 
@@ -6322,38 +6321,12 @@ public class Env {
         return functionRegistry;
     }
 
-    /**
-     * Returns the function that best matches 'desc' that is registered with the
-     * catalog using 'mode' to check for matching. If desc matches multiple
-     * functions in the catalog, it will return the function with the strictest
-     * matching mode. If multiple functions match at the same matching mode,
-     * ties are broken by comparing argument types in lexical order. Argument
-     * types are ordered by argument precision (e.g. double is preferred over
-     * float) and then by alphabetical order of argument type name, to guarantee
-     * deterministic results.
-     */
-    public Function getFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode);
-    }
-
-    public List<Function> getBuiltinFunctions() {
-        return functionSet.getBulitinFunctions();
-    }
-
-    public Function getTableFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode, true);
-    }
-
     public boolean isNondeterministicFunction(String funcName) {
         return functionSet.isNondeterministicFunction(funcName);
     }
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
-    }
-
-    public boolean isAggFunctionName(String name) {
-        return functionSet.isAggFunctionName(name);
     }
 
     @Deprecated

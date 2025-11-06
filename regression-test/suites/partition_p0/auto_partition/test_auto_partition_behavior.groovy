@@ -262,7 +262,7 @@ suite("test_auto_partition_behavior") {
             DISTRIBUTED BY HASH(`k0`) BUCKETS 2
             properties("replication_num" = "1");
         """
-        exception "partition expr date_trunc is illegal!"
+        exception "is illegal!"
     }
 
 
