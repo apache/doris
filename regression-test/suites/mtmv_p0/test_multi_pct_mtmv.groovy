@@ -181,6 +181,7 @@ suite("test_multi_pct_mtmv","mtmv") {
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20170401_20170501);
         """
+     waitingMTMVTaskFinishedByMvName(mvName)
      order_qt_partitions_6 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
      sql """
