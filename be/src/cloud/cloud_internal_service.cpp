@@ -80,6 +80,8 @@ FileCacheType cache_type_to_pb(io::FileCacheType type) {
         return FileCacheType::INDEX;
     case io::FileCacheType::NORMAL:
         return FileCacheType::NORMAL;
+    case io::FileCacheType::COLD_NORMAL:
+        return FileCacheType::COLD_NORMAL;
     default:
         DCHECK(false);
     }
