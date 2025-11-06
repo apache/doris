@@ -132,7 +132,7 @@ suite("test_hive_pct_mtmv", "p0,external,hive,external_docker,external_docker_hi
                 AS
                 SELECT k1,year,region FROM ${catalog_name}.${dbName}.${tableName1} union all SELECT k1,year,region FROM ${catalog_name}.${dbName}.${tableName2};
             """
-        order_qt_partitions_1 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+        order_qt_partitions_1 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${mvDbName}','table'='${mvName}') order by PartitionId desc;"
         sql """
             REFRESH MATERIALIZED VIEW ${mvName} AUTO
             """
