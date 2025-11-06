@@ -41,8 +41,6 @@ import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -50,7 +48,6 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import org.jetbrains.annotations.NotNull;
 
@@ -73,7 +70,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private long catalogId;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
-        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
+        super(id, desc, "JdbcScanNode", false);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -85,7 +82,7 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query) {
-        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
+        super(id, desc, "JdbcScanNode", false);
         this.isTableValuedFunction = isTableValuedFunction;
         this.query = query;
         tbl = (JdbcTable) desc.getTable();
@@ -102,8 +99,7 @@ public class JdbcScanNode extends ExternalScanNode {
     public void init() throws UserException {
         super.init();
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
+        cardinality = -1;
     }
 
     private void createJdbcFilters() {
@@ -270,12 +266,6 @@ public class JdbcScanNode extends ExternalScanNode {
         msg.jdbc_scan_node.setTableType(jdbcType);
         msg.jdbc_scan_node.setIsTvf(isTableValuedFunction);
         super.toThrift(msg);
-    }
-
-    @Override
-    protected String debugString() {
-        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-        return helper.addValue(super.debugString()).toString();
     }
 
     @Override

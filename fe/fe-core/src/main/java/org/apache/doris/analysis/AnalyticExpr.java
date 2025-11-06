@@ -98,7 +98,6 @@ public class AnalyticExpr extends Expr {
         partitionExprs = Expr.cloneList(other.partitionExprs);
         window = (other.window != null ? other.window.clone() : null);
         resetWindow = other.resetWindow;
-        sqlString = other.sqlString;
         setChildren();
     }
 
@@ -235,9 +234,6 @@ public class AnalyticExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (sqlString != null) {
-            return sqlString;
-        }
         StringBuilder sb = new StringBuilder();
         sb.append(fnCall.toSql()).append(" OVER (");
         boolean needsSpace = false;
@@ -269,9 +265,6 @@ public class AnalyticExpr extends Expr {
     @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        if (sqlString != null) {
-            return sqlString;
-        }
         StringBuilder sb = new StringBuilder();
         sb.append(fnCall.toSql(disableTableName, needExternalSql, tableType, table)).append(" OVER (");
         boolean needsSpace = false;
