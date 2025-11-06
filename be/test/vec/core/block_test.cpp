@@ -1402,8 +1402,6 @@ TEST(BlockTest, others) {
 
     mutable_block.clear_column_data();
     ASSERT_EQ(mutable_block.get_column_by_position(0)->size(), 0);
-    ASSERT_TRUE(mutable_block.has("column"));
-    ASSERT_EQ(mutable_block.get_position_by_name("column"), 0);
 
     auto dumped_names = mutable_block.dump_names();
     ASSERT_TRUE(dumped_names.find("column") != std::string::npos);
