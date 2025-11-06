@@ -153,7 +153,7 @@ void HttpRequest::finish_send_reply() {
     if (_handler_ctx != nullptr) {
         infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
     }
-    LOG(INFO) << "finish send reply, infos=" << infos
+    VLOG_NOTICE << "finish send reply, infos=" << infos
               << ", stack=" << get_stack_trace(); // temp locate problem
     _http_reply_promise.set_value(true);
 }
@@ -164,19 +164,28 @@ void HttpRequest::wait_finish_send_reply() {
     }
 
     std::string infos;
+    StreamLoadContext* ctx = nullptr;
     if (_handler_ctx != nullptr) {
-        infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
+        ctx = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get());
+        infos = ctx->brief();
         _handler->free_handler_ctx(_handler_ctx);
-        _handler_ctx = nullptr;
     }
 
-    LOG(INFO) << "start to wait send reply, infos=" << infos;
-    auto status = _http_reply_futrue.wait_for(std::chrono::seconds(600));
+    VLOG_NOTICE << "start to wait send reply, infos=" << infos;
+    auto status = _http_reply_futrue.wait_for(std::chrono::seconds(3));
+    // if request is timeout and can't cancel fragment in time, it will cause some new request block
+    // so we will free cancelled request in time.
     if (status != std::future_status::ready) {
         LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
+        std::lock_guard<std::mutex> lock1(ctx->_send_reply_lock);
+        // do not send_reply after free current request
+        ctx->_finish_send_reply = true;
     } else {
-        LOG(INFO) << "wait send reply finished";
+        VLOG_NOTICE << "wait send reply finished";
     }
+
+    // delete _handler_ctx at the end, in case that finish_send_reply can't get detailed info
+    _handler_ctx = nullptr;
 }
 
 } // namespace doris
