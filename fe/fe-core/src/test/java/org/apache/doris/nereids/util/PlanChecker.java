@@ -195,7 +195,8 @@ public class PlanChecker {
         List<PlanProcess> planProcesses = explainPlanProcess(sql);
         for (PlanProcess row : planProcesses) {
             System.out.println("RULE: " + row.ruleName + "\nBEFORE:\n"
-                    + row.beforeShape + "\nafter:\n" + row.afterShape);
+                    + row.inputPlan + "\nafter:\n" + row.rewrittenSubTree
+                    + "\nchange point: " + row.changeNode);
         }
         return this;
     }

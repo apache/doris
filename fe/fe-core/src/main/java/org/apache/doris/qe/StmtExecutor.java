@@ -1760,17 +1760,19 @@ public class StmtExecutor {
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("Rule", ScalarType.createVarchar(-1)))
-                .addColumn(new Column("Before", ScalarType.createVarchar(-1)))
-                .addColumn(new Column("After", ScalarType.createVarchar(-1)))
+                .addColumn(new Column("inputPlan", ScalarType.createVarchar(-1)))
+                .addColumn(new Column("changeNode", ScalarType.createVarchar(-1)))
+                .addColumn(new Column("rewrittenSubTree", ScalarType.createVarchar(-1)))
                 .build();
         if (context.getConnectType() == ConnectType.MYSQL) {
             sendMetaData(metaData);
 
             for (PlanProcess row : result) {
                 serializer.reset();
-                serializer.writeLenEncodedString(row.ruleName);
-                serializer.writeLenEncodedString(row.beforeShape);
-                serializer.writeLenEncodedString(row.afterShape);
+                serializer.writeLenEncodedString(row.ruleName+"\n\n");
+                serializer.writeLenEncodedString(row.inputPlan +"\n\n");
+                serializer.writeLenEncodedString(row.changeNode +"\n\n");
+                serializer.writeLenEncodedString(row.rewrittenSubTree +"\n\n");
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
         }

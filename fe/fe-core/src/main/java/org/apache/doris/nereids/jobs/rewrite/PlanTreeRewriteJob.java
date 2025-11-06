@@ -70,8 +70,9 @@ public abstract class PlanTreeRewriteJob extends Job {
                     context.setRewritten(true);
                     rule.acceptPlan(newPlan);
                     if (showPlanProcess) {
-                        String traceAfter = getCurrentPlanTreeString();
-                        PlanProcess planProcess = new PlanProcess(rule.getRuleType().name(), traceBefore, traceAfter);
+                        PlanProcess planProcess = new PlanProcess(rule.getRuleType().name(), traceBefore,
+                                newPlan.treeString(),
+                                plan.toString());
                         cascadesContext.addPlanProcess(planProcess);
                     }
                     // if rewrite success, record the rule type

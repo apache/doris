@@ -133,12 +133,11 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
                 currentRule.acceptPlan(result);
 
                 if (cascadesContext.showPlanProcess()) {
-                    String beforeShape = processState.getNewestPlan().treeString(true);
-                    String afterShape = processState.updateChildAndGetNewest(originParent, childIndex, result)
-                            .treeString(true);
+                    String inputPlan = processState.getNewestPlan().treeString(true);
+                    String rewrittenNode = result.treeString();
                     cascadesContext.addPlanProcess(
-                        new PlanProcess(currentRule.getRuleType().name(), beforeShape, afterShape)
-                    );
+                        new PlanProcess(currentRule.getRuleType().name(), inputPlan, rewrittenNode,
+                                plan.toString()));
                 }
                 // if rewrite success, record the rule type
                 cascadesContext.getStatementContext().ruleSetApplied(currentRule.getRuleType());

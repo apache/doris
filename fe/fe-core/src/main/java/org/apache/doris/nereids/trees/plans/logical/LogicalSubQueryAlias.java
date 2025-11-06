@@ -131,10 +131,11 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public String toString() {
-        return columnAliases.map(strings -> Utils.toSqlString("LogicalSubQueryAlias",
+        String nameAndId = "LogicalSubQueryAlias[" + id.asInt() + "]";
+        return columnAliases.map(strings -> Utils.toSqlString(nameAndId,
                 "qualifier", qualifier,
                 "columnAliases", StringUtils.join(strings, ",")
-        )).orElseGet(() -> Utils.toSqlString("LogicalSubQueryAlias",
+        )).orElseGet(() -> Utils.toSqlString(nameAndId,
                 "qualifier", qualifier
         ));
     }

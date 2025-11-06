@@ -177,6 +177,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
 
     @Override
     public String toString() {
+        String nameAndId = "UnboundRelation" + "[" + id.asInt() + "]";
         List<Object> args = Lists.newArrayList(
                 "id", relationId,
                 "nameParts", StringUtils.join(nameParts, ".")
@@ -185,7 +186,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             args.add("hints");
             args.add(StringUtils.join(hints, ", "));
         }
-        return Utils.toSqlString("UnboundRelation", args.toArray());
+        return Utils.toSqlString(nameAndId, args.toArray());
     }
 
     @Override

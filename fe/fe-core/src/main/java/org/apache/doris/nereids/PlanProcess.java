@@ -20,13 +20,15 @@ package org.apache.doris.nereids;
 /** PlanProcess */
 public class PlanProcess {
     public final String ruleName;
-    public final String beforeShape;
-    public final String afterShape;
+    public final String inputPlan;
+    public final String rewrittenSubTree;
+    public final String changeNode;
 
-    public PlanProcess(String ruleName, String beforeShape, String afterShape) {
+    public PlanProcess(String ruleName, String inputPlan, String rewrittenSubTree, String changeNode) {
         this.ruleName = ruleName;
-        this.beforeShape = beforeShape;
-        this.afterShape = afterShape;
+        this.inputPlan = inputPlan;
+        this.rewrittenSubTree = rewrittenSubTree;
+        this.changeNode = changeNode;
     }
 
     @Override
