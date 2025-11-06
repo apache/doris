@@ -354,7 +354,7 @@ void MergeFileManager::process_uploading_files() {
         merge_file_info.set_left_file_num(merge_file->index_map.size());
         merge_file_info.set_total_file_bytes(merge_file->total_size);
         merge_file_info.set_left_file_bytes(merge_file->total_size);
-        merge_file_info.set_create_timestamp_sec(merge_file->create_time);
+        merge_file_info.set_created_at_sec(merge_file->create_time);
         merge_file_info.set_corrected(false);
         merge_file_info.set_state(doris::cloud::MergedFileInfoPB::NORMAL);
 

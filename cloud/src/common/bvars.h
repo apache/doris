@@ -656,6 +656,14 @@ extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_starte
 extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycled_kv_num;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycled_kv_bytes;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycle_cost_ms;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_scanned_kv_num;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_corrected_kv_num;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycled_object_num;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_bytes_object_deleted;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_rowset_scanned_num;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;

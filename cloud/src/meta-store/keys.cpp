@@ -352,9 +352,9 @@ void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out) {
 }
 
 void merge_file_key(const MergeFileKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                          // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_INFIX_MERGE_FILE, out);    // "merge_file"
-    encode_bytes(std::get<1>(in), out);              // merge_file_path
+    encode_prefix(in, out);                       // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_MERGE_FILE, out); // "merge_file"
+    encode_bytes(std::get<1>(in), out);           // merge_file_path
 }
 
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out) {

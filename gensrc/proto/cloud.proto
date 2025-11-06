@@ -2127,6 +2127,8 @@ message MergedSmallFilePB {
     optional int64 offset = 2;
     optional int64 size = 3;
     optional bool deleted = 4;
+    optional int64 tablet_id = 5;
+    optional string rowset_id = 6;
 }
 
 message MergedFileInfoPB {
@@ -2139,10 +2141,11 @@ message MergedFileInfoPB {
     optional int64 left_file_num = 3;
     optional int64 total_file_bytes = 4;
     optional int64 left_file_bytes = 5;
-    optional int64 create_timestamp_sec = 6;
+    optional int64 created_at_sec = 6;
     optional bool corrected = 7;
     optional MergeFileState state = 8 [default = NORMAL];
     repeated MergedSmallFilePB small_files = 9;
+    optional string resource_id = 10;
 }
 
 message UpdateMergeFileInfoRequest {

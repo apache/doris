@@ -5564,7 +5564,7 @@ void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* 
     }
 
     // Generate merge file key
-    MergeFileKeyInfo key_info{instance_id, request->merge_file_path()};
+    MergeFileKeyInfo key_info {instance_id, request->merge_file_path()};
     std::string merge_file_key_str = merge_file_key(key_info);
 
     // Serialize merge file info

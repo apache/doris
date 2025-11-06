@@ -159,6 +159,14 @@ mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_
 mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource("recycler_instance_recycle_time_per_resource", {"instance_id", "resource_type"});
 // represents the bytes of resources that can be recycled per ms
 mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms("recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycled_kv_num("recycler", "merged_file_recycled_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycled_kv_bytes("recycler", "merged_file_recycled_kv_bytes");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycle_cost_ms("recycler", "merged_file_recycle_cost_ms");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_scanned_kv_num("recycler", "merged_file_scanned_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_corrected_kv_num("recycler", "merged_file_corrected_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_recycled_object_num("recycler", "merged_file_recycled_object_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_bytes_object_deleted("recycler", "merged_file_bytes_object_deleted");
+BvarStatusWithTag<int64_t> g_bvar_recycler_merged_file_rowset_scanned_num("recycler", "merged_file_rowset_scanned_num");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");

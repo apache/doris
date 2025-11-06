@@ -32,12 +32,15 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <numeric>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include "common/defer.h"
 #include "common/stopwatch.h"
@@ -750,6 +753,8 @@ int InstanceRecycler::do_recycle() {
                         [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); }))
                 .add(task_wrapper([this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
                 .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_merged_files(); }))
+                .add(task_wrapper(
                         [this]() { return InstanceRecycler::abort_timeout_txn(); },
                         [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_copy_jobs(); }))
@@ -910,6 +915,367 @@ int InstanceRecycler::recycle_deleted_instance() {
     return ret;
 }
 
+int InstanceRecycler::check_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
+                                          bool* exists, MergedFileRecycleStats* stats) {
+    if (exists == nullptr) {
+        return -1;
+    }
+    *exists = false;
+
+    std::string begin = meta_rowset_key({instance_id_, tablet_id, 0});
+    std::string end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+    std::string scan_begin = begin;
+
+    while (true) {
+        std::unique_ptr<RangeGetIterator> it_range;
+        int get_ret = txn_get(txn_kv_.get(), scan_begin, end, it_range);
+        if (get_ret < 0) {
+            LOG_WARNING("failed to scan rowset metas when recycling merged file")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("ret", get_ret);
+            return -1;
+        }
+        if (get_ret == 1 || it_range == nullptr || !it_range->has_next()) {
+            return 0;
+        }
+
+        std::string last_key;
+        while (it_range->has_next()) {
+            auto [k, v] = it_range->next();
+            last_key.assign(k.data(), k.size());
+            doris::RowsetMetaCloudPB rowset_meta;
+            if (!rowset_meta.ParseFromArray(v.data(), v.size())) {
+                LOG_WARNING("malformed rowset meta when checking merged file rowset existence")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("key", hex(k));
+                continue;
+            }
+            if (stats) {
+                ++stats->rowset_scan_count;
+            }
+            if (rowset_meta.rowset_id_v2() == rowset_id) {
+                *exists = true;
+                return 0;
+            }
+        }
+
+        if (!it_range->more()) {
+            return 0;
+        }
+
+        // Continue scanning from the next key to keep each transaction short.
+        scan_begin = std::move(last_key);
+        scan_begin.push_back('\x00');
+    }
+}
+
+std::pair<std::string, std::shared_ptr<StorageVaultAccessor>>
+InstanceRecycler::resolve_merged_file_accessor(const std::string& hint) {
+    if (!hint.empty()) {
+        if (auto it = accessor_map_.find(hint); it != accessor_map_.end()) {
+            return {hint, it->second};
+        }
+    }
+
+    return {"", nullptr};
+}
+
+int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_info,
+                                               bool* changed,
+                                               MergedFileRecycleStats* stats) {
+    bool local_changed = false;
+    int64_t left_num = 0;
+    int64_t left_bytes = 0;
+
+    for (int i = 0; i < merged_info->small_files_size(); ++i) {
+        auto* small_file = merged_info->mutable_small_files(i);
+        if (small_file->deleted()) {
+            continue;
+        }
+
+        if (!small_file->has_tablet_id() || !small_file->has_rowset_id()) {
+            LOG_WARNING("merged file small file missing identifiers during correction")
+                    .tag("instance_id", instance_id_)
+                    .tag("small_file_path", small_file->path())
+                    .tag("index", i);
+            return -1;
+        }
+
+        int64_t tablet_id = small_file->tablet_id();
+        const std::string& rowset_id = small_file->rowset_id();
+        bool rowset_exists = false;
+        if (check_rowset_exists(tablet_id, rowset_id, &rowset_exists, stats) != 0) {
+            return -1;
+        }
+
+        if (!rowset_exists) {
+            small_file->set_deleted(true);
+            local_changed = true;
+            continue;
+        }
+
+        left_num++;
+        left_bytes += small_file->size();
+    }
+
+    if (merged_info->left_file_num() != left_num) {
+        merged_info->set_left_file_num(left_num);
+        local_changed = true;
+    }
+    if (merged_info->left_file_bytes() != left_bytes) {
+        merged_info->set_left_file_bytes(left_bytes);
+        local_changed = true;
+    }
+    if (merged_info->ref_cnt() != left_num) {
+        merged_info->set_ref_cnt(left_num);
+        local_changed = true;
+    }
+    if (!merged_info->corrected()) {
+        merged_info->set_corrected(true);
+        local_changed = true;
+    }
+    if (left_num == 0 && merged_info->state() != cloud::MergedFileInfoPB::RECYCLING) {
+        merged_info->set_state(cloud::MergedFileInfoPB::RECYCLING);
+        local_changed = true;
+    }
+
+    if (changed != nullptr) {
+        *changed = local_changed;
+    }
+    return 0;
+}
+
+int InstanceRecycler::process_single_merged_file(const std::string& merged_key,
+                                                 const std::string& merged_file_path,
+                                                 MergedFileRecycleStats* stats) {
+    if (stopped()) {
+        LOG_WARNING("recycler stopped before processing merged file")
+                .tag("instance_id", instance_id_)
+                .tag("merged_file_path", merged_file_path);
+        return -1;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when processing merged file")
+                .tag("instance_id", instance_id_)
+                .tag("merged_file_path", merged_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::string merged_val;
+    err = txn->get(merged_key, &merged_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return 0;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get merged file kv")
+                .tag("instance_id", instance_id_)
+                .tag("merged_file_path", merged_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    cloud::MergedFileInfoPB merged_info;
+    if (!merged_info.ParseFromString(merged_val)) {
+        LOG_WARNING("failed to parse merged file info")
+                .tag("instance_id", instance_id_)
+                .tag("merged_file_path", merged_file_path);
+        return -1;
+    }
+
+    int64_t now_sec = ::time(nullptr);
+    bool corrected = merged_info.corrected();
+    bool due = config::force_immediate_recycle ||
+               now_sec - merged_info.created_at_sec() >= config::merged_file_correction_delay_seconds;
+
+    if (!corrected && due) {
+        bool changed = false;
+        if (correct_merged_file_info(&merged_info, &changed, stats) != 0) {
+            LOG_WARNING("correct_merged_file_info failed")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path);
+            return -1;
+        }
+        if (changed) {
+            std::string updated;
+            if (!merged_info.SerializeToString(&updated)) {
+                LOG_WARNING("failed to serialize merged file info after correction")
+                        .tag("instance_id", instance_id_)
+                        .tag("merged_file_path", merged_file_path);
+                return -1;
+            }
+            txn->put(merged_key, updated);
+            err = txn->commit();
+            if (err == TxnErrorCode::TXN_OK) {
+                if (stats) {
+                    ++stats->num_corrected;
+                }
+            } else {
+                if (err == TxnErrorCode::TXN_CONFLICT) {
+                    LOG_WARNING("failed to commit correction for merged file due to conflict")
+                            .tag("instance_id", instance_id_)
+                            .tag("merged_file_path", merged_file_path);
+                } else {
+                    LOG_WARNING("failed to commit correction for merged file")
+                            .tag("instance_id", instance_id_)
+                            .tag("merged_file_path", merged_file_path)
+                            .tag("err", err);
+                }
+                return -1;
+            }
+        }
+    }
+
+    txn.reset();
+
+    if (merged_info.state() == cloud::MergedFileInfoPB::RECYCLING && merged_info.ref_cnt() == 0) {
+        if (!merged_info.has_resource_id() || merged_info.resource_id().empty()) {
+            LOG_WARNING("merged file missing resource id when recycling")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path);
+            return -1;
+        }
+        auto [resource_id, accessor] = resolve_merged_file_accessor(merged_info.resource_id());
+        if (!accessor) {
+            LOG_WARNING("no accessor available to delete merged file")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("resource_id", merged_info.resource_id());
+            return -1;
+        }
+        int del_ret = accessor->delete_file(merged_file_path);
+        if (del_ret != 0 && del_ret != 1) {
+            LOG_WARNING("failed to delete merged file")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("resource_id", resource_id)
+                    .tag("ret", del_ret);
+            return -1;
+        }
+        if (del_ret == 1) {
+            LOG_INFO("merged file already removed")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("resource_id", resource_id);
+        } else {
+            LOG_INFO("deleted merged file")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("resource_id", resource_id);
+        }
+
+        std::unique_ptr<Transaction> del_txn;
+        err = txn_kv_->create_txn(&del_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn when removing merged file kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string latest_val;
+        err = del_txn->get(merged_key, &latest_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to re-read merged file kv before removal")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("err", err);
+            return -1;
+        }
+
+        cloud::MergedFileInfoPB latest_info;
+        if (!latest_info.ParseFromString(latest_val)) {
+            LOG_WARNING("failed to parse merged file info before removal")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path);
+            return -1;
+        }
+
+        if (!(latest_info.state() == cloud::MergedFileInfoPB::RECYCLING &&
+              latest_info.ref_cnt() == 0)) {
+            LOG_INFO("merged file state changed before removal, skip deleting kv")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path);
+            return 0;
+        }
+
+        del_txn->remove(merged_key);
+        err = del_txn->commit();
+        if (err == TxnErrorCode::TXN_OK) {
+            if (stats) {
+                ++stats->num_deleted;
+                stats->bytes_deleted += static_cast<int64_t>(merged_key.size()) +
+                                        static_cast<int64_t>(latest_val.size());
+                if (del_ret == 0 || del_ret == 1) {
+                    ++stats->num_object_deleted;
+                    int64_t object_size = latest_info.total_file_bytes();
+                    if (object_size <= 0) {
+                        object_size = merged_info.total_file_bytes();
+                    }
+                    stats->bytes_object_deleted += object_size;
+                }
+            }
+            LOG_INFO("removed merged file metadata")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path);
+            return 0;
+        }
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            LOG_WARNING("failed to remove merged file kv due to conflict")
+                    .tag("instance_id", instance_id_)
+                    .tag("merged_file_path", merged_file_path);
+            return -1;
+        }
+        LOG_WARNING("failed to remove merged file kv")
+                .tag("instance_id", instance_id_)
+                .tag("merged_file_path", merged_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    return 0;
+}
+
+int InstanceRecycler::handle_merged_file_kv(std::string_view key, std::string_view /*value*/,
+                                            MergedFileRecycleStats* stats, int* ret) {
+    if (stats) {
+        ++stats->num_scanned;
+    }
+    std::string merged_file_path;
+    if (!decode_merged_file_key(key, &merged_file_path)) {
+        LOG_WARNING("failed to decode merged file key")
+                .tag("instance_id", instance_id_)
+                .tag("key", hex(key));
+        if (stats) {
+            ++stats->num_failed;
+        }
+        if (ret) {
+            *ret = -1;
+        }
+        return 0;
+    }
+
+    std::string merged_key(key);
+    int process_ret = process_single_merged_file(merged_key, merged_file_path, stats);
+    if (process_ret != 0) {
+        if (stats) {
+            ++stats->num_failed;
+        }
+        if (ret) {
+            *ret = -1;
+        }
+    }
+    return 0;
+}
 bool is_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                      int64_t txn_id) {
     std::unique_ptr<Transaction> txn;
@@ -1973,7 +2339,7 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     if (num_segments <= 0) return 0;
 
     std::vector<std::string> file_paths;
-    if (process_merge_file_segment_index(rs_meta_pb, &file_paths) != 0) {
+    if (process_merged_file_segment_index(rs_meta_pb, &file_paths) != 0) {
         return -1;
     }
 
@@ -2078,10 +2444,10 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     return accessor->delete_files(file_paths);
 }
 
-int InstanceRecycler::process_merge_file_segment_index(
+int InstanceRecycler::process_merged_file_segment_index(
         const doris::RowsetMetaCloudPB& rs_meta_pb,
-        std::vector<std::string>* merge_files_to_delete) {
-    if (merge_files_to_delete == nullptr) {
+        std::vector<std::string>* merged_files_to_delete) {
+    if (merged_files_to_delete == nullptr) {
         return -1;
     }
     const auto& index_map = rs_meta_pb.merge_file_segment_index();
@@ -2091,57 +2457,55 @@ int InstanceRecycler::process_merge_file_segment_index(
     struct MergeSmallFileInfo {
         std::string small_file_path;
     };
-    std::unordered_map<std::string, std::vector<MergeSmallFileInfo>> merge_file_updates;
-    merge_file_updates.reserve(index_map.size());
+    std::unordered_map<std::string, std::vector<MergeSmallFileInfo>> merged_file_updates;
+    merged_file_updates.reserve(index_map.size());
     for (const auto& [small_path, index_pb] : index_map) {
         if (!index_pb.has_merge_file_path() || index_pb.merge_file_path().empty()) {
             continue;
         }
-        merge_file_updates[index_pb.merge_file_path()].push_back(MergeSmallFileInfo{small_path});
+        merged_file_updates[index_pb.merge_file_path()].push_back(MergeSmallFileInfo {small_path});
     }
-    if (merge_file_updates.empty()) {
+    if (merged_file_updates.empty()) {
         return 0;
     }
 
     int ret = 0;
-    constexpr int kMaxRetry = 5;
-    for (auto& [merge_file_path, small_files] : merge_file_updates) {
+    for (auto& [merged_file_path, small_files] : merged_file_updates) {
         if (small_files.empty()) {
             continue;
         }
 
         bool success = false;
-        for (int attempt = 0; attempt < kMaxRetry; ++attempt) {
+        do {
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
-                LOG_WARNING("failed to create txn when updating merge file ref count")
+                LOG_WARNING("failed to create txn when updating merged file ref count")
                         .tag("instance_id", instance_id_)
-                        .tag("merge_file_path", merge_file_path)
+                        .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id())
-                        .tag("attempt", attempt + 1)
                         .tag("err", err);
                 ret = -1;
                 break;
             }
 
-            std::string merge_key = merge_file_key({instance_id_, merge_file_path});
-            std::string merge_val;
-            err = txn->get(merge_key, &merge_val);
+            std::string merged_key = merge_file_key({instance_id_, merged_file_path});
+            std::string merged_val;
+            err = txn->get(merged_key, &merged_val);
             if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                LOG_WARNING("merge file info not found when recycling rowset")
+                LOG_WARNING("merged file info not found when recycling rowset")
                         .tag("instance_id", instance_id_)
-                        .tag("merge_file_path", merge_file_path)
+                        .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id());
                 ret = -1;
                 break;
             }
             if (err != TxnErrorCode::TXN_OK) {
-                LOG_WARNING("failed to get merge file info when recycling rowset")
+                LOG_WARNING("failed to get merged file info when recycling rowset")
                         .tag("instance_id", instance_id_)
-                        .tag("merge_file_path", merge_file_path)
+                        .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id())
                         .tag("err", err);
@@ -2150,10 +2514,10 @@ int InstanceRecycler::process_merge_file_segment_index(
             }
 
             cloud::MergedFileInfoPB merge_info;
-            if (!merge_info.ParseFromString(merge_val)) {
-                LOG_WARNING("failed to parse merge file info when recycling rowset")
+            if (!merge_info.ParseFromString(merged_val)) {
+                LOG_WARNING("failed to parse merged file info when recycling rowset")
                         .tag("instance_id", instance_id_)
-                        .tag("merge_file_path", merge_file_path)
+                        .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id());
                 ret = -1;
@@ -2175,9 +2539,9 @@ int InstanceRecycler::process_merge_file_segment_index(
                     }
                 }
                 if (!found) {
-                    LOG_WARNING("merge file info missing small file entry")
+                    LOG_WARNING("merged file info missing small file entry")
                             .tag("instance_id", instance_id_)
-                            .tag("merge_file_path", merge_file_path)
+                            .tag("merged_file_path", merged_file_path)
                             .tag("small_file_path", small_file_info.small_file_path)
                             .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                             .tag("tablet_id", rs_meta_pb.tablet_id());
@@ -2206,43 +2570,43 @@ int InstanceRecycler::process_merge_file_segment_index(
 
             std::string updated_val;
             if (!merge_info.SerializeToString(&updated_val)) {
-                LOG_WARNING("failed to serialize merge file info when recycling rowset")
+                LOG_WARNING("failed to serialize merged file info when recycling rowset")
                         .tag("instance_id", instance_id_)
-                        .tag("merge_file_path", merge_file_path)
+                        .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                         .tag("tablet_id", rs_meta_pb.tablet_id());
                 ret = -1;
                 break;
             }
 
-            txn->put(merge_key, updated_val);
+            txn->put(merged_key, updated_val);
             err = txn->commit();
             if (err == TxnErrorCode::TXN_OK) {
                 success = true;
                 if (left_file_num == 0) {
-                    merge_files_to_delete->push_back(merge_file_path);
+                    merged_files_to_delete->push_back(merged_file_path);
                 }
                 break;
             }
             if (err == TxnErrorCode::TXN_CONFLICT) {
-                VLOG_DEBUG << "merge file info update conflict, retrying"
+                VLOG_DEBUG << "merged file info update conflict, not retrying"
                            << ", instance_id=" << instance_id_
-                           << ", merge_file_path=" << merge_file_path
+                           << ", merged_file_path=" << merged_file_path
                            << ", rowset_id=" << rs_meta_pb.rowset_id_v2()
-                           << ", tablet_id=" << rs_meta_pb.tablet_id()
-                           << ", attempt=" << attempt + 1;
-                continue;
+                           << ", tablet_id=" << rs_meta_pb.tablet_id();
+                ret = -1;
+                break;
             }
 
-            LOG_WARNING("failed to commit merge file info update")
+            LOG_WARNING("failed to commit merged file info update")
                     .tag("instance_id", instance_id_)
-                    .tag("merge_file_path", merge_file_path)
+                    .tag("merged_file_path", merged_file_path)
                     .tag("rowset_id", rs_meta_pb.rowset_id_v2())
                     .tag("tablet_id", rs_meta_pb.tablet_id())
                     .tag("err", err);
             ret = -1;
             break;
-        }
+        } while (false);
 
         if (!success) {
             ret = -1;
@@ -2285,13 +2649,13 @@ int InstanceRecycler::delete_rowset_data(
         auto& file_paths = resource_file_paths[rs.resource_id()];
         const auto& rowset_id = rs.rowset_id_v2();
         int64_t tablet_id = rs.tablet_id();
-        std::vector<std::string> merge_files_to_delete;
-        if (process_merge_file_segment_index(rs, &merge_files_to_delete) != 0) {
+        std::vector<std::string> merged_files_to_delete;
+        if (process_merged_file_segment_index(rs, &merged_files_to_delete) != 0) {
             ret = -1;
             continue;
         }
-        for (auto& merge_file_path : merge_files_to_delete) {
-            file_paths.push_back(std::move(merge_file_path));
+        for (auto& merged_file_path : merged_files_to_delete) {
+            file_paths.push_back(std::move(merged_file_path));
         }
         int64_t num_segments = rs.num_segments();
         if (num_segments <= 0) {
@@ -2488,6 +2852,76 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
     }
     auto& accessor = it->second;
     return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
+}
+
+bool InstanceRecycler::decode_merged_file_key(std::string_view key, std::string* merged_path) {
+    if (key.empty()) {
+        return false;
+    }
+    std::string_view key_view = key;
+    key_view.remove_prefix(1); // remove keyspace prefix
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> decoded;
+    if (decode_key(&key_view, &decoded) != 0) {
+        return false;
+    }
+    if (decoded.size() < 4) {
+        return false;
+    }
+    try {
+        *merged_path = std::get<std::string>(std::get<0>(decoded.back()));
+    } catch (const std::bad_variant_access&) {
+        return false;
+    }
+    return true;
+}
+
+int InstanceRecycler::recycle_merged_files() {
+    const std::string task_name = "recycle_merged_files";
+    auto start_tp = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(start_tp.time_since_epoch()).count();
+    int ret = 0;
+    MergedFileRecycleStats stats;
+
+    register_recycle_task(task_name, start_time);
+    DORIS_CLOUD_DEFER {
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        int64_t cost_ms = duration_cast<milliseconds>(steady_clock::now() - start_tp).count();
+        g_bvar_recycler_merged_file_recycled_kv_num.put(instance_id_, stats.num_deleted);
+        g_bvar_recycler_merged_file_recycled_kv_bytes.put(instance_id_, stats.bytes_deleted);
+        g_bvar_recycler_merged_file_recycle_cost_ms.put(instance_id_, cost_ms);
+        g_bvar_recycler_merged_file_scanned_kv_num.put(instance_id_, stats.num_scanned);
+        g_bvar_recycler_merged_file_corrected_kv_num.put(instance_id_, stats.num_corrected);
+        g_bvar_recycler_merged_file_recycled_object_num.put(instance_id_, stats.num_object_deleted);
+        g_bvar_recycler_merged_file_bytes_object_deleted.put(instance_id_,
+                                                              stats.bytes_object_deleted);
+        g_bvar_recycler_merged_file_rowset_scanned_num.put(instance_id_, stats.rowset_scan_count);
+        LOG_INFO("recycle merged files finished, cost={}s", cost)
+                .tag("instance_id", instance_id_)
+                .tag("num_scanned", stats.num_scanned)
+                .tag("num_corrected", stats.num_corrected)
+                .tag("num_deleted", stats.num_deleted)
+                .tag("num_failed", stats.num_failed)
+                .tag("num_objects_deleted", stats.num_object_deleted)
+                .tag("bytes_object_deleted", stats.bytes_object_deleted)
+                .tag("rowset_scan_count", stats.rowset_scan_count)
+                .tag("bytes_deleted", stats.bytes_deleted)
+                .tag("ret", ret);
+    };
+
+    auto recycle_func = [this, &stats, &ret](auto&& key, auto&& value) {
+        return handle_merged_file_kv(std::forward<decltype(key)>(key),
+                                     std::forward<decltype(value)>(value), &stats, &ret);
+    };
+
+    std::string begin = merge_file_key({instance_id_, ""});
+    std::string end = merge_file_key({instance_id_, "\xff"});
+    if (scan_and_recycle(begin, end, recycle_func) != 0) {
+        ret = -1;
+    }
+
+    return ret;
 }
 
 int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t index_id,

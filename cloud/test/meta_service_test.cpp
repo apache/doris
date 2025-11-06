@@ -12268,7 +12268,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         merge_info->set_left_file_num(8);
         merge_info->set_total_file_bytes(1024000);
         merge_info->set_left_file_bytes(819200);
-        merge_info->set_create_timestamp_sec(1666666666);
+        merge_info->set_created_at_sec(1666666666);
         merge_info->set_corrected(false);
         merge_info->set_state(MergedFileInfoPB::NORMAL);
         
@@ -12390,7 +12390,7 @@ TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
         merge_info->set_left_file_num(4);
         merge_info->set_total_file_bytes(2048000);
         merge_info->set_left_file_bytes(1638400);
-        merge_info->set_create_timestamp_sec(1666666777);
+        merge_info->set_created_at_sec(1666666777);
         merge_info->set_corrected(true);
         merge_info->set_state(MergedFileInfoPB::NORMAL);
         
