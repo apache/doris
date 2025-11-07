@@ -948,7 +948,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             desc.setColumnScale(decimalDigits);
         }
         desc.setIsAllowNull(column.isAllowNull());
-        if (column.getChildren().size() > 0) {
+        if (CollectionUtils.isNotEmpty(column.getChildren())) {
             ArrayList<TColumnDesc> children = new ArrayList<>();
             for (Column child : column.getChildren()) {
                 children.add(getColumnDesc(child));

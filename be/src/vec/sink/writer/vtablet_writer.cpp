@@ -917,8 +917,9 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        int64_t compressed_time = 0;
         Status st = block.serialize(state->be_exec_version(), request->mutable_block(),
-                                    &uncompressed_bytes, &compressed_bytes,
+                                    &uncompressed_bytes, &compressed_bytes, &compressed_time,
                                     state->fragement_transmission_compression_type(),
                                     _parent->_transfer_large_data_by_brpc);
         TEST_INJECTION_POINT_CALLBACK("VNodeChannel::try_send_block", &st);

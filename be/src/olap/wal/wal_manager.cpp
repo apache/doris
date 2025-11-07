@@ -480,7 +480,7 @@ Status WalManager::update_wal_dir_estimated_wal_bytes(const std::string& wal_dir
 Status WalManager::_update_wal_dir_info_thread() {
     while (!_stop.load()) {
         if (!ExecEnv::ready()) {
-            LOG(INFO) << "Sleep 1s to wait for storage engine init.";
+            VLOG_DEBUG << "Sleep 1s to wait for storage engine init.";
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             continue;
         }

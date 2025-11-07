@@ -77,7 +77,7 @@ public:
     std::string get_name() const override { return name; }
 
     Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id,
-                   const DataTypePtr& result_type, const VExprSPtrs& children) override {
+                   const DataTypePtr& result_type, const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
         std::vector<int>& output_slot_ref_indexs = args_info.output_slot_ref_indexs;
@@ -340,12 +340,12 @@ public:
     }
 
 private:
-    bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) {
+    bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) const {
         const auto it = std::find(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end(), id);
         return it != output_slot_ref_indexs.end();
     }
 
-    void _set_column_ref_column_id(VExprSPtr expr, int gap) {
+    void _set_column_ref_column_id(VExprSPtr expr, int gap) const {
         for (const auto& child : expr->children()) {
             if (child->is_column_ref()) {
                 auto* ref = static_cast<VColumnRef*>(child.get());
@@ -356,7 +356,8 @@ private:
         }
     }
 
-    void _collect_slot_ref_column_id(VExprSPtr expr, std::vector<int>& output_slot_ref_indexs) {
+    void _collect_slot_ref_column_id(VExprSPtr expr,
+                                     std::vector<int>& output_slot_ref_indexs) const {
         for (const auto& child : expr->children()) {
             if (child->is_slot_ref()) {
                 const auto* ref = static_cast<VSlotRef*>(child.get());
@@ -369,7 +370,7 @@ private:
 
     void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
                       int current_repeat_times, int size, int64_t current_row_idx,
-                      const std::vector<int>& output_slot_ref_indexs) {
+                      const std::vector<int>& output_slot_ref_indexs) const {
         if (!current_repeat_times || !size) {
             return;
         }

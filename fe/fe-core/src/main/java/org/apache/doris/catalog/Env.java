@@ -5745,7 +5745,8 @@ public class Env {
             // check if have materialized view on rename column
             // and check whether colName is referenced by generated columns
             for (Column column : entry.getValue().getSchema()) {
-                if (column.getName().equals(colName) && !column.getGeneratedColumnsThatReferToThis().isEmpty()) {
+                if (column.getName().equals(colName)
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis())) {
                     throw new DdlException(
                             "Cannot rename column, because column '" + colName
                                     + "' has a generated column dependency on :"

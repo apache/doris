@@ -52,7 +52,7 @@ class VCaseExpr final : public VExpr {
 public:
     VCaseExpr(const TExprNode& node);
     ~VCaseExpr() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -224,7 +224,7 @@ private:
 
     template <typename IndexType>
     ColumnPtr _execute_impl(const std::vector<ColumnPtr>& when_columns,
-                            std::vector<ColumnPtr>& then_columns, size_t rows_count) {
+                            std::vector<ColumnPtr>& then_columns, size_t rows_count) const {
         std::vector<IndexType> then_idx(rows_count, 0);
         IndexType* __restrict then_idx_ptr = then_idx.data();
         for (IndexType i = 0; i < when_columns.size(); i++) {
