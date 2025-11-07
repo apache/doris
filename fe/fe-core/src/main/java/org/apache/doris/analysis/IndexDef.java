@@ -17,7 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.info.PartitionNamesInfo;
 
@@ -231,7 +237,7 @@ public class IndexDef {
     }
 
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+                            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.ANN) {
             if (column.isAllowNull()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");
@@ -341,8 +347,8 @@ public class IndexDef {
 
     public boolean isAnalyzedInvertedIndex() {
         return indexType == IndexDef.IndexType.INVERTED
-            && properties != null
-            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                && properties != null
+                && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
