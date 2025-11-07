@@ -854,8 +854,9 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             try {
+                checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-                checkBlockRules();
+                checkBlockRulesByScan(planner);
             } catch (MustFallbackException e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
