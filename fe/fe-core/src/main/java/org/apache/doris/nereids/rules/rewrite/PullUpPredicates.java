@@ -320,7 +320,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                             genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
                             if (isScalar) {
                                 // Aggregation will return null if there are no matching rows
-                                pullPredicates.add(new Or(new IsNull(slot), genPredicates));
+                                // SimplifyRange will put IsNull at the back
+                                pullPredicates.add(new Or(genPredicates, new IsNull(slot)));
                             } else {
                                 pullPredicates.add(genPredicates);
                             }
