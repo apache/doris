@@ -277,7 +277,6 @@ import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
-import org.apache.doris.transaction.AutoPartitionCacheManager;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -294,7 +293,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.protobuf.InvalidProtocolBufferException;
-import jline.internal.Log;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -3669,9 +3667,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        boolean isStreamLoad;
         if (request.isSetIsStreamLoad()) {
-            isStreamLoad = request.isIsStreamLoad();
+            request.isIsStreamLoad();
         } else {
             errorStatus.setErrorMsgs(
                     Lists.newArrayList("Logical error: please check the RPC transmission between BE and FE."));
@@ -3753,16 +3750,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
          * We ensure that only one view of the replica distribution in P2:t3,t4 above takes effect for this txn
          * to avoid tablets being written to multiple BEs within the same transaction (assuming single replica)
         */
-
-        // first we collect all the tablets replica distribution
-        Map<Long, Map<Long, Set<Long>>> tempResultTablets = new HashMap<>();
+        List<TTabletLocation> tablets = new ArrayList<>();
+        List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
+            List<TTabletLocation> partitionTablets = new ArrayList<>();
+            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
-            Map<Long, Set<Long>> tabletIdToBeID = new HashMap<>();
             try {
                 OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
             } catch (UserException ex) {
@@ -3778,94 +3775,73 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             partitions.add(tPartition);
-
+            // tablet
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
+                    // we should ensure the replica backend is alive
+                    // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
+                    // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
                             bePathsMap = ((CloudTablet) tablet)
                                     .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                            // only for test
+                            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
+                                DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                                        "FE.FrontendServiceImpl.createPartition.MockRebalance");
+                                int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+                                int switchAfter = 2;
+                                if (currentExecuteNum >= switchAfter) {
+                                    List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                                    // cloud only has one replica, so we only need to find another beid for the beid
+                                    // in bePathsMap
+                                    for (Long beId : bePathsMap.keySet()) {
+                                        Long otherBeId = allBeIds.stream()
+                                                .filter(id -> id != beId)
+                                                .findFirst()
+                                                .orElse(null);
+                                        if (otherBeId != null) {
+                                            LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
+                                            bePathsMap.put(beId, otherBeId);
+                                        }
+                                    }
+                                }
+                            }
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
+                        LOG.warn("send create partition error status: {}", result);
                         return result;
                     }
-
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
-
-                    for (Long beId : bePathsMap.keySet()) {
-                        Long selectedBeId = beId;
-
-                        if (Config.isCloudMode()
-                                && DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
-                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
-                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                            int switchAfter = 2;
-                            if (currentExecuteNum >= switchAfter) {
-                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                                for (Long otherBeId : allBeIds) {
-                                    if (!bePathsMap.keySet().contains(otherBeId)) {
-                                        selectedBeId = otherBeId;
-                                        LOG.info("Debug point enabled (execute num: {}), "
-                                                + "switch tablet {} from BE {} to BE {}",
-                                                currentExecuteNum, tablet.getId(), beId, selectedBeId);
-                                        break;
-                                    }
-                                }
-                            } else {
-                                LOG.info("Debug point enabled but skip switching (execute num: {}, switch_after: {})",
-                                        currentExecuteNum, switchAfter);
-                            }
-                        }
-                        tabletIdToBeID.computeIfAbsent(tablet.getId(), k -> new HashSet<>()).add(selectedBeId);
+                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+                        Random random = new SecureRandom();
+                        Long masterNode = nodes[random.nextInt(nodes.length)];
+                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        slaveBePathsMap.removeAll(masterNode);
+                        partitionTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(Sets.newHashSet(masterNode))));
+                        partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(slaveBePathsMap.keySet())));
+                    } else {
+                        partitionTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(bePathsMap.keySet())));
                     }
                 }
             }
-            if (!tabletIdToBeID.isEmpty()) {
-                tempResultTablets.put(partition.getId(), tabletIdToBeID);
-            } else {
-                Log.warn("tabletIdToBeID is empty, maybe create partition something wrong");
-            }
+            Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                    .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                            partitionSlaveTablets);
         }
-        // Use AutoPartitionCacheManager to get or cache tablet locations
-        // For stream load, skip caching, reason as follow:
-        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent
-        //    replica distribution issues, while stream load is always a single-instance import.
-        // 2. From a necessity perspective: Stream load triggers FE commit/abort txn requests from BE.
-        //    If a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
-        List<TTabletLocation> tablets;
-        List<TTabletLocation> slaveTablets;
-        boolean isWriteSingleReplica = request.isSetWriteSingleReplica() && request.isWriteSingleReplica();
-        if (!isStreamLoad) {
-            AutoPartitionCacheManager.PartitionTabletCache cache =
-                    Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                            .getOrSetAutoPartitionInfo(dbId, txnId, tempResultTablets, isWriteSingleReplica);
-            tablets = cache.tablets;
-            slaveTablets = cache.slaveTablets;
-        } else {
-            tablets = new ArrayList<>();
-            slaveTablets = new ArrayList<>();
-            for (Map.Entry<Long, Map<Long, Set<Long>>> entry : tempResultTablets.entrySet()) {
-                Map<Long, Set<Long>> tabletBeMap = entry.getValue();
-                if (tabletBeMap == null || tabletBeMap.isEmpty()) {
-                    continue;
-                }
-                AutoPartitionCacheManager.PartitionTabletCache cache =
-                        AutoPartitionCacheManager.buildTabletLocations(tabletBeMap, isWriteSingleReplica);
-                tablets.addAll(cache.tablets);
-                slaveTablets.addAll(cache.slaveTablets);
-            }
-        }
-
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);

@@ -1628,7 +1628,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
-        autoPartitionCacheManager.clearAutoPartitionInfo(dbId, transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     @Override
@@ -1690,7 +1690,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
         cleanSubTransactions(transactionId);
-        autoPartitionCacheManager.clearAutoPartitionInfo(dbId, transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 

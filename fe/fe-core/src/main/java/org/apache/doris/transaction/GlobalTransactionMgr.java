@@ -401,7 +401,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction(txnId, reason, txnCommitAttachment);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
-            autoPartitionCacheManager.clearAutoPartitionInfo(dbId, txnId);
+            autoPartitionCacheManager.clearAutoPartitionInfo(txnId);
         }
     }
 
@@ -426,7 +426,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction2PC(transactionId);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
-            autoPartitionCacheManager.clearAutoPartitionInfo(dbId, dbId);
+            autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
         }
     }
 
@@ -537,7 +537,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
-        autoPartitionCacheManager.clearAutoPartitionInfo(dbId, transactionId);
+        autoPartitionCacheManager.clearAutoPartitionInfo(transactionId);
     }
 
     /**
