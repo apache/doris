@@ -26,7 +26,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -51,6 +50,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -286,8 +286,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         labelName, queryId, txnId, abortTxnException);
             }
         }
-        // retry insert into from select when meet E-230 in cloud
-        if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+        // retry insert into from select when meet "need re-plan error" in cloud
+        if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
             return;
         }
         String firstErrorMsgPart = "";
