@@ -132,15 +132,19 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
         Cache::Handle* handle_failed = _last_cancel_channels->lookup(load_id.to_string());
         if (handle_failed != nullptr) {
             const auto& cancel_reason =
-                    reinterpret_cast<CacheValue*>(_last_cancel_channels->value(handle_failed))->_cancel_reason;
+                    reinterpret_cast<CacheValue*>(_last_cancel_channels->value(handle_failed))
+                            ->_cancel_reason;
             _last_cancel_channels->release(handle_failed);
             if (!cancel_reason.empty()) {
-                return Status::Cancelled("Load channel has been cancelled previously: {}, reason: {}",
-                                         load_id.to_string(), cancel_reason);
-            } {
+                return Status::Cancelled(
+                        "Load channel has been cancelled previously: {}, reason: {}",
+                        load_id.to_string(), cancel_reason);
+            } else {
                 // in LoadChannelMgr::cancel, we make sure it will not reach here
                 // so return the same msg like cancel()
-                return Status::RpcError("cancel_reason should not be empty or not set during load: {}", load_id.to_string());
+                return Status::RpcError(
+                        "cancel_reason should not be empty or not set during load: {}",
+                        load_id.to_string());
             }
         }
 
@@ -219,12 +223,16 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
         auto* existing_handle = _last_cancel_channels->lookup(load_id.to_string());
         if (existing_handle == nullptr) {
             if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
-                std::unique_ptr<std::string> cancel_reason_ptr = std::make_unique<std::string>(params.cancel_reason());
-                auto* handle = _last_cancel_channels->insert(load_id.to_string(), (void*)cancel_reason_ptr.release(), 
-                                    cancel_reason_ptr->capacity(), cancel_reason_ptr->capacity());
+                std::unique_ptr<std::string> cancel_reason_ptr =
+                        std::make_unique<std::string>(params.cancel_reason());
+                auto* handle = _last_cancel_channels->insert(
+                        load_id.to_string(), (void*)cancel_reason_ptr.release(),
+                        cancel_reason_ptr->capacity(), cancel_reason_ptr->capacity());
                 _last_cancel_channels->release(handle);
             } else {
-                return Status::RpcError("cancel_reason should not be empty or not set during load: {}", load_id.to_string());
+                return Status::RpcError(
+                        "cancel_reason should not be empty or not set during load: {}",
+                        load_id.to_string());
             }
         } else {
             _last_cancel_channels->release(existing_handle);
