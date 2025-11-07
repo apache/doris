@@ -594,7 +594,10 @@ public class StmtExecutor {
                 execute(queryId);
                 return;
             } catch (UserException e) {
-                if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
+                if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
+                    // We have retried internally(in handleQueryWithRetry()) for other kinds of exceptions.
+                    // And for error in SystemInfoService.NEED_REPLAN_ERRORS, they are not handled internally but here
+                    // so we just handle these errors, and throw exception for other errors.
                     throw e;
                 }
                 if (this.coord != null && this.coord.isQueryCancelled()) {
@@ -610,8 +613,8 @@ public class StmtExecutor {
                 if (DebugPointUtil.isEnable("StmtExecutor.retry.longtime")) {
                     randomMillis = 1000;
                 }
-                LOG.warn("receive E-230 tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
-                        i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
+                LOG.warn("receive '{}' tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
+                        e.getMessage(), i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
                 context.getState().reset();
@@ -806,7 +809,9 @@ public class StmtExecutor {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
-                if (Config.isCloudMode() && e.getDetailMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -957,15 +962,17 @@ public class StmtExecutor {
                 handleQueryStmt();
                 break;
             } catch (RpcException | UserException e) {
-                if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
-                // cloud mode retry
-                LOG.debug("due to exception {} retry {} rpc {} user {}",
+
+                LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
                 boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
@@ -2052,6 +2059,8 @@ public class StmtExecutor {
                     DebugUtil.printId(context.queryId()), e.getMessage());
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
+            // set to null so that the retry logic will generate a new coordinator
+            this.coord = null;
             throw e;
         } finally {
             coordBase.close();
