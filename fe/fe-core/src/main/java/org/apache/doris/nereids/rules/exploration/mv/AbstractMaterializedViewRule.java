@@ -31,8 +31,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.MaterializedViewExpressionRewriteContext;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.MaterializedViewExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
@@ -439,7 +437,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         () -> String.format("planOutput logical"
                                         + " properties = %s,\n groupOutput logical properties = %s",
                                 logicalProperties, queryPlan.getLogicalProperties()));
-
                 continue;
             }
             // need to collect table partition again, because the rewritten plan would contain new relation
@@ -644,16 +641,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                             && ((SlotReference) expression).getDataType() instanceof VariantType);
             extendMappingByVariant(variants, targetToTargetReplacementMappingQueryBased);
 
-            // use common expression rewriter
-            MaterializedViewExpressionRewriteContext
-                    expressionRewriteContext = new MaterializedViewExpressionRewriteContext(
-                    ExpressionRewriteMode.EXPRESSION_DIRECT, targetToTargetReplacementMappingQueryBased,
+            MaterializedViewExprReplacer materializedViewExprReplacer = new MaterializedViewExprReplacer(
+                    targetToTargetReplacementMappingQueryBased,
                     sourcePlan, sourcePlanBitSet);
-            Expression replacedExpression = expressionShuttledToRewrite.accept(
-                    AbstractMaterializedViewAggregateRule.EXPRESSION_REWRITER,
-                    expressionRewriteContext);
-            if (!expressionRewriteContext.isValid()) {
-                // if contains any slot to rewrite, which means could not be rewritten by target,
+            Expression replacedExpression =
+                    expressionShuttledToRewrite.accept(materializedViewExprReplacer, null);
+            if (!materializedViewExprReplacer.isValid()) {
+                // if contains any slot to rewrite, which means can not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
                 if (viewExprParamToDateTruncMap.isEmpty()
