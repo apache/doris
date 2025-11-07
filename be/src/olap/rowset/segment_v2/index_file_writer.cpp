@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "common/status.h"
+#include "io/fs/merge_file_writer.h"
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
@@ -126,6 +127,11 @@ Status IndexFileWriter::add_into_searcher_cache() {
     if (!st.ok()) {
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
             // StreamSinkFileWriter not found file is normal.
+            return Status::OK();
+        }
+        if (dynamic_cast<io::MergeFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            // MergeFileWriter: file may be merged, skip cache for now.
+            // The cache will be populated on first read.
             return Status::OK();
         }
         LOG(WARNING) << "IndexFileWriter::add_into_searcher_cache for " << _index_path_prefix
