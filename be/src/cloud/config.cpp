@@ -65,6 +65,8 @@ DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
 
 DEFINE_mBool(save_load_error_log_to_s3, "false");
 
+DEFINE_mBool(use_public_endpoint_for_error_log, "true");
+
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
 DEFINE_mBool(enable_new_tablet_do_compaction, "true");

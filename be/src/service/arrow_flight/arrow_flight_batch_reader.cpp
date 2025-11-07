@@ -268,7 +268,10 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
         {
             SCOPED_ATOMIC_TIMER(&_deserialize_block_timer);
             _block = vectorized::Block::create_shared();
-            st = _block->deserialize(callback->response_->block());
+            [[maybe_unused]] size_t uncompressed_size = 0;
+            [[maybe_unused]] int64_t uncompressed_time = 0;
+            st = _block->deserialize(callback->response_->block(), &uncompressed_size,
+                                     &uncompressed_time);
             ARROW_RETURN_NOT_OK(to_arrow_status(st));
             break;
         }
