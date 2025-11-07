@@ -122,3 +122,8 @@
 -- !truncate_decimal_10_select1 --
 5	p19	19.99
 
+-- !query_partitions_with_expired_snapshot_select --
+1	a	1	2024-01-01T00:00
+2	b	2	2024-02-02T00:00
+3	c	3	2024-03-03T00:00
+
