@@ -370,7 +370,7 @@ public abstract class ExternalCatalog
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                    Config.max_meta_object_cache_num,
+                    Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
