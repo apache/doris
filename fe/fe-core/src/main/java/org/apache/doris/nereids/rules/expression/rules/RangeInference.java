@@ -463,8 +463,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // if A's range is bigger than B, then A or (B and C) = A
         // if A or B is true/all, then A or (B and C) = A or C
         for (CompoundValue compoundValue : collector.compoundValues) {
-            // in fact, this check should always succ
-            if (isAnd != compoundValue.isAnd && compoundValue.reference.equals(reference)) {
+            if (isAnd != compoundValue.isAnd
+                    && compoundValue.reference.equals(reference)
+                    // no process the compose value which reference different
+                    && compoundValue.sourceValues.get(0).reference.equals(reference)) {
                 ImmutableList.Builder<ValueDesc> newSourceValuesBuilder
                         = ImmutableList.builderWithExpectedSize(compoundValue.sourceValues.size());
                 boolean skipWholeCompoundValue = false;
