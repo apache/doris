@@ -36,6 +36,7 @@ private:
     friend class COWHelper<IColumn, ColumnVarbinary>;
 
 public:
+    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::ColumnItemType;
     using Container = PaddedPODArray<doris::StringView>;
     ColumnVarbinary() = default;
     ColumnVarbinary(const size_t n) : _data(n) {}

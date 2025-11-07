@@ -62,12 +62,14 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -223,8 +225,15 @@ public class PaimonUtil {
                 }
                 return ScalarType.createCharType(charLen);
             case BINARY:
+                // TODO:
+                // Paimon BinaryType length is in [1, 2147483647]
+                // but Doris VarbinaryType max length is 65533 now
+                int binaryLen = ((BinaryType) dataType).getLength();
+                return ScalarType.createVarbinaryType(binaryLen);
             case VARBINARY:
-                return Type.STRING;
+                // Paimon VarBinaryType length is in [1, 2147483647]
+                int varbinaryLen = ((VarBinaryType) dataType).getLength();
+                return ScalarType.createVarbinaryType(varbinaryLen);
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());

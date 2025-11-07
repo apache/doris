@@ -22,9 +22,6 @@
 namespace doris::vectorized::converter {
 #include "common/compile_check_begin.h"
 
-const std::set<std::string> SafeCastString<TYPE_BOOLEAN>::FALSE_VALUES = {"false", "off", "no", "0",
-                                                                          ""};
-
 #define FOR_LOGICAL_INTEGER_TYPES(M) \
     M(TYPE_TINYINT)                  \
     M(TYPE_SMALLINT)                 \
@@ -70,7 +67,8 @@ const std::set<std::string> SafeCastString<TYPE_BOOLEAN>::FALSE_VALUES = {"false
     M(TYPE_DATETIME)             \
     M(TYPE_DATE)                 \
     M(TYPE_DATETIMEV2)           \
-    M(TYPE_DATEV2)
+    M(TYPE_DATEV2)               \
+    M(TYPE_VARBINARY)
 
 static bool _is_numeric_type(PrimitiveType type) {
     switch (type) {
