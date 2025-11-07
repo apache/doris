@@ -26,7 +26,7 @@ jdbcUser = "root"
 jdbcPassword = ""
 
 //arrow flight sql test config
-extArrowFlightSqlHost = "127.0.0.1"
+extArrowFlightSqlHost = "172.19.0.2"
 extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
