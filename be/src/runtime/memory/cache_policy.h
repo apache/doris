@@ -84,7 +84,7 @@ public:
         case CacheType::TABLET_VERSION_CACHE:
             return "MowTabletVersionCache";
         case CacheType::LAST_LOAD_CHANNEL_CACHE:
-            return "LastSuccessChannelCache";
+            return "LastLoadChannelCache";
         case CacheType::COMMON_OBJ_LRU_CACHE:
             return "CommonObjLRUCache";
         case CacheType::FOR_UT_CACHE_SIZE:
@@ -126,7 +126,7 @@ public:
             {"PointQueryRowCache", CacheType::POINT_QUERY_ROW_CACHE},
             {"MowDeleteBitmapAggCache", CacheType::DELETE_BITMAP_AGG_CACHE},
             {"MowTabletVersionCache", CacheType::TABLET_VERSION_CACHE},
-            {"LastSuccessChannelCache", CacheType::LAST_LOAD_CHANNEL_CACHE},
+            {"LastLoadChannelCache", CacheType::LAST_LOAD_CHANNEL_CACHE},
             {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
             {"ForUTCacheSize", CacheType::FOR_UT_CACHE_SIZE},
             {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
