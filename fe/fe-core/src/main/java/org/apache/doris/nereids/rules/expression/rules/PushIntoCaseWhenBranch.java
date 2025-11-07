@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -94,6 +95,7 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
     }
 
     private Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+        boolean isConditionPlan = PlanUtils.isConditionExpressionPlan(context.plan.orElse(null));
         for (int i = 0; i < expression.children().size(); i++) {
             Expression child = expression.child(i);
             Optional<Expression> newExpr = Optional.empty();
@@ -101,9 +103,9 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
                 newExpr = tryPushIntoCaseWhen(expression, i, (CaseWhen) child, context);
             } else if (child instanceof If) {
                 newExpr = tryPushIntoIf(expression, i, (If) child, context);
-            } else if (child instanceof Nvl) {
+            } else if (child instanceof Nvl && isConditionPlan) {
                 newExpr = tryPushIntoNvl(expression, i, (Nvl) child, context);
-            } else if (child instanceof NullIf) {
+            } else if (child instanceof NullIf && isConditionPlan) {
                 newExpr = tryPushIntoNullIf(expression, i, (NullIf) child, context);
             }
             if (newExpr.isPresent()) {
