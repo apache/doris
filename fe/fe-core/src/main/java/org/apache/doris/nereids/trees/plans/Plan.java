@@ -188,7 +188,11 @@ public interface Plan extends TreeNode<Plan> {
         return treeString(false);
     }
 
-    String treeString(boolean printStates);
+    default String treeString(boolean printStates) {
+        return treeString(printStates, null);
+    }
+
+    String treeString(boolean printStates, Object specialPlan);
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 

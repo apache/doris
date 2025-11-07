@@ -64,6 +64,7 @@ import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
@@ -291,7 +292,7 @@ public class MTMVTask extends AbstractTask {
                 exec(execPartitionNames, tableWithPartKey);
                 break; // Exit loop if execution is successful
             } catch (Exception e) {
-                if (!(Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230))) {
+                if (!(Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage()))) {
                     throw e; // Re-throw if it's not a retryable exception
                 }
                 lastException = e;

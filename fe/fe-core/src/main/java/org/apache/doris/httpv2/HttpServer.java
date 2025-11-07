@@ -23,11 +23,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 import org.apache.doris.service.FrontendOptions;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,6 +39,8 @@ import java.util.Map;
 @EnableConfigurationProperties
 @ServletComponentScan
 public class HttpServer extends SpringBootServletInitializer {
+    private static final Logger LOG = LogManager.getLogger(HttpServer.class);
+    private ConfigurableApplicationContext applicationContext;
     private int port;
     private int httpsPort;
     private int acceptors;
@@ -146,8 +151,8 @@ public class HttpServer extends SpringBootServletInitializer {
         } else {
             properties.put("server.address", "0.0.0.0");
         }
+        properties.put("spring.resources.static-locations", "classpath:/static/");
         properties.put("server.servlet.context-path", "/");
-        properties.put("spring.resources.static-locations", "classpath:/static");
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
@@ -176,9 +181,26 @@ public class HttpServer extends SpringBootServletInitializer {
         } else {
             properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         }
-        new SpringApplicationBuilder()
+        // Disable automatic shutdown hook registration
+        // This prevents Spring Boot from responding to SIGTERM automatically
+        // allowing the main process (DorisFE) to control when the HTTP server shuts down
+        this.applicationContext = new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)
-                .run(new String[]{});
+                // Disable the automatic shutdown hook registration, there is a shutdown hook in DorisFE.
+                .registerShutdownHook(false)
+                .run();
+    }
+
+    /**
+     * Explicitly shutdown the HTTP server.
+     * This method should be called by the main process (DorisFE) after its graceful shutdown is complete.
+     */
+    public void shutdown() {
+        if (applicationContext != null) {
+            LOG.info("Shutting down HTTP server gracefully...");
+            applicationContext.close();
+            LOG.info("HTTP server shutdown complete");
+        }
     }
 }
