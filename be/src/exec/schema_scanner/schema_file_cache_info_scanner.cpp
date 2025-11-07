@@ -103,6 +103,15 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
             const auto& key = iterator->key();
             const auto& value = iterator->value();
 
+            // Check for deserialization errors
+            if (!iterator->get_last_key_error().ok() || !iterator->get_last_value_error().ok()) {
+                LOG(WARNING) << "Failed to deserialize cache block metadata: "
+                             << "key_error=" << iterator->get_last_key_error().to_string()
+                             << ", value_error=" << iterator->get_last_value_error().to_string();
+                iterator->next();
+                continue; // Skip invalid records
+            }
+
             // Convert hash to string
             std::string hash_str = key.hash.to_string();
 
