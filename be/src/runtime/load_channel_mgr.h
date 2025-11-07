@@ -86,23 +86,18 @@ private:
     // this information can be maintained via the following member variables.
     class LoadStateChannelCache : public LRUCachePolicy {
     public:
+        class CacheValue : public LRUCacheValueBase {
+        public:
+            std::string _cancel_reason;
+        };
+
         LoadStateChannelCache(size_t capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::LAST_LOAD_CHANNEL_CACHE, capacity,
                                  LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 
-    class CancelReasonValue : public LRUCacheValueBase {
-    public:
-        explicit CancelReasonValue(std::string reason) : _reason(std::move(reason)) {}
-
-        const std::string& reason() const { return _reason; }
-
-        size_t memory_usage() const { return sizeof(CancelReasonValue) + _reason.capacity(); }
-
-    private:
-        std::string _reason;
-    };
+    using CacheValue = LoadStateChannelCache::CacheValue;
 
 protected:
     // lock protect the load channel map
