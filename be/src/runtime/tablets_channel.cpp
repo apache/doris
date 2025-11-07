@@ -569,7 +569,9 @@ Status BaseTabletsChannel::_write_block_data(
         std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
         PTabletWriterAddBlockResult* response) {
     vectorized::Block send_data;
-    RETURN_IF_ERROR(send_data.deserialize(request.block()));
+    [[maybe_unused]] size_t uncompressed_size = 0;
+    [[maybe_unused]] int64_t uncompressed_time = 0;
+    RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
     CHECK(send_data.rows() == request.tablet_ids_size())
             << "block rows: " << send_data.rows()
             << ", tablet_ids_size: " << request.tablet_ids_size();
