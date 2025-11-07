@@ -1182,7 +1182,7 @@ public class StmtExecutor {
             throw e;
         } catch (UserException e) {
             // insert into select
-            if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+            if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                 throw e;
             }
             // analysis exception only print message, not print the stack
@@ -2533,7 +2533,7 @@ public class StmtExecutor {
                 }
 
                 // cloud mode, insert into select meet -230, retry
-                if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
                     LOG.warn("insert into select meet E-230, retry again");
                     resetAnalyzerAndStmt();
                     if (insertStmt instanceof NativeInsertStmt) {

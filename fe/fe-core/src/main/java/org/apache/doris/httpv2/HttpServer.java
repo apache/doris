@@ -189,7 +189,7 @@ public class HttpServer extends SpringBootServletInitializer {
                 .properties(properties)
                 .registerShutdownHook(false)
                 .run(new String[]{});
-   }
+    }
 
     /**
      * Explicitly shutdown the HTTP server.
