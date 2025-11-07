@@ -132,7 +132,7 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
         // for case
         if (handle_failed != nullptr) {
             _last_cancel_channels->release(handle_failed);
-            return Status::OK();
+            return Status::Cancelled("Has been cancelled (use load_id to find in fe.log)");
         }
 
         return Status::InternalError<false>(
