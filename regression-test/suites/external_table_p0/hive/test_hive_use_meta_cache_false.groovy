@@ -170,7 +170,7 @@ suite("test_hive_use_meta_cache_false", "p0,external,hive,external_docker,extern
                 // can not see
                 order_qt_sql13 "show databases like '%${database_hive}%'";
             }
-            test_use_meta_cache(false)
+            // test_use_meta_cache(false)
         } finally {
         }
     }

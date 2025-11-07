@@ -241,7 +241,7 @@ Status MemTableWriter::close() {
 
     auto s = _flush_memtable_async();
     {
-        std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+        std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
         _mem_table.reset();
     }
     _is_closed = true;
@@ -339,7 +339,7 @@ Status MemTableWriter::cancel_with_status(const Status& st) {
         return Status::OK();
     }
     {
-        std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+        std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
         _mem_table.reset();
     }
     if (_flush_token != nullptr) {

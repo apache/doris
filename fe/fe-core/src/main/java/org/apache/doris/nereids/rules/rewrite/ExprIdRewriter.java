@@ -29,12 +29,16 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** replace SlotReference ExprId in logical plans */
 public class ExprIdRewriter extends ExpressionRewrite {
@@ -75,18 +79,10 @@ public class ExprIdRewriter extends ExpressionRewrite {
      * SlotReference:a#0 -> a#3, a#1 -> a#7
      * */
     public static class ReplaceRule implements ExpressionPatternRuleFactory {
-        private final Map<ExprId, ExprId> replaceMap;
-
-        public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
-            this.replaceMap = replaceMap;
-        }
-
-        @Override
-        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-            return ImmutableList.of(
-                    matchesType(SlotReference.class).thenApply(ctx -> {
-                        Slot slot = ctx.expr;
-
+        private static final DefaultExpressionRewriter<Map<ExprId, ExprId>> SLOT_REPLACER =
+                new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                    @Override
+                    public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> replaceMap) {
                         ExprId newId = replaceMap.get(slot.getExprId());
                         if (newId == null) {
                             return slot;
@@ -100,7 +96,44 @@ public class ExprIdRewriter extends ExpressionRewrite {
                                 lastId = newId;
                             }
                         }
-                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
+                    }
+                };
+        private final Map<ExprId, ExprId> replaceMap;
+
+        public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
+            this.replaceMap = replaceMap;
+        }
+
+        @Override
+        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+            return ImmutableList.of(
+                    matchesType(SlotReference.class).thenApply(ctx -> {
+                        Slot slot = ctx.expr;
+                        return slot.accept(SLOT_REPLACER, replaceMap);
+                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE),
+                    matchesType(VirtualSlotReference.class).thenApply(ctx -> {
+                        VirtualSlotReference virtualSlot = ctx.expr;
+                        return virtualSlot.accept(new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+                            @Override
+                            public Expression visitVirtualReference(VirtualSlotReference virtualSlot,
+                                    Map<ExprId, ExprId> replaceMap) {
+                                Optional<GroupingScalarFunction> originExpression = virtualSlot.getOriginExpression();
+                                if (!originExpression.isPresent()) {
+                                    return virtualSlot;
+                                }
+                                GroupingScalarFunction groupingScalarFunction = originExpression.get();
+                                GroupingScalarFunction rewrittenFunction =
+                                        (GroupingScalarFunction) groupingScalarFunction.accept(
+                                                SLOT_REPLACER, replaceMap);
+                                if (!rewrittenFunction.children().equals(groupingScalarFunction.children())) {
+                                    return virtualSlot.withOriginExpressionAndComputeLongValueMethod(
+                                            Optional.of(rewrittenFunction),
+                                            rewrittenFunction::computeVirtualSlotValue);
+                                }
+                                return virtualSlot;
+                            }
+                        }, replaceMap);
+                    }).toRule(ExpressionRuleType.VIRTUAL_EXPR_ID_REWRITE_REPLACE)
             );
         }
     }

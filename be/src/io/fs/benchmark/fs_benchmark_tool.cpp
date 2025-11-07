@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
         doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),
                                            std::stoi(FLAGS_iterations), std::stol(FLAGS_file_size),
                                            conf_map);
-        doris::Status st = multi_bm.init_env();
+        st = multi_bm.init_env();
         if (!st) {
             std::cerr << "init env failed: " << st << std::endl;
             return 1;

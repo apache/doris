@@ -158,9 +158,11 @@ public class HudiUtils {
                 return;
         }
 
-        List<Column> childColumns = column.getChildren();
-        for (int idx = 0; idx < childColumns.size(); idx++) {
-            updateHudiColumnUniqueId(childColumns.get(idx), hudiInternalfields.get(idx));
+        if (column.getChildren() != null) {
+            List<Column> childColumns = column.getChildren();
+            for (int idx = 0; idx < childColumns.size(); idx++) {
+                updateHudiColumnUniqueId(childColumns.get(idx), hudiInternalfields.get(idx));
+            }
         }
     }
 

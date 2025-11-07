@@ -38,7 +38,7 @@ public class Time extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT));
+            FunctionSignature.ret(TimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD));
 
     /**
      * constructor with 1 argument.

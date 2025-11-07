@@ -27,7 +27,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -138,43 +137,6 @@ public class MapType extends Type {
     }
 
     @Override
-    public boolean hasTemplateType() {
-        return keyType.hasTemplateType() || valueType.hasTemplateType();
-    }
-
-    @Override
-    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
-        MapType specificMapType = null;
-        if (specificType instanceof MapType) {
-            specificMapType = (MapType) specificType;
-        } else if (!useSpecializedType) {
-            throw new TypeException(specificType + " is not MapType");
-        }
-
-        Type newKeyType = keyType;
-        if (keyType.hasTemplateType()) {
-            newKeyType = keyType.specializeTemplateType(
-                specificMapType != null ? specificMapType.keyType : specificType,
-                specializedTypeMap, useSpecializedType, enableDecimal256);
-        }
-        Type newValueType = valueType;
-        if (valueType.hasTemplateType()) {
-            newValueType = valueType.specializeTemplateType(
-                specificMapType != null ? specificMapType.valueType : specificType,
-                specializedTypeMap, useSpecializedType, enableDecimal256);
-        }
-
-        Type newMapType = new MapType(newKeyType, newValueType);
-        if (Type.canCastTo(specificType, newMapType)
-                || (useSpecializedType && !(specificType instanceof MapType))) {
-            return newMapType;
-        } else {
-            throw new TypeException(specificType + " can not cast to specialize type " + newMapType);
-        }
-    }
-
-    @Override
     public String toString() {
         return String.format("map<%s,%s>",
                 keyType.toString(), valueType.toString());
@@ -191,13 +153,6 @@ public class MapType extends Type {
         String structStr = valueType.prettyPrint(lpad);
         structStr = structStr.substring(lpad);
         return String.format("%sMAP<%s,%s>", leftPadding, keyType.toSql(), structStr);
-    }
-
-    public static boolean canCastTo(MapType type, MapType targetType) {
-        return (targetType.getKeyType().isStringType() && type.getKeyType().isStringType()
-            || Type.canCastTo(type.getKeyType(), targetType.getKeyType()))
-            && (Type.canCastTo(type.getValueType(), targetType.getValueType())
-            || targetType.getValueType().isStringType() && type.getValueType().isStringType());
     }
 
     public static Type getAssignmentCompatibleType(MapType t1, MapType t2, boolean strict, boolean enableDecimal256) {

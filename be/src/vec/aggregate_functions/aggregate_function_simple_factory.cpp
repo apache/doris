@@ -51,7 +51,7 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
 void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_group_array_set_op(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory);
@@ -79,6 +79,7 @@ void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factor
 void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -95,7 +96,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_uniq_distribute_key(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
-        register_aggregate_function_group_array_intersect(instance);
+        register_aggregate_function_group_array_set_op(instance);
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
@@ -135,6 +136,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile_reservoir(instance);
         register_aggregate_function_ai_agg(instance);
         register_aggregate_function_bool_union(instance);
+        register_aggregate_function_sem(instance);
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);

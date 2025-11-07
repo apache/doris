@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesComma
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -811,6 +812,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterWorkloadGroupCommand(AlterWorkloadGroupCommand alterWorkloadGroupCommand, C context) {
         return visitCommand(alterWorkloadGroupCommand, context);
+    }
+
+    default R visitAlterComputeGroupCommand(AlterComputeGroupCommand alterComputeGroupCommand, C context) {
+        return visitCommand(alterComputeGroupCommand, context);
     }
 
     default R visitAlterWorkloadPolicyCommand(AlterWorkloadPolicyCommand alterWorkloadPolicyCommand, C context) {

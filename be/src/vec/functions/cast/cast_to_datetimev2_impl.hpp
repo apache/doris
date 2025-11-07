@@ -638,6 +638,8 @@ FRAC:
         res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
         res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
         res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
+                                 res.year());
 
         static_cast<void>(skip_any_whitespace(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
@@ -877,6 +879,8 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
         res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
         res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
+                                 res.year());
     }
 
     // skip trailing whitespace

@@ -33,7 +33,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/tracing_file_reader.h"
-#include "parquet_pred_cmp.h"
+#include "parquet_predicate.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"

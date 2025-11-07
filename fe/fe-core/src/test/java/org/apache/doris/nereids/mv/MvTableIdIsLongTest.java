@@ -31,6 +31,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -51,7 +53,7 @@ public class MvTableIdIsLongTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
-                    Set<String> queryUsedRelatedTablePartitionsMap) {
+                    Map<List<String>, Set<String>> queryUsedPartitions) {
                 return true;
             }
         };

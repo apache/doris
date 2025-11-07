@@ -26,8 +26,10 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/const_score_query/const_score_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/null_bitmap_fetcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 
 CL_NS_USE(index)
 
@@ -44,6 +46,9 @@ RegexpWeight::RegexpWeight(IndexQueryContextPtr context, std::wstring field, std
 
 ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
                                const std::string& binding_key) {
+    auto logical_field = logical_field_or_fallback(context, binding_key, _field);
+    VLOG_DEBUG << "RegexpWeight::scorer() called - pattern=" << _pattern << ", logical_field='"
+               << logical_field << "'";
     auto prefix = get_regex_prefix(_pattern);
 
     hs_database_t* database = nullptr;
@@ -76,7 +81,10 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
     hs_free_database(database);
 
     if (matching_terms.empty()) {
-        return std::make_shared<EmptyScorer>();
+        // Even when there are no matching terms, we must honor NULL semantics for the field.
+        auto empty_true = std::make_shared<roaring::Roaring>();
+        auto null_bitmap = FieldNullBitmapFetcher::fetch(context, logical_field);
+        return std::make_shared<BitSetScorer>(std::move(empty_true), std::move(null_bitmap));
     }
 
     auto doc_bitset = std::make_shared<roaring::Roaring>();
@@ -93,7 +101,8 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
         }
     }
 
-    auto bit_set = std::make_shared<BitSetScorer>(doc_bitset);
+    auto null_bitmap = FieldNullBitmapFetcher::fetch(context, logical_field);
+    auto bit_set = std::make_shared<BitSetScorer>(doc_bitset, null_bitmap);
     auto const_score = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(std::move(bit_set));
     return const_score;
 }

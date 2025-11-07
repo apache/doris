@@ -312,8 +312,10 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
-        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
-        return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull" or "zeroDateTimeBehavior=convert_to_null"
+        String jdbcUrl = jdbcClientConfig.getJdbcUrl().toLowerCase();
+        return jdbcUrl.contains("zerodatetimebehavior=converttonull")
+                || jdbcUrl.contains("zerodatetimebehavior=convert_to_null");
     }
 
     /**

@@ -469,6 +469,15 @@ public class MockedBackendFactory {
         public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
             return null;
         }
+
+        @Override
+        public org.apache.doris.thrift.TTestStorageConnectivityResponse testStorageConnectivity(
+                org.apache.doris.thrift.TTestStorageConnectivityRequest request) throws TException {
+            org.apache.doris.thrift.TTestStorageConnectivityResponse response =
+                    new org.apache.doris.thrift.TTestStorageConnectivityResponse();
+            response.setStatus(new TStatus(TStatusCode.OK));
+            return response;
+        }
     }
 
     // The default Brpc service.

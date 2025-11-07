@@ -35,7 +35,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "parquet_pred_cmp.h"
+#include "parquet_predicate.h"
 #include "util/obj_lru_cache.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"

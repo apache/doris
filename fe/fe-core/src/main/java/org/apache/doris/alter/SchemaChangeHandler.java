@@ -117,6 +117,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -393,11 +394,10 @@ public class SchemaChangeHandler extends AlterHandler {
         if (null == targetIndexName) {
             if (nameToColumn.containsKey(dropColName)) {
                 Column column = nameToColumn.get(dropColName);
-                Set<String> generatedColumnsThatReferToThis = column.getGeneratedColumnsThatReferToThis();
-                if (!generatedColumnsThatReferToThis.isEmpty()) {
+                if (CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis())) {
                     throw new DdlException(
-                        "Column '" + dropColName + "' has a generated column dependency on :"
-                            + generatedColumnsThatReferToThis);
+                            "Column '" + dropColName + "' has a generated column dependency on :"
+                                    + column.getGeneratedColumnsThatReferToThis());
                 }
             }
         }
@@ -3475,8 +3475,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
             Column c = nameToColumn.get(name);
-            Set<String> sets = c.getGeneratedColumnsThatReferToThis();
-            sets.remove(dropColName);
+            if (CollectionUtils.isNotEmpty(c.getGeneratedColumnsThatReferToThis())) {
+                c.getGeneratedColumnsThatReferToThis().remove(dropColName);
+            }
         }
     }
 

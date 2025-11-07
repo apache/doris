@@ -340,7 +340,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
-            ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
@@ -594,7 +594,7 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
 }
 
 Status OlapScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
     RETURN_IF_ERROR(Scanner::close(state));
@@ -770,9 +770,8 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    // only cloud deploy mode will use file cache. and keep the same with FileScanner
-    if (config::is_cloud_mode() && config::enable_file_cache &&
-        _state->query_options().enable_file_cache) {
+    // only cloud deploy mode will use file cache.
+    if (config::is_cloud_mode() && config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(

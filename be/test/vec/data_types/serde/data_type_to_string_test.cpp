@@ -72,7 +72,7 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
                            "-12345678",
                            "[123, null, 12345678, 0]",
                            R"(["hello amory", "NULL", "cute amory", null])",
-                           "{12345454342, \"amory cute\", 0}",
+                           R"({"1":12345454342, "2":"amory cute", "3":0})",
                            R"({123:"hello amory", null:"NULL", 12345678:"cute amory", 0:null})"};
 
     for (const auto id : type_ids) {

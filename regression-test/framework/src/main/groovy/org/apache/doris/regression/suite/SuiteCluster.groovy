@@ -758,6 +758,46 @@ class SuiteCluster {
         runCmd(cmd)
     }
 
+    /**
+     * Rollback the cloud cluster to a snapshot.
+     * This will stop ALL FE/BE, clean metadata/data, and restart with new cloud_unique_id and instance_id.
+     * Only available for cloud mode clusters.
+     *
+     * @param clusterSnapshot Cluster snapshot JSON content (required)
+     * @param waitTimeout Wait seconds for nodes to be ready (default: 120)
+     */
+    void rollback(String clusterSnapshot, int waitTimeout = 120) {
+        assert clusterSnapshot != null && clusterSnapshot != '' : 'clusterSnapshot cannot be null or empty'
+
+        // Parse and validate cluster snapshot JSON
+        def parser = new JsonSlurper()
+        Map<String, Object> snapshotObj = null
+        try {
+            snapshotObj = (Map<String, Object>) parser.parseText(clusterSnapshot)
+        } catch (Exception e) {
+            throw new Exception("Failed to parse clusterSnapshot JSON: ${e.message}")
+        }
+
+        // Check is_succeed field
+        def isSucceed = snapshotObj.get('is_succeed')
+        assert isSucceed == true : "clusterSnapshot is_succeed field must be true, but got: ${isSucceed}"
+
+        // Extract instance_id from snapshot
+        String instanceId = (String) snapshotObj.get('instance_id')
+        assert instanceId != null && instanceId != '' : "instance_id not found in clusterSnapshot or is empty"
+
+        logger.info("Rollback cluster ${name} with instance_id: ${instanceId}")
+
+        List<String> cmd = ['rollback', name, '--cluster-snapshot', clusterSnapshot]
+        cmd += ['--instance-id', instanceId]
+        cmd += ['--wait-timeout', String.valueOf(waitTimeout)]
+
+        runCmdList(cmd, waitTimeout + 60)
+
+        // wait be report disk after rollback
+        Thread.sleep(5000)
+    }
+
     private void waitHbChanged() {
         // heart beat interval is 5s
         Thread.sleep(7000)

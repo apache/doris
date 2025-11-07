@@ -82,10 +82,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     _create_channels();
     // Make sure brpc stub is ready before execution.
-    for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->init(state));
-        _wait_channel_timer.push_back(common_profile()->add_nonzero_counter(
-                fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
+    for (auto& channel : channels) {
+        RETURN_IF_ERROR(channel->init(state));
     }
     _wait_broadcast_buffer_timer =
             ADD_CHILD_TIMER(common_profile(), "WaitForBroadcastBuffer", timer_name);
@@ -177,8 +175,7 @@ void ExchangeSinkLocalState::_create_channels() {
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
     for (int i = 0; i < p._dests.size(); ++i) {
         const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
-        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
-            fragment_id_to_channel_index.end()) {
+        if (!fragment_id_to_channel_index.contains(fragment_instance_id.lo)) {
             channels.push_back(std::make_shared<vectorized::Channel>(
                     this, p._dests[i].brpc_server, fragment_instance_id, p._dest_node_id));
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo, channels.size() - 1);
@@ -214,10 +211,10 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    _writer.reset(new Writer());
+    _writer = std::make_unique<Writer>();
 
-    for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->open(state));
+    for (auto& channel : channels) {
+        RETURN_IF_ERROR(channel->open(state));
     }
 
     PUniqueId id;
@@ -228,13 +225,17 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_queue_dependency);
     } else if (_last_local_channel_idx > -1) {
-        size_t dep_id = 0;
         for (auto& channel : channels) {
             if (channel->is_local()) {
                 if (auto dep = channel->get_local_channel_dependency()) {
+                    if (dep == nullptr) {
+                        return Status::InternalError("local channel dependency is nullptr");
+                    }
                     _local_channels_dependency.push_back(dep);
-                    DCHECK(_local_channels_dependency[dep_id] != nullptr);
-                    dep_id++;
+                    _wait_channel_timer.push_back(common_profile()->add_nonzero_counter(
+                            fmt::format("WaitForLocalExchangeBuffer{}",
+                                        _local_channels_dependency.size()),
+                            TUnit ::TIME_NS, timer_name, 1));
                 }
             }
         }
@@ -299,7 +300,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         _part_type != TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         // if the destinations only one dest, we need to use broadcast
         std::unordered_set<UniqueId> dest_fragment_ids_set;
-        for (auto& dest : _dests) {
+        for (const auto& dest : _dests) {
             dest_fragment_ids_set.insert(dest.fragment_instance_id);
             if (dest_fragment_ids_set.size() > 1) {
                 break;

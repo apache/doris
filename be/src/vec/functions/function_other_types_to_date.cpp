@@ -44,6 +44,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -62,6 +63,7 @@
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -85,11 +87,8 @@ struct StrToDate {
     static bool skip_return_type_check() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         // it's FAKE. takes no effect.
-        return std::make_shared<DataTypeDateTimeV2>(6);
+        return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
     }
-
-    // Handle nulls manually to prevent invalid default values from causing errors
-    static bool use_default_implementation_for_nulls() { return false; }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
         const static std::string specific_format_strs[3] = {"yyyyMMdd", "yyyy-MM-dd",
@@ -108,7 +107,6 @@ struct StrToDate {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
         NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
 
@@ -119,10 +117,6 @@ struct StrToDate {
         for (int i = 0; i < 2; ++i) {
             const ColumnPtr& col = block.get_by_position(arguments[i]).column;
             col_const[i] = is_column_const(*col);
-            const NullMap* null_map = VectorizedUtils::get_null_map(col);
-            if (null_map) {
-                VectorizedUtils::update_null_map(result_null_map, *null_map, col_const[i]);
-            }
         }
 
         // Extract nested columns from const(nullable) wrappers
@@ -130,11 +124,8 @@ struct StrToDate {
                                                      *block.get_by_position(arguments[0]).column)
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[0]).column;
-        argument_columns[0] = remove_nullable(argument_columns[0]);
-
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        argument_columns[1] = remove_nullable(argument_columns[1]);
 
         const auto* specific_str_column =
                 assert_cast<const ColumnString*>(argument_columns[0].get());
@@ -194,7 +185,7 @@ private:
     static void execute_impl(
             FunctionContext* context, const ColumnString::Chars& ldata,
             const ColumnString::Offsets& loffsets, const ColumnString::Chars& rdata,
-            const ColumnString::Offsets& roffsets, const NullMap& result_null_map,
+            const ColumnString::Offsets& roffsets, NullMap& result_null_map,
             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res) {
         size_t size = loffsets.size();
         res.resize(size);
@@ -210,15 +201,14 @@ private:
             size_t r_str_size = roffsets[i] - roffsets[i - 1];
             const StringRef format_str = rewrite_specific_format(r_raw_str, r_str_size);
             _execute_inner_loop<PType>(l_raw_str, l_str_size, format_str.data, format_str.size,
-                                       context, res, i);
+                                       result_null_map, context, res, i);
         }
     }
 
     template <PrimitiveType PType>
     static void execute_impl_const_right(
             FunctionContext* context, const ColumnString::Chars& ldata,
-            const ColumnString::Offsets& loffsets, const StringRef& rdata,
-            const NullMap& result_null_map,
+            const ColumnString::Offsets& loffsets, const StringRef& rdata, NullMap& result_null_map,
             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res) {
         size_t size = loffsets.size();
         res.resize(size);
@@ -232,21 +222,20 @@ private:
             size_t l_str_size = loffsets[i] - loffsets[i - 1];
 
             _execute_inner_loop<PType>(l_raw_str, l_str_size, format_str.data, format_str.size,
-                                       context, res, i);
+                                       result_null_map, context, res, i);
         }
     }
 
     template <PrimitiveType PType>
     static void _execute_inner_loop(
             const char* l_raw_str, size_t l_str_size, const char* r_raw_str, size_t r_str_size,
-            FunctionContext* context,
+            NullMap& result_null_map, FunctionContext* context,
             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res, size_t index) {
         auto& ts_val =
                 *reinterpret_cast<typename PrimitiveTypeTraits<PType>::CppType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size))
                 [[unlikely]] {
-            throw_invalid_strings("str_to_date", std::string_view(l_raw_str, l_str_size),
-                                  std::string_view(r_raw_str, r_str_size));
+            result_null_map[index] = 1;
         }
     }
 };
@@ -376,6 +365,91 @@ private:
         if (!res_val.template date_add_interval<DAY>(interval)) {
             throw_out_of_bound_two_ints(name, year, dayofyear);
         }
+    }
+};
+
+struct MakeTimeImpl {
+    static constexpr auto name = "maketime";
+    using DateValueType = PrimitiveTypeTraits<PrimitiveType::TYPE_TIMEV2>::CppType;
+    using NativeType = PrimitiveTypeTraits<PrimitiveType::TYPE_TIMEV2>::CppNativeType;
+    static bool is_variadic() { return false; }
+    static size_t get_number_of_arguments() { return 3; }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeTimeV2>());
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t input_rows_count) {
+        DCHECK_EQ(arguments.size(), 3);
+        auto res_col = ColumnTimeV2::create(input_rows_count);
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_data = res_col->get_data();
+
+        ColumnPtr arg_col[3];
+        bool is_const[3];
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(arg_col[i], is_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto& hour_data = assert_cast<const ColumnInt64*>(arg_col[0].get())->get_data();
+        const auto& min_data = assert_cast<const ColumnInt64*>(arg_col[1].get())->get_data();
+        if (const auto* sec_col = check_and_get_column<ColumnFloat64>(arg_col[2].get())) {
+            for (int i = 0; i < input_rows_count; ++i) {
+                int64_t hour = hour_data[index_check_const(i, is_const[0])];
+                int64_t minute = min_data[index_check_const(i, is_const[1])];
+                double sec = sec_col->get_element(index_check_const(i, is_const[2]));
+                if (!check_and_set_time_value(hour, minute, sec)) {
+                    res_data[i] = 0;
+                    res_null_map->get_data()[i] = 1;
+                    continue;
+                }
+                execute_single(hour, minute, sec, res_data, i);
+            }
+        } else {
+            const auto& sec_data = assert_cast<const ColumnInt64*>(arg_col[2].get())->get_data();
+            for (int i = 0; i < input_rows_count; ++i) {
+                int64_t hour = hour_data[index_check_const(i, is_const[0])];
+                int64_t minute = min_data[index_check_const(i, is_const[1])];
+                double sec = static_cast<double>(sec_data[index_check_const(i, is_const[2])]);
+                if (!check_and_set_time_value(hour, minute, sec)) {
+                    res_data[i] = 0;
+                    res_null_map->get_data()[i] = 1;
+                    continue;
+                }
+                execute_single(hour, minute, sec, res_data, i);
+            }
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_col), std::move(res_null_map)));
+        return Status::OK();
+    }
+
+private:
+    static bool check_and_set_time_value(int64_t& hour, int64_t& minute, double& sec) {
+        static constexpr int MAX_HOUR_FOR_MAKETIME = 838;
+        if (minute < 0 || minute >= 60 || sec < 0 || sec >= 60) {
+            return false;
+        }
+
+        // Avoid overflow in `execute_single`
+        // the case {838, 59, 59.999999} will be slove in `TimeValue::from_double_with_limit`
+        if (std::abs(hour) > MAX_HOUR_FOR_MAKETIME) {
+            hour = hour > 0 ? MAX_HOUR_FOR_MAKETIME : -MAX_HOUR_FOR_MAKETIME;
+            minute = sec = 59;
+        }
+        return true;
+    }
+
+    static void execute_single(int64_t hour, int64_t minute, double sec,
+                               PaddedPODArray<double>& res_data, size_t row) {
+        // Round sec to 6 decimal places (microsecond precision)
+        double total_sec =
+                std::abs(hour) * 3600 + minute * 60 + std::round(sec * 1000000.0) / 1000000.0;
+
+        res_data[row] = TimeValue::from_double_with_limit(total_sec * (hour < 0 ? -1 : 1));
     }
 };
 
@@ -1135,6 +1209,8 @@ struct FromIso8601DateV2 {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
 
         ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
         auto& result_data = res->get_data();
@@ -1245,32 +1321,32 @@ struct FromIso8601DateV2 {
             if (iso_string_format_value == 1) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &month, &day) != 3)
                         [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
                       ts_value.template set_time_unit<MONTH>(month) &&
                       ts_value.template set_time_unit<DAY>(day))) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
             } else if (iso_string_format_value == 2) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &month) != 2)
                         [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (!(ts_value.template set_time_unit<YEAR>(year) &&
                       ts_value.template set_time_unit<MONTH>(month))) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
                 ts_value.template unchecked_set_time_unit<DAY>(1);
             } else if (iso_string_format_value == 3) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (!ts_value.template set_time_unit<YEAR>(year)) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
                 ts_value.template unchecked_set_time_unit<MONTH>(1);
                 ts_value.template unchecked_set_time_unit<DAY>(1);
@@ -1279,17 +1355,17 @@ struct FromIso8601DateV2 {
                 if (iso_string_format_value == 5) {
                     if (sscanf(src_string.data(), iso_format_string.data(), &year, &week) != 2)
                             [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 } else {
                     if (sscanf(src_string.data(), iso_format_string.data(), &year, &week,
                                &weekday) != 3) [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 }
                 // weekday [1,7]    week [1,53]
                 if (weekday < 1 || weekday > 7 || week < 1 || week > 53) [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 auto first_day_of_week = getFirstDayOfISOWeek(year);
@@ -1306,16 +1382,16 @@ struct FromIso8601DateV2 {
             } else if (iso_string_format_value == 4) {
                 if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
                         [[unlikely]] {
-                    throw_invalid_string(name, src_string);
+                    result_null_map[i] = 1;
                 }
 
                 if (is_leap(year)) {
                     if (day_of_year < 0 || day_of_year > 366) [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 } else {
                     if (day_of_year < 0 || day_of_year > 365) [[unlikely]] {
-                        throw_invalid_string(name, src_string);
+                        result_null_map[i] = 1;
                     }
                 }
                 ts_value.template unchecked_set_time_unit<YEAR>(year);
@@ -1324,10 +1400,11 @@ struct FromIso8601DateV2 {
                 TimeInterval interval(DAY, day_of_year - 1, false);
                 ts_value.template date_add_interval<DAY>(interval);
             } else {
-                throw_invalid_string(name, src_string);
+                result_null_map[i] = 1;
             }
         }
-        block.replace_by_position(result, std::move(res));
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res), std::move(result_null_map_column)));
         return Status::OK();
     }
 
@@ -1360,6 +1437,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionStrToDatetime>();
     factory.register_function<FunctionMakeDate>();
+    factory.register_function<FunctionOtherTypesToDateType<MakeTimeImpl>>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetimeV2>();

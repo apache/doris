@@ -30,12 +30,19 @@ class IndexReader;
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+struct FieldBindingContext {
+    std::string logical_field_name;
+    std::string stored_field_name;
+    std::wstring stored_field_wstr;
+};
+
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
     std::vector<std::shared_ptr<lucene::index::IndexReader>> readers;
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
             field_reader_bindings;
+    std::unordered_map<std::string, FieldBindingContext> binding_fields;
     const NullBitmapResolver* null_resolver = nullptr;
 };
 
@@ -52,6 +59,30 @@ public:
     }
 
 protected:
+    const FieldBindingContext* get_field_binding(const QueryExecutionContext& ctx,
+                                                 const std::string& binding_key) const {
+        auto it = ctx.binding_fields.find(binding_key);
+        if (it != ctx.binding_fields.end()) {
+            return &it->second;
+        }
+        return nullptr;
+    }
+
+    std::string logical_field_or_fallback(const QueryExecutionContext& ctx,
+                                          const std::string& binding_key,
+                                          const std::wstring& fallback) const {
+        const auto* binding = get_field_binding(ctx, binding_key);
+        if (binding != nullptr) {
+            if (!binding->logical_field_name.empty()) {
+                return binding->logical_field_name;
+            }
+            if (!binding->stored_field_name.empty()) {
+                return binding->stored_field_name;
+            }
+        }
+        return std::string(fallback.begin(), fallback.end());
+    }
+
     std::shared_ptr<lucene::index::IndexReader> lookup_reader(
             const std::wstring& field, const QueryExecutionContext& ctx,
             const std::string& binding_key) const {

@@ -263,6 +263,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -312,6 +313,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -467,6 +469,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StripNullValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
@@ -512,6 +515,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
@@ -785,6 +790,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpv6String.class, "is_ipv6_string", "is_ipv6"),
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(IsNan.class, "isnan"),
+            scalar(IsUuid.class, "is_uuid"),
             scalar(IsInf.class, "isinf"),
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
@@ -831,7 +837,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left", "strleft"),
-            scalar(Length.class, "length"),
+            scalar(Length.class, "length", "octet_length"),
             scalar(Crc32.class, "crc32"),
             scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
@@ -846,6 +852,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(LtrimIn.class, "ltrim_in"),
             scalar(MakeDate.class, "makedate"),
             scalar(MakeSet.class, "make_set"),
+            scalar(MakeTime.class, "maketime"),
             scalar(MapContainsEntry.class, "map_contains_entry"),
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
@@ -899,7 +906,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
-            scalar(Overlay.class, "overlay"),
+            scalar(Overlay.class, "overlay", "insert"),
             scalar(ParseUrl.class, "parse_url"),
             scalar(Password.class, "password"),
             scalar(ParseDataSize.class, "parse_data_size"),
@@ -1007,6 +1014,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StY.class, "st_y"),
             scalar(StartsWith.class, "starts_with"),
             scalar(Strcmp.class, "strcmp"),
+            scalar(StripNullValue.class, "strip_null_value"),
             scalar(StrToDate.class, "str_to_date"),
             scalar(StrToMap.class, "str_to_map"),
             scalar(SubBinary.class, "sub_binary"),
@@ -1053,6 +1061,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UrlDecode.class, "url_decode"),
             scalar(UrlEncode.class, "url_encode"),
             scalar(User.class, "user"),
+            scalar(UtcDate.class, "utc_date"),
+            scalar(UtcTime.class, "utc_time"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
             scalar(UuidNumeric.class, "uuid_numeric"),

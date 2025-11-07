@@ -484,7 +484,7 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         tablet->build_tablet_report_info(&tablet_info);
         using namespace std::chrono;
         int64_t now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (now - g_tablet_report_inactive_duration_ms * 1000 < tablet->last_access_time_ms) {
+        if (now - g_tablet_report_inactive_duration_ms < tablet->last_access_time_ms) {
             // the tablet is still being accessed and used in recently, so not report it
             return;
         }

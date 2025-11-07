@@ -130,8 +130,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                 result.add(p);
             }
         }
+        // Add default HDFS storage if not explicitly configured
         if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
-            result.add(new HdfsProperties(origProps));
+            result.add(new HdfsProperties(origProps, false));
         }
 
         for (StorageProperties storageProperties : result) {

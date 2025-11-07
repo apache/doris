@@ -364,4 +364,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return Collections.emptyMap();
         }
     }
+
+    @Override
+    public boolean isPartitionedTable() {
+        makeSureInitialized();
+        return !paimonTable.partitionKeys().isEmpty();
+    }
 }

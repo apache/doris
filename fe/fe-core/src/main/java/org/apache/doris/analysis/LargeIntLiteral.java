@@ -218,30 +218,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(new Double(value.doubleValue()), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
-            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-            res.setType(targetType);
-            return res;
-        } else if (targetType.isIntegerType()) {
-            try {
-                return new IntLiteral(value.longValueExact(), targetType);
-            } catch (ArithmeticException e) {
-                throw new AnalysisException("Number out of range[" + value + "]. type: " + targetType);
-            }
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public void swapSign() {
-        // swapping sign does not change the type
-        value = value.negate();
-    }
-
-    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }

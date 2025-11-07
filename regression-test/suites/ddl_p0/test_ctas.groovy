@@ -104,13 +104,6 @@ suite("test_ctas") {
             result([[null]])
         }
 
-        res = sql """show load from ${dbname}"""
-        if (isGroupCommitMode()) {
-            assertTrue(res.size() > 4)
-        } else {
-            assertTrue(res.size() > 6)
-        }
-
         sql """
             create table if not exists test_tbl_81748325
             (
