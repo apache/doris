@@ -1179,8 +1179,20 @@ public class IcebergUtils {
         long recordCount = row.get(2, Long.class);
         long fileCount = row.get(3, Integer.class);
         long fileSizeInBytes = row.get(4, Long.class);
-        long lastUpdateTime = row.get(9, Long.class);
-        long lastUpdateSnapShotId = row.get(10, Long.class);
+        // last_updated_at and last_updated_snapshot_id are optional, so we need to
+        // handle the null case.
+        long lastUpdateTime;
+        long lastUpdateSnapShotId;
+        try {
+            lastUpdateTime = row.get(9, Long.class);
+        } catch (NullPointerException e) {
+            lastUpdateTime = 0;
+        }
+        try {
+            lastUpdateSnapShotId = row.get(10, Long.class);
+        } catch (NullPointerException e) {
+            lastUpdateSnapShotId = UNKNOWN_SNAPSHOT_ID;
+        }
         return new IcebergPartition(partitionName, specId, recordCount, fileSizeInBytes, fileCount,
             lastUpdateTime, lastUpdateSnapShotId, partitionValues, transforms);
     }
