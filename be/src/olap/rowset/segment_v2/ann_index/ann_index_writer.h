@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "runtime/collection_value.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -70,7 +71,7 @@ private:
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
-    std::vector<float> _ann_vec;
+    DorisVector<float> _ann_vec;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;

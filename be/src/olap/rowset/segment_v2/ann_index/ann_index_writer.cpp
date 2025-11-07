@@ -106,6 +106,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
     // Add to buffer
+    _ann_vec.reserve(_ann_vec.size() + num_rows * dim);
     _ann_vec.insert(_ann_vec.end(), p, p + num_rows * dim);
     DCHECK(_ann_vec.size() % dim == 0);
 
