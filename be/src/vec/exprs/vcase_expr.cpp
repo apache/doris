@@ -77,8 +77,16 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
+    ColumnPtr result_column;
+    RETURN_IF_ERROR(execute(context, block, result_column));
+    *result_column_id = block->columns();
+    block->insert({result_column, _data_type, EXPR_NAME});
+    return Status::OK();
+}
+
+Status VCaseExpr::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
-        return get_result_from_const(block, EXPR_NAME, result_column_id);
+        return get_result_from_const(block, EXPR_NAME, result_column);
     }
     DCHECK(_open_finished || _getting_const_col);
 
@@ -87,43 +95,33 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
     std::vector<ColumnPtr> then_columns;
 
     if (_has_else_expr) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children.back()->execute(context, block, &column_id));
-        auto else_column_ptr = block->get_by_position(column_id).column;
+        ColumnPtr else_column_ptr;
+        RETURN_IF_ERROR(_children.back()->execute(context, block, else_column_ptr));
         then_columns.emplace_back(else_column_ptr);
     } else {
         then_columns.emplace_back(nullptr);
     }
 
-    size_t origin_block_size = block->columns();
     for (int i = 0; i < _children.size() - _has_else_expr; i += 2) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        auto when_column_ptr = block->get_by_position(column_id).column;
+        ColumnPtr when_column_ptr;
+        RETURN_IF_ERROR(_children[i]->execute(context, block, when_column_ptr));
         if (calculate_false_number(when_column_ptr) == rows_count) {
-            block->erase_tail(origin_block_size);
             continue;
         }
         when_columns.emplace_back(when_column_ptr);
-        RETURN_IF_ERROR(_children[i + 1]->execute(context, block, &column_id));
-        auto then_column_ptr = block->get_by_position(column_id).column;
+        ColumnPtr then_column_ptr;
+        RETURN_IF_ERROR(_children[i + 1]->execute(context, block, then_column_ptr));
         then_columns.emplace_back(then_column_ptr);
-        block->erase_tail(origin_block_size);
     }
 
     if (then_columns.size() > UINT16_MAX) {
         return Status::NotSupported(
                 "case when do not support more than UINT16_MAX then conditions");
     } else if (then_columns.size() > UINT8_MAX) {
-        block->insert({_execute_impl<uint16_t>(when_columns, then_columns, rows_count), _data_type,
-                       EXPR_NAME});
+        result_column = _execute_impl<uint16_t>(when_columns, then_columns, rows_count);
     } else {
-        block->insert({_execute_impl<uint8_t>(when_columns, then_columns, rows_count), _data_type,
-                       EXPR_NAME});
+        result_column = _execute_impl<uint8_t>(when_columns, then_columns, rows_count);
     }
-
-    *result_column_id = block->columns() - 1;
-
     return Status::OK();
 }
 

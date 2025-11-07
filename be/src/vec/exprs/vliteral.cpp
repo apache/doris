@@ -58,6 +58,12 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block,
     return Status::OK();
 }
 
+Status VLiteral::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+    size_t row_size = std::max(block->rows(), _column_ptr->size());
+    result_column = _column_ptr->clone_resized(row_size);
+    return Status::OK();
+}
+
 std::string VLiteral::value() const {
     DCHECK(_column_ptr->size() == 1);
     return _data_type->to_string(*_column_ptr, 0);

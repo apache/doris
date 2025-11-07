@@ -830,6 +830,12 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     return Status::OK();
 }
 
+Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
+                                    ColumnPtr& result_column) const {
+    result_column = ColumnConst::create(_constant_col->column_ptr, block->rows());
+    return Status::OK();
+}
+
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size

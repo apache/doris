@@ -47,7 +47,7 @@ public:
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
-
+    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
     std::string expr_label() override;
     std::string debug_string() const override;
