@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -86,9 +87,21 @@ private:
     class LoadStateChannelCache : public LRUCachePolicy {
     public:
         LoadStateChannelCache(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_LOAD_CHANNEL_CACHE, capacity,
                                  LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
+
+    class CancelReasonValue : public LRUCacheValueBase {
+    public:
+        explicit CancelReasonValue(std::string reason) : _reason(std::move(reason)) {}
+
+        const std::string& reason() const { return _reason; }
+
+        size_t memory_usage() const { return sizeof(CancelReasonValue) + _reason.capacity(); }
+
+    private:
+        std::string _reason;
     };
 
 protected:

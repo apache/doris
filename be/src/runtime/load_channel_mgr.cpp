@@ -74,8 +74,8 @@ void LoadChannelMgr::stop() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _last_success_channels = std::make_unique<LastSuccessChannelCache>(1024);
-    _last_cancel_channels = std::make_unique<LastCancelChannelCache>(1024);
+    _last_success_channels = std::make_unique<LoadStateChannelCache>(1024);
+    _last_cancel_channels = std::make_unique<LoadStateChannelCache>(1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -128,11 +128,20 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
             }
         }
 
+        // we should report the real cancel reason to FE
         auto* handle_failed = _last_cancel_channels->lookup(load_id.to_string());
-        // for case
         if (handle_failed != nullptr) {
+            auto* cancel_reason_value =
+                    static_cast<CancelReasonValue*>(_last_cancel_channels->value(handle_failed));
+            std::string cancel_reason = cancel_reason_value != nullptr ? cancel_reason_value->reason()
+                                                                       : std::string();
             _last_cancel_channels->release(handle_failed);
-            return Status::Cancelled("Has been cancelled (use load_id to find detail reasons in fe.log)");
+            if (!cancel_reason.empty()) {
+                return Status::Cancelled("Load channel has been cancelled previously: {}, reason: {}",
+                                         load_id.to_string(), cancel_reason);
+            }
+            return Status::Cancelled("Load channel has been cancelled previously: {}.",
+                                     load_id.to_string());
         }
 
         return Status::InternalError<false>(
@@ -206,8 +215,23 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             cancelled_channel = _load_channels[load_id];
             _load_channels.erase(load_id);
         }
-        auto* handle = _last_cancel_channels->insert(load_id.to_string(), nullptr, 1, 1);
-        _last_cancel_channels->release(handle);
+        // We just need to record the first cancel msg
+        auto* existing_handle = _last_cancel_channels->lookup(load_id.to_string());
+        if (existing_handle == nullptr) {
+            if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
+                auto* value = new CancelReasonValue(params.cancel_reason());
+                size_t mem_usage = value->memory_usage();
+                auto* handle =
+                        _last_cancel_channels->insert(load_id.to_string(), value, mem_usage,
+                                                      mem_usage);
+                _last_cancel_channels->release(handle);
+            } else {
+                auto* handle = _last_cancel_channels->insert(load_id.to_string(), nullptr, 1, 1);
+                _last_cancel_channels->release(handle);
+            }
+        } else {
+            _last_cancel_channels->release(existing_handle);
+        }
     }
 
     if (cancelled_channel != nullptr) {
