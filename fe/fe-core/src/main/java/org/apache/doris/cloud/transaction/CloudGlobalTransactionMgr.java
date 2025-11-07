@@ -1497,7 +1497,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         transactionId, costTimeMs, detailMsg,
                         tableList.stream().map(Table::getId).collect(Collectors.toList()));
             }
-            afterCommitTransaction(tableList, db.getId(), transactionId);
+            afterCommitTransaction(tableList, transactionId);
         }
         return true;
     }
@@ -1621,7 +1621,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void afterCommitTransaction(List<Table> tableList, Long dbId, Long transactionId) {
+    private void afterCommitTransaction(List<Table> tableList, Long transactionId) {
         if (commitCostTimeStatisticMap.containsKey(transactionId)) {
             commitCostTimeStatisticMap.remove(transactionId);
         }
@@ -1670,7 +1670,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         transactionId, costTimeMs, detailMsg,
                         tableList.stream().map(Table::getId).collect(Collectors.toList()));
             }
-            afterCommitTransaction(tableList, db.getId(), transactionId);
+            afterCommitTransaction(tableList, transactionId);
         }
         return true;
     }
@@ -2572,4 +2572,3 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         });
     }
 }
-
