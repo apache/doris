@@ -17,9 +17,10 @@
 
 package org.apache.doris.httpv2.util.streamresponse;
 
+import jakarta.servlet.http.HttpServletResponse;
+
 import java.io.PrintWriter;
 import java.sql.ResultSet;
-import javax.servlet.http.HttpServletResponse;
 
 /**
  * StreamResponseInf use response.getWriter() to response client
