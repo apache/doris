@@ -558,6 +558,7 @@ public class TypeCoercionUtils {
      */
     @Developing
     public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
+        LOG.warn("characterLiteralTypeCoercion: value={}, dataType={}", value, dataType);
         Expression ret = null;
         try {
             if (dataType instanceof BooleanType) {
