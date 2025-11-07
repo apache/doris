@@ -176,7 +176,7 @@ struct RowsetWriterContext {
         // Apply merge file system for write path if enabled
         // Create empty index_map for write path
         // Index information will be populated after write completes
-        if (config::enable_merge_file) {
+        if (config::is_cloud_mode() && config::enable_merge_file) {
             std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
             fs = std::make_shared<io::MergeFileSystem>(fs, index_map);
         }
