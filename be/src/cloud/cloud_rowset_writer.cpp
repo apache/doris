@@ -185,8 +185,8 @@ Status CloudRowsetWriter::_collect_merge_file_index(io::FileWriter* file_writer,
 
     rowset_meta->add_merge_file_segment_index(file_path, index.merge_file_path, index.offset,
                                               index.size);
-    VLOG(1) << "Add merge file index: " << file_path << " -> " << index.merge_file_path
-            << ", offset: " << index.offset << ", size: " << index.size;
+    LOG(INFO) << "collect merge file index: " << file_path << " -> " << index.merge_file_path
+              << ", offset: " << index.offset << ", size: " << index.size;
     return Status::OK();
 }
 

@@ -117,6 +117,8 @@ struct RowsetWriterContext {
 
     bool is_transient_rowset_writer = false;
 
+    bool enable_merge_file = true;
+
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
 
@@ -176,7 +178,7 @@ struct RowsetWriterContext {
         // Apply merge file system for write path if enabled
         // Create empty index_map for write path
         // Index information will be populated after write completes
-        if (config::is_cloud_mode() && config::enable_merge_file) {
+        if (enable_merge_file && config::is_cloud_mode() && config::enable_merge_file) {
             std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
             fs = std::make_shared<io::MergeFileSystem>(fs, index_map);
         }
