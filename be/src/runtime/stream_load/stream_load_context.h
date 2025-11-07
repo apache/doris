@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <condition_variable>
 #include <future>
 #include <map>
 #include <memory>
@@ -257,6 +258,12 @@ public:
     std::string cloud_cluster;
 
     std::mutex _send_reply_lock;
+    // maybe > 1 callback send reply, so we need to notify all,
+    // but `_finish_send_reply` will protect that only one callback send reply
+    std::condition_variable _can_send_reply_cv;
+    // avoid sending reply before on_chunk_data finish, or client will receive `broken pipe`
+    bool _can_send_reply = false;
+    // avoid sending reply two times
     bool _finish_send_reply = false;
 
 public:

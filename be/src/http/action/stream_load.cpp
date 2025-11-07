@@ -108,6 +108,12 @@ void StreamLoadAction::handle(HttpRequest* req) {
         return;
     }
 
+    {
+        std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+        ctx->_can_send_reply = true;
+        ctx->_can_send_reply_cv.notify_all();
+    }
+
     // status already set to fail
     if (ctx->status.ok()) {
         ctx->status = _handle(ctx, req);
@@ -164,11 +170,16 @@ void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRe
 }
 
 void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
-    std::lock_guard<std::mutex> lock1(ctx->_send_reply_lock);
+    std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+    while(!ctx->_finish_send_reply && !ctx->_can_send_reply) {
+        ctx->_can_send_reply_cv.wait(lock1);
+    }
     if (ctx->_finish_send_reply) {
         return;
     }
+    DCHECK(ctx->_can_send_reply);
     ctx->_finish_send_reply = true;
+    ctx->_can_send_reply_cv.notify_all();
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
@@ -246,6 +257,11 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
     if (!st.ok()) {
         ctx->status = std::move(st);
+        {
+            std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+            ctx->_can_send_reply = true;
+            ctx->_can_send_reply_cv.notify_all();
+        }
         _send_reply(ctx, req);
         return -1;
     }

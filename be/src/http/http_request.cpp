@@ -177,9 +177,11 @@ void HttpRequest::wait_finish_send_reply() {
     // so we will free cancelled request in time.
     if (status != std::future_status::ready) {
         LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
-        std::lock_guard<std::mutex> lock1(ctx->_send_reply_lock);
+        std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
         // do not send_reply after free current request
+        ctx->_can_send_reply = false;
         ctx->_finish_send_reply = true;
+        ctx->_can_send_reply_cv.notify_all();
     } else {
         VLOG_NOTICE << "wait send reply finished";
     }
