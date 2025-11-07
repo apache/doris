@@ -4916,7 +4916,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
-      
         if (policyFileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(policyFileCacheQueryLimitPercent);
         } else if (fileCacheQueryLimitPercent > 0) {
@@ -4925,7 +4924,6 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_percent_soft);
         }
-      
         return tResult;
     }
 
