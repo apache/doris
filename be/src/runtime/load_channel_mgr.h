@@ -80,7 +80,7 @@ private:
     void _finish_load_channel(UniqueId load_id);
 
     Status _start_bg_worker();
-    
+
     // We do not need to explicitly record whether a load is successful or canceled in the class;
     // this information can be maintained via the following member variables.
     class LoadStateChannelCache : public LRUCachePolicy {
