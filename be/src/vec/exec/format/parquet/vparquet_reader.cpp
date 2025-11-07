@@ -356,8 +356,8 @@ Status ParquetReader::init_reader(
         }
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
-        auto name = schema_desc.get_column(i)->name;
-        if (required_file_columns.find(name) != required_file_columns.end()) {
+        const auto& name = schema_desc.get_column(i)->name;
+        if (required_file_columns.contains(name)) {
             _read_file_columns.emplace_back(name);
             _read_table_columns.emplace_back(required_file_columns[name]);
         }
