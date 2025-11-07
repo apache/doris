@@ -973,9 +973,9 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
         return Status::OK();
     }
 
-    VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is missing, try to load it",
-                              _file_reader->path().native(), _file_reader->size(),
-                              _file_reader->size() - 12);
+    LOG_INFO("[verbose] Segment footer of {}-{}-{} is missing, try to load it, stack={}",
+             _file_reader->path().native(), _file_reader->size(), _file_reader->size() - 12,
+             Status::InternalError("stack"));
 
     StoragePageCache* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
     DCHECK(segment_footer_cache != nullptr);
@@ -986,6 +986,11 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
 
     if (!segment_footer_cache->lookup(cache_key, &cache_handle,
                                       segment_v2::PageTypePB::DATA_PAGE)) {
+        LOG_INFO(
+                "[verbose] Segment footer of {}-{}-{} is not found in cache, load from file, "
+                "stack={}",
+                _file_reader->path().native(), _file_reader->size(), _file_reader->size() - 12,
+                Status::InternalError("stack"));
         RETURN_IF_ERROR(_parse_footer(footer_pb_shared, stats));
         segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
                                      &cache_handle, segment_v2::PageTypePB::DATA_PAGE);
