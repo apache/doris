@@ -239,6 +239,29 @@ public class RewriteDataFilePlannerTest {
     }
 
     @Test
+    public void testDeleteRatioWithZeroRecordCount() throws UserException {
+        // Test that recordCount == 0 doesn't cause division by zero
+        Mockito.when(mockTable.newScan()).thenReturn(mockTableScan);
+        Mockito.when(mockTableScan.planFiles())
+                .thenReturn(CloseableIterable.withNoopClose(Collections.singletonList(mockFileScanTask)));
+        Mockito.when(mockFileScanTask.file()).thenReturn(mockDataFile);
+        Mockito.when(mockFileScanTask.spec()).thenReturn(mockPartitionSpec);
+        Mockito.when(mockDataFile.fileSizeInBytes()).thenReturn(100 * 1024 * 1024L);
+        Mockito.when(mockDataFile.partition()).thenReturn(mockPartition);
+        Mockito.when(mockPartitionSpec.partitionType()).thenReturn(Types.StructType.of());
+
+        // Mock delete file with record count = 0 (should not cause division by zero)
+        Mockito.when(mockDeleteFile.recordCount()).thenReturn(10L);
+        Mockito.when(mockDataFile.recordCount()).thenReturn(0L); // Zero record count
+
+        Mockito.when(mockFileScanTask.deletes()).thenReturn(Collections.singletonList(mockDeleteFile));
+
+        List<RewriteDataGroup> result = planner.planAndOrganizeTasks(mockTable);
+        // File with zero record count should not be selected (should return false without throwing exception)
+        Assertions.assertTrue(result.isEmpty(), "File with zero record count should not be selected");
+    }
+
+    @Test
     public void testGroupFilteringByInputFiles() throws UserException {
         Mockito.when(mockTable.newScan()).thenReturn(mockTableScan);
         Mockito.when(mockTableScan.planFiles())
@@ -410,6 +433,36 @@ public class RewriteDataFilePlannerTest {
         Assertions.assertEquals(100 * 1024 * 1024L, group.getTotalSize());
         Assertions.assertEquals(1, group.getDataFiles().size());
         Assertions.assertTrue(group.getDataFiles().contains(mockDataFile));
+    }
+
+    @Test
+    public void testRewriteDataGroupConstructorWithTasks() {
+        // Test constructor that takes a list of tasks
+        FileScanTask task1 = Mockito.mock(FileScanTask.class);
+        FileScanTask task2 = Mockito.mock(FileScanTask.class);
+        DataFile dataFile1 = Mockito.mock(DataFile.class);
+        DataFile dataFile2 = Mockito.mock(DataFile.class);
+        DeleteFile deleteFile1 = Mockito.mock(DeleteFile.class);
+        DeleteFile deleteFile2 = Mockito.mock(DeleteFile.class);
+
+        Mockito.when(task1.file()).thenReturn(dataFile1);
+        Mockito.when(task1.deletes()).thenReturn(Arrays.asList(deleteFile1));
+        Mockito.when(dataFile1.fileSizeInBytes()).thenReturn(100 * 1024 * 1024L);
+
+        Mockito.when(task2.file()).thenReturn(dataFile2);
+        Mockito.when(task2.deletes()).thenReturn(Arrays.asList(deleteFile2));
+        Mockito.when(dataFile2.fileSizeInBytes()).thenReturn(200 * 1024 * 1024L);
+
+        List<FileScanTask> tasks = Arrays.asList(task1, task2);
+        RewriteDataGroup group = new RewriteDataGroup(tasks);
+
+        Assertions.assertFalse(group.isEmpty());
+        Assertions.assertEquals(2, group.getTaskCount());
+        Assertions.assertEquals(300 * 1024 * 1024L, group.getTotalSize()); // 100MB + 200MB
+        Assertions.assertEquals(2, group.getDeleteFileCount()); // 1 + 1
+        Assertions.assertEquals(2, group.getDataFiles().size());
+        Assertions.assertTrue(group.getDataFiles().contains(dataFile1));
+        Assertions.assertTrue(group.getDataFiles().contains(dataFile2));
     }
 
     @Test
@@ -1029,6 +1082,78 @@ public class RewriteDataFilePlannerTest {
         Assertions.assertEquals(1, result.size(), "File with 4 delete files (> 3 threshold) should be selected");
         Assertions.assertEquals(1, result.get(0).getTaskCount(), "Group should contain 1 task");
         Assertions.assertEquals(100 * 1024 * 1024L, result.get(0).getTotalSize(), "Total size should be 100MB");
+    }
+
+    @Test
+    public void testBinPackGroupingWithLargePartition() throws UserException {
+        // Test binPack grouping: when a partition has files exceeding maxFileGroupSizeBytes,
+        // they should be split into multiple groups
+        RewriteDataFilePlanner.Parameters params = new RewriteDataFilePlanner.Parameters(
+                128 * 1024 * 1024L, // targetFileSizeBytes: 128MB
+                64 * 1024 * 1024L, // minFileSizeBytes: 64MB
+                256 * 1024 * 1024L, // maxFileSizeBytes: 256MB
+                1, // minInputFiles: 1
+                true, // rewriteAll: true (to avoid filtering)
+                200 * 1024 * 1024L, // maxFileGroupSizeBytes: 200MB (small to trigger splitting)
+                3, // deleteFileThreshold
+                0.1, // deleteRatioThreshold: 10%
+                1L, // outputSpecId
+                Optional.empty() // whereCondition
+        );
+
+        RewriteDataFilePlanner testPlanner = new RewriteDataFilePlanner(params);
+
+        // Create multiple files in the same partition that together exceed maxFileGroupSizeBytes
+        FileScanTask task1 = Mockito.mock(FileScanTask.class);
+        FileScanTask task2 = Mockito.mock(FileScanTask.class);
+        FileScanTask task3 = Mockito.mock(FileScanTask.class);
+        DataFile file1 = Mockito.mock(DataFile.class);
+        DataFile file2 = Mockito.mock(DataFile.class);
+        DataFile file3 = Mockito.mock(DataFile.class);
+
+        Mockito.when(mockTable.newScan()).thenReturn(mockTableScan);
+        Mockito.when(mockTableScan.planFiles()).thenReturn(CloseableIterable.withNoopClose(
+                Arrays.asList(task1, task2, task3)));
+
+        // All files in the same partition
+        Mockito.when(task1.file()).thenReturn(file1);
+        Mockito.when(task1.spec()).thenReturn(mockPartitionSpec);
+        Mockito.when(task1.deletes()).thenReturn(null);
+        Mockito.when(file1.fileSizeInBytes()).thenReturn(100 * 1024 * 1024L); // 100MB
+        Mockito.when(file1.partition()).thenReturn(mockPartition);
+
+        Mockito.when(task2.file()).thenReturn(file2);
+        Mockito.when(task2.spec()).thenReturn(mockPartitionSpec);
+        Mockito.when(task2.deletes()).thenReturn(null);
+        Mockito.when(file2.fileSizeInBytes()).thenReturn(100 * 1024 * 1024L); // 100MB
+        Mockito.when(file2.partition()).thenReturn(mockPartition);
+
+        Mockito.when(task3.file()).thenReturn(file3);
+        Mockito.when(task3.spec()).thenReturn(mockPartitionSpec);
+        Mockito.when(task3.deletes()).thenReturn(null);
+        Mockito.when(file3.fileSizeInBytes()).thenReturn(100 * 1024 * 1024L); // 100MB
+        Mockito.when(file3.partition()).thenReturn(mockPartition);
+
+        Mockito.when(mockPartitionSpec.partitionType()).thenReturn(Types.StructType.of());
+
+        List<RewriteDataGroup> result = testPlanner.planAndOrganizeTasks(mockTable);
+
+        // Total size = 300MB > 200MB maxFileGroupSizeBytes
+        // binPack should split into multiple groups
+        // Expected: 2 groups (100MB + 100MB in first group, 100MB in second group)
+        Assertions.assertTrue(result.size() >= 2, "Should have at least 2 groups due to binPack splitting");
+        
+        // Verify total files are preserved
+        int totalFiles = result.stream().mapToInt(RewriteDataGroup::getTaskCount).sum();
+        long totalSize = result.stream().mapToLong(RewriteDataGroup::getTotalSize).sum();
+        Assertions.assertEquals(3, totalFiles, "Should have all 3 files");
+        Assertions.assertEquals(300 * 1024 * 1024L, totalSize, "Total size should be 300MB");
+        
+        // Verify each group doesn't exceed maxFileGroupSizeBytes
+        for (RewriteDataGroup group : result) {
+            Assertions.assertTrue(group.getTotalSize() <= 200 * 1024 * 1024L,
+                    "Each group should not exceed maxFileGroupSizeBytes (200MB)");
+        }
     }
 
 }

@@ -37,6 +37,13 @@ public class RewriteDataGroup {
         this.deleteFileCount = 0;
     }
 
+    public RewriteDataGroup(List<FileScanTask> tasks) {
+        this.tasks = tasks;
+        this.totalSize = tasks.stream().mapToLong(task -> task.file().fileSizeInBytes()).sum();
+        this.deleteFileCount = tasks.stream().mapToInt(task -> task.deletes() != null ? task.deletes().size() : 0)
+                .sum();
+    }
+
     /**
      * Add a task to this group
      */
