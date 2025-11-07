@@ -80,18 +80,12 @@ private:
     void _finish_load_channel(UniqueId load_id);
 
     Status _start_bg_worker();
-
-    class LastSuccessChannelCache : public LRUCachePolicy {
+    
+    // We do not need to explicitly record whether a load is successful or canceled in the class;
+    // this information can be maintained via the following member variables.
+    class LoadStateChannelCache  : public LRUCachePolicy {
     public:
-        LastSuccessChannelCache(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
-                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
-    };
-
-    class LastCancelChannelCache : public LRUCachePolicy {
-    public:
-        LastCancelChannelCache(size_t capacity)
+    LoadStateChannelCache (size_t capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::LAST_SUCCESS_CHANNEL_CACHE, capacity,
                                  LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
                                  DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
@@ -102,8 +96,8 @@ protected:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    std::unique_ptr<LastSuccessChannelCache> _last_success_channels;
-    std::unique_ptr<LastCancelChannelCache> _last_cancel_channels;
+    std::unique_ptr<LoadStateChannelCache > _last_success_channels;
+    std::unique_ptr<LoadStateChannelCache > _last_cancel_channels;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 
