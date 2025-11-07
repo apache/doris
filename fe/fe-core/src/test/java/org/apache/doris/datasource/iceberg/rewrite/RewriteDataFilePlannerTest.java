@@ -1142,13 +1142,13 @@ public class RewriteDataFilePlannerTest {
         // binPack should split into multiple groups
         // Expected: 2 groups (100MB + 100MB in first group, 100MB in second group)
         Assertions.assertTrue(result.size() >= 2, "Should have at least 2 groups due to binPack splitting");
-        
+
         // Verify total files are preserved
         int totalFiles = result.stream().mapToInt(RewriteDataGroup::getTaskCount).sum();
         long totalSize = result.stream().mapToLong(RewriteDataGroup::getTotalSize).sum();
         Assertions.assertEquals(3, totalFiles, "Should have all 3 files");
         Assertions.assertEquals(300 * 1024 * 1024L, totalSize, "Total size should be 300MB");
-        
+
         // Verify each group doesn't exceed maxFileGroupSizeBytes
         for (RewriteDataGroup group : result) {
             Assertions.assertTrue(group.getTotalSize() <= 200 * 1024 * 1024L,
