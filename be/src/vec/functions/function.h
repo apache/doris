@@ -98,7 +98,7 @@ public:
     virtual String get_name() const = 0;
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           uint32_t result, size_t input_rows_count, bool dry_run) const = 0;
+                           uint32_t result, size_t input_rows_count) const = 0;
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -106,7 +106,7 @@ using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
 class PreparedFunctionImpl : public IPreparedFunction {
 public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, bool dry_run = false) const final;
+                   uint32_t result, size_t input_rows_count) const final;
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
@@ -122,12 +122,6 @@ public:
     virtual bool need_replace_null_data_to_default() const { return false; }
 
 protected:
-    virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                        const ColumnNumbers& arguments, uint32_t result,
-                                        size_t input_rows_count) const {
-        return execute_impl(context, block, arguments, result, input_rows_count);
-    }
-
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) const = 0;
@@ -150,18 +144,16 @@ protected:
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
                                             const ColumnNumbers& args, uint32_t result,
-                                            size_t input_rows_count, bool dry_run,
-                                            bool* executed) const;
+                                            size_t input_rows_count, bool* executed) const;
     Status default_implementation_for_constant_arguments(FunctionContext* context, Block& block,
                                                          const ColumnNumbers& args, uint32_t result,
-                                                         size_t input_rows_count, bool dry_run,
+                                                         size_t input_rows_count,
                                                          bool* executed) const;
-    Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
-                                                   const ColumnNumbers& arguments, uint32_t result,
-                                                   size_t input_rows_count, bool dry_run) const;
+    Status default_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                           uint32_t result, size_t input_rows_count) const;
     Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
                                           const ColumnNumbers& args, uint32_t result,
-                                          size_t input_rows_count, bool dry_run) const;
+                                          size_t input_rows_count) const;
 };
 
 /// Function with known arguments and return type.
@@ -187,10 +179,10 @@ public:
     }
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+                   uint32_t result, size_t input_rows_count) const {
         try {
             return prepare(context, block, arguments, result)
-                    ->execute(context, block, arguments, result, input_rows_count, dry_run);
+                    ->execute(context, block, arguments, result, input_rows_count);
         } catch (const Exception& e) {
             return e.to_status();
         }
@@ -391,7 +383,6 @@ public:
     }
 
     using PreparedFunctionImpl::execute;
-    using PreparedFunctionImpl::execute_impl_dry_run;
     using FunctionBuilderImpl::get_return_type_impl;
     using FunctionBuilderImpl::get_variadic_argument_types_impl;
     using FunctionBuilderImpl::get_return_type;
@@ -540,11 +531,10 @@ private:
 };
 
 using FunctionPtr = std::shared_ptr<IFunction>;
-
 /** Return ColumnNullable of src, with null map as OR-ed null maps of args columns in blocks.
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           uint32_t result, size_t input_rows_count);
+                           size_t input_rows_count);
 
 } // namespace doris::vectorized

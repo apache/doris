@@ -43,7 +43,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           uint32_t result, size_t input_rows_count) {
+                           size_t input_rows_count) {
     ColumnPtr result_null_map_column;
     /// If result is already nullable.
     ColumnPtr src_not_nullable = src;
@@ -105,26 +105,23 @@ bool have_null_column(const ColumnsWithTypeAndName& args) {
     return std::ranges::any_of(args, [](const auto& elem) { return elem.type->is_nullable(); });
 }
 
-inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run) const {
+inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(FunctionContext* context,
+                                                                   Block& block,
+                                                                   const ColumnNumbers& args,
+                                                                   uint32_t result,
+                                                                   size_t input_rows_count) const {
     bool executed = false;
     RETURN_IF_ERROR(default_implementation_for_nulls(context, block, args, result, input_rows_count,
-                                                     dry_run, &executed));
+                                                     &executed));
     if (executed) {
         return Status::OK();
     }
-
-    if (dry_run) {
-        return execute_impl_dry_run(context, block, args, result, input_rows_count);
-    } else {
-        return execute_impl(context, block, args, result, input_rows_count);
-    }
+    return execute_impl(context, block, args, result, input_rows_count);
 }
 
 Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) const {
+        size_t input_rows_count, bool* executed) const {
     *executed = false;
     ColumnNumbers args_expect_const = get_arguments_that_are_always_constant();
 
@@ -153,15 +150,15 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         // If we unpack it, there will be unnecessary cost of virtual judge.
         if (args_expect_const.end() !=
             std::find(args_expect_const.begin(), args_expect_const.end(), arg_num)) {
-            temporary_block.insert({column.column, column.type, column.name});
+            temporary_block.simple_insert({column.column, column.type, column.name});
         } else {
-            temporary_block.insert(
+            temporary_block.simple_insert(
                     {assert_cast<const ColumnConst*>(column.column.get())->get_data_column_ptr(),
                      column.type, column.name});
         }
     }
 
-    temporary_block.insert(block.get_by_position(result));
+    temporary_block.simple_insert(block.get_by_position(result));
 
     ColumnNumbers temporary_argument_numbers(arguments_size);
     for (int i = 0; i < arguments_size; ++i) {
@@ -170,7 +167,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 
     RETURN_IF_ERROR(_execute_skipped_constant_deal(context, temporary_block,
                                                    temporary_argument_numbers, arguments_size,
-                                                   temporary_block.rows(), dry_run));
+                                                   temporary_block.rows()));
 
     ColumnPtr result_column;
     /// extremely rare case, when we have function with completely const arguments
@@ -188,7 +185,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 
 Status PreparedFunctionImpl::default_implementation_for_nulls(
         FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) const {
+        size_t input_rows_count, bool* executed) const {
     *executed = false;
     if (args.empty() || !use_default_implementation_for_nulls()) {
         return Status::OK();
@@ -207,47 +204,48 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         bool need_to_default = need_replace_null_data_to_default();
         // extract nested column from nulls
         ColumnNumbers new_args;
-        for (auto arg : args) {
-            new_args.push_back(block.columns());
-            block.insert(block.get_by_position(arg).unnest_nullable(need_to_default));
-            DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
+        Block new_block;
+
+        for (int i = 0; i < args.size(); ++i) {
+            uint32_t arg = args[i];
+            new_args.push_back(i);
+            new_block.simple_insert(
+                    new_block.get_by_position(arg).unnest_nullable(need_to_default));
         }
-        RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
-                                                                block.rows(), dry_run));
+        new_block.simple_insert(block.get_by_position(result));
+        int new_result = new_block.columns() - 1;
+
+        RETURN_IF_ERROR(default_execute(context, new_block, new_args, new_result, block.rows()));
         // After run with nested, wrap them in null. Before this, block.get_by_position(result).type
         // is not compatible with get_by_position(result).column
-        block.get_by_position(result).column = wrap_in_nullable(
-                block.get_by_position(result).column, block, args, result, input_rows_count);
 
-        while (!new_args.empty()) {
-            block.erase(new_args.back());
-            new_args.pop_back();
-        }
+        block.get_by_position(result).column = wrap_in_nullable(
+                new_block.get_by_position(new_result).column, block, args, input_rows_count);
+
         *executed = true;
         return Status::OK();
     }
     return Status::OK();
 }
 
-Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
-        size_t input_rows_count, bool dry_run) const {
+Status PreparedFunctionImpl::default_execute(FunctionContext* context, Block& block,
+                                             const ColumnNumbers& args, uint32_t result,
+                                             size_t input_rows_count) const {
     bool executed = false;
 
-    RETURN_IF_ERROR(default_implementation_for_constant_arguments(
-            context, block, args, result, input_rows_count, dry_run, &executed));
+    RETURN_IF_ERROR(default_implementation_for_constant_arguments(context, block, args, result,
+                                                                  input_rows_count, &executed));
     if (executed) {
         return Status::OK();
     }
 
-    return _execute_skipped_constant_deal(context, block, args, result, input_rows_count, dry_run);
+    return _execute_skipped_constant_deal(context, block, args, result, input_rows_count);
 }
 
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
                                      const ColumnNumbers& args, uint32_t result,
-                                     size_t input_rows_count, bool dry_run) const {
-    return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
-                                                   dry_run);
+                                     size_t input_rows_count) const {
+    return default_execute(context, block, args, result, input_rows_count);
 }
 
 void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) const {
