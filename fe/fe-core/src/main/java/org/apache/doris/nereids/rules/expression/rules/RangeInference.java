@@ -37,6 +37,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -187,11 +188,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         boolean hasNullExpression = false;
         boolean hasIsNullExpression = false;
         boolean hasNotIsNullExpression = false;
+        Predicate<Expression> isNotNull = expression -> expression instanceof Not
+                && expression.child(0) instanceof IsNull
+                && !((Not) expression).isGeneratedIsNotNull();
         for (Expression predicate : predicates) {
             hasNullExpression = hasNullExpression || predicate.isNullLiteral();
             hasIsNullExpression = hasIsNullExpression || predicate instanceof IsNull;
-            hasNotIsNullExpression = hasNotIsNullExpression
-                    || (predicate instanceof Not && predicate.child(0) instanceof IsNull);
+            hasNotIsNullExpression = hasNotIsNullExpression || isNotNull.test(predicate);
         }
         boolean convertIsNullToEmptyValue = isAnd && hasNullExpression && hasIsNullExpression;
         boolean convertNotIsNullToRangeAll = !isAnd && hasNullExpression && hasNotIsNullExpression;
@@ -203,8 +206,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             ValueDesc valueDesc = null;
             if (predicate instanceof IsNull && convertIsNullToEmptyValue) {
                 valueDesc = new EmptyValue(context, ((IsNull) predicate).child());
-            } else if (predicate instanceof Not && predicate.child(0) instanceof IsNull
-                    && convertNotIsNullToRangeAll) {
+            } else if (isNotNull.test(predicate) && convertNotIsNullToRangeAll) {
                 valueDesc = new RangeValue(context, predicate.child(0).child(0), Range.all());
             } else if (predicate.isNullLiteral() && (convertIsNullToEmptyValue || convertNotIsNullToRangeAll)) {
                 continue;
@@ -325,7 +327,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // process is null and is not null
         // for non-nullable a: EmptyValue(a) = a is null and null
         boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && reference.nullable();
-        if (hasIsNullValue && collector.isNotNullValueOpt.isPresent()) {
+        boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent()
+                || collector.isGenerateNotNullValueOpt.isPresent()
+                || mergeRangeValue != null && !mergeRangeValue.hasLowerBound() && !mergeRangeValue.hasUpperBound();
+        if (hasIsNullValue && hasIsNotNullValue) {
             return new UnknownValue(context, BooleanLiteral.FALSE);
         }
         // nullable's EmptyValue have contains IsNull, no need to add
@@ -333,6 +338,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             resultValues.add(new IsNullValue(context, reference));
         }
         collector.isNotNullValueOpt.ifPresent(resultValues::add);
+        collector.isGenerateNotNullValueOpt.ifPresent(resultValues::add);
         Optional<ValueDesc> shortCutResult = mergeCompoundValues(context, reference, resultValues, collector, true);
         if (shortCutResult.isPresent()) {
             return shortCutResult.get();
@@ -408,13 +414,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && !reference.nullable();
-        boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent() || hasRangeAll;
+        boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent()
+                || collector.isGenerateNotNullValueOpt.isPresent() || hasRangeAll;
         if (hasIsNullValue && hasIsNotNullValue) {
             return new UnknownValue(context, BooleanLiteral.TRUE);
         } else if (collector.hasIsNullValue) {
             resultValues.add(new IsNullValue(context, reference));
         } else {
             collector.isNotNullValueOpt.ifPresent(resultValues::add);
+            collector.isGenerateNotNullValueOpt.ifPresent(resultValues::add);
         }
         Optional<ValueDesc> shortCutResult = mergeCompoundValues(context, reference, resultValues, collector, false);
         if (shortCutResult.isPresent()) {
@@ -551,7 +559,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private static class ValueDescCollector implements ValueDescVisitor<Void, Void> {
+        // generated not is null != not is null
         Optional<IsNotNullValue> isNotNullValueOpt = Optional.empty();
+        Optional<IsNotNullValue> isGenerateNotNullValueOpt = Optional.empty();
+
         boolean hasIsNullValue = false;
         boolean hasEmptyValue = false;
         List<RangeValue> rangeValues = Lists.newArrayList();
@@ -600,7 +611,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public Void visitIsNotNullValue(IsNotNullValue isNotNullValue, Void context) {
-            if (!isNotNullValueOpt.isPresent() || isNotNullValue.getNotExpression().isGeneratedIsNotNull()) {
+            if (isNotNullValue.not.isGeneratedIsNotNull()) {
+                isGenerateNotNullValueOpt = Optional.of(isNotNullValue);
+            } else {
                 isNotNullValueOpt = Optional.of(isNotNullValue);
             }
             return null;
@@ -1161,7 +1174,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected boolean containsAll(ValueDesc other, int depth) {
             if (other instanceof IsNotNullValue) {
-                return true;
+                return not.isGeneratedIsNotNull() == ((IsNotNullValue) other).not.isGeneratedIsNotNull();
             } else if (other instanceof CompoundValue) {
                 return ((CompoundValue) other).isContainedAllBy(this, depth);
             } else {
