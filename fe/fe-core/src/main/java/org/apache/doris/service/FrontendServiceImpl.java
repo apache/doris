@@ -3667,8 +3667,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        boolean isStreamLoad;
         if (request.isSetIsStreamLoad()) {
-            request.isIsStreamLoad();
+            isStreamLoad = request.isIsStreamLoad();
         } else {
             errorStatus.setErrorMsgs(
                     Lists.newArrayList("Logical error: please check the RPC transmission between BE and FE."));
@@ -3838,9 +3839,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
-            Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                    .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                            partitionSlaveTablets);
+
+            if (!isStreamLoad) {
+                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                        .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                                partitionSlaveTablets);
+            }
+
+            tablets.addAll(partitionTablets);
+            slaveTablets.addAll(partitionSlaveTablets);
         }
         result.setPartitions(partitions);
         result.setTablets(tablets);
