@@ -93,6 +93,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
     } else {
         _topn_limit = 0;
+        DCHECK_EQ(_reader->_reader_context.filter_block_conjuncts.size(), 0);
     }
 }
 
@@ -452,12 +453,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
-    // append a column to indicate scanner filter_block is already done
-    auto filtered_datatype = std::make_shared<DataTypeUInt8>();
-    auto filtered_column = filtered_datatype->create_column_const(
-            block->rows(), Field::create_field<TYPE_BOOLEAN>(1));
-    block->insert(
-            {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");

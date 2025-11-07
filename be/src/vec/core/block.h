@@ -164,8 +164,6 @@ public:
     Container::const_iterator cbegin() const { return data.cbegin(); }
     Container::const_iterator cend() const { return data.cend(); }
 
-    bool has(const std::string& name) const;
-
     size_t get_position_by_name(const std::string& name) const;
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
@@ -387,9 +385,6 @@ private:
     DataTypes _data_types;
     std::vector<std::string> _names;
 
-    using IndexByName = phmap::flat_hash_map<String, size_t>;
-    IndexByName index_by_name;
-
 public:
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);
@@ -403,21 +398,16 @@ public:
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()),
               _data_types(block->get_data_types()),
-              _names(block->get_names()) {
-        initialize_index_by_name();
-    }
+              _names(block->get_names()) {}
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()),
               _data_types(block.get_data_types()),
-              _names(block.get_names()) {
-        initialize_index_by_name();
-    }
+              _names(block.get_names()) {}
 
     void operator=(MutableBlock&& m_block) {
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
-        initialize_index_by_name();
     }
 
     size_t rows() const;
@@ -548,7 +538,6 @@ public:
                     _columns[i] = _data_types[i]->create_column();
                 }
             }
-            initialize_index_by_name();
         } else {
             if (_columns.size() != block.columns()) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -595,9 +584,6 @@ public:
     Status add_rows(const Block* block, size_t row_begin, size_t length);
     Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
-    /// remove the column with the specified name
-    void erase(const String& name);
-
     std::string dump_data(size_t row_limit = 100) const;
     std::string dump_data_json(size_t row_limit = 100) const;
 
@@ -623,13 +609,8 @@ public:
 
     std::vector<std::string>& get_names() { return _names; }
 
-    size_t get_position_by_name(const std::string& name) const;
-
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
-
-private:
-    void initialize_index_by_name();
 };
 
 struct IteratorRowRef {

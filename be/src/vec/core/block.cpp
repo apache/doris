@@ -342,10 +342,6 @@ const ColumnWithTypeAndName* Block::try_get_by_name(const std::string& name) con
     return &data[it->second];
 }
 
-bool Block::has(const std::string& name) const {
-    return index_by_name.end() != index_by_name.find(name);
-}
-
 size_t Block::get_position_by_name(const std::string& name) const {
     auto it = index_by_name.find(name);
     if (index_by_name.end() == it) {
@@ -1049,7 +1045,6 @@ MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int
             _names.push_back(slot_desc->col_name());
         }
     }
-    initialize_index_by_name();
 }
 
 size_t MutableBlock::rows() const {
@@ -1067,7 +1062,6 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
     _names.swap(another._names);
-    index_by_name.swap(another.index_by_name);
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -1128,31 +1122,6 @@ Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& ro
         }
     });
     return Status::OK();
-}
-
-void MutableBlock::erase(const String& name) {
-    auto index_it = index_by_name.find(name);
-    if (index_it == index_by_name.end()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
-                        name, dump_names());
-    }
-
-    auto position = index_it->second;
-
-    _columns.erase(_columns.begin() + position);
-    _data_types.erase(_data_types.begin() + position);
-    _names.erase(_names.begin() + position);
-
-    for (auto it = index_by_name.begin(); it != index_by_name.end();) {
-        if (it->second == position) {
-            index_by_name.erase(it++);
-        } else {
-            if (it->second > position) {
-                --it->second;
-            }
-            ++it;
-        }
-    }
 }
 
 Block MutableBlock::to_block(int start_column) {
@@ -1292,22 +1261,6 @@ void MutableBlock::clear_column_data() noexcept {
             col->clear();
         }
     }
-}
-
-void MutableBlock::initialize_index_by_name() {
-    for (size_t i = 0, size = _names.size(); i < size; ++i) {
-        index_by_name[_names[i]] = i;
-    }
-}
-
-size_t MutableBlock::get_position_by_name(const std::string& name) const {
-    auto it = index_by_name.find(name);
-    if (index_by_name.end() == it) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "No such name in Block, name={}, block_names={}",
-                        name, dump_names());
-    }
-
-    return it->second;
 }
 
 std::string MutableBlock::dump_names() const {
