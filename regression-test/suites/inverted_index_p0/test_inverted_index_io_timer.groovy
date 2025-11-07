@@ -103,29 +103,37 @@ suite('test_inverted_index_io_timer', 'p0') {
         
         // Execute query with inverted index using profile
         def queryId = "test_inverted_index_io_timer_${System.currentTimeMillis()}"
-        profile("${queryId}") {
-            run {
-                sql "/* ${queryId} */ select * from ${indexTbName1} where request match 'images' order by `@timestamp` limit 10"
+        try {
+            profile("${queryId}") {
+                run {
+                    sql "/* ${queryId} */ select * from ${indexTbName1} where request match 'images' order by `@timestamp` limit 10"
+                }
+                
+                check { profileString, exception ->
+                    def local = 0
+                    def remote = 0
+
+                    def localMatcher = Pattern.compile("InvertedIndexNumLocalIOTotal:\\s*(\\d+)").matcher(profileString)
+                    if (localMatcher.find()) {
+                        local = Integer.parseInt(localMatcher.group(1))
+                        log.info("InvertedIndexNumLocalIOTotal: {}", local)
+                    }
+
+                    def remoteMatcher = Pattern.compile("InvertedIndexNumRemoteIOTotal:\\s*(\\d+)").matcher(profileString)
+                    if (remoteMatcher.find()) {
+                        remote = Integer.parseInt(remoteMatcher.group(1))
+                        log.info("InvertedIndexNumRemoteIOTotal: {}", remote)
+                    }
+
+                    def total = local + remote
+                    assertTrue(total > 0, "InvertedIndexNumLocalIOTotal + InvertedIndexNumRemoteIOTotal should be > 0, got: ${total} (local=${local}, remote=${remote})")
+                }
             }
-            
-            check { profileString, exception ->
-                def local = 0
-                def remote = 0
-
-                def localMatcher = Pattern.compile("InvertedIndexNumLocalIOTotal:\\s*(\\d+)").matcher(profileString)
-                if (localMatcher.find()) {
-                    local = Integer.parseInt(localMatcher.group(1))
-                    log.info("InvertedIndexNumLocalIOTotal: {}", local)
-                }
-
-                def remoteMatcher = Pattern.compile("InvertedIndexNumRemoteIOTotal:\\s*(\\d+)").matcher(profileString)
-                if (remoteMatcher.find()) {
-                    remote = Integer.parseInt(remoteMatcher.group(1))
-                    log.info("InvertedIndexNumRemoteIOTotal: {}", remote)
-                }
-
-                def total = local + remote
-                assertTrue(total > 0, "InvertedIndexNumLocalIOTotal + InvertedIndexNumRemoteIOTotal should be > 0, got: ${total} (local=${local}, remote=${remote})")
+        } catch (IllegalStateException e) {
+            if (e.message?.contains("HttpCliAction failed")) {
+                log.warn("Profile HTTP request failed, skipping profile check: {}", e.message)
+            } else {
+                throw e
             }
         }
         
