@@ -214,16 +214,8 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
     }
 
     private LogicalProject<? extends Plan> projectAliasOnPlan(List<Alias> projections, Plan child) {
-        if (child instanceof LogicalProject) {
-            LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) child;
-            List<NamedExpression> newProjections =
-                    Lists.newArrayList(project.getProjects());
-            newProjections.addAll(projections);
-            return project.withProjects(newProjections);
-        } else {
-            List<NamedExpression> newProjections = Lists.newArrayList(child.getOutput());
-            newProjections.addAll(projections);
-            return new LogicalProject<>(newProjections, child);
-        }
+        List<NamedExpression> newProjections = Lists.newArrayList(child.getOutput());
+        newProjections.addAll(projections);
+        return new LogicalProject<>(newProjections, child);
     }
 }
