@@ -24,16 +24,34 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * AutoPartitionCacheManager is used to manage the cache of auto partition info.
- * To distinguish the idempotence of the createPartition RPC during incremental partition creation
- * for automatic partitioned tables, cache tablet locations per partition.
- */
+/*
+    ** this class AutoPartitionCacheManager is used for solve the follow question :
+    **
+    * RPC [P1, P2]              RPC [P2, P3]
+    *       |                         |
+    *    P1:t1, t2                    |
+    *       ↓                         |
+    *    P2:t3, t4                    |
+    *                                 ↓
+    *                             P2:exist
+    *                                 ↓
+    *                             P3:t5,t6
+    * --------------------------------------
+    *       tablet rebalance during ...
+    *     t1 - be1                 t3 - be1 <-
+    *     t2 - be2                 t4 - be1
+    *     t3 - be2 <-              t5 - be2
+    *     t4 - be1                 t6 - be2
+    * --------------------------------------
+    * We ensure that only one view of the replica distribution in P2:t3,t4 above takes effect for this txn
+    * to avoid tablets being written to multiple instances within the same transaction (assuming single replica)
+*/
+
+// AutoPartitionCacheManager is used to manage the cache of auto partition info.
+// To distinguish the idempotence of the createPartition RPC during incremental partition creation
+// for automatic partitioned tables, cache tablet locations per partition.
 public class AutoPartitionCacheManager {
 
-    /**
-     * Cache structure to store tablet and slave tablet locations.
-     */
     public static class PartitionTabletCache {
         public final List<TTabletLocation> tablets;
         public final List<TTabletLocation> slaveTablets;
@@ -48,11 +66,8 @@ public class AutoPartitionCacheManager {
     private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, PartitionTabletCache>> autoPartitionInfo
                     = new ConcurrentHashMap<>();
 
-    /**
-     * Get or set auto partition info for a transaction.
-     * For a partition, if it's already cached, use the cached tablet locations;
-     * otherwise, cache the new tablet locations.
-     */
+    // if cached : we use cached info
+    // else      : store it.
     public void getOrSetAutoPartitionInfo(Long txnId, Long partitionId,
             List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets) {
         ConcurrentHashMap<Long, PartitionTabletCache> partitionMap =

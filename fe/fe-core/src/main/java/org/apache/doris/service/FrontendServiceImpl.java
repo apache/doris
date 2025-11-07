@@ -3731,31 +3731,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // build partition & tablets
-        /*
-         * RPC [P1, P2]              RPC [P2, P3]
-         *       |                         |
-         *    P1:t1, t2                    |
-         *       ↓                         |
-         *    P2:t3, t4                    |
-         *                                 ↓
-         *                             P2:exist
-         *                                 ↓
-         *                             P3:t5,t6
-         * --------------------------------------
-         *       tablet rebalance during ...
-         *     t1 - be1                 t3 - be1 <-
-         *     t2 - be2                 t4 - be1
-         *     t3 - be2 <-              t5 - be2
-         *     t4 - be1                 t6 - be2
-         * --------------------------------------
-         * We ensure that only one view of the replica distribution in P2:t3,t4 above takes effect for this txn
-         * to avoid tablets being written to multiple BEs within the same transaction (assuming single replica)
-        */
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
+            // For thread safety, we preserve the tablet distribution information of each partition
+            // before calling getOrSetAutoPartitionInfo, but not check the partition first
             List<TTabletLocation> partitionTablets = new ArrayList<>();
             List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             TOlapTablePartition tPartition = new TOlapTablePartition();
@@ -3797,7 +3779,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 int switchAfter = 2;
                                 if (currentExecuteNum >= switchAfter) {
                                     List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                                    // cloud only has one replica, so we only need to find another beid for the beid
+                                    // cloud only has one replica, so we only need to find another BE Id for the BE Id
                                     // in bePathsMap
                                     for (Long beId : bePathsMap.keySet()) {
                                         Long otherBeId = allBeIds.stream()
