@@ -362,6 +362,6 @@ suite("list_prune_predicate") {
         contains("partitions=1/10 (p20250101)")
         notContains("(id[#0] = 1) AND (d_date[#1] = '2025-01-01')")
     }
-    sql """update test_list_multi_column_unique set c02 = 1 where id=1 and d_date='2025-01-01';"""
+    sql """update test_list_multi_column_unique set c02 = 10 where id=1 and d_date='2025-01-01';"""
     qt_update "select * from test_list_multi_column_unique order by id;"
 }
