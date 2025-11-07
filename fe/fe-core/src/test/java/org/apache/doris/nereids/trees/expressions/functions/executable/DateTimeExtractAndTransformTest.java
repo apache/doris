@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
 import org.junit.jupiter.api.Assertions;
@@ -151,7 +152,7 @@ class DateTimeExtractAndTransformTest {
         result = (DateTimeV2Literal) DateTimeExtractAndTransform.fromMicroSecond(second);
         Assertions.assertEquals(6, result.getDataType().getScale());
     }
-    
+
     @Test
     public void testFromUnixTimeNegative() {
         BigIntLiteral negative = new BigIntLiteral(-1L);
