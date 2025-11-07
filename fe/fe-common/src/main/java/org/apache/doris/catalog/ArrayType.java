@@ -37,10 +37,10 @@ public class ArrayType extends Type {
     public static final int MAX_NESTED_DEPTH = 9;
 
     @SerializedName(value = "itemType")
-    private Type itemType;
+    private final Type itemType;
 
     @SerializedName(value = "containsNull")
-    private boolean containsNull;
+    private final boolean containsNull;
 
     public ArrayType() {
         itemType = NULL;
@@ -62,10 +62,6 @@ public class ArrayType extends Type {
 
     public boolean getContainsNull() {
         return containsNull;
-    }
-
-    public void setContainsNull(boolean containsNull) {
-        this.containsNull = containsNull;
     }
 
     @Override
@@ -125,18 +121,6 @@ public class ArrayType extends Type {
         }
         ArrayType otherArrayType = (ArrayType) other;
         return otherArrayType.itemType.equals(itemType) && otherArrayType.containsNull == containsNull;
-    }
-
-    public static Type getAssignmentCompatibleType(
-            ArrayType t1, ArrayType t2, boolean strict, boolean enableDecimal256) {
-        Type itemCompatibleType = Type.getAssignmentCompatibleType(t1.getItemType(), t2.getItemType(), strict,
-                enableDecimal256);
-
-        if (itemCompatibleType.isInvalid()) {
-            return ScalarType.INVALID;
-        }
-
-        return new ArrayType(itemCompatibleType, t1.getContainsNull() || t2.getContainsNull());
     }
 
     @Override
