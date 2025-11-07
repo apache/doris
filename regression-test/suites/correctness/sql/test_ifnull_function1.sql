@@ -15,4 +15,4 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select IFNULL(get_json_string('{"k1":"v1", "k2":"v2"}', "$.k1"), 'SUCCESS')= 'FAIL';
+select /*+ SET_VAR(fe_debug=false) */ IFNULL(get_json_string('{"k1":"v1", "k2":"v2"}', "$.k1"), 'SUCCESS')= 'FAIL';
