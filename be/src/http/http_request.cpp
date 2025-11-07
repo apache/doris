@@ -154,7 +154,7 @@ void HttpRequest::finish_send_reply() {
         infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
     }
     VLOG_NOTICE << "finish send reply, infos=" << infos
-              << ", stack=" << get_stack_trace(); // temp locate problem
+                << ", stack=" << get_stack_trace(); // temp locate problem
     _http_reply_promise.set_value(true);
 }
 

@@ -171,7 +171,7 @@ void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRe
 
 void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
     std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
-    while(!ctx->_finish_send_reply && !ctx->_can_send_reply) {
+    while (!ctx->_finish_send_reply && !ctx->_can_send_reply) {
         ctx->_can_send_reply_cv.wait(lock1);
     }
     if (ctx->_finish_send_reply) {
