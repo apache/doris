@@ -157,7 +157,6 @@ protected:
     const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     int64_t _current_row_index = 0;
-    int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
 
     size_t _filter_map_index = 0;

@@ -657,10 +657,8 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowRanges candidate_row_ranges;
     while (++_current_row_group_index.row_group_id < _total_groups) {
-        auto& row_group = _t_metadata->row_groups[_current_row_group_index.row_group_id];
-        _current_row_group_index.first_row =
-                _current_row_group_index.first_row + _current_row_group_index.last_row;
-
+        const auto& row_group = _t_metadata->row_groups[_current_row_group_index.row_group_id];
+        _current_row_group_index.first_row = _current_row_group_index.last_row;
         _current_row_group_index.last_row = _current_row_group_index.last_row + row_group.num_rows;
 
         if (_filter_groups && _is_misaligned_range_group(row_group)) {
@@ -1028,7 +1026,9 @@ Status ParquetReader::_process_min_max_bloom_filter(
 
         while (!_row_ids.empty()) {
             auto v = _row_ids.front();
-            if (v >= group_start && v < group_end) {
+            if (v < group_start) {
+                continue;
+            } else if (v < group_end) {
                 row_ranges->add(RowRange {v - group_start, v - group_start + 1});
                 _row_ids.pop_front();
             } else {
