@@ -1013,6 +1013,12 @@ Status VFileScanner::_generate_fill_columns() {
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
+                // Only fill partition column from path if it's missing from file
+                // If partition column exists in file, use the value from file instead
+                if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
+                    // Partition column exists in file, skip filling from path
+                    continue;
+                }
                 auto it = _partition_slot_index_map.find(slot_desc->id());
                 if (it == std::end(_partition_slot_index_map)) {
                     return Status::InternalError("Unknown source slot descriptor, slot_id={}",
