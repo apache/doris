@@ -257,13 +257,26 @@ bool PinyinFilter::processCurrentToken() {
                         (codepoint >= '0' && codepoint <= '9');
 
         if (is_ascii && is_alnum) {
-            // Initialize ASCII buffer if needed
-            if (ascii_buffer.empty()) {
-                ascii_buffer_start_pos = static_cast<int>(i);
+            // Check if we should process ASCII characters individually
+            if (!config_->keepNoneChineseTogether && config_->keepNoneChinese) {
+                // Process accumulated ASCII buffer before processing individual character
+                if (!ascii_buffer.empty()) {
+                    processAsciiBuffer(ascii_buffer, ascii_buffer_start_pos, static_cast<int>(i));
+                    ascii_buffer.clear();
+                    ascii_buffer_start_pos = -1;
+                }
+                // Process individual ASCII character immediately
+                position_++;
+                std::string single_char(1, static_cast<char>(codepoint));
+                addCandidate(TermItem(single_char, static_cast<int>(i), static_cast<int>(i + 1),
+                                      position_));
+            } else {
+                // Accumulate ASCII characters for later processing
+                if (ascii_buffer.empty()) {
+                    ascii_buffer_start_pos = static_cast<int>(i);
+                }
+                ascii_buffer += static_cast<char>(codepoint);
             }
-
-            // Accumulate ASCII characters
-            ascii_buffer += static_cast<char>(codepoint);
 
             // Handle ASCII alphanumeric characters for first letters
             if (config_->keepNoneChineseInFirstLetter) {
