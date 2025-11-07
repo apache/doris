@@ -66,6 +66,26 @@ public class AutoPartitionCacheManager {
     private final ConcurrentHashMap<Long, ConcurrentHashMap<Long, PartitionTabletCache>> autoPartitionInfo
                     = new ConcurrentHashMap<>();
 
+    // only read
+    public boolean getAutoPartitionInfo(Long txnId, Long partitionId,
+            List<TTabletLocation> partitionTablets, List<TTabletLocation> partitionSlaveTablets) {
+        ConcurrentHashMap<Long, PartitionTabletCache> partitionMap = autoPartitionInfo.get(txnId);
+        if (partitionMap == null) {
+            return false;
+        }
+
+        PartitionTabletCache cached = partitionMap.get(partitionId);
+        if (cached == null) {
+            return false;
+        }
+
+        partitionTablets.clear();
+        partitionTablets.addAll(cached.tablets);
+        partitionSlaveTablets.clear();
+        partitionSlaveTablets.addAll(cached.slaveTablets);
+        return true;
+    }
+
     // if cached : we use cached info
     // else      : store it.
     public void getOrSetAutoPartitionInfo(Long txnId, Long partitionId,

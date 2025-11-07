@@ -3759,6 +3759,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             partitions.add(tPartition);
             // tablet
+            if (!isStreamLoad
+                    && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                            .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                                    partitionSlaveTablets)) {
+                // fast path, if cached
+                tablets.addAll(partitionTablets);
+                slaveTablets.addAll(partitionSlaveTablets);
+                continue;
+            }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
@@ -3823,8 +3832,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             // For stream load, skip caching, reason as follow:
-            // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica distribution issues,
-            //    while stream load is always a single-instance import.
+            // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
+            //    distribution issues, while stream load is always a single-instance import.
             // 2. From a necessity perspective: Stream load triggers FE commit/abort txn requests from BE.
             //    If a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
             if (!isStreamLoad) {
