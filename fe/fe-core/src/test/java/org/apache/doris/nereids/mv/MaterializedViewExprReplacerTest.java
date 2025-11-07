@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewExprReplace
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 
@@ -32,7 +31,6 @@ import org.junit.jupiter.api.Test;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 class MaterializedViewExprReplacerTest {
 
@@ -58,7 +56,7 @@ class MaterializedViewExprReplacerTest {
         MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
                 replaceMap, null, new BitSet());
 
-        Expression result = replacer.visit(slot, null);
+        Expression result = slot.accept(replacer, null);
         Assertions.assertEquals(slot, result);
         Assertions.assertFalse(replacer.isValid());
     }
@@ -71,17 +69,15 @@ class MaterializedViewExprReplacerTest {
         SlotReference newSlot2 = new SlotReference("d", IntegerType.INSTANCE);
 
         Add addExpr = new Add(slot1, slot2);
-
         Map<Expression, Expression> replaceMap = ImmutableMap.of(
                 slot1, newSlot1,
                 slot2, newSlot2
         );
-
         MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
                 replaceMap, null, new BitSet());
 
         Expression result = replacer.visit(addExpr, null);
-        Assertions.assertTrue(result instanceof Add);
+        Assertions.assertInstanceOf(Add.class, result);
         Add resultAdd = (Add) result;
         Assertions.assertEquals(newSlot1, resultAdd.child(0));
         Assertions.assertEquals(newSlot2, resultAdd.child(1));
@@ -96,27 +92,24 @@ class MaterializedViewExprReplacerTest {
         IntegerLiteral replacement = new IntegerLiteral(100);
 
         Map<Expression, Expression> replaceMap = ImmutableMap.of(addExpr, replacement);
-
         MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
                 replaceMap, null, new BitSet());
-
         Expression result = replacer.visit(addExpr, null);
         Assertions.assertEquals(replacement, result);
         Assertions.assertTrue(replacer.isValid());
     }
 
     @Test
-    void testVirtualSlotWithoutOriginExpression() {
-        VirtualSlotReference virtualSlot = new VirtualSlotReference(
-                "virtual", IntegerType.INSTANCE, Optional.empty(), null);
-
-        Map<Expression, Expression> replaceMap = new HashMap<>();
+    void testPartialReplaceInvalid() {
+        SlotReference slot1 = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference slot2 = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference newSlot1 = new SlotReference("c", IntegerType.INSTANCE);
+        Add addExpr = new Add(slot1, slot2);
+        Map<Expression, Expression> replaceMap = ImmutableMap.of(slot1, newSlot1);
         MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
                 replaceMap, null, new BitSet());
-
-        Expression result = replacer.visitSlot(virtualSlot, null);
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(replacer.isValid());
+        addExpr.accept(replacer, null);
+        Assertions.assertFalse(replacer.isValid());
     }
 
     @Test
@@ -128,7 +121,7 @@ class MaterializedViewExprReplacerTest {
         MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
                 replaceMap, null, new BitSet());
 
-        replacer.visit(slot1, null);
+        slot1.accept(replacer, null);
         Assertions.assertFalse(replacer.isValid());
 
         Expression result = replacer.visit(slot2, null);
@@ -153,11 +146,10 @@ class MaterializedViewExprReplacerTest {
 
         MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
                 replaceMap, null, new BitSet());
-
         Expression result = replacer.visit(outerAdd, null);
-        Assertions.assertTrue(result instanceof Add);
+        Assertions.assertInstanceOf(Add.class, result);
         Add resultOuter = (Add) result;
-        Assertions.assertTrue(resultOuter.child(0) instanceof Add);
+        Assertions.assertInstanceOf(Add.class, resultOuter.child(0));
         Add resultInner = (Add) resultOuter.child(0);
         Assertions.assertEquals(newSlot1, resultInner.child(0));
         Assertions.assertEquals(newSlot2, resultInner.child(1));
