@@ -209,8 +209,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         for (int i = 0; i < args.size(); ++i) {
             uint32_t arg = args[i];
             new_args.push_back(i);
-            new_block.simple_insert(
-                    new_block.get_by_position(arg).unnest_nullable(need_to_default));
+            new_block.simple_insert(block.get_by_position(arg).unnest_nullable(need_to_default));
         }
         new_block.simple_insert(block.get_by_position(result));
         int new_result = new_block.columns() - 1;
