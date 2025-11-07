@@ -25,6 +25,10 @@ import org.junit.jupiter.api.Test;
 
 class PushIntoCaseWhenBranchTest extends ExpressionRewriteTestHelper {
 
+    public PushIntoCaseWhenBranchTest() {
+        setExpressionOnFilter();
+    }
+
     @Test
     void testPushIntoCaseWhen() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
