@@ -186,7 +186,7 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
-                                     ColumnNumbers& args) {
+                                     ColumnNumbers& args) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
@@ -267,7 +267,7 @@ Status VectorizedFnCall::execute_runtime_filter(doris::vectorized::VExprContext*
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
-                                 int* result_column_id) {
+                                 int* result_column_id) const {
     ColumnNumbers arguments;
     return _do_execute(context, block, result_column_id, arguments);
 }

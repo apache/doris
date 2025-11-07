@@ -87,7 +87,8 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
     _impl->close(context, scope);
 }
 
-Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block,
+                                      int* result_column_id) const {
     DCHECK(_open_finished || _getting_const_col);
     if (_judge_counter.fetch_sub(1) == 0) {
         reset_judge_selectivity();
