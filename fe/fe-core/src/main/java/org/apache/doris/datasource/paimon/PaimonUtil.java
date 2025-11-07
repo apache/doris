@@ -225,9 +225,6 @@ public class PaimonUtil {
                 }
                 return ScalarType.createCharType(charLen);
             case BINARY:
-                // TODO:
-                // Paimon BinaryType length is in [1, 2147483647]
-                // but Doris VarbinaryType max length is 65533 now
                 int binaryLen = ((BinaryType) dataType).getLength();
                 return ScalarType.createVarbinaryType(binaryLen);
             case VARBINARY:
