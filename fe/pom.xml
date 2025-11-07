@@ -271,9 +271,9 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.18.0</log4j2.version>
-        <log4j-1.2.version>2.18.0</log4j-1.2.version>
-        <slf4j.version>2.0.6</slf4j.version>
+        <log4j2.version>2.25.2</log4j2.version>
+        <log4j-1.2.version>2.25.2</log4j-1.2.version>
+        <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
@@ -352,8 +352,8 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>2.7.18</spring.version>
-        <spring-framework.version>5.3.39</spring-framework.version>
+        <spring.version>3.5.7</spring.version>
+        <spring-framework.version>6.2.12</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
@@ -362,8 +362,8 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.57.v20241219</jetty.version>
-        <immutables.version>2.9.3</immutables.version>
+        <jetty.version>12.0.29</jetty.version>
+        <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>78.1</icu4j.version>
         <ini4j.version>0.5.4</ini4j.version>
@@ -460,6 +460,12 @@ under the License.
                 <artifactId>ivy</artifactId>
                 <version>${ivy.version}</version>
             </dependency>
+            <!-- has conflict with jakarta.servlet-api-->
+            <dependency>
+                <groupId>org.eclipse.jetty.toolchain</groupId>
+                <artifactId>jetty-jakarta-servlet-api</artifactId>
+                <scope>test</scope>
+            </dependency>
             <dependency>
                 <groupId>com.ibm.icu</groupId>
                 <artifactId>icu4j</artifactId>
@@ -515,6 +521,11 @@ under the License.
                 <version>${spring-framework.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-logging</artifactId>
+                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -613,6 +624,10 @@ under the License.
                     <exclusion>
                         <groupId>validator</groupId>
                         <artifactId>hibernate-validator</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-embed-jasper</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>ch.qos.logback</groupId>
@@ -1250,7 +1265,19 @@ under the License.
                     </exclusion>
                     <exclusion>
                         <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-webapp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
                         <artifactId>jetty-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.servlet.jsp</groupId>
+                        <artifactId>jsp-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-client</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>io.netty</groupId>
@@ -1263,6 +1290,10 @@ under the License.
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-reload4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-client</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1337,6 +1368,10 @@ under the License.
                         <groupId>commons-httpclient</groupId>
                     </exclusion>
                     <exclusion>
+                        <groupId>org.glassfish.web</groupId>
+                        <artifactId>javax.servlet.jsp</artifactId>
+                    </exclusion>
+                    <exclusion>
                         <artifactId>netty-all</artifactId>
                         <groupId>io.netty</groupId>
                     </exclusion>
@@ -1347,6 +1382,14 @@ under the License.
                     <exclusion>
                         <groupId>org.apache.hive</groupId>
                         <artifactId>hive-storage-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-security</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
