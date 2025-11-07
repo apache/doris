@@ -120,7 +120,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
-DEFINE_mBool(enable_cache_read_from_peer, "false");
+DEFINE_mBool(enable_cache_read_from_peer, "true");
 
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
