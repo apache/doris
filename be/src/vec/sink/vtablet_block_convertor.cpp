@@ -691,6 +691,11 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
 Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
                                                                    size_t rows) {
+    if (_output_tuple_desc->slots().size() != block->columns() + 1) {
+        return Status::InternalError(
+                "Output tuple descriptor and block columns size mismatch, desc:{} ,block:{}",
+                _output_tuple_desc->debug_string(), block->dump_structure());
+    }
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
     size_t null_value_count = rows;
