@@ -110,7 +110,6 @@ suite("dist_expr_list") {
     sql """
         set enable_aggregate_cse=true;
         set enable_local_shuffle=true;
-        set fe_debug=false;
         """
     // test the query result should be the same when enable_local_shuffle=true or false
     // set enable_local_shuffle=false, then generate result.out 
