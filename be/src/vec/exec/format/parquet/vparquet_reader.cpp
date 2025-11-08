@@ -1035,7 +1035,6 @@ Status ParquetReader::_process_min_max_bloom_filter(
                 break;
             }
         }
-
     } else {
         bool filter_this_row_group = false;
         RETURN_IF_ERROR(

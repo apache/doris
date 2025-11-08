@@ -176,7 +176,7 @@ public:
      * 4. GT|GE: if `_value` is less than max, return true to further compute each value in this page.
      */
 
-    bool comp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
+    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
         if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
@@ -209,21 +209,16 @@ public:
             return true;
         }
 
-        std::vector<vectorized::Field> min_fields;
-        std::vector<vectorized::Field> max_fields;
-        std::vector<bool> available;
-        if (!vectorized::ParquetPredicate::get_min_max_value(
-                     statistic->col_schema, {statistic->encoded_min_value},
-                     {statistic->encoded_max_value}, *statistic->ctz, &min_fields, &max_fields,
-                     &available)
-                     .ok()) {
+        vectorized::Field min_field;
+        vectorized::Field max_field;
+        if (!vectorized::ParquetPredicate::parse_min_max_value(
+                     statistic->col_schema, statistic->encoded_min_value,
+                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                     .ok()) [[unlikely]] {
             return true;
         };
-        if (available[0] == false) [[unlikely]] {
-            return true;
-        }
 
-        return comp_field(min_fields[0], max_fields[0]);
+        return camp_field(min_field, max_field);
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
@@ -233,23 +228,23 @@ public:
             return true;
         }
 
-        std::vector<vectorized::Field> min_fields;
-        std::vector<vectorized::Field> max_fields;
-        std::vector<bool> available;
-        if (!vectorized::ParquetPredicate::get_min_max_value(
-                     stat->col_schema, stat->encoded_min_value, stat->encoded_max_value,
-                     *statistic->ctz, &min_fields, &max_fields, &available)
-                     .ok()) {
-            return true;
-        }
-
         for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
-            if (!available[page_id]) [[unlikely]] {
-                row_ranges->add(stat->ranges[page_id]);
+            if (stat->is_all_null[page_id]) {
+                // all null page, not need read.
                 continue;
             }
 
-            if (comp_field(min_fields[page_id], max_fields[page_id])) {
+            vectorized::Field min_field;
+            vectorized::Field max_field;
+            if (!vectorized::ParquetPredicate::parse_min_max_value(
+                         stat->col_schema, stat->encoded_min_value[page_id],
+                         stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
+                         .ok()) [[unlikely]] {
+                row_ranges->add(stat->ranges[page_id]);
+                continue;
+            };
+
+            if (camp_field(min_field, max_field)) {
                 row_ranges->add(stat->ranges[page_id]);
             }
         };

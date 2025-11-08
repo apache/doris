@@ -183,18 +183,10 @@ public:
     };
 
     // The encoded Parquet min-max value is parsed into  `fields`;
-    // `available` indicates that the min-max information is not available.
-    // Can be used in row groups and page indexe statistics.
-    static Status get_min_max_value(const FieldSchema* col_schema,
-                                    const std::vector<std::string>& encoded_min,
-                                    const std::vector<std::string>& encoded_max,
-                                    const cctz::time_zone& ctz, std::vector<Field>* min_fields,
-                                    std::vector<Field>* max_fields, std::vector<bool>* available) {
-        auto sz = encoded_min.size();
-        min_fields->resize(sz);
-        max_fields->resize(sz);
-        available->resize(sz, true);
-
+    // Can be used in row groups and page index statistics.
+    static Status parse_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
+                                      const std::string& encoded_max, const cctz::time_zone& ctz,
+                                      Field* min_field, Field* max_field) {
         auto logical_data_type = remove_nullable(col_schema->data_type);
         auto converter = parquet::PhysicalToLogicalConverter::get_converter(
                 col_schema, logical_data_type, logical_data_type, &ctz);
@@ -202,110 +194,75 @@ public:
         switch (col_schema->parquet_schema.type) {
         case tparquet::Type::type::BOOLEAN: {
             auto physical_col = ColumnUInt8::create();
-            physical_col->resize(2 * sz);
-
-            for (size_t idx = 0; idx < sz; idx++) {
-                physical_col->get_data()[idx * 2] =
-                        *reinterpret_cast<const bool*>(encoded_min[idx].data());
-                physical_col->get_data()[idx * 2 + 1] =
-                        *reinterpret_cast<const bool*>(encoded_max[idx].data());
-            }
+            physical_col->get_data().data();
+            physical_col->resize(2);
+            physical_col->get_data()[0] = *reinterpret_cast<const bool*>(encoded_min.data());
+            physical_col->get_data()[1] = *reinterpret_cast<const bool*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::INT32: {
             auto physical_col = ColumnInt32::create();
+            physical_col->resize(2);
 
-            physical_col->resize(2 * sz);
-            for (size_t idx = 0; idx < sz; idx++) {
-                physical_col->get_data()[idx * 2] =
-                        *reinterpret_cast<const int32_t*>(encoded_min[idx].data());
-                physical_col->get_data()[idx * 2 + 1] =
-                        *reinterpret_cast<const int32_t*>(encoded_max[idx].data());
-            }
+            physical_col->get_data()[0] = *reinterpret_cast<const int32_t*>(encoded_min.data());
+            physical_col->get_data()[1] = *reinterpret_cast<const int32_t*>(encoded_max.data());
+
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::INT64: {
             auto physical_col = ColumnInt64::create();
-
-            physical_col->resize(2 * sz);
-            for (size_t idx = 0; idx < sz; idx++) {
-                physical_col->get_data()[idx * 2] =
-                        *reinterpret_cast<const int64_t*>(encoded_min[idx].data());
-                physical_col->get_data()[idx * 2 + 1] =
-                        *reinterpret_cast<const int64_t*>(encoded_max[idx].data());
-            }
+            physical_col->resize(2);
+            physical_col->get_data()[0] = *reinterpret_cast<const int64_t*>(encoded_min.data());
+            physical_col->get_data()[1] = *reinterpret_cast<const int64_t*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::FLOAT: {
             auto physical_col = ColumnFloat32::create();
-            physical_col->resize(2 * sz);
-
-            for (size_t idx = 0; idx < sz; idx++) {
-                physical_col->get_data()[idx * 2] =
-                        *reinterpret_cast<const float*>(encoded_min[idx].data());
-                physical_col->get_data()[idx * 2 + 1] =
-                        *reinterpret_cast<const float*>(encoded_max[idx].data());
-            }
+            physical_col->resize(2);
+            physical_col->get_data()[0] = *reinterpret_cast<const float*>(encoded_min.data());
+            physical_col->get_data()[1] = *reinterpret_cast<const float*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::DOUBLE: {
             auto physical_col = ColumnFloat64 ::create();
-            physical_col->resize(2 * sz);
-
-            for (size_t idx = 0; idx < sz; idx++) {
-                physical_col->get_data()[idx * 2] =
-                        *reinterpret_cast<const double*>(encoded_min[idx].data());
-                physical_col->get_data()[idx * 2 + 1] =
-                        *reinterpret_cast<const double*>(encoded_max[idx].data());
-            }
-
+            physical_col->resize(2);
+            physical_col->get_data()[0] = *reinterpret_cast<const double*>(encoded_min.data());
+            physical_col->get_data()[1] = *reinterpret_cast<const double*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::BYTE_ARRAY: {
             auto physical_col = ColumnString::create();
-            for (size_t idx = 0; idx < sz; idx++) {
-                physical_col->insert_data(encoded_min[idx].data(), encoded_min[idx].size());
-                physical_col->insert_data(encoded_max[idx].data(), encoded_max[idx].size());
-            }
+            physical_col->insert_data(encoded_min.data(), encoded_min.size());
+            physical_col->insert_data(encoded_max.data(), encoded_max.size());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY: {
             auto physical_col = ColumnUInt8::create();
-            physical_col->resize(2 * col_schema->parquet_schema.type_length * sz);
+            physical_col->resize(2 * col_schema->parquet_schema.type_length);
+            DCHECK(col_schema->parquet_schema.type_length == encoded_min.length());
+            DCHECK(col_schema->parquet_schema.type_length == encoded_max.length());
 
             auto ptr = physical_col->get_data().data();
-
-            for (size_t idx = 0; idx < sz; idx++) {
-                DCHECK(col_schema->parquet_schema.type_length == encoded_min[idx].length());
-                DCHECK(col_schema->parquet_schema.type_length == encoded_max[idx].length());
-                memcpy(ptr, encoded_min[idx].data(), encoded_min[idx].length());
-                ptr += encoded_min[idx].length();
-                memcpy(ptr, encoded_max[idx].data(), encoded_max[idx].length());
-                ptr += encoded_max[idx].length();
-            }
+            memcpy(ptr, encoded_min.data(), encoded_min.length());
+            memcpy(ptr + encoded_min.length(), encoded_max.data(), encoded_max.length());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::INT96: {
             auto physical_col = ColumnInt8::create();
-            physical_col->resize(2 * sizeof(ParquetInt96) * sz);
+            physical_col->resize(2 * sizeof(ParquetInt96));
+            DCHECK(sizeof(ParquetInt96) == encoded_min.length());
+            DCHECK(sizeof(ParquetInt96) == encoded_max.length());
 
             auto ptr = physical_col->get_data().data();
-            for (size_t idx = 0; idx < sz; idx++) {
-                DCHECK(sizeof(ParquetInt96) == encoded_min[idx].length());
-                DCHECK(sizeof(ParquetInt96) == encoded_max[idx].length());
-
-                memcpy(ptr, encoded_min[idx].data(), encoded_min[idx].length());
-                ptr += encoded_min[idx].length();
-                memcpy(ptr, encoded_max[idx].data(), encoded_max[idx].length());
-                ptr += encoded_max[idx].length();
-            }
+            memcpy(ptr, encoded_min.data(), encoded_min.length());
+            memcpy(ptr + encoded_min.length(), encoded_max.data(), encoded_max.length());
             physical_column = std::move(physical_col);
             break;
         }
@@ -319,73 +276,55 @@ public:
             RETURN_IF_ERROR(converter->physical_convert(physical_column, logical_column));
         }
 
-        DCHECK(logical_column->size() == 2 * sz);
-
-        for (size_t idx = 0; idx < sz; idx++) {
-            min_fields->operator[](idx) = logical_column->operator[](idx * 2);
-            max_fields->operator[](idx) = logical_column->operator[](idx * 2 + 1);
-        }
+        DCHECK(logical_column->size() == 2);
+        *min_field = logical_column->operator[](0);
+        *max_field = logical_column->operator[](1);
 
         auto logical_prim_type = logical_data_type->get_primitive_type();
 
         if (logical_prim_type == TYPE_FLOAT) {
-            for (size_t idx = 0; idx < sz; idx++) {
-                auto& min_value = min_fields->operator[](idx)
-                                          .get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
-                auto& max_value = max_fields->operator[](idx)
-                                          .get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
+            auto& min_value = min_field->get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
+            auto& max_value = max_field->get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
 
-                if (std::isnan(min_value) || std::isnan(max_value)) {
-                    available->operator[](idx) = false;
-                }
-                // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
-                if (std::signbit(min_value) == 0 && min_value == 0.0F) {
-                    min_value = -0.0F;
-                }
-                if (std::signbit(max_value) != 0 && max_value == -0.0F) {
-                    max_value = 0.0F;
-                }
+            if (std::isnan(min_value) || std::isnan(max_value)) {
+                return Status::DataQualityError("Can not use this parquet min/max value.");
             }
-
+            // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
+            if (std::signbit(min_value) == 0 && min_value == 0.0F) {
+                min_value = -0.0F;
+            }
+            if (std::signbit(max_value) != 0 && max_value == -0.0F) {
+                max_value = 0.0F;
+            }
         } else if (logical_prim_type == TYPE_DOUBLE) {
-            for (size_t idx = 0; idx < sz; idx++) {
-                auto& min_value =
-                        min_fields->operator[](idx)
-                                .get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
-                auto& max_value =
-                        max_fields->operator[](idx)
-                                .get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
+            auto& min_value = min_field->get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
+            auto& max_value = max_field->get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
 
-                if (std::isnan(min_value) || std::isnan(max_value)) {
-                    available->operator[](idx) = false;
-                }
-                // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
-                if (std::signbit(min_value) == 0 && min_value == 0.0F) {
-                    min_value = -0.0F;
-                }
-                if (std::signbit(max_value) != 0 && max_value == -0.0F) {
-                    max_value = 0.0F;
-                }
+            if (std::isnan(min_value) || std::isnan(max_value)) {
+                return Status::DataQualityError("Can not use this parquet min/max value.");
+            }
+            // Updating min to -0.0 and max to +0.0 to ensure that no 0.0 values would be skipped
+            if (std::signbit(min_value) == 0 && min_value == 0.0F) {
+                min_value = -0.0F;
+            }
+            if (std::signbit(max_value) != 0 && max_value == -0.0F) {
+                max_value = 0.0F;
             }
         } else if (col_schema->parquet_schema.type == tparquet::Type::type::INT96 ||
                    logical_prim_type == TYPE_DATETIMEV2) {
-            for (size_t idx = 0; idx < sz; idx++) {
-                auto& min_value =
-                        min_fields->operator[](idx)
-                                .get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
-                auto& max_value =
-                        max_fields->operator[](idx)
-                                .get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
+            auto min_value =
+                    min_field->get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
+            auto max_value =
+                    min_field->get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
 
-                // From Trino: Parquet INT96 timestamp values were compared incorrectly
-                // for the purposes of producing statistics by older parquet writers,
-                // so PARQUET-1065 deprecated them. The result is that any writer that produced stats
-                // was producing unusable incorrect values, except the special case where min == max
-                // and an incorrect ordering would not be material to the result.
-                // PARQUET-1026 made binary stats available and valid in that special case.
-                if (min_value != max_value) {
-                    available->operator[](idx) = false;
-                }
+            // From Trino: Parquet INT96 timestamp values were compared incorrectly
+            // for the purposes of producing statistics by older parquet writers,
+            // so PARQUET-1065 deprecated them. The result is that any writer that produced stats
+            // was producing unusable incorrect values, except the special case where min == max
+            // and an incorrect ordering would not be material to the result.
+            // PARQUET-1026 made binary stats available and valid in that special case.
+            if (min_value != max_value) {
+                return Status::DataQualityError("invalid min/max value");
             }
         }
 
