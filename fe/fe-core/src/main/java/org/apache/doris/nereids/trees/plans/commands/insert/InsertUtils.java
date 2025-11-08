@@ -322,7 +322,7 @@ public class InsertUtils {
                                     throw new AnalysisException("Partial update should include all key columns,"
                                             + " missing: " + col.getName());
                                 }
-                                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                                if (CollectionUtils.isNotEmpty(col.getGeneratedColumnsThatReferToThis())
                                         && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
                                     throw new AnalysisException("Partial update should include"
                                             + " all ordinary columns referenced"
