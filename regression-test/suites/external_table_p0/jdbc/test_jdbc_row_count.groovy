@@ -22,7 +22,7 @@ suite("test_jdbc_row_count", "p0,external,mysql,external_docker,external_docker_
     String mysql_port = context.config.otherConfigs.get("mysql_57_port");
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // Test mysql
         String catalog_name = "test_mysql_jdbc_row_count";

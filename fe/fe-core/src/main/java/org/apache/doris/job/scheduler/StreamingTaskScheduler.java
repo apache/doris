@@ -110,8 +110,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
 
         // reject invalid task
         if (!job.needScheduleTask()) {
-            log.info("do not need to schedule invalid task, task id: {}, job id: {}",
-                        task.getTaskId(), task.getJobId());
+            log.info("do not need to schedule invalid task, task id: {}, job id: {}, job status: {}",
+                        task.getTaskId(), task.getJobId(), job.getJobStatus());
             return;
         }
         // reject task if no more data to consume

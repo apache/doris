@@ -69,7 +69,7 @@ public:
         return kName;
     }
 
-    Status execute(VExprContext*, Block*, int*) override { return Status::OK(); }
+    Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
 };
 
 const std::string& intern_column_name(const std::string& name) {
