@@ -176,6 +176,13 @@ void ExecEnv::wait_for_all_tasks_done() {
         sleep(1);
         ++wait_seconds_passed;
     }
+    // This is a conservative strategy.
+    // Because a query might still have fragments running on other BE nodes.
+    // In other words, the query hasn't truly terminated.
+    // If the current BE is shut down at this point,
+    // the FE will detect the downtime of a related BE and cancel the entire query,
+    // defeating the purpose of a graceful stop.
+    sleep(config::grace_shutdown_post_delay_seconds);
 }
 
 bool ExecEnv::check_auth_token(const std::string& auth_token) {
