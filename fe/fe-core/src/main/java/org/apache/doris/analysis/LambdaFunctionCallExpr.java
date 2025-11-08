@@ -34,7 +34,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("array_split").add("array_reverse_split")
+            .add("array_split").add("array_reverse_split").add("array_sort")
             .build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
