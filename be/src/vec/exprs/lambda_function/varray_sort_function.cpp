@@ -74,8 +74,6 @@ public:
 
         DCHECK_EQ(children.size(), 3);
 
-        LOG(INFO) << "ArraySortFunction execute\n";
-
         // 1. get data
         int column_id = -1;
         RETURN_IF_ERROR(children[1]->execute(context, block, &column_id));
@@ -107,16 +105,10 @@ public:
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*col_array.get_data_ptr());
 
-        LOG(INFO) << "nested column type: " << nested_nullable_column.get_name();
-        LOG(INFO) << "result type: " << result_type->get_name();
-
         auto pType = assert_cast<const DataTypeArray*>(arg_type.get())
                              ->get_nested_type()
                              ->get_primitive_type();
-        LOG(INFO) << "pType: " << type_to_string(pType);
 
-        // const auto& src_data =
-        //         assert_cast<const ColumnString&>(nested_nullable_column.get_nested_column());
         ConstColumnVariant src_data;
         RETURN_IF_ERROR(
                 get_data_from_type(pType, nested_nullable_column.get_nested_column(), src_data));
@@ -125,17 +117,7 @@ public:
 
         const auto& col_type = assert_cast<const DataTypeArray&>(*arg_type);
 
-        // 2. prepare result column
-        LOG(INFO) << "ArraySortFunction execute step 2\n";
-        // auto result_data_column = nested_nullable_column.clone_empty();
-        // auto result_offset_column = ColumnArray::ColumnOffsets::create();
-        // auto& result_offset_data = result_offset_column->get_data();
-        // vectorized::IColumn::Selector selector;
-        // selector.reserve(off_data.size());
-        // result_offset_data.reserve(input_rows);
-
-        // 3. prepare for lambda execution
-        LOG(INFO) << "ArraySortFunction execute step 3\n";
+        // 2. prepare for lambda execution
         auto element_size = nested_nullable_column.size();
         IColumn::Permutation permutation(element_size);
         for (size_t i = 0; i < element_size; ++i) {
@@ -162,10 +144,9 @@ public:
 
         int lambda_res_id = 2;
 
-        // 4. sort array by executing lambda function
+        // 3. sort array by executing lambda function
         std::visit(
                 [&](auto* data) {
-                    LOG(INFO) << "ArraySortFunction execute step 4\n";
                     using ColumnType = std::decay_t<decltype(*data)>;
                     ColumnType* data_vec[2] = {assert_cast<ColumnType*>(temp_data[0].get()),
                                                assert_cast<ColumnType*>(temp_data[1].get())};
@@ -175,14 +156,6 @@ public:
                             (*temp_nullmap_data[cid])[0] = 1;
                         } else {
                             (*temp_nullmap_data[cid])[0] = 0;
-                            // auto& data_vec = assert_cast<ColumnType&>(*temp_data[cid]);
-                            // if constexpr (std::is_same_v<ColumnType, ColumnString>) {
-                            //     data_vec.clear();
-                            //     data_vec.insert_data(data->get_data_at(i).data,
-                            //                          data->get_data_at(i).size);
-                            // } else {
-                            //     data_vec.get_data()[0] = data->get_data()[i];
-                            // }
                             if constexpr (is_column_vector_v<ColumnType>) {
                                 data_vec[cid]->get_data()[0] = data->get_data()[i];
                             } else {
@@ -201,7 +174,9 @@ public:
                             auto status =
                                     children[0]->execute(context, &lambda_block, &lambda_res_id);
                             if (!status.ok()) [[unlikely]] {
-                                throw Status::InternalError("array_sort is error");
+                                throw Status::InternalError(
+                                        "when execute array_sort lambda function: {}",
+                                        status.to_string());
                             }
 
                             // raw_res_col maybe columnVector or ColumnConst
@@ -212,22 +187,14 @@ public:
                             // only -1, 0, 1
                             long cmp = assert_cast<const ColumnInt8*>(full_res_col.get())
                                                ->get_data()[0];
-                            // long cmp = res_vector->get_data()[0]; // -1,0,1
 
                             return cmp < 0;
                         });
-                        // for (unsigned long pos = start; pos < end; ++pos) {
-                        //     selector.push_back(permutation[pos]);
-                        // }
-                        // result_offset_data.push_back(off_data[row]);
                     }
                 },
                 src_data);
 
-        // nested_nullable_column.append_data_by_selector(result_data_column, selector);
-
-        // 5. insert the result column to block
-        LOG(INFO) << "ArraySortFunction execute step 5\n";
+        // 4. insert the result column to block
         ColumnWithTypeAndName result_arr;
         if (result_type->is_nullable()) {
             result_arr = {ColumnNullable::create(ColumnArray::create(nested_nullable_column.permute(
@@ -297,40 +264,3 @@ void register_function_array_sort(doris::vectorized::LambdaFunctionFactory& fact
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
-
-/*
-SELECT array_sort([3, 2, 5, 1, 2]);
-
-SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN -1
-                                 WHEN y IS NULL THEN 1
-                                 WHEN x < y THEN 1
-                                 WHEN x = y THEN 0
-                                 ELSE -1 END,
-                                 [3, 2, null, 5, null, 1, 2]);
-
-SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN 1
-                                 WHEN y IS NULL THEN -1
-                                 WHEN x < y THEN 1
-                                 WHEN x = y THEN 0
-                                 ELSE -1 END,
-                                 [3, 2, null, 5, null, 1, 2]);
-
-SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), [3, 2, 5, 1, 2]);
-
-
-SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), ['bc', 'ab', 'dc']);
-
-SELECT array_sort((x, y) -> IF(length(x) < length(y), -1,
-                               IF(length(x) = length(y), 0, 1)),
-                               ['a', 'abcd', 'abc']);
-
-SELECT array_sort((x, y) -> IF(cardinality(x) < cardinality(y), -1,
-                               IF(cardinality(x) = cardinality(y), 0, 1)),
-                            [[2, 3, 1], [4, 2, 1, 4], [1, 2]]);
-
-SELECT array_sort((x, y) -> IF(IPV4_STRING_TO_NUM_OR_NULL(x) < IPV4_STRING_TO_NUM_OR_NULL(y), -1,
-                               IF(IPV4_STRING_TO_NUM_OR_NULL(x) = IPV4_STRING_TO_NUM_OR_NULL(y), 0, 1)),
-                               ['192.168.0.3', '192.168.0.1', '192.168.0.2']);
-
-SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), [3, -2.1, 5.34, 1.2, 2.2]);
-*/
