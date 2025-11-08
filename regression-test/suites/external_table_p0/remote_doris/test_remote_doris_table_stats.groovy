@@ -22,6 +22,9 @@ suite("test_remote_doris_table_stats", "p0,external,doris,external_docker,extern
     String remote_doris_user = context.config.otherConfigs.get("extArrowFlightSqlUser")
     String remote_doris_psw = context.config.otherConfigs.get("extArrowFlightSqlPassword")
 
+    def showres = sql "show frontends";
+    println "show frontends: ${showres}"
+
     sql """DROP DATABASE IF EXISTS test_remote_doris_table_stats_db"""
 
     sql """CREATE DATABASE IF NOT EXISTS test_remote_doris_table_stats_db"""
