@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -140,6 +141,19 @@ public class ShowTableStatusCommandTest {
         ShowTableStatusCommand command2 = new ShowTableStatusCommand(CatalogMocker.TEST_DB_NAME,
                 InternalCatalog.INTERNAL_CATALOG_NAME, "%example%", equalTo);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(ctx));
+    }
+
+    @Test
+    void testCaseInsensitiveTempTableName() {
+        ShowTableStatusCommand command = new ShowTableStatusCommand(CatalogMocker.TEST_DB_NAME,
+                InternalCatalog.INTERNAL_CATALOG_NAME);
+
+        // Verify the SQL expression for the 'name' column - it should do case-insensitive matching
+        String sqlExpr = command.getAliasColumnMap().get("name");
+        Assertions.assertTrue(sqlExpr.toLowerCase().contains("lower(table_name)"),
+                "Name extraction should use case-insensitive LOWER(TABLE_NAME)");
+        Assertions.assertTrue(sqlExpr.toLowerCase().contains(FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER),
+                "Name extraction should use lowercase temporary table sign");
     }
 }
 

@@ -463,16 +463,28 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         boolean result = true;
         Table olapTable = (Table) table;
         olapTable.setQualifiedDbName(fullQualifiedName);
-        String tableName = olapTable.getName();
-        if (Env.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
+        String tableName = olapTable.getName(); // stored (internal for temp)
+        String displayNameLower = null;
+        if (olapTable.isTemporary()) {
+            // derive display name (without session + #TEMP#) for reverse lookup
+            String display = Util.getTempTableDisplayName(tableName);
+            displayNameLower = display.toLowerCase();
         }
-        if (isTableExist(tableName)) {
+        String lookupName = tableName;
+        if (Env.isStoredTableNamesLowerCase()) {
+            lookupName = lookupName.toLowerCase();
+        }
+        if (isTableExist(lookupName)) {
             result = false;
         } else {
             idToTable.put(olapTable.getId(), olapTable);
             nameToTable.put(olapTable.getName(), olapTable);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            lowerCaseToTableName.put(lookupName.toLowerCase(), tableName);
+            // In stored-lowercase mode (1), user will query by display name.
+            // Add mapping from display lower-case name to internal temp name so getTableNullable(display) succeeds.
+            if (olapTable.isTemporary() && displayNameLower != null) {
+                lowerCaseToTableName.put(displayNameLower, tableName);
+            }
             if (olapTable instanceof MTMV) {
                 Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) olapTable, id);
             }
@@ -618,7 +630,22 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
 
         // return temp table first
-        Table table = nameToTable.get(Util.generateTempTableInnerName(tableName));
+        String tempTableInnerName = Util.generateTempTableInnerName(tableName);
+        // For case-insensitive mode, resolve the temp table inner name as well
+        if (Env.isTableNamesCaseInsensitive()) {
+            String resolvedTempName = lowerCaseToTableName.get(tempTableInnerName.toLowerCase());
+            if (resolvedTempName != null) {
+                tempTableInnerName = resolvedTempName;
+            }
+        } else if (Env.isStoredTableNamesLowerCase()) {
+            // Mode 1 (store lower case) still needs to map back from lowercased temp inner name
+            // because nameToTable stores the original (non-forced) name string, while we lowered tableName above.
+            String resolvedTempName = lowerCaseToTableName.get(tempTableInnerName.toLowerCase());
+            if (resolvedTempName != null) {
+                tempTableInnerName = resolvedTempName;
+            }
+        }
+        Table table = nameToTable.get(tempTableInnerName);
         if (table == null) {
             table = nameToTable.get(tableName);
         }

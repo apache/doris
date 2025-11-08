@@ -1,0 +1,30 @@
+[fix](temp-table) Fix temporary table resolution with lower_case_table_names=1
+
+Fixes #57773
+
+Problem:
+When lower_case_table_names=1, temporary tables failed in operations
+like CREATE TEMP LIKE on partitioned tables and INSERT OVERWRITE due
+to missing display name → internal name mapping.
+
+Root cause:
+- Temp tables use internal names: sessionId_#TEMP#_displayName
+- lowerCaseToTableName only mapped internal → internal
+- Missing: display (lowercased) → internal mapping
+- Result: lookup by display name failed
+
+Solution:
+1. Database.registerTable: Add display name → internal name mapping
+2. Database.getTableNullable: Resolve temp inner names in mode=1
+3. Util: Normalize temp table utilities with case-insensitive checks
+4. FeNameFormat: Add TEMPORARY_TABLE_SIGN_LOWER constant
+5. ShowTableStatusCommand: Apply LOWER() for consistent filtering
+
+Testing:
+- Added regression-test/suites/temp_table_p0/ with 2 scenarios
+- Scenario 1: CREATE TEMP LIKE on AUTO LIST PARTITION table
+- Scenario 2: INSERT OVERWRITE on temp table
+- Added comprehensive unit tests for utilities
+- Validated manually against FE with lower_case_table_names=1
+
+All scenarios now pass with correct row counts.
