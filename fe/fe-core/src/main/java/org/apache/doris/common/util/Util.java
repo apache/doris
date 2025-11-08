@@ -54,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.LongUnaryOperator;
@@ -654,15 +655,18 @@ public class Util {
 
     public static String getRootCauseMessage(Throwable t) {
         String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
         Throwable p = t;
-        while (p != null) {
-            String message = p.getMessage();
-            if (message == null) {
-                rootCause = p.getClass().getName();
-            } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
-            }
+        while (p.getCause() != null) {
             p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
         }
         return rootCause;
     }
@@ -736,7 +740,8 @@ public class Util {
     }
 
     public static String generateTempTableInnerName(String tableName) {
-        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+        // if already contains temporary sign (case-insensitive), treat it as inner name
+        if (tableName.toLowerCase(Locale.ROOT).indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER) != -1) {
             return tableName;
         }
 
@@ -746,17 +751,18 @@ public class Util {
     }
 
     public static String getTempTableDisplayName(String tableName) {
-        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
-            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[1] : tableName;
+        int idx = tableName.toLowerCase(Locale.ROOT).indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER);
+        return idx != -1
+            ? tableName.substring(idx + FeNameFormat.TEMPORARY_TABLE_SIGN.length()) : tableName;
     }
 
     public static String getTempTableSessionId(String tableName) {
-        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
-            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[0] : "";
+        int idx = tableName.toLowerCase(Locale.ROOT).indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER);
+        return idx != -1 ? tableName.substring(0, idx) : "";
     }
 
     public static boolean isTempTable(String tableName) {
-        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1;
+        return tableName.toLowerCase(Locale.ROOT).indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN_LOWER) != -1;
     }
 
     public static boolean isTempTableInCurrentSession(String tableName) {
