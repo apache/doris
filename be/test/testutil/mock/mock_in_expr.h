@@ -32,7 +32,7 @@ class MockInExpr final : public VInPredicate {
 public:
     MockInExpr() = default;
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         return Status::OK();
     }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
