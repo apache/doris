@@ -17,18 +17,19 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.DorisFE;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class HealthAction extends RestBaseController {
@@ -37,6 +38,10 @@ public class HealthAction extends RestBaseController {
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
+        }
+
+        if (!DorisFE.isServerReady()) {
+            return ResponseEntityBuilder.serviceUnavailable("Server is not ready");
         }
 
         Map<String, Object> result = new HashMap<>();

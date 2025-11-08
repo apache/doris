@@ -520,6 +520,14 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TIMEV2);
     }
 
+    public boolean isWildcardTimeV2() {
+        return false;
+    }
+
+    public boolean isWildcardDatetimeV2() {
+        return false;
+    }
+
     public boolean isWildcardDecimal() {
         return false;
     }
@@ -724,42 +732,6 @@ public abstract class Type {
         return isScalarType(PrimitiveType.IPV6);
     }
 
-    public boolean hasTemplateType() {
-        return false;
-    }
-
-    // only used for struct type and variadic template type
-    public boolean needExpandTemplateType() {
-        return false;
-    }
-
-    // return a new type without template type, by specialize template type in this type
-    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
-        if (hasTemplateType()) {
-            // throw exception by default, sub class should specialize tempalte type properly
-            throw new TypeException("specializeTemplateType not implemented");
-        } else {
-            return this;
-        }
-    }
-
-    /**
-     * Only used for struct type and variadic template type,
-     * collect variadic template's expand size based on the input arguments
-     */
-    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap)
-            throws TypeException {
-    }
-
-    /**
-     * Only used for struct type and variadic template type,
-     * Do expand variadic template type
-     */
-    public List<Type> expandVariadicTemplateType(Map<String, Integer> expandSizeMap) {
-        return Lists.newArrayList(this);
-    }
-
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
@@ -843,54 +815,6 @@ public abstract class Type {
         return false;
     }
 
-    public static boolean canCastTo(Type sourceType, Type targetType) {
-        if (targetType.isJsonbType() && sourceType.isComplexType()) {
-            return true;
-        }
-        if (sourceType.isVariantType() && targetType.isVariantType()) {
-            return sourceType.equals(targetType);
-        }
-        if (sourceType.isJsonbType()) {
-            return true;
-        }
-        if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
-            // variant could cast to scalar types and array
-            return true;
-        } else if (sourceType.isScalarType() && targetType.isScalarType()) {
-            return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
-        } else if (sourceType.isArrayType() && targetType.isArrayType()) {
-            return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
-        } else if (sourceType.isMapType() && targetType.isMapType()) {
-            return MapType.canCastTo((MapType) sourceType, (MapType) targetType);
-        } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
-                && !sourceType.isNull() && !sourceType.isStringType()) {
-            // TODO: current not support cast any non-array type(except null and charFamily) to nested array type.
-            return false;
-        } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
-            return true;
-        } else if (sourceType.isStructType() && targetType.isStructType()) {
-            return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
-        } else if (sourceType.isAggStateType() && targetType.getPrimitiveType().isCharFamily()) {
-            return true;
-        } else if (sourceType.isAggStateType() && targetType.isAggStateType()) {
-            AggStateType sourceAggState = (AggStateType) sourceType;
-            AggStateType targetAggState = (AggStateType) targetType;
-            if (!sourceAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())) {
-                return false;
-            }
-            if (sourceAggState.getSubTypes().size() != targetAggState.getSubTypes().size()) {
-                return false;
-            }
-            for (int i = 0; i < sourceAggState.getSubTypes().size(); i++) {
-                if (!canCastTo(sourceAggState.getSubTypes().get(i), targetAggState.getSubTypes().get(i))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
-    }
-
     /**
      * Return type t such that values from both t1 and t2 can be assigned to t without an
      * explicit cast. If strict, does not consider conversions that would result in loss
@@ -916,37 +840,6 @@ public abstract class Type {
         }
 
         return ScalarType.INVALID;
-    }
-
-    public static Type getNextNumType(Type t) {
-        switch (t.getPrimitiveType()) {
-            case BOOLEAN:
-                return TINYINT;
-            case TINYINT:
-                return SMALLINT;
-            case SMALLINT:
-                return INT;
-            case INT:
-                return BIGINT;
-            case BIGINT:
-                return BIGINT;
-            case LARGEINT:
-                return LARGEINT;
-            case FLOAT:
-                return DOUBLE;
-            case DOUBLE:
-                return DOUBLE;
-            case DECIMALV2:
-                return MAX_DECIMALV2_TYPE;
-            case DECIMAL32:
-                return DECIMAL32;
-            case DECIMAL64:
-                return DECIMAL64;
-            case DECIMAL128:
-                return DECIMAL128;
-            default:
-                return INVALID;
-        }
     }
 
     /**

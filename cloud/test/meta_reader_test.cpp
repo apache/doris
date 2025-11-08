@@ -130,6 +130,28 @@ TEST(MetaReaderTest, GetTableVersion) {
     }
 
     ASSERT_LT(version1, version2);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = versioned::table_version_key({instance_id, table_id});
+        std::string end_key = versioned::table_version_key({instance_id, table_id + 1});
+        FullRangeGetOptions options;
+        std::unique_ptr<FullRangeGetIterator> iter =
+                txn->full_range_get(begin_key, end_key, std::move(options));
+        int num = 1;
+        for (auto kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
+            auto&& [key, _] = *kvp;
+            int64_t decoded_id;
+            Versionstamp decoded_version;
+            std::string_view key_view(key);
+            ASSERT_TRUE(
+                    versioned::decode_table_version_key(&key_view, &decoded_id, &decoded_version));
+            ASSERT_EQ(decoded_id, table_id);
+            ASSERT_EQ(decoded_version, num == 1 ? version1 : version2);
+            num++;
+        }
+    }
 }
 
 TEST(MetaReaderTest, BatchGetTableVersion) {

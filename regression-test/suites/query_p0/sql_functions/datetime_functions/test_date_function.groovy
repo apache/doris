@@ -436,10 +436,7 @@ suite("test_date_function") {
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
-    test {
-        sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
-        exception "is invalid"
-    }
+    qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date('11.09.2011 11:09:30', '%m.%d.%Y %h:%i:%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
@@ -506,7 +503,12 @@ suite("test_date_function") {
         sql """ select utc_timestamp(7) """
         exception "scale must be between 0 and 6"
     }
+    test {
+        sql """ SELECT UTC_TIMESTAMP(NULL); """
+        exception "UTC_TIMESTAMP argument cannot be NULL."
+    }
 
+    // UTC_TIME
     def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
     assertTrue(utc_time_str[0].size() == 2)
     utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
@@ -514,6 +516,10 @@ suite("test_date_function") {
     test {
         sql """ select utc_time(7) """
         exception "scale must be between 0 and 6"
+    }
+    test {
+        sql """ SELECT UTC_TIME(NULL); """
+        exception "UTC_TIME argument cannot be NULL."
     }
 
     def utc_date_str = sql """ select utc_date(),utc_date() + 1 """
@@ -624,10 +630,7 @@ suite("test_date_function") {
     qt_sql """ select date_format('1999-01-01', '%X %V'); """
     qt_sql """ select date_format('2025-01-01', '%X %V'); """
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
-    test {
-        sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
-        exception "is invalid"
-    }
+    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
     qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
 

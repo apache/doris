@@ -39,7 +39,7 @@ public class SecondsAdd extends ScalarFunction implements BinaryExpression, Expl
         PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(FunctionSignature
-            .ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT, BigIntType.INSTANCE));
+            .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE));
 
     public SecondsAdd(Expression arg0, Expression arg1) {
         super("seconds_add", arg0, arg1);
