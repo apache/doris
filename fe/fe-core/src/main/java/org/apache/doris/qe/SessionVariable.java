@@ -2283,6 +2283,7 @@ public class SessionVariable implements Serializable, Writable {
     public int invertedIndexConjunctionOptThreshold = 1000;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
+            affectQueryResult = true,
             description = {"这个参数用来限制查询时扩展的词项（terms）的数量，以此来控制查询的性能",
                     "This parameter is used to limit the number of term expansions during a query,"
                     + " thereby controlling query performance"})
