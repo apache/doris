@@ -164,9 +164,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
             }));
 
     segment_v2::AnnIndexStats stats;
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            common_expr_to_slotref_map;
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, row_bitmap, stats)
+                                                    column_iterators, common_expr_to_slotref_map,
+                                                    row_bitmap, stats)
                         .ok());
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
@@ -260,9 +263,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             }));
 
     segment_v2::AnnIndexStats stats;
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            common_expr_to_slotref_map;
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, row_bitmap, stats)
+                                                    column_iterators, common_expr_to_slotref_map,
+                                                    row_bitmap, stats)
                         .ok());
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
@@ -738,9 +744,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
 
     roaring::Roaring row_bitmap;
     segment_v2::AnnIndexStats stats;
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            common_expr_to_slotref_map;
 
-    auto st = range_search_ctx->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                          column_iterators, row_bitmap, stats);
+    auto st = range_search_ctx->evaluate_ann_range_search(
+            cid_to_index_iterators, idx_to_cid, column_iterators, common_expr_to_slotref_map,
+            row_bitmap, stats);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.is<doris::ErrorCode::INVALID_ARGUMENT>());
 }

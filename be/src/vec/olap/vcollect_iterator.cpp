@@ -262,6 +262,26 @@ Status VCollectIterator::_topn_next(Block* block) {
     // clear TEMP columns to avoid column align problem
     block->erase_tmp_columns();
     auto clone_block = block->clone_empty();
+    /*
+    select id, "${tR2}",
+            l2_distance_approximate 
+        from ann_index_only_scan
+        where l2_distance_approximate < 10
+        order by id
+        limit 20;
+    where id is the orderby key column.
+    */
+    // Initialize virtual slot columns by schema (avoid runtime type checks):
+    // use _reader_context.vir_col_idx_to_type to construct real columns for those positions.
+    if (!_reader->_reader_context.vir_col_idx_to_type.empty()) {
+        const auto& idx_to_type = _reader->_reader_context.vir_col_idx_to_type;
+        for (const auto& kv : idx_to_type) {
+            size_t idx = kv.first;
+            if (idx < clone_block.columns()) {
+                clone_block.get_by_position(idx).column = kv.second->create_column();
+            }
+        }
+    }
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
