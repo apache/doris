@@ -38,7 +38,7 @@ public class MicroSecondTimestamp extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT));
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.WILDCARD));
 
     public MicroSecondTimestamp(Expression arg0) {
         super("microsecond_timestamp", arg0);
