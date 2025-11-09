@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
@@ -42,6 +41,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -205,7 +205,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             .put(PRIORITY, (Function<String, LoadTask.Priority>) s -> LoadTask.Priority.valueOf(s))
             .build();
     private static final Logger LOG = LogManager.getLogger(LoadCommand.class);
-    private final LabelName label;
+    private final LabelNameInfo label;
     private final List<NereidsDataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
     private final ResourceDesc resourceDesc;
@@ -221,7 +221,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     /**
      * constructor of LoadCommand
      */
-    public LoadCommand(LabelName label, List<NereidsDataDescription> dataDescriptions, BrokerDesc brokerDesc,
+    public LoadCommand(LabelNameInfo label, List<NereidsDataDescription> dataDescriptions, BrokerDesc brokerDesc,
                            ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
         this.label = label;
@@ -236,7 +236,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         return etlJobType;
     }
 
-    public LabelName getLabel() {
+    public LabelNameInfo getLabel() {
         return label;
     }
 
