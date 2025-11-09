@@ -33,8 +33,6 @@ import java.util.Optional;
 public class S3PropertyUtils {
     private static final Logger LOG = LogManager.getLogger(S3PropertyUtils.class);
 
-    private static final String URI_KEY = "uri";
-
     /**
      * Constructs the S3 endpoint from a given URI in the props map.
      *
@@ -51,7 +49,7 @@ public class S3PropertyUtils {
                                                   String stringUsePathStyle,
                                                   String stringForceParsingByStandardUri) {
         Optional<String> uriOptional = props.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .filter(e -> e.getKey().equalsIgnoreCase(StorageProperties.URI_KEY))
                 .map(Map.Entry::getValue)
                 .findFirst();
 
@@ -90,7 +88,7 @@ public class S3PropertyUtils {
                                                 String stringUsePathStyle,
                                                 String stringForceParsingByStandardUri) {
         Optional<String> uriOptional = props.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .filter(e -> e.getKey().equalsIgnoreCase(StorageProperties.URI_KEY))
                 .map(Map.Entry::getValue)
                 .findFirst();
 
@@ -160,7 +158,7 @@ public class S3PropertyUtils {
             throw new StoragePropertiesException("props is empty");
         }
         Optional<String> uriOptional = props.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .filter(e -> e.getKey().equalsIgnoreCase(StorageProperties.URI_KEY))
                 .map(Map.Entry::getValue)
                 .findFirst();
 

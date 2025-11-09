@@ -83,7 +83,7 @@ public class MTMVRefreshSnapshotTest {
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = Maps.newHashMap();
         MTMVRefreshPartitionSnapshot mvp1PartitionSnapshot = new MTMVRefreshPartitionSnapshot();
         partitionSnapshots.put(mvExistPartitionName, mvp1PartitionSnapshot);
-        mvp1PartitionSnapshot.getPartitions().put(relatedExistPartitionName, p1Snapshot);
+        mvp1PartitionSnapshot.getPctSnapshot(existTable).put(relatedExistPartitionName, p1Snapshot);
         mvp1PartitionSnapshot.addTableSnapshot(existTable, t1Snapshot);
         refreshSnapshot.updateSnapshots(partitionSnapshots, Sets.newHashSet(mvExistPartitionName));
     }
@@ -91,24 +91,25 @@ public class MTMVRefreshSnapshotTest {
     @Test
     public void testPartitionSync() {
         // normal
-        boolean sync = refreshSnapshot.equalsWithRelatedPartition(mvExistPartitionName, relatedExistPartitionName,
-                new MTMVVersionSnapshot(correctVersion, 0));
+        boolean sync = refreshSnapshot.equalsWithPct(mvExistPartitionName, relatedExistPartitionName,
+                new MTMVVersionSnapshot(correctVersion, 0), existTable);
         Assert.assertTrue(sync);
         // non exist mv partition
-        sync = refreshSnapshot.equalsWithRelatedPartition("mvp2", relatedExistPartitionName,
-                new MTMVVersionSnapshot(correctVersion, 0));
+        sync = refreshSnapshot.equalsWithPct("mvp2", relatedExistPartitionName,
+                new MTMVVersionSnapshot(correctVersion, 0), existTable);
         Assert.assertFalse(sync);
         // non exist related partition
         sync = refreshSnapshot
-                .equalsWithRelatedPartition(mvExistPartitionName, "p2", new MTMVVersionSnapshot(correctVersion, 0));
+                .equalsWithPct(mvExistPartitionName, "p2", new MTMVVersionSnapshot(correctVersion, 0),
+                        existTable);
         Assert.assertFalse(sync);
         // snapshot value not equal
-        sync = refreshSnapshot.equalsWithRelatedPartition(mvExistPartitionName, relatedExistPartitionName,
-                new MTMVVersionSnapshot(2L, 0));
+        sync = refreshSnapshot.equalsWithPct(mvExistPartitionName, relatedExistPartitionName,
+                new MTMVVersionSnapshot(2L, 0), existTable);
         Assert.assertFalse(sync);
         // snapshot type not equal
-        sync = refreshSnapshot.equalsWithRelatedPartition(mvExistPartitionName, relatedExistPartitionName,
-                new MTMVTimestampSnapshot(correctVersion));
+        sync = refreshSnapshot.equalsWithPct(mvExistPartitionName, relatedExistPartitionName,
+                new MTMVTimestampSnapshot(correctVersion), existTable);
         Assert.assertFalse(sync);
     }
 

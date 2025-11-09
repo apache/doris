@@ -267,7 +267,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
-                    copiedMasterInfo.setTabletReportInactiveDurationMs(Config.rehash_tablet_after_be_dead_seconds);
+                    long reportInterval = Config.rehash_tablet_after_be_dead_seconds * 1000L;
+                    copiedMasterInfo.setTabletReportInactiveDurationMs(reportInterval);
                     TCloudClusterInfo clusterInfo = new TCloudClusterInfo();
                     clusterInfo.setIsStandby(backend.isInStandbyCluster());
                     copiedMasterInfo.setCloudClusterInfo(clusterInfo);

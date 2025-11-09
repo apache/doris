@@ -1875,7 +1875,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long dbId, List<Long> tableIdList)
             throws UserException {
-        LOG.info("getUnFinishedPreviousLoad(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+        LOG.debug("getUnFinishedPreviousLoad(), endTransactionId:{}, dbId:{}, tableIdList:{}",
                 endTransactionId, dbId, tableIdList);
 
         if (endTransactionId <= 0) {
@@ -1890,10 +1890,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
         CheckTxnConflictResponse checkTxnConflictResponse = null;
         try {
-            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            LOG.debug("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
             checkTxnConflictResponse = MetaServiceProxy
                 .getInstance().checkTxnConflict(checkTxnConflictRequest);
-            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+            LOG.debug("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
         } catch (RpcException e) {
             throw new UserException(e.getMessage());
         }
@@ -1912,7 +1912,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException {
-        LOG.info("isPreviousTransactionsFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+        LOG.debug("isPreviousTransactionsFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
                 endTransactionId, dbId, tableIdList);
 
         if (endTransactionId <= 0) {
@@ -1927,10 +1927,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
         CheckTxnConflictResponse checkTxnConflictResponse = null;
         try {
-            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            LOG.debug("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
             checkTxnConflictResponse = MetaServiceProxy
                     .getInstance().checkTxnConflict(checkTxnConflictRequest);
-            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+            LOG.debug("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -1948,7 +1948,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     public boolean isPreviousNonTimeoutTxnFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException {
-        LOG.info("isPreviousNonTimeoutTxnFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+        LOG.debug("isPreviousNonTimeoutTxnFinished(), endTransactionId:{}, dbId:{}, tableIdList:{}",
                 endTransactionId, dbId, tableIdList);
 
         if (endTransactionId <= 0) {
@@ -1964,10 +1964,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
         CheckTxnConflictResponse checkTxnConflictResponse = null;
         try {
-            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            LOG.debug("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
             checkTxnConflictResponse = MetaServiceProxy
                     .getInstance().checkTxnConflict(checkTxnConflictRequest);
-            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+            LOG.debug("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }

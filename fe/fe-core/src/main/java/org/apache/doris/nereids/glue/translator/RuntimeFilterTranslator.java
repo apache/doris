@@ -132,7 +132,7 @@ public class RuntimeFilterTranslator {
 
                 // adjust data type
                 if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-                    targetExpr = new CastExpr(src.getType(), targetExpr);
+                    targetExpr = new CastExpr(src.getType(), targetExpr, null);
                 }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();

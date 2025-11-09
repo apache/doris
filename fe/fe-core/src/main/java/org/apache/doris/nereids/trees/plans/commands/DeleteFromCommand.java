@@ -129,7 +129,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        StatementContext statementContext = ctx.getStatementContext();
+        // delete not prune predicate after partition prune
+        statementContext.setSkipPrunePredicate(true);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
         boolean originalIsSkipAuth = ctx.isSkipAuth();
         // delete not need select priv
         ctx.setSkipAuth(true);
@@ -293,7 +296,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         List<Long> prunedPartitions = PartitionPruner.prune(
                 partitionSlots, filter.getPredicate(), idToPartitions,
                 CascadesContext.initContext(new StatementContext(), this, PhysicalProperties.ANY),
-                PartitionTableType.OLAP, sortedPartitionRanges);
+                PartitionTableType.OLAP, sortedPartitionRanges).first;
         return prunedPartitions.stream().map(olapTable::getPartition).collect(Collectors.toList());
     }
 

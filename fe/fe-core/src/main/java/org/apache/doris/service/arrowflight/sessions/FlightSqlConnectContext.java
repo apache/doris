@@ -41,7 +41,7 @@ public class FlightSqlConnectContext extends ConnectContext {
         this.peerIdentity = peerIdentity;
         mysqlChannel = null; // Use of MysqlChannel is not expected
         flightSqlChannel = new FlightSqlChannel();
-        setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCAL);
+        setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCOL);
         init();
     }
 

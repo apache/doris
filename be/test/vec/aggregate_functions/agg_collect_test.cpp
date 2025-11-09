@@ -37,8 +37,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -180,8 +179,8 @@ TEST_F(VAggCollectTest, test_empty) {
     test_agg_collect<DataTypeDecimalV2>("collect_list");
     test_agg_collect<DataTypeDecimalV2>("collect_set");
 
-    test_agg_collect<DataTypeDate>("collect_list");
-    test_agg_collect<DataTypeDate>("collect_set");
+    test_agg_collect<DataTypeDateV2>("collect_list");
+    test_agg_collect<DataTypeDateV2>("collect_set");
 
     test_agg_collect<DataTypeString>("collect_list");
     test_agg_collect<DataTypeString>("collect_set");
@@ -196,8 +195,8 @@ TEST_F(VAggCollectTest, test_with_data) {
     test_agg_collect<DataTypeDecimalV2>("collect_list", 10);
     test_agg_collect<DataTypeDecimalV2>("collect_set", 11);
 
-    test_agg_collect<DataTypeDateTime>("collect_list", 5);
-    test_agg_collect<DataTypeDateTime>("collect_set", 6);
+    test_agg_collect<DataTypeDateTimeV2>("collect_list", 5);
+    test_agg_collect<DataTypeDateTimeV2>("collect_set", 6);
 
     test_agg_collect<DataTypeString>("collect_list", 10);
     test_agg_collect<DataTypeString>("collect_set", 5);
@@ -207,8 +206,8 @@ TEST_F(VAggCollectTest, test_complex_data_type) {
     test_agg_collect<DataTypeInt8>("collect_list", 7, true);
     test_agg_collect<DataTypeInt128>("array_agg", 9, true);
 
-    test_agg_collect<DataTypeDateTime>("collect_list", 5, true);
-    test_agg_collect<DataTypeDateTime>("array_agg", 6, true);
+    test_agg_collect<DataTypeDateTimeV2>("collect_list", 5, true);
+    test_agg_collect<DataTypeDateTimeV2>("array_agg", 6, true);
 
     test_agg_collect<DataTypeString>("collect_list", 10, true);
     test_agg_collect<DataTypeString>("array_agg", 5, true);

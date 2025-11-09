@@ -2350,6 +2350,64 @@ true
 true
 true
 
+-- !sql_str_to_date_Varchar_Varchar --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_str_to_date_Varchar_Varchar_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_str_to_date_String_String --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_str_to_date_String_String_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
 -- !sql_strleft_Varchar_Integer --
 \N
 v

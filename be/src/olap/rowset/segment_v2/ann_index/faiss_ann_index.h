@@ -178,7 +178,18 @@ public:
 
     ~FaissVectorIndex();
 
-    doris::Status train(vectorized::Int64 n, const float* x) override;
+    /**
+     * @brief Trains the index with the provided data.
+     *
+     * This method is used to train the FAISS index with a set of vectors.
+     * Training is required for certain index types that need to learn
+     * parameters from the data before adding vectors.
+     *
+     * @param n Number of training vectors
+     * @param vec Pointer to training vector data (n * dim float values)
+     * @return Status indicating success or failure
+     */
+    doris::Status train(vectorized::Int64 n, const float* vec) override;
 
     /**
      * @brief Adds vectors to the index for future searches.

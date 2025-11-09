@@ -24,8 +24,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -37,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -64,6 +63,14 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         return jobName;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public String getSql() {
+        return sql;
+    }
+
     @Override
     public StmtType stmtType() {
         return StmtType.ALTER;
@@ -72,31 +79,12 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        AbstractJob job = analyzeAndBuildJobInfo(ctx);
-        ctx.getEnv().getJobManager().alterJob(job);
+        ctx.getEnv().getJobManager().alterJob(this);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterJobCommand(this, context);
-    }
-
-    private AbstractJob analyzeAndBuildJobInfo(ConnectContext ctx) throws JobException {
-        AbstractJob job = Env.getCurrentEnv().getJobManager().getJobByName(jobName);
-        if (job instanceof StreamingInsertJob) {
-            StreamingInsertJob updateJob = (StreamingInsertJob) job;
-            // update sql
-            if (StringUtils.isNotEmpty(sql)) {
-                updateJob.updateExecuteSql(sql);
-            }
-            // update properties
-            if (!properties.isEmpty()) {
-                updateJob.getProperties().putAll(properties);
-            }
-            return updateJob;
-        } else {
-            throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
-        }
     }
 
     private void validate() throws Exception {
@@ -112,16 +100,27 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
             StreamingInsertJob streamingJob = (StreamingInsertJob) job;
             streamingJob.checkPrivilege(ConnectContext.get());
 
-            boolean proCheck = checkProperties(streamingJob.getProperties());
-            boolean sqlCheck = checkSql(streamingJob.getExecuteSql());
-            if (sqlCheck) {
+            boolean propModified = isPropertiesModified(streamingJob.getProperties());
+            if (propModified) {
+                validateProps(streamingJob);
+            }
+            boolean sqlModified = isSqlModified(streamingJob.getExecuteSql());
+            if (sqlModified) {
                 checkUnmodifiableProperties(streamingJob.getExecuteSql());
             }
-            if (!proCheck && !sqlCheck) {
+            if (!propModified && !sqlModified) {
                 throw new AnalysisException("No properties or sql changed in ALTER JOB");
             }
         } else {
             throw new AnalysisException("Unsupported job type for ALTER:" + job.getJobType());
+        }
+    }
+
+    private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
+        StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
+        jobProperties.validate();
+        if (jobProperties.getOffsetProperty() != null) {
+            streamingJob.validateOffset(jobProperties.getOffsetProperty());
         }
     }
 
@@ -166,7 +165,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         return Pair.of(targetTable, unboundTVFRelation);
     }
 
-    private boolean checkProperties(Map<String, String> originProps) {
+    private boolean isPropertiesModified(Map<String, String> originProps) {
         if (this.properties == null || this.properties.isEmpty()) {
             return false;
         }
@@ -176,7 +175,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         return false;
     }
 
-    private boolean checkSql(String originSql) {
+    private boolean isSqlModified(String originSql) {
         if (originSql == null || originSql.isEmpty() || sql == null || sql.isEmpty()) {
             return false;
         }

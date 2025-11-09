@@ -58,6 +58,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
@@ -298,6 +300,92 @@ public class S3Util {
         }
 
         return globPattern.substring(0, earliestSpecialCharIndex);
+    }
+
+    // Apply some rules to extend the globs parsing behavior
+    public static String extendGlobs(String pathPattern) {
+        return extendGlobNumberRange(pathPattern);
+    }
+
+    /**
+     * Convert range patterns to brace enumeration patterns for glob matching.
+     * Parts containing negative numbers or non-numeric characters are skipped.
+     * eg(valid):
+     *    -> "file{1..3}" => "file{1,2,3}"
+     *    -> "file_{1..3,4,5..6}" => "file_{1,2,3,4,5,6}"
+     * eg(invalid)
+     *    -> "data_{-1..4}.csv" will not load any file
+     *    -> "data_{a..4}.csv" will not load any file
+     * @param pathPattern Path that may contain {start..end} or mixed {start..end,values} patterns
+     * @return Path with ranges converted to comma-separated enumeration
+     */
+    public static String extendGlobNumberRange(String pathPattern) {
+        Pattern bracePattern = Pattern.compile("\\{([^}]+)\\}");
+        Matcher braceMatcher = bracePattern.matcher(pathPattern);
+        StringBuffer result = new StringBuffer();
+
+        while (braceMatcher.find()) {
+            String braceContent = braceMatcher.group(1);
+            String[] parts = braceContent.split(",");
+            List<Integer> allNumbers = new ArrayList<>();
+            Pattern rangePattern = Pattern.compile("^(-?\\d+)\\.\\.(-?\\d+)$");
+
+            for (String part : parts) {
+                part = part.trim();
+                Matcher rangeMatcher = rangePattern.matcher(part);
+
+                if (rangeMatcher.matches()) {
+                    int start = Integer.parseInt(rangeMatcher.group(1));
+                    int end = Integer.parseInt(rangeMatcher.group(2));
+
+                    // Skip this range if either start or end is negative
+                    if (start < 0 || end < 0) {
+                        continue;
+                    }
+
+                    if (start > end) {
+                        int temp = start;
+                        start = end;
+                        end = temp;
+                    }
+                    for (int i = start; i <= end; i++) {
+                        if (!allNumbers.contains(i)) {
+                            allNumbers.add(i);
+                        }
+                    }
+                } else if (part.matches("^\\d+$")) {
+                    // This is a single non-negative number like "4"
+                    int num = Integer.parseInt(part);
+                    if (!allNumbers.contains(num)) {
+                        allNumbers.add(num);
+                    }
+                } else {
+                    // Not a valid number or range (e.g., negative number, or contains non-numeric chars)
+                    // Just skip this part and continue processing other parts
+                    continue;
+                }
+            }
+
+            // If no valid numbers found after filtering, keep original content
+            if (allNumbers.isEmpty()) {
+                braceMatcher.appendReplacement(result, "{" + braceContent + "}");
+                continue;
+            }
+
+            // Build comma-separated result
+            StringBuilder sb = new StringBuilder("{");
+            for (int i = 0; i < allNumbers.size(); i++) {
+                if (i > 0) {
+                    sb.append(",");
+                }
+                sb.append(allNumbers.get(i));
+            }
+            sb.append("}");
+            braceMatcher.appendReplacement(result, sb.toString());
+        }
+        braceMatcher.appendTail(result);
+
+        return result.toString();
     }
 
     // Fast fail validation for S3 endpoint connectivity to avoid retries and long waits

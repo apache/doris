@@ -53,40 +53,7 @@ check_init_cloud() {
         return
     fi
 
-    while true; do
-
-        lock_cluster
-
-        output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
-            -d '{"instance_id":"default_instance_id",
-                    "name": "default_instance",
-                    "user_id": "'"${DORIS_CLOUD_USER}"'",
-                    "obj_info": {
-                    "ak": "'"${DORIS_CLOUD_AK}"'",
-                    "sk": "'"${DORIS_CLOUD_SK}"'",
-                    "bucket": "'"${DORIS_CLOUD_BUCKET}"'",
-                    "endpoint": "'"${DORIS_CLOUD_ENDPOINT}"'",
-                    "external_endpoint": "'"${DORIS_CLOUD_EXTERNAL_ENDPOINT}"'",
-                    "prefix": "'"${DORIS_CLOUD_PREFIX}"'",
-                    "region": "'"${DORIS_CLOUD_REGION}"'",
-                    "provider": "'"${DORIS_CLOUD_PROVIDER}"'"
-                }}')
-
-        unlock_cluster
-
-        health_log "create instance output: $output"
-        code=$(jq -r '.code' <<<$output)
-
-        if [ "$code" != "OK" ]; then
-            health_log "create instance failed"
-            sleep 1
-            continue
-        fi
-
-        health_log "create doris instance succ, output: $output"
-        touch $HAS_CREATE_INSTANCE_FILE
-        break
-    done
+    create_doris_instance
 }
 
 stop_cloud() {

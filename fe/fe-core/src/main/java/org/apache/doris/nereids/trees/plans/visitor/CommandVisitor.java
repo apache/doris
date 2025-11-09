@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesComma
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -296,6 +297,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadComman
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
@@ -351,6 +353,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDeleteFromUsingCommand(DeleteFromUsingCommand deleteFromUsingCommand, C context) {
         return visitCommand(deleteFromUsingCommand, context);
+    }
+
+    default R visitMergeIntoCommand(MergeIntoCommand mergeIntoCommand, C context) {
+        return visitCommand(mergeIntoCommand, context);
     }
 
     default R visitLoadCommand(LoadCommand loadCommand, C context) {
@@ -806,6 +812,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterWorkloadGroupCommand(AlterWorkloadGroupCommand alterWorkloadGroupCommand, C context) {
         return visitCommand(alterWorkloadGroupCommand, context);
+    }
+
+    default R visitAlterComputeGroupCommand(AlterComputeGroupCommand alterComputeGroupCommand, C context) {
+        return visitCommand(alterComputeGroupCommand, context);
     }
 
     default R visitAlterWorkloadPolicyCommand(AlterWorkloadPolicyCommand alterWorkloadPolicyCommand, C context) {

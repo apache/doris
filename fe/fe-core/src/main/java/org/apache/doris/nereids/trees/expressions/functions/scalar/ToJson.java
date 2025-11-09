@@ -65,11 +65,11 @@ public class ToJson extends ScalarFunction
             FunctionSignature.ret(JsonType.INSTANCE).args(FloatType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(DecimalV3Type.WILDCARD),
-            FunctionSignature.ret(JsonType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(JsonType.INSTANCE).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(JsonType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(IPv4Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(IPv6Type.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).args(TimeV2Type.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(TimeV2Type.WILDCARD),
             FunctionSignature.ret(JsonType.INSTANCE).args(StringType.INSTANCE));
 
     /**

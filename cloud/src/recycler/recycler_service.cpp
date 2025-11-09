@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <numeric>
 #include <sstream>
 #include <utility>
@@ -42,6 +43,7 @@
 #include "recycler/recycler.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -497,7 +499,8 @@ void check_meta(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instanc
                 const std::string& password, std::string& msg) {
 #ifdef BUILD_CHECK_META
     std::unique_ptr<MetaChecker> meta_checker = std::make_unique<MetaChecker>(txn_kv);
-    meta_checker->do_check(host, port, user, password, instance_id, msg);
+    meta_checker->init_mysql_connection(host, port, user, password, instance_id, msg);
+    meta_checker->do_check(msg);
 #else
     msg = "check meta not build, please export BUILD_CHECK_META=ON before build cloud";
 #endif

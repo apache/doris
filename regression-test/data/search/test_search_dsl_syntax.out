@@ -4,10 +4,15 @@
 -- !sql --
 
 -- !sql --
+2	Advanced Deep Learning
 
 -- !sql --
+4	Data Science with R
+6	Database Design Patterns
 
 -- !sql --
+4	Data Science with R
+6	Database Design Patterns
 
 -- !sql --
 1	Machine Learning Introduction
@@ -175,7 +180,6 @@
 14	Test with null tags
 15	Test with null author
 16	Test with null status
-17	Message about success
 18	Error message details
 19	Warning message content
 20	Regular article without msg

@@ -146,6 +146,16 @@ public class StorageBackend implements ParseNode {
             return description;
         }
 
+        public static StorageBackend.StorageType valueOfIgnoreCase(String name) {
+            for (StorageBackend.StorageType type : StorageBackend.StorageType.values()) {
+                if (type.name().equalsIgnoreCase(name)) {
+                    return type;
+                }
+            }
+            throw new IllegalArgumentException("No enum constant "
+                    + StorageBackend.StorageType.class.getCanonicalName() + "." + name);
+        }
+
         public TStorageBackendType toThrift() {
             switch (this) {
                 case S3:
@@ -179,21 +189,6 @@ public class StorageBackend implements ParseNode {
          */
         public static final Set<StorageType> REFACTOR_STORAGE_TYPES =
                 ImmutableSet.of(StorageType.S3, StorageType.HDFS, StorageType.OFS, StorageType.JFS, StorageType.AZURE);
-
-        public static StorageType convertToStorageType(String storageName) {
-            switch (storageName.toLowerCase()) {
-                case "hdfs":
-                    return StorageType.HDFS;
-                case "s3":
-                    return StorageType.S3;
-                case "jfs":
-                    return StorageType.JFS;
-                case "local":
-                    return StorageType.LOCAL;
-                default:
-                    throw new IllegalArgumentException("Invalid storage type: " + storageName);
-            }
-        }
     }
 
 }

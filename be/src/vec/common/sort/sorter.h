@@ -154,7 +154,7 @@ public:
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
-
+    Status _prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed = false);
     bool _enable_spill = false;
     SortDescription _sort_description;
     VSortExecExprs& _vsort_exec_exprs;

@@ -1611,6 +1611,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         this.hasSequenceCol = true;
         this.sequenceType = type;
 
+        Column sequenceCol = buildSequenceCol(type, refColumn);
+        // add sequence column at last
+        fullSchema.add(sequenceCol);
+        nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            List<Column> schema = indexMeta.getSchema();
+            if (indexMeta.getIndexId() != baseIndexId) {
+                sequenceCol = buildSequenceCol(type, refColumn);
+            }
+            schema.add(sequenceCol);
+        }
+    }
+
+    private Column buildSequenceCol(Type type, Column refColumn) {
         Column sequenceCol;
         if (getEnableUniqueKeyMergeOnWrite()) {
             // sequence column is value column with NONE aggregate type for
@@ -1624,13 +1638,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (refColumn != null) {
             sequenceCol.setDefaultValueInfo(refColumn);
         }
-        // add sequence column at last
-        fullSchema.add(sequenceCol);
-        nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
-        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
-            List<Column> schema = indexMeta.getSchema();
-            schema.add(sequenceCol);
-        }
+        return sequenceCol;
     }
 
     public Column getSequenceCol() {
@@ -1681,6 +1689,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean hasHiddenColumn() {
         return getBaseSchema().stream().anyMatch(column -> !column.isVisible());
+    }
+
+    public boolean hasGeneratedColumn() {
+        return getBaseSchema().stream().anyMatch(Column::isGeneratedColumn);
     }
 
     public Type getSequenceType() {
@@ -3418,7 +3430,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
+        Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions(this);
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
         long visibleVersion = partitionVersions.containsKey(partitionName) ? partitionVersions.get(partitionName)
                 : getPartitionOrAnalysisException(partitionName).getVisibleVersion();
@@ -3630,21 +3642,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // subPath is not empty, means it is a variant column, find the field pattern from children
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
-        for (Column child : column.getChildren()) {
-            String childName = child.getName();
-            if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
-                try {
-                    java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                            .getPathMatcher("glob:" + childName);
-                    if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+        if (column.getChildren() != null) {
+            for (Column child : column.getChildren()) {
+                String childName = child.getName();
+                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                    try {
+                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                                .getPathMatcher("glob:" + childName);
+                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                            fieldPattern = childName;
+                        }
+                    } catch (Exception e) {
+                        continue;
+                    }
+                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                    if (childName.equals(subPathString)) {
                         fieldPattern = childName;
                     }
-                } catch (Exception e) {
-                    continue;
-                }
-            } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
-                if (childName.equals(subPathString)) {
-                    fieldPattern = childName;
                 }
             }
         }

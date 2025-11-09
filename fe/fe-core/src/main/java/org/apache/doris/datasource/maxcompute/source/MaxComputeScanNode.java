@@ -53,7 +53,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.PartitionSpec;
-import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
@@ -63,6 +62,8 @@ import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
 import jline.internal.Log;
 import lombok.Setter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -88,6 +89,8 @@ import java.util.stream.Collectors;
 public class MaxComputeScanNode extends FileQueryScanNode {
     static final DateTimeFormatter dateTime3Formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     static final DateTimeFormatter dateTime6Formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+
+    private static final Logger LOG = LogManager.getLogger(MaxComputeScanNode.class);
 
     private final MaxComputeExternalTable table;
     private Predicate filterPredicate;
@@ -183,7 +186,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         retryTimes = mcCatalog.getRetryTimes();
 
         TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
-        return scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
+
+        return scanBuilder.identifier(table.getTableIdentifier())
                         .withSettings(mcCatalog.getSettings())
                         .withSplitOptions(mcCatalog.getSplitOption())
                         .requiredPartitionColumns(requiredPartitionColumns)
@@ -355,6 +359,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
             String columnName = convertSlotRefToColumnName(expr.getChild(0));
             if (!table.getColumnNameToOdpsColumn().containsKey(columnName)) {
+                Map<String, com.aliyun.odps.Column> columnMap = table.getColumnNameToOdpsColumn();
+                LOG.warn("ColumnNameToOdpsColumn size=" + columnMap.size()
+                        + ", keys=[" + String.join(", ", columnMap.keySet()) + "]");
                 throw new AnalysisException("Column " + columnName + " not found in table, can not push "
                         + "down predicate to MaxCompute " + table.getName());
             }
@@ -415,6 +422,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             if (odpsOp != null) {
                 String columnName = convertSlotRefToColumnName(expr.getChild(0));
                 if (!table.getColumnNameToOdpsColumn().containsKey(columnName)) {
+                    Map<String, com.aliyun.odps.Column> columnMap = table.getColumnNameToOdpsColumn();
+                    LOG.warn("ColumnNameToOdpsColumn size=" + columnMap.size()
+                            + ", keys=[" + String.join(", ", columnMap.keySet()) + "]");
                     throw new AnalysisException("Column " + columnName + " not found in table, can not push "
                             + "down predicate to MaxCompute " + table.getName());
                 }

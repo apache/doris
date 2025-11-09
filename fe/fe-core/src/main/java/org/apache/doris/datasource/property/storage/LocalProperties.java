@@ -24,6 +24,7 @@ import org.apache.commons.collections.MapUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
+import java.util.Set;
 
 public class LocalProperties extends StorageProperties {
     public static final String PROP_FILE_PATH = "file_path";
@@ -79,5 +80,10 @@ public class LocalProperties extends StorageProperties {
         hadoopStorageConfig = new Configuration();
         hadoopStorageConfig.set("fs.local.impl", "org.apache.hadoop.fs.LocalFileSystem");
         hadoopStorageConfig.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of();
     }
 }

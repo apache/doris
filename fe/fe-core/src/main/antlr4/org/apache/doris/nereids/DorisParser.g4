@@ -144,6 +144,10 @@ supportedDmlStatement
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?                                                   #delete
+    | explain? cte? MERGE INTO targetTable=multipartIdentifier
+        (AS? identifier)? USING srcRelation=relationPrimary
+        ON expression
+        (mergeMatchedClause | mergeNotMatchedClause)+                   #mergeInto
     | LOAD LABEL lableName=multipartIdentifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
@@ -161,6 +165,16 @@ supportedDmlStatement
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
             properties=propertyClause?                                 #copyInto
     | TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?   #truncateTable
+    ;
+
+mergeMatchedClause
+    : WHEN MATCHED (AND casePredicate=expression)? THEN
+        (UPDATE SET updateAssignmentSeq | DELETE)
+    ;
+
+mergeNotMatchedClause
+    : WHEN NOT MATCHED (AND casePredicate=expression)? THEN
+        INSERT cols=identifierList? VALUES rowConstructor
     ;
 
 supportedCreateStatement
@@ -263,6 +277,8 @@ supportedAlterStatement
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER WORKLOAD GROUP name=identifierOrText (FOR computeGroup=identifierOrText)?
         properties=propertyClause?                                                          #alterWorkloadGroup
+    | ALTER COMPUTE GROUP name=identifierOrText
+        properties=propertyClause?                                                          #alterComputeGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
     | ALTER WORKLOAD POLICY name=identifierOrText
@@ -1739,7 +1755,7 @@ interval
     ;
 
 unitIdentifier
-	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND
     ;
 
 dataTypeWithNullable
@@ -2025,6 +2041,7 @@ nonReserved
     | IMMEDIATE
     | INCREMENTAL
     | INDEXES
+    | INSERT
     | INVERTED
     | IP_TRIE
     | IPV4
@@ -2054,6 +2071,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MATCHED
     | MATCH_ALL
     | MATCH_ANY
     | MATCH_PHRASE

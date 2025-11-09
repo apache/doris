@@ -53,7 +53,7 @@ public:
     VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
                           bool null_aware, int filter_id);
     ~VRuntimeFilterWrapper() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -61,6 +61,8 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
+
+    uint64_t get_digest(uint64_t seed) const override { return _impl->get_digest(seed); }
 
     VExprSPtr get_impl() const override { return _impl; }
 
@@ -117,7 +119,7 @@ public:
     }
 
 private:
-    void reset_judge_selectivity() {
+    void reset_judge_selectivity() const {
         _always_true = false;
         _judge_counter = config::runtime_filter_sampling_frequency;
         _judge_input_rows = 0;
@@ -133,10 +135,10 @@ private:
     // is evaluated as true, the logic for always_true is applied for the rest of that period
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
-    std::atomic_int _judge_counter = 0;
-    std::atomic_uint64_t _judge_input_rows = 0;
-    std::atomic_uint64_t _judge_filter_rows = 0;
-    std::atomic_int _always_true = false;
+    mutable std::atomic_int _judge_counter = 0;
+    mutable std::atomic_uint64_t _judge_input_rows = 0;
+    mutable std::atomic_uint64_t _judge_filter_rows = 0;
+    mutable std::atomic_int _always_true = false;
 
     std::shared_ptr<RuntimeProfile::Counter> _rf_input_rows =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);

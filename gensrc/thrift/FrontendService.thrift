@@ -1604,6 +1604,36 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
+struct TFetchLoadJobRequest {
+}
+
+struct TLoadJob {
+    1: optional string job_id
+    2: optional string label
+    3: optional string state
+    4: optional string progress
+    5: optional string type
+    6: optional string etl_info
+    7: optional string task_info
+    8: optional string error_msg
+    9: optional string create_time
+    10: optional string etl_start_time
+    11: optional string etl_finish_time
+    12: optional string load_start_time
+    13: optional string load_finish_time
+    14: optional string url
+    15: optional string job_details
+    16: optional string transaction_id
+    17: optional string error_tablets
+    18: optional string user
+    19: optional string comment
+    20: optional string first_error_msg
+}
+
+struct TFetchLoadJobResult {
+    1: optional list<TLoadJob> loadJobs
+}
+
 struct TPlanNodeRuntimeStatsItem {
     // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
     1: optional i32 node_id
@@ -1748,6 +1778,8 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TFetchLoadJobResult fetchLoadJob(1: TFetchLoadJobRequest request)
 
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 

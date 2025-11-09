@@ -584,12 +584,18 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else {
+            // TYPE_DATE (DATEV1) or TYPE_DATETIME (DATETIMEV1)
             VecDateTimeValue dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
+            }
+            if (vectorized::DataTypeFactory::instance()
+                        .create_data_type(t_expr.type)
+                        ->get_primitive_type() == TYPE_DATE) {
+                dt.cast_to_date();
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         }

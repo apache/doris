@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.VarcharType;
@@ -41,9 +40,7 @@ public class MonthName extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeType.INSTANCE)
-    );
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.WILDCARD));
 
     /**
      * constructor with 1 argument.

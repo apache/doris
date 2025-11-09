@@ -46,7 +46,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
                                List<StorageProperties> storagePropertiesList) {
         Configuration configuration = buildConfiguration(storagePropertiesList);
         HadoopCatalog catalog = new HadoopCatalog();
-        buildCatalogProps(catalogProps, storagePropertiesList);
+        buildCatalogProps(storagePropertiesList);
         catalog.setConf(configuration);
         try {
             this.executionAuthenticator.execute(() -> {
@@ -71,7 +71,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         return configuration;
     }
 
-    private void buildCatalogProps(Map<String, String> props, List<StorageProperties> storagePropertiesList) {
+    private void buildCatalogProps(List<StorageProperties> storagePropertiesList) {
         if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0) instanceof HdfsProperties) {
             HdfsProperties hdfsProps = (HdfsProperties) storagePropertiesList.get(0);
             if (hdfsProps.isKerberos()) {

@@ -46,7 +46,7 @@ suite("test_broker_load_without_filepath", "load_p0,external") {
 
         // insert 1 row to check whether the table is ok
         def result2 = sql """ INSERT INTO ${testTable} VALUES
-                        (1,2023-09-01,1,1,1)
+                        (1,"2023-09-01",1,1,1)
                         """
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)

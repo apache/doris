@@ -70,6 +70,17 @@ public:
         }
     }
 
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+        if (_is_null) {
+            return true;
+        } else {
+            return !statistic->is_all_null;
+        }
+    }
+
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         // evaluate_del only use for delete condition to filter page, need use delete condition origin value,
         // when opposite==true, origin value 'is null'->'is not null' and 'is not null'->'is null',

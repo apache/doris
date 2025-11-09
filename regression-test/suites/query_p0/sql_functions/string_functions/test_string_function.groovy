@@ -497,6 +497,14 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_mask_set_2"""SELECT MAKE_SET(id, vc1, vc2, vc3) FROM test_make_set;"""
     qt_mask_set_3"""SELECT MAKE_SET(BIT_SHIFT_LEFT(1, 63) + BIT_SHIFT_LEFT(1, 62) + BIT_SHIFT_LEFT(1, 61) + BIT_SHIFT_LEFT(1, 50) + BIT_SHIFT_LEFT(1, 25) + BIT_SHIFT_LEFT(1, 3) + BIT_SHIFT_LEFT(1, 1), 'x1','x2','x3','x4','x5','x6','x7','x8','x9','x10','x11','x12','x13','x14','x15','x16','x17','x18','x19','x20','x21','x22','x23','x24','x25','x26','x27','x28','x29','x30','x31','x32','x33','x34','x35','x36','x37','x38','x39','x40','x41','x42','x43','x44','x45','x46','x47','x48','x49','x50','x51','x52','x53','x54','x55','x56','x57','x58','x59','x60','x61','x62','x63','x64','x65','x66','x67','x68','x69','x70');"""
     qt_mask_set_4"""SELECT MAKE_SET(BIT_SHIFT_LEFT(1, 62) + BIT_SHIFT_LEFT(1, 60) + BIT_SHIFT_LEFT(1, 58) + BIT_SHIFT_LEFT(1, 45) + BIT_SHIFT_LEFT(1, 5) + BIT_SHIFT_LEFT(1, 2), 'y1', NULL, '', 'y4','y5','y6','y7','y8','y9','y10', 'y11','y12','y13','y14','y15','y16','y17','y18','y19','y20', 'y21','y22','y23','y24','y25','y26','y27','y28','y29','y30', 'y31','y32','y33','y34','y35','y36','y37','y38','y39','y40', 'y41','y42','y43','y44','y45',NULL,'y47','y48');"""
+    qt_mask_set_5"""SELECT id, MAKE_SET(bit_num, 'const1', vc2, 'const3') FROM test_make_set ORDER BY id;"""
+    qt_mask_set_6"""SELECT id, MAKE_SET(3, vc1, 'middle', vc3) FROM test_make_set ORDER BY id;"""
+    qt_mask_set_7"""SELECT id, MAKE_SET(bit_num, 'Doris', 'Apache', vc3) FROM test_make_set ORDER BY id;"""
+    qt_mask_set_8"""SELECT id, MAKE_SET(id, vc1, NULL, 'constant') FROM test_make_set ORDER BY id;"""
+    qt_mask_set_9"""SELECT id, MAKE_SET(7, vc1, vc2, 'third') FROM test_make_set ORDER BY id;"""
+    qt_mask_set_10"""SELECT id, MAKE_SET(bit_num, '第一', '第二', vc3) FROM test_make_set ORDER BY id;"""
+    qt_mask_set_11"""SELECT id, MAKE_SET(5, 'alpha', vc2, 'gamma') FROM test_make_set ORDER BY id;"""
+    qt_mask_set_12"""SELECT id, MAKE_SET(bit_num, vc1, 'fixed', NULL) FROM test_make_set ORDER BY id;"""
 
     testFoldConst("SELECT MAKE_SET(1, 'Doris', 'Apache', 'Database');")
     testFoldConst("SELECT MAKE_SET(2, 'hello', 'goodbye', 'world');")
@@ -512,8 +520,6 @@ suite("test_string_function", "arrow_flight_sql") {
         sql"""SELECT MAKE_SET(184467440737095516156, 'a', 'b', 'c');"""
         exception "Can not find the compatibility function signature"
     }
-
-    sql """DROP TABLE IF EXISTS test_make_set;"""
 
     // EXPORT_SET
     sql """DROP TABLE IF EXISTS test_export_set;"""
@@ -614,4 +620,117 @@ suite("test_string_function", "arrow_flight_sql") {
     testFoldConst("SELECT EXPORT_SET(-9223372036854775808, '1', '0');")
     testFoldConst("SELECT EXPORT_SET(-9223372036854775809, '1', '0');")
     testFoldConst("SELECT EXPORT_SET(-9223372036854775807, '1', '0');")
+
+    // INSERT function tests
+    sql """DROP TABLE IF EXISTS test_insert_function;"""
+    sql """CREATE TABLE `test_insert_function` (
+            `id` INT,
+            `str` VARCHAR(255),
+            `pos` BIGINT,
+            `len` BIGINT,
+            `newstr` VARCHAR(255)
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ( 'replication_num' = '1' );"""
+    
+    sql """INSERT INTO `test_insert_function` VALUES
+            (1, 'Quadratic', 3, 4, 'What'),
+            (2, 'Quadratic', -1, 4, 'What'),
+            (3, 'Quadratic', 3, 100, 'What'),
+            (4, 'Quadratic', 0, 4, 'What'),
+            (5, 'Quadratic', 100, 4, 'What'),
+            (6, 'Quadratic', 3, 0, 'What'),
+            (7, 'Quadratic', 3, -1, 'What'),
+            (8, 'Hello World', 7, 5, 'Doris'),
+            (9, 'Hello World', 1, 5, 'Hi'),
+            (10, 'Hello World', 12, 1, '!'),
+            (11, '', 1, 0, 'test'),
+            (12, 'test', 1, 0, ''),
+            (13, 'test', 1, 10, ''),
+            (14, '你好世界', 3, 2, 'Apache'),
+            (15, 'Hello', 3, 2, '你好'),
+            (16, '你好世界', 2, 1, 'Doris'),
+            (17, 'abcdefg', 1, 7, 'xyz'),
+            (18, 'abcdefg', 4, 0, 'xyz'),
+            (19, 'abcdefg', 8, 1, 'xyz'),
+            (20, 'test', 2, 2, ''),
+            (21, '测试字符串', 1, 2, '新'),
+            (22, '测试字符串', 3, 10, '内容'),
+            (23, 'Special!@#', 8, 3, '***'),
+            (24, 'a', 1, 1, 'b'),
+            (25, 'a', 2, 0, 'b'),
+            (26, NULL, 1, 1, 'test'),
+            (27, 'test', NULL, 1, 'new'),
+            (28, 'test', 1, NULL, 'new'),
+            (29, 'test', 1, 1, NULL),
+            (30, '🎉🎊🎈', 2, 1, '🎁');"""
+
+    qt_insert_1 """SELECT id, INSERT(`str`, `pos`, `len`, `newstr`) FROM `test_insert_function` ORDER BY `id`;"""
+    qt_insert_2 """SELECT id, INSERT('Quadratic', `pos`, 4, 'What') FROM `test_insert_function` ORDER BY `id`;"""
+    qt_insert_3 """SELECT id, INSERT(`str`, 3, `len`, 'What') FROM `test_insert_function` ORDER BY `id`;"""
+    qt_insert_4 """SELECT id, INSERT(`str`, `pos`, 2, `newstr`) FROM `test_insert_function` ORDER BY `id`;"""
+    testFoldConst("SELECT INSERT('Quadratic', 3, 4, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', -1, 4, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', 3, 100, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', 0, 4, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', 100, 4, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', 3, 0, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', 3, -1, 'What');")
+    testFoldConst("SELECT INSERT('Quadratic', 3, -100, 'What');")
+    testFoldConst("SELECT INSERT('Hello World', 7, 5, 'Doris');")
+    testFoldConst("SELECT INSERT('Hello World', 1, 5, 'Hi');")
+    testFoldConst("SELECT INSERT('Hello World', 12, 1, '!');")
+    testFoldConst("SELECT INSERT('', 1, 0, 'test');")
+    testFoldConst("SELECT INSERT('test', 1, 0, '');")
+    testFoldConst("SELECT INSERT('test', 1, 10, '');")
+    testFoldConst("SELECT INSERT('test', 1, 100, '');")
+    testFoldConst("SELECT INSERT('你好世界', 3, 2, 'Apache');")
+    testFoldConst("SELECT INSERT('Hello', 3, 2, '你好');")
+    testFoldConst("SELECT INSERT('你好世界', 2, 1, 'Doris');")
+    testFoldConst("SELECT INSERT('你好世界', 1, 4, 'Test');")
+    testFoldConst("SELECT INSERT('你好世界', 5, 1, '!');")
+    testFoldConst("SELECT INSERT('abcdefg', 1, 7, 'xyz');")
+    testFoldConst("SELECT INSERT('abcdefg', 4, 0, 'xyz');")
+    testFoldConst("SELECT INSERT('abcdefg', 8, 1, 'xyz');")
+    testFoldConst("SELECT INSERT('abcdefg', 1, 3, '123');")
+    testFoldConst("SELECT INSERT('abcdefg', 4, 3, '456');")
+    testFoldConst("SELECT INSERT('abcdefg', 7, 1, '!');")
+    testFoldConst("SELECT INSERT('test', 2, 2, '');")
+    testFoldConst("SELECT INSERT('test', 1, 0, 'prefix');")
+    testFoldConst("SELECT INSERT('test', 5, 0, 'suffix');")
+    testFoldConst("SELECT INSERT('测试字符串', 1, 2, '新');")
+    testFoldConst("SELECT INSERT('测试字符串', 3, 10, '内容');")
+    testFoldConst("SELECT INSERT('测试字符串', 1, 5, 'Apache Doris');")
+    testFoldConst("SELECT INSERT('Special!@#', 8, 3, '***');")
+    testFoldConst("SELECT INSERT('Special!@#', 1, 7, 'Normal');")
+    testFoldConst("SELECT INSERT('a', 1, 1, 'b');")
+    testFoldConst("SELECT INSERT('a', 2, 0, 'b');")
+    testFoldConst("SELECT INSERT('a', 1, 0, 'b');")
+    testFoldConst("SELECT INSERT('a', 1, 2, 'b');")
+    testFoldConst("SELECT INSERT('🎉🎊🎈', 2, 1, '🎁');")
+    testFoldConst("SELECT INSERT('🎉🎊🎈', 1, 3, '🎁');")
+    testFoldConst("SELECT INSERT('abc', 2, 1, 'XYZ');")
+    testFoldConst("SELECT INSERT('abc', 2, 2, 'XYZ');")
+    testFoldConst("SELECT INSERT('abc', 1, 1, 'XYZ');")
+    testFoldConst("SELECT INSERT('abc', 3, 1, 'XYZ');")
+    testFoldConst("SELECT INSERT('abcdefghijklmnopqrstuvwxyz', 10, 8, '12345');")
+    testFoldConst("SELECT INSERT('abcdefghijklmnopqrstuvwxyz', 1, 26, 'ALPHABET');")
+    testFoldConst("SELECT INSERT('abcdefghijklmnopqrstuvwxyz', 14, 13, 'END');")
+    testFoldConst("SELECT INSERT('test', 2, 2, 'EST');")
+    testFoldConst("SELECT INSERT('test', 1, 4, 'TEST');")
+    testFoldConst("SELECT INSERT('test', 3, 2, 'ST');")
+    testFoldConst("SELECT INSERT('0123456789', 1, 10, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', 5, 1, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', 11, 0, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', 0, 5, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', -5, 5, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', 5, 0, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', 5, -1, 'X');")
+    testFoldConst("SELECT INSERT('0123456789', 5, 100, 'X');")
+    testFoldConst("SELECT INSERT('Hello World!', 7, 6, 'Doris!');")
+    testFoldConst("SELECT INSERT('Apache Doris', 8, 5, 'Database');")
+    testFoldConst("SELECT INSERT(NULL, 1, 1, 'test');")
+    testFoldConst("SELECT INSERT('test', NULL, 1, 'new');")
+    testFoldConst("SELECT INSERT('test', 1, NULL, 'new');")
+    testFoldConst("SELECT INSERT('test', 1, 1, NULL);")
 }

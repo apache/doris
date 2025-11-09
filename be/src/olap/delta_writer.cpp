@@ -98,6 +98,22 @@ BaseDeltaWriter::~BaseDeltaWriter() {
     }
 }
 
+void BaseDeltaWriter::set_tablet_load_rowset_num_info(
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_infos) {
+    auto* tablet = _rowset_builder->tablet().get();
+    if (tablet == nullptr) {
+        return;
+    }
+    auto max_version_config = tablet->max_version_config();
+    if (auto version_cnt = tablet->tablet_meta()->version_count();
+        UNLIKELY(version_cnt >
+                 (max_version_config * config::load_back_pressure_version_threshold / 100))) {
+        auto* load_info = tablet_infos->Add();
+        load_info->set_current_rowset_nums(static_cast<int32_t>(version_cnt));
+        load_info->set_max_config_rowset_nums(max_version_config);
+    }
+}
+
 DeltaWriter::~DeltaWriter() = default;
 
 Status BaseDeltaWriter::init() {

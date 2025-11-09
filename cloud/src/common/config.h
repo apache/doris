@@ -129,6 +129,7 @@ CONF_mBool(enable_version_key_check, "false");
 CONF_mBool(enable_meta_rowset_key_check, "false");
 CONF_mBool(enable_snapshot_check, "false");
 CONF_mBool(enable_mvcc_meta_key_check, "false");
+CONF_mBool(enable_mvcc_meta_check, "false");
 
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
@@ -384,5 +385,8 @@ CONF_Int32(snapshot_chain_compactor_concurrent, "2");
 CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,
                [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
+
+CONF_mBool(enable_notify_instance_update, "true");
+CONF_Bool(enable_instance_update_watcher, "true");
 
 } // namespace doris::cloud::config

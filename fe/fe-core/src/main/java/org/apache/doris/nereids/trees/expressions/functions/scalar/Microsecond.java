@@ -42,7 +42,7 @@ public class Microsecond extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args, Monotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT)
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD)
     );
 
     /**

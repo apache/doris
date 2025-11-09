@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -41,10 +40,8 @@ public class DateDiff extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE)
-    );
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
 
     /**
      * constructor with 2 arguments.

@@ -34,13 +34,15 @@ public class CredentialUtils {
      * Supported cloud storage prefixes for filtering vended credentials
      */
     private static final Set<String> CLOUD_STORAGE_PREFIXES = new HashSet<>(Arrays.asList(
-            "fs.",      // file system
-            "s3.",      // Amazon S3
-            "oss.",     // Alibaba OSS
-            "cos.",     // Tencent COS
-            "obs.",     // Huawei OBS
-            "gs.",      // Google Cloud Storage
-            "azure."    // Microsoft Azure
+            "fs.",           // file system
+            "s3.",           // Amazon S3
+            "oss.",          // Alibaba OSS
+            "cos.",          // Tencent COS
+            "obs.",          // Huawei OBS
+            "gs.",           // Google Cloud Storage
+            "azure.",        // Microsoft Azure
+            "client.",       // Iceberg client properties (e.g., client.region)
+            "iceberg.rest."  // Iceberg REST catalog properties (e.g., iceberg.rest.access-key-id)
     ));
 
     /**

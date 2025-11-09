@@ -222,8 +222,8 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
-doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
-    DCHECK(x != nullptr);
+doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
+    DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
 
     // For PQ index, check if we have enough training data
@@ -239,9 +239,8 @@ doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
     ScopedThreadName scoped_name("faiss_train_idx");
     // Reserve OpenMP threads globally so concurrent builds stay under omp_threads_limit.
     ScopedOmpThreadBudget thread_budget;
-    omp_set_num_threads(config::omp_threads_limit);
     try {
-        _index->train(n, x);
+        _index->train(n, vec);
     } catch (faiss::FaissException& e) {
         return doris::Status::RuntimeError("exception occurred during training: {}", e.what());
     }
@@ -268,7 +267,11 @@ doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
             // Apply the same thread budget when adding vectors to limit concurrency.
             ScopedOmpThreadBudget thread_budget;
             DorisMetrics::instance()->ann_index_construction->increment(1);
+#ifdef __APPLE__
+            vectorized::Int64 chunk_size = std::min(1'000'000LL, n - i);
+#else
             vectorized::Int64 chunk_size = std::min(1'000'000L, n - i);
+#endif
             _index->add(chunk_size, vec + i * _dimension);
             DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(chunk_size);
             DorisMetrics::instance()->ann_index_construction->increment(-1);

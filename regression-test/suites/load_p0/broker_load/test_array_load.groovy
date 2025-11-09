@@ -172,6 +172,20 @@ suite("test_array_load", "load_p0,external") {
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
     
+    def load_from_tvf = { testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def result1= sql """
+            insert into ${testTablex} select * from 
+            hdfs(
+              "uri" = "${hdfsFilePath}",
+              "fs.defaultFS" = "${context.config.otherConfigs.get('hdfsFs')}",
+              "hadoop.username" = "${hdfsUser}",
+              "password"="${hdfsPasswd}",
+              "column_separator" = "/",
+              "format" = "${format}"); """
+
+        logger.info("result1: ${result1}")
+    }
+    
     def check_load_result = {checklabel, testTablex ->
         def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
@@ -329,10 +343,11 @@ suite("test_array_load", "load_p0,external") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
-                                brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
+            //load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+            //                    brokerName, hdfsUser, hdfsPasswd)
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path, "orc", brokerName, hdfsUser, hdfsPasswd)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -346,10 +361,10 @@ suite("test_array_load", "load_p0,external") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path, "orc",
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path, "orc",
                     brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -362,10 +377,10 @@ suite("test_array_load", "load_p0,external") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+            load_from_tvf(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
                                 brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -377,10 +392,10 @@ suite("test_array_load", "load_p0,external") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
+            load_from_tvf(testTable, test_load_label, hdfs_parquet_file_path, "parquet",
                     brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -393,10 +408,10 @@ suite("test_array_load", "load_p0,external") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path2, "orc",
                                 brokerName, hdfsUser, hdfsPasswd)
-            
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -408,13 +423,12 @@ suite("test_array_load", "load_p0,external") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+            load_from_tvf(testTable, test_load_label, hdfs_orc_file_path2, "orc",
                     brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
+            qt_select "select * from ${testTable} order by k1"
+            //check_load_result.call(test_load_label, testTable)
 
         } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
     }
 }

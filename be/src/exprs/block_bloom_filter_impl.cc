@@ -21,14 +21,14 @@
 #include <butil/iobuf.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <climits> // IWYU pragma: keep
 #include <cmath>   // IWYU pragma: keep
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <string>
 
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
@@ -119,6 +119,28 @@ void BlockBloomFilter::close() {
     }
 }
 
+#ifdef __ARM_NEON
+void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
+    const uint32x4x2_t mask = make_mask(hash);
+    uint32x4x2_t data = vld1q_u32_x2(&_directory[bucket_idx][0]);
+    data.val[0] = vorrq_u32(data.val[0], mask.val[0]);
+    data.val[1] = vorrq_u32(data.val[1], mask.val[1]);
+    vst1q_u32_x2(&_directory[bucket_idx][0], data);
+}
+
+bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
+    const uint32x4x2_t mask = make_mask(hash);
+    uint32x4x2_t data = vld1q_u32_x2(&_directory[bucket_idx][0]);
+    // The condition for returning true is that all the bits in _directory[bucket_idx][i] specified by masks[i] are 1.
+    // This can be equivalently expressed as all the bits in not( _directory[bucket_idx][i]) specified by masks[i] are 0.
+    // vbicq_u32(vec1, vec2) : Result of (vec1 AND NOT vec2)
+    // If true is returned, out_1 and out_2 should be all zeros.
+    uint32x4_t miss0 = vbicq_u32(mask.val[0], data.val[0]);
+    uint32x4_t miss1 = vbicq_u32(mask.val[1], data.val[1]);
+    uint32x4_t miss = vorrq_u32(miss0, miss1);
+    return vmaxvq_u32(miss) == 0U;
+}
+#else
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     // new_bucket will be all zeros except for eight 1-bits, one in each 32-bit word. It is
     // 16-byte aligned so it can be read as a __m128i using aligned SIMD loads in the second
@@ -138,44 +160,16 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
 }
 
 bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
-#if defined(__ARM_NEON)
-    uint32x4_t masks[2];
-
-    uint32x4_t directory_1 = vld1q_u32(&_directory[bucket_idx][0]);
-    uint32x4_t directory_2 = vld1q_u32(&_directory[bucket_idx][4]);
-
-    make_find_mask(hash, masks);
-    // The condition for returning true is that all the bits in _directory[bucket_idx][i] specified by masks[i] are 1.
-    // This can be equivalently expressed as all the bits in not( _directory[bucket_idx][i]) specified by masks[i] are 0.
-    // vbicq_u32(vec1, vec2) : Result of (vec1 AND NOT vec2)
-    // If true is returned, out_1 and out_2 should be all zeros.
-    uint32x4_t out_1 = vbicq_u32(masks[0], directory_1);
-    uint32x4_t out_2 = vbicq_u32(masks[1], directory_2);
-
-    out_1 = vorrq_u32(out_1, out_2);
-
-    uint32x2_t low = vget_low_u32(out_1);
-    uint32x2_t high = vget_high_u32(out_1);
-    low = vorr_u32(low, high);
-    uint32_t res = vget_lane_u32(low, 0) | vget_lane_u32(low, 1);
-    return !(res);
-#else
     uint32_t masks[kBucketWords];
-    make_find_mask(hash, masks);
+    make_mask(hash, masks);
     for (int i = 0; i < kBucketWords; ++i) {
         if ((DCHECK_NOTNULL(_directory)[bucket_idx][i] & masks[i]) == 0) {
             return false;
         }
     }
     return true;
+}
 #endif
-}
-
-void BlockBloomFilter::insert_no_avx2(const uint32_t hash) noexcept {
-    _always_false = false;
-    const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-    bucket_insert(bucket_idx, hash);
-}
 
 // To set 8 bits in an 32-byte Bloom filter, we set one bit in each 32-bit uint32_t. This
 // is a "split Bloom filter", and it has approximately the same false positive probability

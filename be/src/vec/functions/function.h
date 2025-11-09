@@ -32,6 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h" // IWYU pragma: keep
+#include "runtime/define_primitive_type.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"

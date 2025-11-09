@@ -75,6 +75,11 @@ struct MergeSortCursorImpl {
         reset();
     }
 
+    void filter_block(IColumn::Filter& filter) {
+        Block::filter_block_internal(block.get(), filter, block->columns());
+        reset();
+    }
+
     /// Set the cursor to the beginning of the new block.
     void reset() {
         sort_columns.clear();

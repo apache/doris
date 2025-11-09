@@ -157,12 +157,19 @@ public:
                        : 1;
     }
 
+    // Support extended regex
+    // like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+    bool enable_extended_regex() const {
+        return _query_options.__isset.enable_extended_regex && _query_options.enable_extended_regex;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -747,6 +754,7 @@ private:
     int32_t _nano_seconds;
     std::string _timezone;
     cctz::time_zone _timezone_obj;
+    std::string _lc_time_names;
 
     TUniqueId _query_id;
     // fragment id for each TPipelineFragmentParams

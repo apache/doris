@@ -62,7 +62,7 @@ suite("explain") {
             when 1>1 then cast(1 as float)
             else 0.0 end;
             """
-        contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=double, nullable=false, isAutoIncrement=false, subColPath=null, virtualColumn=null}"
+        contains "SlotDescriptor{id=0, col=case when 1=1#1, colUniqueId=null, type=double, nullable=false, isAutoIncrement=false, subColPath=null, virtualColumn=null}"
     }
 
     def explainStr = sql("select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false").toString()

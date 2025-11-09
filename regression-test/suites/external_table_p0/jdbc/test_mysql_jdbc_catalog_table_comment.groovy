@@ -23,7 +23,7 @@ suite("test_jdbc_mysql_catalog_table_comment") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     // mysql catalog
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return;
     }
@@ -32,7 +32,7 @@ suite("test_jdbc_mysql_catalog_table_comment") {
         if (driver_class.equals("com.mysql.jdbc.Driver")) {
             driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-5.1.49.jar"
         } else  {
-            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
         }
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -64,7 +64,7 @@ suite("test_jdbc_mysql_catalog_table_comment") {
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_doris_catalog"
     String jdbcPassword = "C123_567p"
-    driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""

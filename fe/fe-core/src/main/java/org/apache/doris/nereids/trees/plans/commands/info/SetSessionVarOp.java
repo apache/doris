@@ -120,6 +120,16 @@ public class SetSessionVarOp extends SetVarOp {
             }
         }
 
+        if (name.equalsIgnoreCase(SessionVariable.MERGE_IO_READ_SLICE_SIZE_BYTES)) {
+            try {
+                this.value = new StringLiteral(
+                        Long.toString(ParseUtil.analyzeDataVolume(value.getStringValue())));
+            } catch (Throwable t) {
+                // see comments of FILE_SPLIT_SIZE
+                this.value = new StringLiteral(value.getStringValue());
+            }
+        }
+
         if (name.equalsIgnoreCase("is_report_success")) {
             name = SessionVariable.ENABLE_PROFILE;
         }

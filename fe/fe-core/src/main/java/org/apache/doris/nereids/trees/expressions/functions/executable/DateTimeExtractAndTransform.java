@@ -26,8 +26,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -45,7 +43,9 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -114,16 +114,6 @@ public class DateTimeExtractAndTransform {
      * Executable datetime extract year
      */
     @ExecFunction(name = "year")
-    public static Expression year(DateLiteral date) {
-        return new SmallIntLiteral(((short) date.getYear()));
-    }
-
-    @ExecFunction(name = "year")
-    public static Expression year(DateTimeLiteral date) {
-        return new SmallIntLiteral(((short) date.getYear()));
-    }
-
-    @ExecFunction(name = "year")
     public static Expression year(DateV2Literal date) {
         return new SmallIntLiteral(((short) date.getYear()));
     }
@@ -136,16 +126,6 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract quarter
      */
-    @ExecFunction(name = "quarter")
-    public static Expression quarter(DateLiteral date) {
-        return new TinyIntLiteral((byte) (((byte) date.getMonth() - 1) / 3 + 1));
-    }
-
-    @ExecFunction(name = "quarter")
-    public static Expression quarter(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
-    }
-
     @ExecFunction(name = "quarter")
     public static Expression quarter(DateV2Literal date) {
         return new TinyIntLiteral((byte) ((date.getMonth() - 1) / 3 + 1));
@@ -160,16 +140,6 @@ public class DateTimeExtractAndTransform {
      * Executable datetime extract month
      */
     @ExecFunction(name = "month")
-    public static Expression month(DateLiteral date) {
-        return new TinyIntLiteral((byte) date.getMonth());
-    }
-
-    @ExecFunction(name = "month")
-    public static Expression month(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) date.getMonth());
-    }
-
-    @ExecFunction(name = "month")
     public static Expression month(DateV2Literal date) {
         return new TinyIntLiteral((byte) date.getMonth());
     }
@@ -182,16 +152,6 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract day
      */
-    @ExecFunction(name = "day")
-    public static Expression day(DateLiteral date) {
-        return new TinyIntLiteral((byte) date.getDay());
-    }
-
-    @ExecFunction(name = "day")
-    public static Expression day(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) date.getDay());
-    }
-
     @ExecFunction(name = "day")
     public static Expression day(DateV2Literal date) {
         return new TinyIntLiteral((byte) date.getDay());
@@ -206,11 +166,6 @@ public class DateTimeExtractAndTransform {
      * Executable datetime extract hour
      */
     @ExecFunction(name = "hour")
-    public static Expression hour(DateTimeLiteral date) {
-        return new TinyIntLiteral(((byte) date.getHour()));
-    }
-
-    @ExecFunction(name = "hour")
     public static Expression hour(DateTimeV2Literal date) {
         return new TinyIntLiteral(((byte) date.getHour()));
     }
@@ -219,11 +174,6 @@ public class DateTimeExtractAndTransform {
      * Executable datetime extract hour
      */
     @ExecFunction(name = "minute")
-    public static Expression minute(DateTimeLiteral date) {
-        return new TinyIntLiteral(((byte) date.getMinute()));
-    }
-
-    @ExecFunction(name = "minute")
     public static Expression minute(DateTimeV2Literal date) {
         return new TinyIntLiteral(((byte) date.getMinute()));
     }
@@ -231,11 +181,6 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract second
      */
-    @ExecFunction(name = "second")
-    public static Expression second(DateTimeLiteral date) {
-        return new TinyIntLiteral(((byte) date.getSecond()));
-    }
-
     @ExecFunction(name = "second")
     public static Expression second(DateTimeV2Literal date) {
         return new TinyIntLiteral(((byte) date.getSecond()));
@@ -253,16 +198,6 @@ public class DateTimeExtractAndTransform {
      * Executable datetime extract dayofyear
      */
     @ExecFunction(name = "dayofyear")
-    public static Expression dayOfYear(DateLiteral date) {
-        return new SmallIntLiteral((short) date.getDayOfYear());
-    }
-
-    @ExecFunction(name = "dayofyear")
-    public static Expression dayOfYear(DateTimeLiteral date) {
-        return new SmallIntLiteral((short) date.getDayOfYear());
-    }
-
-    @ExecFunction(name = "dayofyear")
     public static Expression dayOfYear(DateV2Literal date) {
         return new SmallIntLiteral((short) date.getDayOfYear());
     }
@@ -276,16 +211,6 @@ public class DateTimeExtractAndTransform {
      * Executable datetime extract dayofmonth
      */
     @ExecFunction(name = "dayofmonth")
-    public static Expression dayOfMonth(DateLiteral date) {
-        return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
-    }
-
-    @ExecFunction(name = "dayofmonth")
-    public static Expression dayOfMonth(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
-    }
-
-    @ExecFunction(name = "dayofmonth")
     public static Expression dayOfMonth(DateV2Literal date) {
         return new TinyIntLiteral((byte) date.toJavaDateType().getDayOfMonth());
     }
@@ -298,16 +223,6 @@ public class DateTimeExtractAndTransform {
     /**
      * Executable datetime extract dayofweek
      */
-    @ExecFunction(name = "dayofweek")
-    public static Expression dayOfWeek(DateLiteral date) {
-        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
-    }
-
-    @ExecFunction(name = "dayofweek")
-    public static Expression dayOfWeek(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
-    }
-
     @ExecFunction(name = "dayofweek")
     public static Expression dayOfWeek(DateV2Literal date) {
         return new TinyIntLiteral((byte) (date.getDayOfWeek() % 7 + 1));
@@ -324,39 +239,6 @@ public class DateTimeExtractAndTransform {
 
     private static LocalDateTime firstDayOfWeek(LocalDateTime dateTime) {
         return dateTime.plusDays(-distanceToFirstDayOfWeek(dateTime));
-    }
-
-    /**
-     * datetime arithmetic function date-format
-     */
-    @ExecFunction(name = "date_format")
-    public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
-        if (StringUtils.trim(format.getValue()).length() > 128) {
-            throw new AnalysisException("The length of format string in date_format() function should not be greater"
-                    + " than 128.");
-        }
-        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(), 0, 0, 0, 0);
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
-                java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
-    }
-
-    /**
-     * datetime arithmetic function date-format
-     */
-    @ExecFunction(name = "date_format")
-    public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
-        if (StringUtils.trim(format.getValue()).length() > 128) {
-            throw new AnalysisException("The length of format string in date_format() function should not be greater"
-                    + " than 128.");
-        }
-        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(),
-                date.getHour(), date.getMinute(), date.getSecond(), date.getMicroSecond());
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
-                java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
-                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
-                        ((int) date.getMicroSecond() * 1000))));
     }
 
     /**
@@ -393,11 +275,6 @@ public class DateTimeExtractAndTransform {
     /**
      * datetime arithmetic function date
      */
-    @ExecFunction(name = "date")
-    public static Expression date(DateTimeLiteral dateTime) throws AnalysisException {
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
-    }
-
     @ExecFunction(name = "date")
     public static Expression date(DateTimeV2Literal dateTime) throws AnalysisException {
         return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
@@ -499,16 +376,6 @@ public class DateTimeExtractAndTransform {
      * datetime transformation function: to_monday
      */
     @ExecFunction(name = "to_monday")
-    public static Expression toMonday(DateLiteral date) {
-        return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "to_monday")
-    public static Expression toMonday(DateTimeLiteral date) {
-        return DateLiteral.fromJavaDateType(toMonday(date.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "to_monday")
     public static Expression toMonday(DateV2Literal date) {
         return DateV2Literal.fromJavaDateType(toMonday(date.toJavaDateType()));
     }
@@ -594,16 +461,6 @@ public class DateTimeExtractAndTransform {
      * date transformation function: unix_timestamp
      */
     @ExecFunction(name = "unix_timestamp")
-    public static Expression unixTimestamp(DateLiteral date) {
-        return new BigIntLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
-    }
-
-    @ExecFunction(name = "unix_timestamp")
-    public static Expression unixTimestamp(DateTimeLiteral date) {
-        return new BigIntLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
-    }
-
-    @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(DateV2Literal date) {
         return new BigIntLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
@@ -659,11 +516,6 @@ public class DateTimeExtractAndTransform {
      * date transformation function: to_date
      */
     @ExecFunction(name = "to_date")
-    public static Expression toDate(DateTimeLiteral date) {
-        return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
-    }
-
-    @ExecFunction(name = "to_date")
     public static Expression toDate(DateTimeV2Literal date) {
         return new DateV2Literal(date.getYear(), date.getMonth(), date.getDay());
     }
@@ -671,18 +523,6 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: to_days
      */
-    @ExecFunction(name = "to_days")
-    public static Expression toDays(DateLiteral date) {
-        return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
-    }
-
-    @ExecFunction(name = "to_days")
-    public static Expression toDays(DateTimeLiteral date) {
-        return new IntegerLiteral(((int) Duration.between(
-                LocalDateTime.of(0, 1, 1, 0, 0, 0), date.toJavaDateType()).toDays()));
-    }
-
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral(((int) Duration.between(
@@ -711,6 +551,34 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * time transformation function: maketime
+     */
+    @ExecFunction(name = "maketime")
+    public static Expression makeTime(BigIntLiteral hour, BigIntLiteral minute, DoubleLiteral second) {
+        long hourValue = hour.getValue();
+        long minuteValue = minute.getValue();
+        double secondValue = second.getValue();
+
+        if (minuteValue < 0 || minuteValue >= 60 || secondValue < 0 || secondValue >= 60) {
+            return new NullLiteral(TimeV2Type.SYSTEM_DEFAULT);
+        }
+        if (Math.abs(hourValue) > 838) {
+            hourValue = hourValue > 0 ? 838 : -838;
+            minuteValue = 59;
+            secondValue = 59;
+        } else if (Math.abs(hourValue) == 838 && secondValue > 59) {
+            secondValue = 59;
+        }
+
+        double totalSeconds = Math.abs(hourValue) * 3600 + minuteValue * 60
+                + Math.round(secondValue * 1000000.0) / 1000000.0;
+        if (hourValue < 0) {
+            totalSeconds = -totalSeconds;
+        }
+        return new TimeV2Literal(totalSeconds);
+    }
+
+    /**
      * date transformation function: str_to_date
      */
     @ExecFunction(name = "str_to_date")
@@ -725,11 +593,6 @@ public class DateTimeExtractAndTransform {
             return DateV2Literal.fromJavaDateType(
                     DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()), str.getValue()));
         }
-    }
-
-    @ExecFunction(name = "timestamp")
-    public static Expression timestamp(DateTimeLiteral datetime) {
-        return datetime;
     }
 
     @ExecFunction(name = "timestamp")
@@ -782,16 +645,6 @@ public class DateTimeExtractAndTransform {
     }
 
     @ExecFunction(name = "weekday")
-    public static Expression weekDay(DateLiteral date) {
-        return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
-    }
-
-    @ExecFunction(name = "weekday")
-    public static Expression weekDay(DateTimeLiteral date) {
-        return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
-    }
-
-    @ExecFunction(name = "weekday")
     public static Expression weekDay(DateV2Literal date) {
         return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
     }
@@ -808,16 +661,6 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "week")
     public static Expression week(DateTimeV2Literal dateTime, IntegerLiteral mode) {
-        return week(dateTime.toJavaDateType(), mode.getIntValue());
-    }
-
-    @ExecFunction(name = "week")
-    public static Expression week(DateTimeLiteral dateTime) {
-        return week(dateTime.toJavaDateType(), 0);
-    }
-
-    @ExecFunction(name = "week")
-    public static Expression week(DateTimeLiteral dateTime, IntegerLiteral mode) {
         return week(dateTime.toJavaDateType(), mode.getIntValue());
     }
 
@@ -902,22 +745,12 @@ public class DateTimeExtractAndTransform {
     }
 
     @ExecFunction(name = "yearweek")
-    public static Expression yearWeek(DateTimeLiteral dateTime, IntegerLiteral mode) {
-        return yearWeek(dateTime.toJavaDateType(), mode.getIntValue());
-    }
-
-    @ExecFunction(name = "yearweek")
     public static Expression yearWeek(DateV2Literal date) {
         return yearWeek(date.toJavaDateType(), 0);
     }
 
     @ExecFunction(name = "yearweek")
     public static Expression yearWeek(DateTimeV2Literal dateTime) {
-        return yearWeek(dateTime.toJavaDateType(), 0);
-    }
-
-    @ExecFunction(name = "yearweek")
-    public static Expression yearWeek(DateTimeLiteral dateTime) {
         return yearWeek(dateTime.toJavaDateType(), 0);
     }
 
@@ -1000,21 +833,6 @@ public class DateTimeExtractAndTransform {
      * weekofyear
      */
     @ExecFunction(name = "weekofyear")
-    public static Expression weekOfYear(DateTimeLiteral dateTime) {
-        if (dateTime.getYear() == 0 && dateTime.getDayOfWeek() == 1) {
-            if (dateTime.getMonth() == 1 && dateTime.getDay() == 2) {
-                return new TinyIntLiteral((byte) 1);
-            }
-            return new TinyIntLiteral(
-                    (byte) (dateTime.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()) + 1));
-        }
-        return new TinyIntLiteral((byte) dateTime.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
-    }
-
-    /**
-     * weekofyear
-     */
-    @ExecFunction(name = "weekofyear")
     public static Expression weekOfYear(DateV2Literal date) {
         if (date.getYear() == 0 && date.getDayOfWeek() == 1) {
             if (date.getMonth() == 1 && date.getDay() == 2) {
@@ -1025,40 +843,43 @@ public class DateTimeExtractAndTransform {
         return new TinyIntLiteral((byte) date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
-    @ExecFunction(name = "dayname")
-    public static Expression dayName(DateTimeV2Literal dateTime) {
-        return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+    /**
+     * Get locale from session variable lc_time_names, fallback to default if not available
+     */
+    private static Locale getSessionLocale() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable() != null) {
+            String lcTimeNames = ctx.getSessionVariable().getLcTimeNames();
+            if (lcTimeNames != null && !lcTimeNames.isEmpty()) {
+                String[] parts = lcTimeNames.split("_");
+                return new Locale(parts[0], parts[1]);
+            }
+        }
+        return Locale.getDefault();
     }
 
     @ExecFunction(name = "dayname")
-    public static Expression dayName(DateTimeLiteral dateTime) {
+    public static Expression dayName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
-    }
-
-    @ExecFunction(name = "monthname")
-    public static Expression monthName(DateTimeLiteral dateTime) {
-        return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "from_second")
@@ -1118,11 +939,6 @@ public class DateTimeExtractAndTransform {
         return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(name = "seconds_diff")
-    public static Expression secondsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.SECONDS.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
     @ExecFunction(name = "minutes_diff")
     public static Expression minutesDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
@@ -1140,11 +956,6 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "minutes_diff")
     public static Expression minutesDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "minutes_diff")
-    public static Expression minutesDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.MINUTES.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
@@ -1168,11 +979,6 @@ public class DateTimeExtractAndTransform {
         return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(name = "hours_diff")
-    public static Expression hoursDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.HOURS.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
     @ExecFunction(name = "days_diff")
     public static Expression daysDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
@@ -1190,11 +996,6 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "days_diff")
     public static Expression daysDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "days_diff")
-    public static Expression daysDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.DAYS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
@@ -1218,11 +1019,6 @@ public class DateTimeExtractAndTransform {
         return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
-    @ExecFunction(name = "weeks_diff")
-    public static Expression weeksDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.WEEKS.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
@@ -1240,11 +1036,6 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "months_diff")
-    public static Expression monthsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
@@ -1275,11 +1066,6 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
-    }
-
-    @ExecFunction(name = "years_diff")
-    public static Expression yearsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
     }
 
@@ -1421,5 +1207,46 @@ public class DateTimeExtractAndTransform {
         }
 
         return new VarcharLiteral(result);
+    }
+
+    /**
+     * date transform function period_add
+     */
+    @ExecFunction(name = "period_add")
+    public static Expression periodAdd(BigIntLiteral period, BigIntLiteral months) {
+        return new BigIntLiteral(convertMonthToPeriod(
+                checkAndConvertPeriodToMonth(period.getValue()) + months.getValue()));
+    }
+
+    /**
+     * date transform function period_diff
+     */
+    @ExecFunction(name = "period_diff")
+    public static Expression periodDiff(BigIntLiteral period1, BigIntLiteral period2) {
+        return new BigIntLiteral(checkAndConvertPeriodToMonth(
+                period1.getValue()) - checkAndConvertPeriodToMonth(period2.getValue()));
+    }
+
+    private static void validatePeriod(long period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            throw new AnalysisException("Period function got invalid period: " + period);
+        }
+    }
+
+    private static long checkAndConvertPeriodToMonth(long period) {
+        validatePeriod(period);
+        long year = period / 100;
+        if (year < 100) {
+            year += (year >= 70) ? 1900 : 2000;
+        }
+        return year * 12L + (period % 100) - 1;
+    }
+
+    private static long convertMonthToPeriod(long month) {
+        long year = month / 12;
+        if (year < 100) {
+            year += (year >= 70) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
     }
 }

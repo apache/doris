@@ -62,11 +62,15 @@ public class IcebergPartitionInfo {
         if (icebergPartitionNames == null) {
             return nameToIcebergPartition.get(partitionName).getLastSnapshotId();
         }
-        long latestSnapshotId = 0;
+        long latestSnapshotId = -1;
         long latestUpdateTime = -1;
         for (String name : icebergPartitionNames) {
             IcebergPartition partition = nameToIcebergPartition.get(name);
             long lastUpdateTime = partition.getLastUpdateTime();
+            // Skip partitions with invalid update time (<= 0 means unknown/invalid)
+            if (lastUpdateTime <= 0) {
+                continue;
+            }
             if (latestUpdateTime < lastUpdateTime) {
                 latestUpdateTime = lastUpdateTime;
                 latestSnapshotId = partition.getLastSnapshotId();

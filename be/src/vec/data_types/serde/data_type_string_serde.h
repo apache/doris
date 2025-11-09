@@ -203,13 +203,13 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
+                                        int64_t row_idx, bool col_const,
+                                        const FormatOptions& options) const override;
 
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_mysql_text(const IColumn& column, MysqlRowTextBuffer& row_buffer,
+                                      int64_t row_idx, bool col_const,
+                                      const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -231,6 +231,25 @@ public:
                sizeof(size_t));
         memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data,
                data_size);
+    }
+
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column) {
+        auto& col = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+        const size_t data_size = unaligned_load<size_t>(data);
+        data += sizeof(size_t);
+        col.insert_data(reinterpret_cast<const char*>(data), data_size);
+        data += data_size;
+        return data;
+    }
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info) {
+        const size_t data_size = unaligned_load<size_t>(data);
+        data += sizeof(size_t);
+        field = Field::create_field<TYPE_STRING>(
+                String(reinterpret_cast<const char*>(data), data_size));
+        data += data_size;
+        return data;
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;

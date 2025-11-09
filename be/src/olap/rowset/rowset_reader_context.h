@@ -76,7 +76,7 @@ struct RowsetReaderContext {
     uint64_t* merged_rows = nullptr;
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
-    const DeleteBitmap* delete_bitmap = nullptr;
+    DeleteBitmapPtr delete_bitmap = nullptr;
     bool record_rowids = false;
     RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
@@ -93,6 +93,8 @@ struct RowsetReaderContext {
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
+
+    uint64_t condition_cache_digest = 0;
 };
 
 } // namespace doris

@@ -592,7 +592,7 @@ DataTypePtr DataTypeFactory::create_data_type(
         if (primitive_type == TYPE_ARRAY) {
             ++(*idx);
             nested = std::make_shared<vectorized::DataTypeArray>(create_data_type(
-                    types, idx, node.has_contains_null() ? node.has_contains_null() : true));
+                    types, idx, node.has_contains_null() ? node.contains_null() : true));
         } else if (primitive_type == TYPE_MAP) {
             DataTypes data_types;
             data_types.resize(2, nullptr);
@@ -631,7 +631,7 @@ DataTypePtr DataTypeFactory::create_data_type(
     case TTypeNodeType::ARRAY: {
         ++(*idx);
         nested = std::make_shared<vectorized::DataTypeArray>(create_data_type(
-                types, idx, node.has_contains_null() ? node.has_contains_null() : true));
+                types, idx, node.has_contains_null() ? node.contains_null() : true));
         break;
     }
     case TTypeNodeType::MAP: {

@@ -444,4 +444,65 @@ public class SystemInfoServiceTest {
         be.setTagMap(tagMap);
     }
 
+    @Test
+    public void testGetMinPipelineExecutorSize() {
+        // Test case 1: No backends
+        int result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(1, result);
+
+        // Test case 2: Single backend with pipeline executor size = 8
+        addBackend(20001, "192.168.2.1", 9050);
+        Backend be1 = infoService.getBackend(20001);
+        be1.setPipelineExecutorSize(8);
+        be1.setAlive(true);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(8, result);
+
+        // Test case 3: Multiple backends with different pipeline executor sizes
+        addBackend(20002, "192.168.2.2", 9050);
+        Backend be2 = infoService.getBackend(20002);
+        be2.setPipelineExecutorSize(4); // This should be the minimum
+        be2.setAlive(true);
+
+        addBackend(20003, "192.168.2.3", 9050);
+        Backend be3 = infoService.getBackend(20003);
+        be3.setPipelineExecutorSize(12);
+        be3.setAlive(true);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(4, result);
+
+        // Test case 4: Backends with zero and negative pipeline executor sizes (should
+        // be ignored)
+        addBackend(20004, "192.168.2.4", 9050);
+        Backend be4 = infoService.getBackend(20004);
+        be4.setPipelineExecutorSize(0); // Should be ignored
+        be4.setAlive(true);
+
+        addBackend(20005, "192.168.2.5", 9050);
+        Backend be5 = infoService.getBackend(20005);
+        be5.setPipelineExecutorSize(-1); // Should be ignored
+        be5.setAlive(true);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(4, result); // Still should be 4 from be2
+
+        // Test case 5: All backends have zero or negative pipeline executor sizes
+        be1.setPipelineExecutorSize(0);
+        be2.setPipelineExecutorSize(-5);
+        be3.setPipelineExecutorSize(0);
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(1, result); // Should return default value 1
+
+        // Test case 6: Mix of positive and non-positive values
+        be1.setPipelineExecutorSize(16);
+        be2.setPipelineExecutorSize(0); // ignored
+        be3.setPipelineExecutorSize(6); // This should be the minimum
+
+        result = infoService.getMinPipelineExecutorSize();
+        Assert.assertEquals(6, result);
+    }
+
 }

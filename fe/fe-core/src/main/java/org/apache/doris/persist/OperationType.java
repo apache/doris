@@ -293,9 +293,12 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_NAME = 322;
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
+    @Deprecated
     public static final short OP_INIT_CATALOG = 325;
+    @Deprecated
     public static final short OP_INIT_CATALOG_COMP = 10325; // compatible with old cloud code.
     public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    @Deprecated
     public static final short OP_INIT_EXTERNAL_DB = 327;
     public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
     @Deprecated

@@ -128,12 +128,12 @@ public:
     void check_capture_result(CloudTabletSPtr tablet, Version spec_version,
                               int64_t query_freshness_tolerance_ms,
                               const std::vector<Version>& expected_versions) {
-        std::vector<RowSetSplits> rs_splits;
-        CaptureRsReaderOptions opts {.skip_missing_version = false,
-                                     .enable_prefer_cached_rowset = false,
-                                     .query_freshness_tolerance_ms = query_freshness_tolerance_ms};
-        auto st = tablet->capture_rs_readers(spec_version, &rs_splits, opts);
-        ASSERT_TRUE(st.ok());
+        CaptureRowsetOps opts {.skip_missing_versions = false,
+                               .enable_prefer_cached_rowset = false,
+                               .query_freshness_tolerance_ms = query_freshness_tolerance_ms};
+        auto res = tablet->capture_read_source(spec_version, opts);
+        ASSERT_TRUE(res.has_value());
+        std::vector<RowSetSplits> rs_splits = std::move(res.value().rs_splits);
         auto dump_versions = [](const std::vector<Version>& expected_versions,
                                 const std::vector<RowSetSplits>& splits) {
             std::vector<std::string> expected_str;

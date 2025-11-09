@@ -39,13 +39,13 @@ public class HourFloor extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable, DateCeilFloorMonotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT)
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE, DateTimeV2Type.WILDCARD)
     );
 
     /**

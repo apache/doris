@@ -155,9 +155,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
-        if (metadataOps != null) {
-            metadataOps.close();
-        }
     }
 
     @Override
@@ -166,8 +163,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (null != fileSystemExecutor) {
             ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
         }
+        if (null != metadataOps) {
+            metadataOps.close();
+            metadataOps = null;
+        }
         if (null != icebergMetadataOps) {
             icebergMetadataOps.close();
+            icebergMetadataOps = null;
         }
     }
 
@@ -204,14 +206,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
-        if (useMetaCache.get()) {
-            if (isInitialized()) {
-                metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                        Util.genIdByName(name, db.getFullName()));
-            }
-        } else {
-            dbNameToId.put(dbName, dbId);
-            idToDb.put(dbId, db);
+        if (isInitialized()) {
+            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                    Util.genIdByName(name, db.getFullName()));
         }
     }
 

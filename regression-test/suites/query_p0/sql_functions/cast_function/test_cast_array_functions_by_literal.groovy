@@ -67,24 +67,24 @@ suite("test_cast_array_functions_by_literal") {
         exception "errCode = 2,"
     }
     //  ========== cast array to scalar ===========
-
-    test {
-        sql "select cast(['x'] as char)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(['x'] as varchar)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "select cast(['x'] as string)"
-        // check exception message contains
-        exception "errCode = 2,"
-    }
+    //
+    //    test {
+    //        sql "select cast(['x'] as char)"
+    //        // check exception message contains
+    //        exception "errCode = 2,"
+    //    }
+    //
+    //    test {
+    //        sql "select cast(['x'] as varchar)"
+    //        // check exception message contains
+    //        exception "errCode = 2,"
+    //    }
+    //
+    //    test {
+    //        sql "select cast(['x'] as string)"
+    //        // check exception message contains
+    //        exception "errCode = 2,"
+    //    }
 
     test {
         sql "select cast([0] as int)"

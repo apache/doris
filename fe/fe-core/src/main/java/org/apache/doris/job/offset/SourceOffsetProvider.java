@@ -81,5 +81,11 @@ public interface SourceOffsetProvider {
      */
     Offset deserializeOffset(String offset);
 
+    /**
+     * Deserialize offset property to Offset
+     * @return
+     */
+    Offset deserializeOffsetProperty(String offset);
+
 }
 

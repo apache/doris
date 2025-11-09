@@ -19,17 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFloatLiteral;
 import org.apache.doris.thrift.TIntLiteral;
 import org.apache.doris.thrift.TStringLiteral;
-
-import com.google.common.base.Strings;
 
 import java.math.BigDecimal;
 import java.util.Objects;
@@ -116,23 +111,6 @@ public class VariableExpr extends Expr {
 
     public Expr getLiteralExpr() {
         return this.literalExpr;
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
-            // Return the string type here so that it can correctly match the subsequent function signature.
-            // And we also set `beConverted` to session variable name in StringLiteral, so that it can be cast back
-            // to Integer when returning value.
-            try {
-                StringLiteral s = new StringLiteral(VariableVarConverters.decode(name, intValue));
-                s.setBeConverted(name);
-                return s;
-            } catch (DdlException e) {
-                throw new AnalysisException(e.getMessage());
-            }
-        }
-        return super.getResultValue(false);
     }
 
     @Override

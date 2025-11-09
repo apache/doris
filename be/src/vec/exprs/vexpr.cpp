@@ -803,8 +803,27 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     return Status::OK();
 }
 
+uint64_t VExpr::get_digest(uint64_t seed) const {
+    auto digest = seed;
+    for (auto child : _children) {
+        digest = child->get_digest(digest);
+        if (digest == 0) {
+            return 0;
+        }
+    }
+
+    auto& fn_name = _fn.name.function_name;
+    if (!fn_name.empty()) {
+        digest = HashUtil::hash64(fn_name.c_str(), fn_name.size(), digest);
+    } else {
+        digest = HashUtil::hash64((const char*)&_node_type, sizeof(_node_type), digest);
+        digest = HashUtil::hash64((const char*)&_opcode, sizeof(_opcode), digest);
+    }
+    return digest;
+}
+
 Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                    int* result_column_id) {
+                                    int* result_column_id) const {
     *result_column_id = block->columns();
     auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
     block->insert({std::move(column), _data_type, expr_name});
@@ -955,7 +974,7 @@ size_t VExpr::estimate_memory(const size_t rows) {
 }
 
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                         int* result_column_id) {
+                         int* result_column_id) const {
     if (context->get_inverted_index_context() &&
         context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
         uint32_t num_columns_without_result = block->columns();
@@ -1002,8 +1021,12 @@ void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params
     }
 }
 
-bool VExpr::has_been_executed() {
+bool VExpr::ann_range_search_executedd() {
     return _has_been_executed;
+}
+
+bool VExpr::ann_dist_is_fulfilled() const {
+    return _virtual_column_is_fulfilled;
 }
 
 #include "common/compile_check_end.h"

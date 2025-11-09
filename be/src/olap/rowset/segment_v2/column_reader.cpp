@@ -330,7 +330,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
     if (_type_info == nullptr) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
@@ -393,7 +393,7 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec, bool is_dict_page) const {
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;
@@ -405,9 +405,8 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    opts.is_dict_page = is_dict_page;
 
-    // index page should not pre decode
-    if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
@@ -1507,7 +1506,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 CHECK_NOTNULL(_dict_decoder);
             }
 
-            dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
+            dict_page_decoder->set_dict_decoder(cast_set<uint32_t>(_dict_decoder->count()),
+                                                _dict_word_info.get());
         }
     }
     return Status::OK();
@@ -1519,18 +1519,17 @@ Status FileColumnIterator::_read_dict_data() {
     Slice dict_data;
     PageFooterPB dict_footer;
     _opts.type = INDEX_PAGE;
+
     RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
-                                       &dict_data, &dict_footer, _compress_codec));
-    // ignore dict_footer.dict_page_footer().encoding() due to only
-    // PLAIN_ENCODING is supported for dict page right now
-    _dict_decoder =
-            std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(dict_data);
+                                       &dict_data, &dict_footer, _compress_codec, true));
+    const EncodingInfo* encoding_info;
+    RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                      dict_footer.dict_page_footer().encoding(), &encoding_info));
+    RETURN_IF_ERROR(encoding_info->create_page_decoder(dict_data, {}, _dict_decoder));
     RETURN_IF_ERROR(_dict_decoder->init());
 
-    auto* pd_decoder =
-            (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
-    _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
-    RETURN_IF_ERROR(pd_decoder->get_dict_word_info(_dict_word_info.get()));
+    _dict_word_info.reset(new StringRef[_dict_decoder->count()]);
+    RETURN_IF_ERROR(_dict_decoder->get_dict_word_info(_dict_word_info.get()));
     return Status::OK();
 }
 

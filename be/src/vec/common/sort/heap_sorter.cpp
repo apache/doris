@@ -17,23 +17,57 @@
 
 #include "vec/common/sort/heap_sorter.h"
 
+#include <glog/logging.h>
+
+#include "util/runtime_profile.h"
+#include "vec/core/sort_block.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
-                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
+                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+                       bool have_runtime_predicate)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _heap_size(limit + offset),
-          _state(MergeSorterState::create_unique(row_desc, offset)) {}
+          _state(MergeSorterState::create_unique(row_desc, offset)),
+          _have_runtime_predicate(have_runtime_predicate) {}
 
 Status HeapSorter::append_block(Block* block) {
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
-    RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
-    _queue.push(
-            MergeSortCursor(std::make_shared<MergeSortCursorImpl>(tmp_block, _sort_description)));
-    _queue_row_num += tmp_block->rows();
-    _data_size += tmp_block->allocated_bytes();
+    if (!_have_runtime_predicate && _queue.is_valid() && _queue_row_num >= _heap_size) {
+        RETURN_IF_ERROR(_prepare_sort_columns(*block, *tmp_block, false));
+        if (_materialize_sort_exprs) {
+            block->clear_column_data();
+        } else {
+            tmp_block->swap(*block);
+        }
+        auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(tmp_block, _sort_description);
+        size_t num_rows = tmp_block->rows();
+        _do_filter(*tmp_cursor_impl, num_rows);
+        size_t remain_rows = tmp_block->rows();
+        COUNTER_UPDATE(_topn_filter_rows_counter, (num_rows - remain_rows));
+        if (remain_rows == 0) {
+            return Status::OK();
+        }
+        // After filtering, sort the remaining rows with reversed description and push that block.
+        auto sorted_block = std::make_shared<Block>(tmp_block->clone_empty());
+        SortDescription rev_desc = _sort_description;
+        for (auto& d : rev_desc) {
+            d.direction *= -1;
+        }
+        sort_block(*tmp_block, *sorted_block, rev_desc, 0 /*limit*/);
+        _queue_row_num += sorted_block->rows();
+        _data_size += sorted_block->allocated_bytes();
+        _queue.push(MergeSortCursor(MergeSortCursorImpl::create_shared(sorted_block, rev_desc)));
+    } else {
+        RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
+        _queue_row_num += tmp_block->rows();
+        _data_size += tmp_block->allocated_bytes();
+        _queue.push(
+                MergeSortCursor(MergeSortCursorImpl::create_shared(tmp_block, _sort_description)));
+    }
 
     while (_queue.is_valid() && _queue_row_num > _heap_size) {
         auto [current, current_rows] = _queue.current();
@@ -83,6 +117,22 @@ Field HeapSorter::get_top_value() {
 
 size_t HeapSorter::data_size() const {
     return _data_size;
+}
+
+void HeapSorter::_do_filter(MergeSortCursorImpl& block_cursor, size_t num_rows) {
+    SCOPED_TIMER(_topn_filter_timer);
+    auto [top_cursor, current_rows] = _queue.current();
+    const auto cursor_rid = top_cursor->impl->pos;
+    IColumn::Filter filter(num_rows, 0);
+    std::vector<uint8_t> cmp_res(num_rows, 0);
+
+    for (size_t col_id = 0; col_id < _sort_description.size(); ++col_id) {
+        block_cursor.sort_columns[col_id]->compare_internal(
+                cursor_rid, *top_cursor->impl->sort_columns[col_id],
+                _sort_description[col_id].nulls_direction, _sort_description[col_id].direction,
+                cmp_res, filter.data());
+    }
+    block_cursor.filter_block(filter);
 }
 
 #include "common/compile_check_end.h"

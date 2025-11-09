@@ -195,7 +195,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(List<Expr> resultExprs, List<String> colLabels) throws UserException {
+    public void analyze(List<Expr> resultExprs, List<String> colLabels, boolean needFormat) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -214,10 +214,16 @@ public class OutFileClause {
         }
         isAnalyzed = true;
 
-        if (isParquetFormat()) {
-            analyzeForParquetFormat(resultExprs, colLabels);
-        } else if (isOrcFormat()) {
-            analyzeForOrcFormat(resultExprs, colLabels);
+        // This analyze() method will be called twice:
+        // one is normal query plan analyze,
+        // the other is when writing success file after outfile is done on FE side.
+        // In the second time, we do not need to analyze format related things again.
+        if (needFormat) {
+            if (isParquetFormat()) {
+                analyzeForParquetFormat(resultExprs, colLabels);
+            } else if (isOrcFormat()) {
+                analyzeForOrcFormat(resultExprs, colLabels);
+            }
         }
     }
 
@@ -519,8 +525,12 @@ public class OutFileClause {
         }
 
         if (copiedProps.containsKey(PROP_DELETE_EXISTING_FILES)) {
-            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES))
-                    & Config.enable_delete_existing_files;
+            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES));
+            if (deleteExistingFiles && !Config.enable_delete_existing_files) {
+                throw new AnalysisException("Deleting existing files is not allowed."
+                        + " To enable this feature, you need to add `enable_delete_existing_files=true`"
+                        + " in fe.conf");
+            }
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -750,3 +760,5 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+
+

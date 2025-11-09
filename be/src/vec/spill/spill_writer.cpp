@@ -115,9 +115,10 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
         {
             PBlock pblock;
             SCOPED_TIMER(_serialize_timer);
+            int64_t compressed_time = 0;
             status = block.serialize(
                     BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
-                    &compressed_bytes,
+                    &compressed_bytes, &compressed_time,
                     segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
             RETURN_IF_ERROR(status);
             int64_t pblock_mem = pblock.ByteSizeLong();

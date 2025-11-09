@@ -87,7 +87,7 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
         HiveConf hiveConf = buildHiveConf();
-        buildCatalogOptions(storagePropertiesList);
+        buildCatalogOptions();
         StorageProperties ossProps = storagePropertiesList.stream()
                 .filter(sp -> sp.getType() == StorageProperties.Type.OSS)
                 .findFirst()
@@ -97,10 +97,8 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
             throw new IllegalStateException("Expected OSSProperties type.");
         }
         OSSProperties ossProperties = (OSSProperties) ossProps;
-        for (Map.Entry<String, String> entry : ossProperties.getHadoopStorageConfig()) {
-            catalogOptions.set(entry.getKey(), entry.getValue());
-        }
         hiveConf.addResource(ossProperties.getHadoopStorageConfig());
+        appendUserHadoopConfig(hiveConf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, hiveConf);
         return CatalogFactory.createCatalog(catalogContext);
     }

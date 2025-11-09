@@ -660,6 +660,7 @@ class Config {
         config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
         config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
+        config.dorisComposePath = configToString(obj.dorisComposePath)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)

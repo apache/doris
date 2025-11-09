@@ -445,7 +445,9 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
-            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
+                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
+                //@zykkk todo We should use a unified connectivity check — it doesn’t really belong here.
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
                 S3Util.validateAndTestEndpoint(endpoint);

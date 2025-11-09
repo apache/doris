@@ -396,6 +396,12 @@ suite("test_time_round") {
     testFoldConst("select minute_ceil('2025-09-10 12:34:56.45', 5)")
     testFoldConst("select minute_ceil('2025-09-10 12:34:56.12345', '2025-09-10 12:30:00.678')")
     testFoldConst("select minute_ceil('2025-09-10 12:34:56.9', 10, '2025-09-10 12:30:00.234567')")
+    testFoldConst("""select minute_ceil(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0)),
+                        nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))));""")
+    testFoldConst("""select minute_ceil(nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))),
+                        CAST('2021-12-31 12:23:34' AS DATETIMEV2(0)));""")
+    testFoldConst("""select minute_ceil(nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))),
+                        nullable(CAST('2021-12-31 12:23:34' AS DATETIMEV2(0))));""")
 
     testFoldConst("select minute_floor('2025-09-10 12:34:56')")
     testFoldConst("select minute_floor('2025-09-10 12:34:56', 5)")

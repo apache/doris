@@ -115,6 +115,20 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+
+    // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
+    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+        _condition_cache_digest = state->query_options().condition_cache_digest;
+        for (auto& conjunct : _conjuncts) {
+            _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
+            if (!_condition_cache_digest) {
+                break;
+            }
+        }
+    } else {
+        _condition_cache_digest = 0;
+    }
+
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -1126,7 +1140,7 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
     std::stringstream result;
-    std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
+    std::copy(p._topn_filter_source_node_ids.begin(), p._topn_filter_source_node_ids.end(),
               std::ostream_iterator<int>(result, ","));
     custom_profile()->add_info_string("TopNFilterSourceNodeIds", result.str());
 
@@ -1228,7 +1242,7 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     }
 
     if (tnode.__isset.topn_filter_source_node_ids) {
-        topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
+        _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
 
     // The first branch is kept for compatibility with the old version of the FE
@@ -1272,7 +1286,7 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _colname_to_slot_id[slot->col_name()] = slot->id();
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
-    for (auto id : topn_filter_source_node_ids) {
+    for (auto id : _topn_filter_source_node_ids) {
         if (!state->get_query_ctx()->has_runtime_predicate(id)) {
             // compatible with older versions fe
             continue;

@@ -49,8 +49,14 @@ private:
             return arrow::Status::Invalid(fmt::format("Malformed ticket, size: {}", fields.size()));
         }
 
+        std::vector<std::string> str = absl::StrSplit(fields[0], "-");
+        if (str.size() != 2) {
+            return arrow::Status::Invalid("Malformed ticket, missing query id: {}", fields[0]);
+        }
+
         TUniqueId queryid;
-        parse_id(fields[0], &queryid);
+        from_hex(&queryid.hi, str[0]);
+        from_hex(&queryid.lo, str[1]);
         TNetworkAddress result_addr;
         result_addr.hostname = fields[1];
         result_addr.port = std::stoi(fields[2]);

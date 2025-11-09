@@ -99,6 +99,8 @@ public:
     uint32_t size() const { return size_; }
     bool empty() const { return size() == 0; }
 
+    void set_size(uint32_t size) { size_ = size; }
+
     bool operator==(const StringView& other) const;
     friend std::ostream& operator<<(std::ostream& os, const StringView& stringView) {
         os.write(stringView.data(), stringView.size());

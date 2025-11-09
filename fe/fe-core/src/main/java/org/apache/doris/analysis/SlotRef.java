@@ -26,7 +26,6 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.planner.normalize.Normalizer;
@@ -508,27 +507,5 @@ public class SlotRef extends Expr {
             builder.append(label);
         }
         return builder.toString();
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        if (!forPushDownPredicatesToView) {
-            return this;
-        }
-        if (!isConstant() || desc == null) {
-            return this;
-        }
-        List<Expr> exprs = desc.getSourceExprs();
-        if (CollectionUtils.isEmpty(exprs)) {
-            return this;
-        }
-        Expr expr = exprs.get(0);
-        if (expr instanceof SlotRef) {
-            return expr.getResultValue(forPushDownPredicatesToView);
-        }
-        if (expr.isConstant()) {
-            return expr;
-        }
-        return this;
     }
 }

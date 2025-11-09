@@ -33,12 +33,23 @@ import java.util.List;
 /**
  * ScalarFunction 'search' - simplified architecture similar to MultiMatch.
  * Handles DSL parsing and generates SearchPredicate during translation.
+ * <p>
+ * Supports 1-3 parameters:
+ * - search(dsl_string): Traditional usage
+ * - search(dsl_string, default_field): Simplified syntax with default field
+ * - search(dsl_string, default_field, default_operator): Full control over expansion
  */
 public class Search extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BooleanType.INSTANCE).varArgs(StringType.INSTANCE)
+            // Original signature: search(dsl_string)
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE),
+            // With default field: search(dsl_string, default_field)
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
+            // With default field and operator: search(dsl_string, default_field, default_operator)
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE,
+                    StringType.INSTANCE)
     );
 
     public Search(Expression... varArgs) {
@@ -51,7 +62,8 @@ public class Search extends ScalarFunction
 
     @Override
     public Search withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
+        Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3,
+                "search() requires 1-3 arguments");
         return new Search(getFunctionParams(children));
     }
 
@@ -77,12 +89,40 @@ public class Search extends ScalarFunction
     }
 
     /**
+     * Get default field from second argument (optional)
+     */
+    public String getDefaultField() {
+        if (children().size() < 2) {
+            return null;
+        }
+        Expression fieldArg = child(1);
+        if (fieldArg instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) fieldArg).getStringValue();
+        }
+        return fieldArg.toString();
+    }
+
+    /**
+     * Get default operator from third argument (optional)
+     */
+    public String getDefaultOperator() {
+        if (children().size() < 3) {
+            return null;
+        }
+        Expression operatorArg = child(2);
+        if (operatorArg instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) operatorArg).getStringValue();
+        }
+        return operatorArg.toString();
+    }
+
+    /**
      * Get parsed DSL plan - deferred to translation phase
      * This will be handled by SearchPredicate during ExpressionTranslator.visitSearch()
      */
     public SearchDslParser.QsPlan getQsPlan() {
         // Lazy evaluation will be handled in SearchPredicate
-        return SearchDslParser.parseDsl(getDslString());
+        return SearchDslParser.parseDsl(getDslString(), getDefaultField(), getDefaultOperator());
     }
 
     @Override
