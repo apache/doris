@@ -23,11 +23,11 @@ suite("test_remote_doris_all_types_show", "p0,external,doris,external_docker,ext
     String remote_doris_psw = context.config.otherConfigs.get("extArrowFlightSqlPassword")
 
     def showres = sql "show frontends";
-    println "show frontends res: ${showres}"
-    log.info("show frontends log = ${showres}")
+    remote_doris_arrow_port = showres[0][6]
+    remote_doris_http_port = showres[0][3]
+    log.info("show frontends log = ${showres}, arrow: ${remote_doris_arrow_port}, http: ${remote_doris_http_port}")
 
     def showres2 = sql "show backends";
-    println "show backends res: ${showres2}"
     log.info("show backends log = ${showres2}")
 
     sql """DROP DATABASE IF EXISTS test_remote_doris_all_types_db"""

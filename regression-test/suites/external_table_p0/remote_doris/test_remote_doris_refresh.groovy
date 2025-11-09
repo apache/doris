@@ -21,8 +21,15 @@ suite("test_remote_doris_refresh", "p0,external,doris,external_docker,external_d
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
     String remote_doris_user = context.config.otherConfigs.get("extArrowFlightSqlUser")
     String remote_doris_psw = context.config.otherConfigs.get("extArrowFlightSqlPassword")
+
     def showres = sql "show frontends";
-    println "show frontends: ${showres}"
+    remote_doris_arrow_port = showres[0][6]
+    remote_doris_http_port = showres[0][3]
+    log.info("show frontends log = ${showres}, arrow: ${remote_doris_arrow_port}, http: ${remote_doris_http_port}")
+
+    def showres2 = sql "show backends";
+    log.info("show backends log = ${showres2}")
+
     sql """
         DROP CATALOG IF EXISTS `test_remote_doris_refresh_catalog`
     """
