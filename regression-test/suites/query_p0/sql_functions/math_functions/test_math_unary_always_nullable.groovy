@@ -86,6 +86,36 @@ suite("test_math_unary_alway_nullable") {
     sql "drop table if exists test_math_unary_alway_nullable"
 
     sql """
+        create table if not exists test_math_unary_alway_nullable (
+            rowid int,
+            val_null BIGINT NULL,
+            val_not_null BIGINT NOT NULL
+        )
+        distributed by hash(rowid) properties("replication_num" = "1");
+    """
+
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (1, 5, 5), (2, 0, 0), (3, -1, -1), (4, 21, 21), (5, NULL, 10);
+    """
+
+    qt_factorial_col_nullable """
+        select rowid, factorial(val_null) from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_factorial_col_not_nullable """
+        select rowid, factorial(val_not_null) from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_factorial_literal_nullable_cast """
+        select factorial(CAST(5 as BIGINT));
+    """
+
+    sql "drop table if exists test_math_unary_alway_nullable"
+
+    sql "drop table if exists test_math_unary_alway_nullable"
+
+    sql """
         create table if not exists test_math_unary_alway_nullable (rowid int, val double NULL)
         distributed by hash(rowid) properties ("replication_num"="1");
     """

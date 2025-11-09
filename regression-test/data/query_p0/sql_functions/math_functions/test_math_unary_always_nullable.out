@@ -110,6 +110,23 @@
 \N	true	8
 \N	true	9
 
+-- !factorial_col_nullable --
+1	120
+2	1
+3	\N
+4	\N
+5	\N
+
+-- !factorial_col_not_nullable --
+1	120
+2	1
+3	\N
+4	\N
+5	3628800
+
+-- !factorial_literal_nullable_cast --
+120
+
 -- !acos_tbl_1 --
 1	\N	true
 2	\N	true

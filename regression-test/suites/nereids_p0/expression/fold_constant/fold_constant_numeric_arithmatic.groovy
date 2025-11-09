@@ -303,6 +303,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT FACTORIAL(-1)") // invalid input (negative)
     testFoldConst("SELECT FACTORIAL(21)") // invalid input (overflow)
     testFoldConst("SELECT FACTORIAL(NULL)") // NULL handling
+    testFoldConst("SELECT FACTORIAL(CAST(5 AS BIGINT))")
 
 //Floor function cases
     testFoldConst("SELECT FLOOR(3.7) AS floor_case_1")
