@@ -629,6 +629,11 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
         _statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
         _statistics.dict_filter_rewrite_time += _current_group_reader->dict_filter_rewrite_time();
+        if (_current_row_group_index.row_group_id + 1 == _total_groups) {
+            *eof = true;
+        } else {
+            *eof = false;
+        }
     }
     return Status::OK();
 }

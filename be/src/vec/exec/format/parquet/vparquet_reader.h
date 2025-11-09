@@ -297,7 +297,6 @@ private:
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
 
-    //    std::list<RowGroupReader::RowGroupIndex> _read_row_groups;
     // parquet file reader object
     size_t _batch_size;
     int64_t _range_start_offset;
@@ -327,7 +326,7 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
-    bool _filter_groups;
+    bool _filter_groups = true;
 
     // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     VExprSPtrs _top_runtime_vexprs;

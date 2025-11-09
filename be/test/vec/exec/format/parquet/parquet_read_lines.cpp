@@ -133,7 +133,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     TFileRangeDesc scan_range;
     {
         scan_range.start_offset = 0;
-        scan_range.size = 1000;
+        scan_range.size = 100000;
     }
     auto p_reader =
             new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
@@ -196,6 +196,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
             "./be/test/exec/test_data/parquet_scanner/"
             "type-decoder.parquet";
     scan_range.start_offset = 0;
+    scan_range.size = 100000;
     scan_range.format_type = TFileFormatType::FORMAT_PARQUET;
     scan_range.__isset.format_type = true;
     scan_range.table_format_params.table_format_type = "hive";
