@@ -8,7 +8,7 @@
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by applicable law or agreed in writing,
+// Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
@@ -56,7 +56,6 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
     // Normalization logic:
     //   path: ["map_col", "*"]              → ["map_col", "VALUES"] + ["map_col", "KEYS"]
     //   path: ["map_col", "*", "field"]     → ["map_col", "VALUES", "field"] + ["map_col", "KEYS"]
-    // KEYS are always needed for correct RL/DL computation when accessing MAP via wildcard
     if (field_schema.data_type->get_primitive_type() == PrimitiveType::TYPE_MAP) {
         auto wildcard_it = child_paths_by_field_id.find("*");
         if (wildcard_it != child_paths_by_field_id.end()) {
@@ -66,7 +65,7 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
             auto& values_paths = child_paths_by_field_id["VALUES"];
             values_paths.insert(values_paths.end(), wildcard_paths.begin(), wildcard_paths.end());
 
-            // Always add KEYS for wildcard access (needed for RL/DL computation)
+            // Always add KEYS for wildcard access
             auto& keys_paths = child_paths_by_field_id["KEYS"];
             // Add an empty path to request full KEYS
             std::vector<std::string> empty_path;
@@ -114,10 +113,7 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
                     uint64_t key_start_id = child.get_column_id();
                     uint64_t key_max_id = child.get_max_column_id();
                     for (uint64_t id = key_start_id; id <= key_max_id; ++id) {
-                        auto inserted = column_ids.insert(id);
-                        if (inserted.second) {
-                            std::cout << "[IcebergNested] added column id: " << id << std::endl;
-                        }
+                        column_ids.insert(id);
                     }
                     has_child_columns = true;
                     continue; // Skip further processing of key child
@@ -147,10 +143,7 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
                 uint64_t start_id = child.get_column_id();
                 uint64_t max_column_id = child.get_max_column_id();
                 for (uint64_t id = start_id; id <= max_column_id; ++id) {
-                    auto inserted = column_ids.insert(id);
-                    if (inserted.second) {
-                        std::cout << "[IcebergNested] added column id: " << id << std::endl;
-                    }
+                    column_ids.insert(id);
                 }
                 has_child_columns = true;
             } else {
@@ -172,11 +165,7 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
     // This ensures parent struct/container nodes are included when their children are needed
     if (has_child_columns) {
         // Set automatically handles deduplication, so no need to check if it already exists
-        auto inserted = column_ids.insert(field_schema.get_column_id());
-        if (inserted.second) {
-            std::cout << "[IcebergNested] added parent column id: " << field_schema.get_column_id()
-                      << std::endl;
-        }
+        column_ids.insert(field_schema.get_column_id());
     }
 }
 

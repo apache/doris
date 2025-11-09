@@ -995,6 +995,8 @@ Status StructColumnReader::read_column_data(
 
         if (reference_reader != nullptr) {
             // Read the reference column to get correct RL/DL information
+            // TODO: Optimize by only reading RL/DL without actual data decoding
+
             // We need to find the FieldSchema for the reference column from _field_schema children
             FieldSchema* ref_field_schema = nullptr;
             for (auto& child : _field_schema->children) {

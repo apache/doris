@@ -55,6 +55,7 @@
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
 #include "vec/exec/format/table/iceberg/iceberg_orc_nested_column_utils.h"
 #include "vec/exec/format/table/iceberg/iceberg_parquet_nested_column_utils.h"
+#include "vec/exec/format/table/nested_column_access_helper.h"
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace cctz {
@@ -450,7 +451,6 @@ Status IcebergParquetReader::init_reader(
     _all_required_col_names = file_col_names;
 
     auto column_id_result = _create_column_ids(field_desc, tuple_descriptor);
-    // const auto& file_col_names = column_id_result.column_names;
     auto& column_ids = column_id_result.column_ids;
     const auto& filter_column_ids = column_id_result.filter_column_ids;
 
@@ -471,15 +471,11 @@ Status IcebergParquetReader::init_reader(
 
 ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
                                                         const TupleDescriptor* tuple_descriptor) {
-    if (!field_desc) {
-        return ColumnIdResult();
-    }
-
     // First, assign column IDs to the field descriptor
     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
     mutable_field_desc->assign_ids();
 
-    // Create a mapping from iceberg field_id to FieldSchema for quick lookup
+    // map top-level table column iceberg_id -> FieldSchema*
     std::unordered_map<int, const FieldSchema*> iceberg_id_to_field_schema_map;
 
     for (int i = 0; i < field_desc->size(); ++i) {
@@ -493,47 +489,15 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
     std::set<uint64_t> column_ids;
     std::set<uint64_t> filter_column_ids;
 
-    // helper to process name access paths for a given top-level parquet field
+    // helper to process access paths for a given top-level parquet field
     auto process_access_paths = [](const FieldSchema* parquet_field,
                                    const std::vector<TColumnAccessPath>& access_paths,
                                    std::set<uint64_t>& out_ids) {
-        bool access_paths_empty = access_paths.empty();
-
-        std::vector<std::vector<std::string>> paths;
-        bool has_top_level_only = false;
-        for (const auto& access_path : access_paths) {
-            std::vector<std::string> path;
-            if (access_path.type == TAccessPathType::DATA) {
-                path = access_path.data_access_path.path;
-            } else if (access_path.type == TAccessPathType::META) {
-                path = access_path.meta_access_path.path;
-            } else {
-                continue;
-            }
-            std::vector<std::string> remaining_path;
-            if (path.size() > 1) {
-                remaining_path.assign(path.begin() + 1, path.end());
-            } else {
-                // only top-level column name => means whole field
-                remaining_path = std::vector<std::string>();
-            }
-            if (remaining_path.empty()) {
-                has_top_level_only = true;
-            }
-            paths.push_back(std::move(remaining_path));
-        }
-
-        if (has_top_level_only || access_paths_empty) {
-            uint64_t start_id = parquet_field->get_column_id();
-            uint64_t max_column_id = parquet_field->get_max_column_id();
-            for (uint64_t id = start_id; id <= max_column_id; ++id) {
-                out_ids.insert(id);
-            }
-        } else if (!paths.empty()) {
-            out_ids.insert(parquet_field->get_column_id());
-            IcebergParquetNestedColumnUtils::extract_nested_column_ids(*parquet_field, paths,
-                                                                       out_ids);
-        }
+        process_nested_access_paths(
+                parquet_field, access_paths, out_ids,
+                [](const FieldSchema* field) { return field->get_column_id(); },
+                [](const FieldSchema* field) { return field->get_max_column_id(); },
+                IcebergParquetNestedColumnUtils::extract_nested_column_ids);
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
@@ -663,13 +627,7 @@ Status IcebergOrcReader::init_reader(
 
 ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
                                                     const TupleDescriptor* tuple_descriptor) {
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
-
-    if (!orc_type) {
-        return ColumnIdResult();
-    }
-
-    // map top-level table column name (lower-cased) -> orc::Type*
+    // map top-level table column iceberg_id -> orc::Type*
     std::unordered_map<int, const orc::Type*> iceberg_id_to_orc_type_map;
     for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
         auto orc_sub_type = orc_type->getSubtype(i);
@@ -685,57 +643,26 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
     std::set<uint64_t> column_ids;
     std::set<uint64_t> filter_column_ids;
 
-    // helper to process name access paths for a given top-level orc field
+    // helper to process access paths for a given top-level orc field
     auto process_access_paths = [](const orc::Type* orc_field,
                                    const std::vector<TColumnAccessPath>& access_paths,
                                    std::set<uint64_t>& out_ids) {
-        bool access_paths_empty = access_paths.empty();
-
-        std::vector<std::vector<std::string>> paths;
-        bool has_top_level_only = false;
-        for (const auto& access_path : access_paths) {
-            std::vector<std::string> path;
-            if (access_path.type == TAccessPathType::DATA) {
-                path = access_path.data_access_path.path;
-            } else if (access_path.type == TAccessPathType::META) {
-                path = access_path.meta_access_path.path;
-            } else {
-                continue;
-            }
-            std::vector<std::string> remaining_path;
-            if (path.size() > 1) {
-                remaining_path.assign(path.begin() + 1, path.end());
-            } else {
-                // only top-level column name => means whole field
-                remaining_path = std::vector<std::string>();
-            }
-            if (remaining_path.empty()) {
-                has_top_level_only = true;
-            }
-            paths.push_back(std::move(remaining_path));
-        }
-
-        if (has_top_level_only || access_paths_empty) {
-            uint64_t start_id = orc_field->getColumnId();
-            uint64_t max_column_id = orc_field->getMaximumColumnId();
-            for (uint64_t id = start_id; id <= max_column_id; ++id) {
-                out_ids.insert(id);
-            }
-        } else if (!paths.empty()) {
-            out_ids.insert(orc_field->getColumnId());
-            IcebergOrcNestedColumnUtils::extract_nested_column_ids(*orc_field, paths, out_ids);
-        }
+        process_nested_access_paths(
+                orc_field, access_paths, out_ids,
+                [](const orc::Type* type) { return type->getColumnId(); },
+                [](const orc::Type* type) { return type->getMaximumColumnId(); },
+                IcebergOrcNestedColumnUtils::extract_nested_column_ids);
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
         auto it = iceberg_id_to_orc_type_map.find(slot->col_unique_id());
         if (it == iceberg_id_to_orc_type_map.end()) {
-            // Column not found in file (e.g., partition column, added column)
+            // Column not found in file
             continue;
         }
         const orc::Type* orc_field = it->second;
 
-        // primitive (non-nested) types: direct mapping by name
+        // primitive (non-nested) types
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
             column_ids.insert(orc_field->getColumnId());
@@ -745,7 +672,7 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
             continue;
         }
 
-        // complex types:
+        // complex types
         const auto& all_access_paths = slot->all_access_paths();
         process_access_paths(orc_field, all_access_paths, column_ids);
 

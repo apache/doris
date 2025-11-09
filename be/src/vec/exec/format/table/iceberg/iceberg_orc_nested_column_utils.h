@@ -17,10 +17,8 @@
 
 #pragma once
 
-#include <memory>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "vec/exec/format/table/table_format_reader.h"
