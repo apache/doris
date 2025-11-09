@@ -56,7 +56,6 @@ void HiveParquetNestedColumnUtils::extract_nested_column_ids(
     // Normalization logic:
     //   path: ["map_col", "*"]              → ["map_col", "VALUES"] + ["map_col", "KEYS"]
     //   path: ["map_col", "*", "field"]     → ["map_col", "VALUES", "field"] + ["map_col", "KEYS"]
-    // KEYS are always needed for correct RL/DL computation when accessing MAP via wildcard
     if (field_schema.data_type->get_primitive_type() == PrimitiveType::TYPE_MAP) {
         auto wildcard_it = child_paths_by_table_col_name.find("*");
         if (wildcard_it != child_paths_by_table_col_name.end()) {
@@ -66,7 +65,7 @@ void HiveParquetNestedColumnUtils::extract_nested_column_ids(
             auto& values_paths = child_paths_by_table_col_name["VALUES"];
             values_paths.insert(values_paths.end(), wildcard_paths.begin(), wildcard_paths.end());
 
-            // Always add KEYS for wildcard access (needed for RL/DL computation)
+            // Always add KEYS for wildcard access
             auto& keys_paths = child_paths_by_table_col_name["KEYS"];
             // Add an empty path to request full KEYS
             std::vector<std::string> empty_path;

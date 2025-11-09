@@ -55,7 +55,6 @@ void HiveOrcNestedColumnUtils::extract_nested_column_ids(
     // Normalization logic:
     //   path: ["map_col", "*"]              → ["map_col", "VALUES"] + ["map_col", "KEYS"]
     //   path: ["map_col", "*", "field"]     → ["map_col", "VALUES", "field"] + ["map_col", "KEYS"]
-    // KEYS are always needed for correct RL/DL computation when accessing MAP via wildcard
     if (type.getKind() == orc::TypeKind::MAP) {
         auto wildcard_it = child_paths_by_table_col_name.find("*");
         if (wildcard_it != child_paths_by_table_col_name.end()) {
@@ -65,7 +64,7 @@ void HiveOrcNestedColumnUtils::extract_nested_column_ids(
             auto& values_paths = child_paths_by_table_col_name["VALUES"];
             values_paths.insert(values_paths.end(), wildcard_paths.begin(), wildcard_paths.end());
 
-            // Always add KEYS for wildcard access (needed for RL/DL computation)
+            // Always add KEYS for wildcard access
             auto& keys_paths = child_paths_by_table_col_name["KEYS"];
             // Add an empty path to request full KEYS
             std::vector<std::string> empty_path;
@@ -97,7 +96,7 @@ void HiveOrcNestedColumnUtils::extract_nested_column_ids(
             }
 
             // Special handling for Orc MAP structure:
-            // When accessing only VALUES, we still need KEY structure for levels
+            // When accessing only VALUES, we still need KEY structure for deduplicate_keys
             // Check if we're at key child (i==0) and only VALUES is requested (no KEYS)
             if (i == 0) {
                 bool has_keys_access = child_paths_by_table_col_name.find("KEYS") !=
