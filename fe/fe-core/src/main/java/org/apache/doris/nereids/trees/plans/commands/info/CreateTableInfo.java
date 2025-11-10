@@ -20,10 +20,14 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -1496,5 +1500,72 @@ public class CreateTableInfo {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * checkPartitionNullity
+     */
+    public void checkPartitionNullity(List<Column> baseSchema, PartitionDesc partitionDesc,
+                                       SinglePartitionDesc partition)
+            throws AnalysisException {
+        // in creating OlapTable, expr.desc is null. so we should find the column ourself.
+        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
+        ArrayList<Boolean> partitionSlotNullables = new ArrayList<Boolean>();
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                partitionSlotNullables.add(findAllowNullforSlotRef(baseSchema, (SlotRef) expr));
+            } else if (expr instanceof FunctionCallExpr) {
+                partitionSlotNullables.add(Expr.isNullable(((FunctionCallExpr) expr).getFn(), expr.getChildren()));
+            } else {
+                throw new AnalysisException("Unknown partition expr type:" + expr.getExprName());
+            }
+        }
+
+        if (partition.getPartitionKeyDesc().getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.IN) {
+            List<List<PartitionValue>> inValues = partition.getPartitionKeyDesc().getInValues();
+            for (List<PartitionValue> item : inValues) {
+                checkNullityEqual(partitionSlotNullables, item);
+            }
+        } else if (partition.getPartitionKeyDesc().getPartitionType()
+                == PartitionKeyDesc.PartitionKeyValueType.LESS_THAN) {
+            // only upper
+            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
+            checkNullityEqual(partitionSlotNullables, upperValues);
+        } else {
+            // fixed. upper and lower
+            List<PartitionValue> lowerValues = partition.getPartitionKeyDesc().getLowerValues();
+            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
+            checkNullityEqual(partitionSlotNullables, lowerValues);
+            checkNullityEqual(partitionSlotNullables, upperValues);
+        }
+    }
+
+    private boolean findAllowNullforSlotRef(List<Column> baseSchema, SlotRef slot) throws AnalysisException {
+        for (Column col : baseSchema) {
+            if (col.nameEquals(slot.getColumnName(), true)) {
+                return col.isAllowNull();
+            }
+        }
+        throw new AnalysisException("Unknown partition column name:" + slot.getColumnName());
+    }
+
+    private void checkNullityEqual(ArrayList<Boolean> partitionSlotNullables, List<PartitionValue> item)
+            throws AnalysisException {
+        // for MAX_VALUE or somethings
+        if (item == null) {
+            return;
+        }
+        for (int i = 0; i < item.size(); i++) {
+            try {
+                if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
+                    throw new AnalysisException(
+                        "Can't have null partition is for NOT NULL partition "
+                        + "column in partition expr's index " + i);
+                }
+            } catch (IndexOutOfBoundsException e) {
+                throw new AnalysisException(
+                    "partition item's size out of partition columns: " + e.getMessage());
+            }
+        }
     }
 }
