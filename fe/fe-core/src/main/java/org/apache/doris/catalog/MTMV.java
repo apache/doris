@@ -308,6 +308,25 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
+        readMvLock();
+        try {
+            String stillRewrittenTables
+                    = mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES);
+            if (StringUtils.isEmpty(stillRewrittenTables)) {
+                return res;
+            }
+            String[] split = stillRewrittenTables.split(",");
+            for (String alias : split) {
+                res.add(new TableNameInfo(alias));
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     /**
      * Called when in query, Should use one connection context in query
      */
