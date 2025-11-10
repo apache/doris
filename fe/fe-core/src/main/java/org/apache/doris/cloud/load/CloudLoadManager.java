@@ -85,7 +85,7 @@ public class CloudLoadManager extends LoadManager {
             }
             loadJob = new CopyJob(
                 dbId,
-                copyIntoInfo.getLabel().getLabelName(),
+                copyIntoInfo.getLabel().getLabel(),
                 ConnectContext.get().queryId(),
                 copyIntoInfo.getBrokerDesc(),
                 copyIntoInfo.getOriginStmt(),
