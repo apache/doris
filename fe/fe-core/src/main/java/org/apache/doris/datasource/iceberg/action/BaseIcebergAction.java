@@ -33,14 +33,10 @@ import java.util.Optional;
  */
 public abstract class BaseIcebergAction extends BaseExecuteAction {
 
-    protected final IcebergExternalTable icebergTable;
-
     protected BaseIcebergAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
+            Optional<Expression> whereCondition) {
         super(actionType, properties, partitionNamesInfo, whereCondition);
-        this.icebergTable = icebergTable;
     }
 
     @Override
@@ -74,10 +70,4 @@ public abstract class BaseIcebergAction extends BaseExecuteAction {
         // Default implementation does nothing.
     }
 
-    /**
-     * Get the underlying Iceberg table instance for procedure execution.
-     */
-    protected IcebergExternalTable getIcebergTable() {
-        return icebergTable;
-    }
 }
