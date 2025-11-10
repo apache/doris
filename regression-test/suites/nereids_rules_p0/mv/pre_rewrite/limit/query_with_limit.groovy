@@ -960,7 +960,7 @@ suite("query_with_limit") {
                   orders on l_orderkey = o_orderkey
                 limit 2 offset 1;
             """
-    async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
@@ -999,7 +999,7 @@ suite("query_with_limit") {
                 order by l_orderkey
                 limit 2 offset 1;
             """
-    async_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
+    async_mv_rewrite_success(db, mv3_2, query3_2, "mv3_2")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
     // query is union all + limit offset

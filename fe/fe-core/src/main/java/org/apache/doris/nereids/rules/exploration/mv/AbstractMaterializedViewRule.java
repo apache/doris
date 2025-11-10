@@ -284,7 +284,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
             }
             boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo,
-                    viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext);
+                    viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext,
+                    comparisonResult);
             if (!checkResult) {
                 continue;
             }
@@ -519,7 +520,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     */
     protected boolean rewriteQueryByViewPreCheck(MatchMode matchMode, StructInfo queryStructInfo,
             StructInfo viewStructInfo, SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan,
-            MaterializationContext materializationContext) {
+            MaterializationContext materializationContext, ComparisonResult comparisonResult) {
         if (materializationContext instanceof SyncMaterializationContext
                 && queryStructInfo.getBottomPlan() instanceof LogicalOlapScan) {
             LogicalOlapScan olapScan = (LogicalOlapScan) queryStructInfo.getBottomPlan();
@@ -743,13 +744,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // set pulled up expression to queryStructInfo predicates and update related predicates
         if (!queryPulledUpExpressions.isEmpty()) {
             queryStructInfo = queryStructInfo.withPredicates(
-                    queryStructInfo.getPredicates().merge(queryPulledUpExpressions));
+                    queryStructInfo.getPredicates().mergePulledUpPredicates(queryPulledUpExpressions));
         }
         List<Expression> viewPulledUpExpressions = ImmutableList.copyOf(comparisonResult.getViewExpressions());
         // set pulled up expression to viewStructInfo predicates and update related predicates
         if (!viewPulledUpExpressions.isEmpty()) {
             viewStructInfo = viewStructInfo.withPredicates(
-                    viewStructInfo.getPredicates().merge(viewPulledUpExpressions));
+                    viewStructInfo.getPredicates().mergePulledUpPredicates(viewPulledUpExpressions));
         }
         // if the join type in query and mv plan is different, we should check query is have the
         // filters which rejects null
@@ -762,8 +763,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping, queryStructInfo,
                     viewStructInfo, cascadesContext);
             if (!valid) {
-                queryStructInfo = queryStructInfo.withPredicates(
-                        queryStructInfo.getPredicates().merge(comparisonResult.getQueryAllPulledUpExpressions()));
+                queryStructInfo = queryStructInfo.withPredicates(queryStructInfo.getPredicates()
+                        .mergePulledUpPredicates(comparisonResult.getQueryAllPulledUpExpressions()));
                 valid = containsNullRejectSlot(requireNoNullableViewSlot,
                         queryStructInfo.getPredicates().getPulledUpPredicates(), queryToViewMapping,
                         queryStructInfo, viewStructInfo, cascadesContext);
@@ -771,6 +772,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (!valid) {
                 return SplitPredicate.INVALID_INSTANCE;
             }
+        }
+        // compensate couldNot PulledUp Conjunctions
+        Map<Expression, ExpressionInfo> couldNotPulledUpCompensateConjunctions =
+                Predicates.compensateCouldNotPullUpPredicates(queryStructInfo, viewStructInfo,
+                viewToQuerySlotMapping, comparisonResult);
+        if (couldNotPulledUpCompensateConjunctions == null) {
+            return SplitPredicate.INVALID_INSTANCE;
         }
         // viewEquivalenceClass to query based
         // equal predicate compensate
