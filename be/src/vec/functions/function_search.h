@@ -159,6 +159,7 @@ public:
             const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                     data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+            const std::shared_ptr<IndexQueryContext>& index_query_context,
             InvertedIndexResultBitmap& bitmap_result) const;
 
     // Public methods for testing
