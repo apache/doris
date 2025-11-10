@@ -228,7 +228,7 @@ suite("mv_tpch_test") {
     """
     // contains limit, doesn't support now
     order_qt_query2_before "${query2}"
-    async_mv_rewrite_fail(db, mv2, query2, "mv2")
+    async_mv_rewrite_success(db, mv2, query2, "mv2")
     order_qt_query2_after "${query2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2"""
 
