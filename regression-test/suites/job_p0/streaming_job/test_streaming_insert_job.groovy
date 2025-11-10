@@ -99,7 +99,7 @@ suite("test_streaming_insert_job") {
     def jobExecuteSQL = sql """
         select ExecuteSql from jobs("type"="insert") where Name='${jobName}'
     """
-    assert jobExecuteSQL.get(0).get(0).contains("${getS3AK()}")
+    assert !jobExecuteSQL.get(0).get(0).contains("${getS3AK()}")
     assert !jobExecuteSQL.get(0).get(0).contains("${getS3SK()}")
 
     def jobInfo = sql """
