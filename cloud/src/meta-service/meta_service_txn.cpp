@@ -1769,6 +1769,20 @@ void MetaServiceImpl::commit_txn_immediately(
         txn->put(info_key, info_val);
         LOG(INFO) << "put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
+        // Batch get existing versioned tablet stats if needed
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        if (is_versioned_write && !tablet_stats.empty()) {
+            internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                                 tablet_ids, &existing_versioned_stats);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id;
+                return;
+            }
+            LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                      << " versioned tablet stats, txn_id=" << txn_id;
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -1779,16 +1793,7 @@ void MetaServiceImpl::commit_txn_immediately(
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb;
-                internal_get_load_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                               tablet_idx, stats_pb);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                                 << " msg=" << msg << " txn_id=" << txn_id
-                                 << " tablet_id=" << tablet_id;
-                    return;
-                }
-
+                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
                 merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {
@@ -2817,6 +2822,20 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         txn->put(info_key, info_val);
         LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
+        // Batch get existing versioned tablet stats if needed
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        if (is_versioned_write && !tablet_stats.empty()) {
+            internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                                 tablet_ids, &existing_versioned_stats);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                             << " msg=" << msg << " txn_id=" << txn_id;
+                return;
+            }
+            LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                      << " versioned tablet stats, txn_id=" << txn_id;
+        }
+
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
             DCHECK(tablet_ids.count(tablet_id));
@@ -2827,16 +2846,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             if (code != MetaServiceCode::OK) return;
 
             if (is_versioned_write) {
-                TabletStatsPB stats_pb;
-                internal_get_load_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                               tablet_idx, stats_pb);
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                                 << " msg=" << msg << " txn_id=" << txn_id
-                                 << " tablet_id=" << tablet_id;
-                    return;
-                }
-
+                TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
                 merge_tablet_stats(stats_pb, stats);
                 std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
                 if (!versioned::document_put(txn.get(), stats_key, std::move(stats_pb))) {

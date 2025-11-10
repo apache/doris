@@ -22,7 +22,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -50,9 +49,9 @@ public abstract class ExternalScanNode extends ScanNode {
             ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
             : new FederationBackendPolicy();
 
-    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
+    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType);
+        super(id, desc, planNodeName);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 

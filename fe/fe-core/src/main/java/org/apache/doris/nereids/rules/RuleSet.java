@@ -47,6 +47,9 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilt
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowScanRule;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -270,6 +273,9 @@ public class RuleSet {
             .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .add(MaterializedViewAggregateOnNoneAggregateRule.INSTANCE)
             .add(MaterializedViewOnlyScanRule.INSTANCE)
+            .add(MaterializedViewWindowScanRule.INSTANCE)
+            .add(MaterializedViewWindowJoinRule.INSTANCE)
+            .add(MaterializedViewWindowAggregateRule.INSTANCE)
             .build();
 
     public static final List<Rule> MATERIALIZED_VIEW_IN_RBO_RULES = planRuleFactories()

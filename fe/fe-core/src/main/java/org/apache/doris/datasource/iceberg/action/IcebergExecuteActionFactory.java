@@ -61,25 +61,25 @@ public class IcebergExecuteActionFactory {
         switch (actionType.toLowerCase()) {
             case ROLLBACK_TO_SNAPSHOT:
                 return new IcebergRollbackToSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case ROLLBACK_TO_TIMESTAMP:
                 return new IcebergRollbackToTimestampAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case SET_CURRENT_SNAPSHOT:
                 return new IcebergSetCurrentSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case CHERRYPICK_SNAPSHOT:
                 return new IcebergCherrypickSnapshotAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case FAST_FORWARD:
                 return new IcebergFastForwardAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case EXPIRE_SNAPSHOTS:
                 return new IcebergExpireSnapshotsAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             case REWRITE_DATA_FILES:
                 return new IcebergRewriteDataFilesAction(properties, partitionNamesInfo,
-                        whereCondition, table);
+                        whereCondition);
             default:
                 throw new DdlException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));

@@ -88,16 +88,20 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                     // base is a single file
                     offset.setFileLists(filePathBase);
                     String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
+                    offset.setStartFile(lastFile);
                     offset.setEndFile(lastFile);
                 } else {
                     // base is dir
                     String normalizedPrefix = basePrefix.endsWith("/")
                             ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
                     String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, normalizedPrefix, joined);
+                    String beginFile = rfiles.get(0).getName().replace(bucketBase, "");
                     String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
                     offset.setFileLists(finalFileLists);
+                    offset.setStartFile(beginFile);
                     offset.setEndFile(lastFile);
                 }
+                offset.setFileNum(rfiles.size());
                 maxEndFile = globListResult.getMaxFile();
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
@@ -112,7 +116,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public String getShowCurrentOffset() {
         if (currentOffset != null) {
-            return currentOffset.toSerializedJson();
+            Map<String, String> res = new HashMap<>();
+            res.put("fileName", currentOffset.getEndFile());
+            return new Gson().toJson(res);
         }
         return null;
     }
@@ -121,7 +127,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     public String getShowMaxOffset() {
         if (maxEndFile != null) {
             Map<String, String> res = new HashMap<>();
-            res.put("endFile", maxEndFile);
+            res.put("fileName", maxEndFile);
             return new Gson().toJson(res);
         }
         return null;

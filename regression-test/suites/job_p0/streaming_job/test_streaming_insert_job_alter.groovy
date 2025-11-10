@@ -141,7 +141,7 @@ suite("test_streaming_insert_job_alter") {
     def jobOffset = sql """
         select currentOffset from jobs("type"="insert") where Name='${jobName}'
     """
-    assert jobOffset.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobOffset.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
 
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 

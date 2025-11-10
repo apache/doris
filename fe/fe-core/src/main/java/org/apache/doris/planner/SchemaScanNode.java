@@ -29,7 +29,6 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -39,7 +38,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaScanNode;
 import org.apache.doris.thrift.TUserIdentity;
 
-import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,7 +65,7 @@ public class SchemaScanNode extends ScanNode {
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
             String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts) {
-        super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
+        super(id, desc, "SCAN SCHEMA");
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;
@@ -89,12 +87,6 @@ public class SchemaScanNode extends ScanNode {
 
     public List<Expr> getFrontendConjuncts() {
         return frontendConjuncts;
-    }
-
-    @Override
-    protected String debugString() {
-        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-        return helper.addValue(super.debugString()).toString();
     }
 
     @Override

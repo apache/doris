@@ -36,16 +36,11 @@ public class FeConstants {
 
     public static int checkpoint_interval_second = 60; // 1 minutes
 
-    // dpp version
-    public static String dpp_version = "3_2_0";
-
     // bloom filter false positive probability
     public static double default_bloom_filter_fpp = 0.05;
 
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
-    // use to set some mocked values for FE unit test
-    public static Object unitTestConstant = null;
 
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;
@@ -68,29 +63,8 @@ public class FeConstants {
     // use for copy into test
     public static boolean disablePreHeat = false;
 
-    public static final String FS_PREFIX_S3 = "s3";
-    public static final String FS_PREFIX_S3A = "s3a";
-    public static final String FS_PREFIX_S3N = "s3n";
-    public static final String FS_PREFIX_OSS = "oss";
-    public static final String FS_PREFIX_GCS = "gs";
-    public static final String FS_PREFIX_BOS = "bos";
-    public static final String FS_PREFIX_COS = "cos";
-    public static final String FS_PREFIX_COSN = "cosn";
-    public static final String FS_PREFIX_LAKEFS = "lakefs";
-    public static final String FS_PREFIX_OBS = "obs";
-    public static final String FS_PREFIX_OFS = "ofs";
-    public static final String FS_PREFIX_GFS = "gfs";
-    public static final String FS_PREFIX_JFS = "jfs";
-    public static final String FS_PREFIX_HDFS = "hdfs";
-    public static final String FS_PREFIX_VIEWFS = "viewfs";
-    public static final String FS_PREFIX_FILE = "file";
-
     public static final String INTERNAL_DB_NAME = "__internal_schema";
     public static final String INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME = "cloud_cache_hotspot";
 
     public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
-
-    public static String CLOUD_RETRY_E230 = "E-230";
-
-    public static String BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
 }

@@ -87,7 +87,6 @@ import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.MysqlDBTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcCatalogResource;
@@ -299,7 +298,6 @@ public class GsonUtils {
             .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
             .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())
             .registerSubtype(AnyType.class, AnyType.class.getSimpleName())
-            .registerSubtype(MultiRowType.class, MultiRowType.class.getSimpleName())
             .registerSubtype(TemplateType.class, TemplateType.class.getSimpleName())
             .registerSubtype(VariantType.class, VariantType.class.getSimpleName());
 

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.GenericManifestFile;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
@@ -42,7 +43,6 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
-import org.checkerframework.org.plumelib.util.ArrayMap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -351,10 +351,8 @@ public class IcebergUtilsTest {
                         table,
                         Optional.empty(),
                         Optional.of(new TableScanParams("branch",
-                                    new ArrayMap<String, String>() {{
-                                        put("k1", "k2");
-                                    }
-                                },
+                                ImmutableMap.of(
+                                        "k1", "k2"),
                                 null))
                 ));
 
