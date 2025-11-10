@@ -83,8 +83,8 @@ public:
 
     bool need_to_local_exchange(const DataDistribution target_data_distribution,
                                 const int idx) const;
-    void init_data_distribution() {
-        set_data_distribution(_operators.front()->required_data_distribution());
+    void init_data_distribution(RuntimeState* state) {
+        set_data_distribution(_operators.front()->required_data_distribution(state));
     }
     void set_data_distribution(const DataDistribution& data_distribution) {
         _data_distribution = data_distribution;

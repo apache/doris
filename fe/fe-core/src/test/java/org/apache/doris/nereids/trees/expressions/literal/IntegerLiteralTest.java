@@ -26,6 +26,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import org.junit.jupiter.api.Assertions;
@@ -185,5 +186,11 @@ public class IntegerLiteralTest {
         Assertions.assertEquals(0, ((DateTimeV2Literal) expression).minute);
         Assertions.assertEquals(0, ((DateTimeV2Literal) expression).second);
         Assertions.assertEquals(0, ((DateTimeV2Literal) expression).microSecond);
+
+        // to string
+        d1 = new IntegerLiteral(701231);
+        expression = d1.uncheckedCastTo(StringType.INSTANCE);
+        Assertions.assertInstanceOf(StringLiteral.class, expression);
+        Assertions.assertEquals("701231", ((StringLiteral) expression).value);
     }
 }

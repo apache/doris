@@ -100,7 +100,6 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
-    private TupleDescriptor bufferedTupleForWindow = null;
 
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
@@ -286,10 +285,6 @@ public class PlanTranslatorContext {
         return bufferedSlotRefForWindow;
     }
 
-    public TupleDescriptor getBufferedTupleForWindow() {
-        return bufferedTupleForWindow;
-    }
-
     /**
      * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
@@ -298,7 +293,11 @@ public class PlanTranslatorContext {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         Optional<Column> column = slotReference.getOriginalColumn();
-        column.ifPresent(slotDescriptor::setColumn);
+        if (column.isPresent()) {
+            slotDescriptor.setColumn(column.get());
+        } else {
+            slotDescriptor.setCaptionAndNormalize(slotReference.toString());
+        }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;

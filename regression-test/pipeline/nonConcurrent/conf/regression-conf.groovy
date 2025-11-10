@@ -46,8 +46,6 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 trinoPluginsPath = "/tmp/trino_connector"
-// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
-//sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -71,6 +69,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_github_events_new_p2," +
     "hdfs_vault_p2," +
     "nereids_p0/hbo," +
+    "cloud_p0/multi_cluster," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 // for test csv with header

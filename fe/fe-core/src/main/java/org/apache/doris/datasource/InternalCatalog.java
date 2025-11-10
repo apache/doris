@@ -54,7 +54,6 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -123,6 +122,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
@@ -990,8 +990,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             table.writeUnlock();
         }
-
-        Env.getCurrentEnv().getMtmvService().dropTable(table);
+        if (table instanceof OlapTable) {
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
+        }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
                     .clearTableLastTxnId(db.getId(), table.getId());
@@ -1017,6 +1018,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
+        }
+        if (table instanceof View) {
+            Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
@@ -2309,16 +2313,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         throw new AnalysisException(String.format(
                             "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
                     }
-                }
-                Function fn = null;
-                try {
-                    fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
-                        Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
-                } catch (Exception e) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
-                }
-                if (fn == null) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
             } else if (expr instanceof SlotRef) {
                 if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {

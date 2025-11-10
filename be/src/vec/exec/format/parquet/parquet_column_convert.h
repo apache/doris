@@ -64,7 +64,7 @@ struct ConvertParams {
             // The missing parque metadata makes it impossible for us to know the time zone information,
             // so we default to UTC here.
             if (ctz == nullptr) {
-                ctz = const_cast<cctz::time_zone*>(&utc0);
+                ctz = &utc0;
             }
         }
     }
@@ -84,7 +84,7 @@ struct ConvertParams {
                 // When a timestamp is stored as `1970-01-03 12:00:00`,
                 // if isAdjustedToUTC = true, UTC8 should read as `1970-01-03 20:00:00`, UTC6 should read as `1970-01-03 18:00:00`
                 // if isAdjustedToUTC = false, UTC8 and UTC6 should read as `1970-01-03 12:00:00`, which is the same as `1970-01-03 12:00:00` in UTC0
-                ctz = const_cast<cctz::time_zone*>(&utc0);
+                ctz = &utc0;
             }
             const auto& time_unit = timestamp_info.unit;
             if (time_unit.__isset.MILLIS) {
@@ -182,8 +182,8 @@ public:
         ColumnPtr src_logical_column;
         if (is_consistent()) {
             if (dst_logical_type->is_nullable()) {
-                auto doris_nullable_column = const_cast<ColumnNullable*>(
-                        assert_cast<const ColumnNullable*>(dst_logical_col.get()));
+                auto doris_nullable_column =
+                        assert_cast<const ColumnNullable*>(dst_logical_col.get());
                 src_logical_column =
                         ColumnNullable::create(_cached_src_physical_column,
                                                doris_nullable_column->get_null_map_column_ptr());

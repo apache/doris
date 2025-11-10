@@ -111,7 +111,7 @@ public:
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
             return {ExchangeType::NOOP};
         }
@@ -120,7 +120,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution();
+        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(state);
     }
 
     bool require_data_distribution() const override { return _is_colocate; }

@@ -73,6 +73,18 @@ suite("nereids_scalar_fn_L") {
 	qt_sql_length_Varchar_notnull "select length(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_length_String "select length(kstr) from fn_test order by kstr"
 	qt_sql_length_String_notnull "select length(kstr) from fn_test_not_nullable order by kstr"
+	def length_str = sql """select length(kvchrs1) from fn_test order by kvchrs1"""
+	def octet_length_str = sql """select octet_length(kvchrs1) from fn_test order by kvchrs1"""
+	assertEquals(length_str, octet_length_str)
+	length_str = sql """select length(kvchrs1) from fn_test_not_nullable order by kvchrs1"""
+	octet_length_str = sql """select length(kvchrs1) from fn_test_not_nullable order by kvchrs1"""
+	assertEquals(length_str, octet_length_str)
+	length_str = sql """select length(kstr) from fn_test order by kstr"""
+	octet_length_str = sql """select octet_length(kstr) from fn_test order by kstr"""
+	assertEquals(length_str, octet_length_str)
+	length_str = sql """select length(kstr) from fn_test_not_nullable order by kstr"""
+	octet_length_str = sql """select octet_length(kstr) from fn_test_not_nullable order by kstr"""
+	assertEquals(length_str, octet_length_str)
 	qt_sql_like_Varchar_Varchar "select like(kvchrs1, kvchrs2) from fn_test order by kvchrs1"
 	qt_sql_like_Varchar_Varchar_not_null "select like(kvchrs1, kvchrs2) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_ln_Double "select ln(kdbl) from fn_test order by kdbl"

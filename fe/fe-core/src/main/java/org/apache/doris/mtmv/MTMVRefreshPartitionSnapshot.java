@@ -37,8 +37,12 @@ import java.util.Set;
 
 public class MTMVRefreshPartitionSnapshot {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
+    // old version only support one pct table
+    @Deprecated
     @SerializedName("p")
     private Map<String, MTMVSnapshotIf> partitions;
+    @SerializedName("pcts")
+    private Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts;
     // old version only persist table id, we need `BaseTableInfo`, `tables` only for compatible old version
     @SerializedName("t")
     @Deprecated
@@ -48,12 +52,18 @@ public class MTMVRefreshPartitionSnapshot {
 
     public MTMVRefreshPartitionSnapshot() {
         this.partitions = Maps.newConcurrentMap();
+        this.pcts = Maps.newConcurrentMap();
         this.tables = Maps.newConcurrentMap();
         this.tablesInfo = Maps.newConcurrentMap();
     }
 
+    @Deprecated
     public Map<String, MTMVSnapshotIf> getPartitions() {
         return partitions;
+    }
+
+    public Map<String, MTMVSnapshotIf> getPctSnapshot(BaseTableInfo pctTable) {
+        return pcts.computeIfAbsent(pctTable, k -> Maps.newHashMap());
     }
 
     public MTMVSnapshotIf getTableSnapshot(BaseTableInfo table) {
@@ -68,6 +78,10 @@ public class MTMVRefreshPartitionSnapshot {
         tablesInfo.put(baseTableInfo, tableSnapshot);
         // for compatible old version
         tables.put(baseTableInfo.getTableId(), tableSnapshot);
+    }
+
+    public Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> getPcts() {
+        return pcts;
     }
 
     @Override
@@ -152,19 +166,19 @@ public class MTMVRefreshPartitionSnapshot {
             return;
         }
         MTMVRelation relation = mtmv.getRelation();
-        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
+        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevelAndFromView())) {
             return;
         }
         for (Entry<Long, MTMVSnapshotIf> entry : tables.entrySet()) {
             Optional<BaseTableInfo> tableInfo = getByTableId(entry.getKey(),
-                    relation.getBaseTablesOneLevel());
+                    relation.getBaseTablesOneLevelAndFromView());
             if (tableInfo.isPresent()) {
                 tablesInfo.put(tableInfo.get(), entry.getValue());
             } else {
                 String msg = String.format(
                         "Failed to get table info based on id during compatibility process, "
                                 + "tableId: %s, relationTables: %s",
-                        entry.getKey(), relation.getBaseTablesOneLevel());
+                        entry.getKey(), relation.getBaseTablesOneLevelAndFromView());
                 LOG.warn(msg);
                 throw new Exception(msg);
             }

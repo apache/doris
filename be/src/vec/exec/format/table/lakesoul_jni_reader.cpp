@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// DEPRECATED: LakeSoul catalog support has been deprecated and will be removed in a future version.
+// This file is kept for backward compatibility but should not be used in new code.
+
 #include "lakesoul_jni_reader.h"
 
 #include <map>

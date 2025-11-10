@@ -67,4 +67,9 @@ public class ResponseEntityBuilder {
         ResponseBody body = new ResponseBody().code(RestApiStatusCode.NOT_FOUND).msg("Not Found").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
+
+    public static ResponseEntity serviceUnavailable(String msg) {
+        ResponseBody body = new ResponseBody().code(RestApiStatusCode.SERVICE_UNAVAILABLE).msg(msg);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    }
 }

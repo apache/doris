@@ -79,6 +79,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 // #include "util/string_parser.hpp"
@@ -952,6 +953,8 @@ struct ObjectVal : public ContainerVal {
     iterator end() { return iterator((pointer)(payload + size)); }
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
+
+    std::vector<std::pair<StringRef, const JsonbValue*>> get_ordered_key_value_pairs() const;
 
 private:
     iterator internalSearch(const char* key, unsigned int klen) {

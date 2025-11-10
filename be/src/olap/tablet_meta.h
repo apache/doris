@@ -444,6 +444,10 @@ public:
     DeleteBitmap(DeleteBitmap&& r) noexcept;
     DeleteBitmap& operator=(DeleteBitmap&& r) noexcept;
 
+    static DeleteBitmap from_pb(const DeleteBitmapPB& pb, int64_t tablet_id);
+
+    DeleteBitmapPB to_pb();
+
     /**
      * Makes a snapshot of delete bitmap, read lock will be acquired in this
      * process
@@ -607,6 +611,14 @@ public:
     DeleteBitmap agg_cache_snapshot();
 
     void set_tablet_id(int64_t tablet_id);
+
+    /**
+     * Calculate diffset with given `key_set`. All entries with keys contained in this delete bitmap but not
+     * in given key_set will be added to the output delete bitmap.
+     *
+     * @return Deletebitmap containning all entries in diffset
+    */
+    DeleteBitmap diffset(const std::set<BitmapKey>& key_set) const;
 
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;

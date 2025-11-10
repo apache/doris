@@ -63,7 +63,7 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         DCHECK(_open_finished || _getting_const_col);
         return _lambda_function->execute(context, block, result_column_id, _data_type, _children);
     }
@@ -85,6 +85,8 @@ public:
         out << "}";
         return out.str();
     }
+
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
     std::string _expr_name;

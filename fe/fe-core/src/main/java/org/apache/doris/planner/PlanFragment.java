@@ -157,7 +157,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     protected boolean hasColocatePlanNode = false;
     protected final Supplier<Boolean> hasBucketShuffleJoin;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 
@@ -467,11 +467,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.sink = sink;
     }
 
-    public void resetSink(DataSink sink) {
-        sink.setFragment(this);
-        this.sink = sink;
-    }
-
     public PlanFragmentId getFragmentId() {
         return fragmentId;
     }
@@ -482,11 +477,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public Set<RuntimeFilterId> getTargetRuntimeFilterIds() {
         return targetRuntimeFilterIds;
-    }
-
-    public void clearRuntimeFilters() {
-        builderRuntimeFilterIds.clear();
-        targetRuntimeFilterIds.clear();
     }
 
     public void setTransferQueryStatisticsWithEveryBatch(boolean value) {

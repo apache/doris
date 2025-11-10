@@ -31,6 +31,7 @@ public:
     ~FileMetaData();
     Status init_schema();
     const FieldDescriptor& schema() const { return _schema; }
+    FieldDescriptor& schema() { return _schema; }
     const tparquet::FileMetaData& to_thrift() const;
     std::string debug_string() const;
     size_t get_mem_size() const { return _mem_size; }

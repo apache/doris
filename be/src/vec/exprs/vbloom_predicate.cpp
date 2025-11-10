@@ -70,7 +70,7 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
     DCHECK(_open_finished || _getting_const_col);
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
@@ -99,6 +99,13 @@ const std::string& VBloomPredicate::expr_name() const {
 
 void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {
     _filter = filter;
+}
+
+uint64_t VBloomPredicate::get_digest(uint64_t seed) const {
+    char* data;
+    int len;
+    _filter->get_data(&data, &len);
+    return HashUtil::hash64(data, len, seed);
 }
 
 #include "common/compile_check_end.h"

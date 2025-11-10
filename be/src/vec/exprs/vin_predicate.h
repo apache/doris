@@ -45,7 +45,7 @@ public:
     VInPredicate() = default;
 #endif
     ~VInPredicate() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     size_t estimate_memory(const size_t rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -59,6 +59,8 @@ public:
 
     bool is_not_in() const { return _is_not_in; };
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
     FunctionBasePtr _function;

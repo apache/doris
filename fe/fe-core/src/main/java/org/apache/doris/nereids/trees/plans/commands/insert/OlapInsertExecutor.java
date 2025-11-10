@@ -26,7 +26,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -51,6 +50,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -102,12 +102,21 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (DebugPointUtil.isEnable("OlapInsertExecutor.beginTransaction.failed")) {
                 throw new BeginTransactionException("current running txns on db is larger than limit");
             }
+            LoadJobSourceType loadJobSourceType = LoadJobSourceType.INSERT_STREAMING;
+            StreamingInsertTask streamingInsertTask = Env.getCurrentEnv()
+                    .getJobManager()
+                    .getStreamingTaskManager()
+                    .getStreamingInsertTaskById(jobId);
+
+            if (streamingInsertTask != null) {
+                loadJobSourceType = LoadJobSourceType.STREAMING_JOB;
+            }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), ImmutableList.of(table.getId()), labelName,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
+                    loadJobSourceType, ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -277,8 +286,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         labelName, queryId, txnId, abortTxnException);
             }
         }
-        // retry insert into from select when meet E-230 in cloud
-        if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+        // retry insert into from select when meet "need re-plan error" in cloud
+        if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
             return;
         }
         StringBuilder sb = new StringBuilder(t.getMessage());
@@ -309,9 +318,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 userIdentity = statement.getUserInfo();
             }
             EtlJobType etlJobType = EtlJobType.INSERT;
-            if (0 != jobId) {
-                etlJobType = EtlJobType.INSERT_JOB;
-            }
             // Do not register job if job id is -1.
             if (!Config.enable_nereids_load && jobId != -1) {
                 // just record for loadv2 here

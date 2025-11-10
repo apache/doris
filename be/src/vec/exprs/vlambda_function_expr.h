@@ -42,12 +42,14 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         DCHECK(_open_finished || _getting_const_col);
         return get_child(0)->execute(context, block, result_column_id);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
+
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
     const std::string _expr_name = "vlambda_function_expr";

@@ -190,7 +190,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return Status.OK;
     }
 
-    private Path toPath(String schemaAndBucket, String key) {
+    protected static Path toPath(String schemaAndBucket, String key) {
         // Ensure inputs are not null
         if (schemaAndBucket == null) {
             schemaAndBucket = "";
@@ -573,7 +573,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
 
             String bucket = uri.getBucket();
-            String globPath = uri.getKey(); // eg: path/to/*.csv
+            String globPath = S3Util.extendGlobs(uri.getKey());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("globList globPath:{}, remotePath:{}", globPath, remotePath);

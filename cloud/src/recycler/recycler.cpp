@@ -415,6 +415,27 @@ int Recycler::start(brpc::Server* server) {
 
     workers_.emplace_back(std::mem_fn(&Recycler::lease_recycle_jobs), this);
     workers_.emplace_back(std::mem_fn(&Recycler::check_recycle_tasks), this);
+
+    if (config::enable_snapshot_data_migrator) {
+        snapshot_data_migrator_ = std::make_shared<SnapshotDataMigrator>(txn_kv_);
+        int ret = snapshot_data_migrator_->start();
+        if (ret != 0) {
+            LOG(ERROR) << "failed to start snapshot data migrator";
+            return ret;
+        }
+        LOG(INFO) << "snapshot data migrator started";
+    }
+
+    if (config::enable_snapshot_chain_compactor) {
+        snapshot_chain_compactor_ = std::make_shared<SnapshotChainCompactor>(txn_kv_);
+        int ret = snapshot_chain_compactor_->start();
+        if (ret != 0) {
+            LOG(ERROR) << "failed to start snapshot chain compactor";
+            return ret;
+        }
+        LOG(INFO) << "snapshot chain compactor started";
+    }
+
     return 0;
 }
 
@@ -433,6 +454,12 @@ void Recycler::stop() {
     }
     if (checker_) {
         checker_->stop();
+    }
+    if (snapshot_data_migrator_) {
+        snapshot_data_migrator_->stop();
+    }
+    if (snapshot_chain_compactor_) {
+        snapshot_chain_compactor_->stop();
     }
 }
 
@@ -871,6 +898,7 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
         std::string key;
         instance_key({instance_id_}, &key);
+        txn->atomic_add(system_meta_service_instance_update_key(), 1);
         txn->remove(key);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -1490,7 +1518,13 @@ int InstanceRecycler::recycle_partitions() {
 int InstanceRecycler::recycle_versions() {
     if (instance_info_.has_multi_version_status() &&
         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
-        return recycle_orphan_partitions();
+        // If the data migration is not finished, skip recycling the orphan partitions.
+        if (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
+            (instance_info_.has_snapshot_switch_status() &&
+             instance_info_.snapshot_switch_status() !=
+                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED)) {
+            return recycle_orphan_partitions();
+        }
     }
 
     int64_t num_scanned = 0;
@@ -1615,8 +1649,8 @@ int InstanceRecycler::recycle_orphan_partitions() {
 
         std::string_view k1(k);
         int64_t db_id, table_id, partition_id;
-        if (versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id, &partition_id) !=
-            0) {
+        if (!versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id,
+                                                            &partition_id)) {
             LOG(WARNING) << "malformed partition inverted index key " << hex(k);
             return -1;
         } else if (table_id != current_table_id) {

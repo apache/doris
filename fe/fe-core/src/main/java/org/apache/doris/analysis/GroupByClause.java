@@ -234,10 +234,6 @@ public class GroupByClause implements ParseNode {
         return new GroupByClause(this);
     }
 
-    public boolean isEmpty() {
-        return CollectionUtils.isEmpty(groupingExprs);
-    }
-
     public enum GroupingType {
         GROUP_BY,
         GROUPING_SETS,

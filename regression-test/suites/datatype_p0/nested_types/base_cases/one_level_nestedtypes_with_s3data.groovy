@@ -155,9 +155,9 @@ suite("one_level_nestedtypes_with_s3data") {
     // select element_at(column)
     for (String col : colNameArr) {
         // first
-        order_qt_select_arr "select ${col}[1] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_arr "select ${col}[1], k1 from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // last
-        order_qt_select_arr "select ${col}[-1] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_arr "select ${col}[-1], k1 from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
         order_qt_select_arr_null "select ${col}[0] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
@@ -165,7 +165,7 @@ suite("one_level_nestedtypes_with_s3data") {
     }
     // select * from table where element_at(column) with equal expr
     for (String col : colNameArr) {
-        order_qt_select_arr "select ${col}[1], ${col}[-1] from ${table_names[0]} where k1 IS NOT NULL AND ${col}[1]<${col}[-1] order by k1 limit 10;"
+        order_qt_select_arr "select ${col}[1], ${col}[-1], k1 from ${table_names[0]} where k1 IS NOT NULL AND ${col}[1]<${col}[-1] order by k1 limit 10;"
     }
     // select * from table where groupby|orderby element_at(column)
     for (String col : colNameArr) {

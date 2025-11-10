@@ -68,6 +68,32 @@ enum SnapshotSwitchStatus {
     SNAPSHOT_SWITCH_ON = 2;
 }
 
+enum KeySetType {
+    UNKNOWN_KEY_SET = 0;
+
+    // Single version keys
+    SINGLE_VERSION_PARTITION_VERSION = 1;
+    SINGLE_VERSION_TABLE_VERSION = 2;
+    SINGLE_VERSION_META_ROWSET = 3;
+    SINGLE_VERSION_META_TABLET = 4;
+    SINGLE_VERSION_META_SCHEMA = 5;
+    SINGLE_VERSION_TABLET_STATS = 6;
+    SINGLE_VERSION_TABLET_INDEX = 7;
+
+    // Multi version keys
+    MULTI_VERSION_PARTITION_VERSION = 10;
+    MULTI_VERSION_TABLE_VERSION = 12;
+    MULTI_VERSION_INDEX_PARTITION = 13;
+    MULTI_VERSION_INDEX_INDEX = 14;
+    MULTI_VERSION_INDEX_TABLET = 15;
+    MULTI_VERSION_TABLET_STATS = 16;
+    MULTI_VERSION_META_PARTITION = 17;
+    MULTI_VERSION_META_INDEX = 18;
+    MULTI_VERSION_META_TABLET = 19;
+    MULTI_VERSION_META_SCHEMA = 20;
+    MULTI_VERSION_META_ROWSET = 21;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
@@ -102,12 +128,15 @@ message InstanceInfoPB {
 
     // Inherited from which instance (only used during rollback, the earliest instance id).
     optional string original_instance_id = 114;
-    optional string succeed_instance_id = 115;  // The last heir (only used during rollback).
+    optional string successor_instance_id = 115;  // The last heir (only used during rollback).
     optional bool ready_only = 116;             // A read only instance.
 
     // Snapshot properties.
     optional int64 max_reserved_snapshot = 117;
     optional int64 snapshot_interval_seconds = 118;
+
+    repeated KeySetType migrated_key_sets = 119;    // convert single version keys to multi version keys
+    repeated KeySetType compacted_key_sets = 120;   // compact snapshot chain ...
 }
 
 message StagePB {
@@ -182,6 +211,7 @@ message ClusterPB {
     optional int64 mtime = 11;
     repeated string cluster_names = 12; // clusters in virtual cluster
     optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
+    map<string, string> properties = 14; // clsuter additional properties
 }
 
 message NodeInfoPB {
@@ -1422,6 +1452,7 @@ message AlterClusterRequest {
         UPDATE_CLUSTER_ENDPOINT = 9;
         SET_CLUSTER_STATUS = 10;
         ALTER_VCLUSTER_INFO = 11;
+        ALTER_PROPERTIES = 12;
     }
     optional string instance_id = 1;
     optional string cloud_unique_id = 2; // For auth
@@ -1935,6 +1966,18 @@ message DeleteStreamingJobResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message ResetStreamingJobOffsetRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    optional string offset = 4;
+    optional string request_ip = 5;
+}
+
+message ResetStreamingJobOffsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckKeyInfos {
     repeated int64 db_ids = 1;
     repeated int64 table_ids = 2;
@@ -2160,6 +2203,7 @@ service MetaService {
     // streaming job meta
     rpc get_streaming_task_commit_attach(GetStreamingTaskCommitAttachRequest) returns (GetStreamingTaskCommitAttachResponse);
     rpc delete_streaming_job(DeleteStreamingJobRequest) returns (DeleteStreamingJobResponse);
+    rpc reset_streaming_job_offset(ResetStreamingJobOffsetRequest) returns (ResetStreamingJobOffsetResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);

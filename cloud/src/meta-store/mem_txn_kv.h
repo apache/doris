@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -77,6 +78,15 @@ public:
     int64_t put_count_ {};
     int64_t del_count_ {};
 
+    struct WatchInfo {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool triggered {false};
+        int64_t watch_version {-1};
+    };
+
+    void register_watch(const std::string& key, std::shared_ptr<WatchInfo> watch_info);
+
 private:
     using OpTuple = std::tuple<memkv::ModifyOpType, std::string, std::string>;
     TxnErrorCode update(const std::set<std::string>& read_set, const std::vector<OpTuple>& op_list,
@@ -110,9 +120,12 @@ private:
 
     std::map<std::string, std::list<Version>> mem_kv_;
     std::unordered_map<std::string, std::list<LogItem>> log_kv_;
+    std::unordered_map<std::string, std::vector<std::shared_ptr<WatchInfo>>> watches_;
     mutable std::mutex lock_;
     int64_t committed_version_ = 0;
     int64_t read_version_ = 0;
+
+    void trigger_watches(const std::string& key);
 };
 
 namespace memkv {
@@ -216,6 +229,8 @@ public:
      *@return TXN_OK for success otherwise error
      */
     TxnErrorCode commit() override;
+
+    TxnErrorCode watch_key(std::string_view key) override;
 
     TxnErrorCode get_read_version(int64_t* version) override;
     TxnErrorCode get_committed_version(int64_t* version) override;

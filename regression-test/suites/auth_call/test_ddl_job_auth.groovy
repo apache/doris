@@ -24,10 +24,12 @@ suite("test_ddl_job_auth","p0,auth_call") {
     String tableName = 'test_ddl_job_auth_tb'
     String tableNameDst = 'test_ddl_job_auth_tb_dst'
     String jobName = 'test_ddl_job_auth_job'
+    String jobNameTest = 'test_ddl_job_auth_job_test'
 
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     try_sql("""DROP JOB where jobName='${jobName}';""")
+    try_sql("""DROP JOB where jobName='${jobNameTest}';""")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
@@ -51,6 +53,9 @@ suite("test_ddl_job_auth","p0,auth_call") {
             );"""
     sql """create table ${dbName}.${tableNameDst} like ${dbName}.${tableName}"""
 
+    // for job pause resume drop
+    sql """CREATE JOB ${jobNameTest} ON SCHEDULE EVERY 1 MINUTE DO INSERT INTO ${dbName}.${tableNameDst} SELECT * FROM ${dbName}.${tableName};"""
+
     // ddl create,show,drop
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
@@ -58,24 +63,27 @@ suite("test_ddl_job_auth","p0,auth_call") {
             exception "denied"
         }
         test {
-            sql """PAUSE JOB where jobname='${jobName}';"""
+            sql """PAUSE JOB where jobname='${jobNameTest}';"""
             exception "denied"
         }
         test {
-            sql """RESUME JOB where jobName= '${jobName}';"""
-            exception "denied"
-        }
-
-        test {
-            sql """DROP JOB where jobName='${jobName}';"""
+            sql """RESUME JOB where jobName= '${jobNameTest}';"""
             exception "denied"
         }
 
         test {
-            sql """select * from jobs("type"="insert") where Name="${jobName}";"""
-            exception "ADMIN priv"
+            sql """DROP JOB where jobName='${jobNameTest}';"""
+            exception "denied"
         }
+
+        def res = sql """select * from jobs("type"="insert") where Name="${jobName}";"""
+        assertTrue(res.size() == 0)
     }
+
+    sql """DROP JOB where jobName='${jobNameTest}';"""
+    def resCnt = sql """select * from jobs("type"="insert") where Name="${jobNameTest}";"""
+    assertTrue(resCnt.size() == 0)
+
     sql """grant admin_priv on *.*.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE JOB ${jobName} ON SCHEDULE AT '2100-01-01 00:00:00' DO INSERT INTO ${dbName}.${tableNameDst} SELECT * FROM ${dbName}.${tableName};"""

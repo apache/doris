@@ -187,6 +187,12 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
     const TQueryOptions& query_options() const { return _query_options; }
+    bool should_be_shuffled_agg(int node_id) const {
+        return _query_options.__isset.shuffled_agg_ids &&
+               std::any_of(_query_options.shuffled_agg_ids.begin(),
+                           _query_options.shuffled_agg_ids.end(),
+                           [&](const int id) -> bool { return id == node_id; });
+    }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()

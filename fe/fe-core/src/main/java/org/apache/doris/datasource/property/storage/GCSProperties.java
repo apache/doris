@@ -184,6 +184,11 @@ public class GCSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("gs");
+    }
+
+    @Override
     public AwsCredentialsProvider getAwsCredentialsProvider() {
         AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
         if (credentialsProvider != null) {

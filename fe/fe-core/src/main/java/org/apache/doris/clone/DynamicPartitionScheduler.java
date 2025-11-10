@@ -45,6 +45,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.AutoBucketCalculator;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -55,7 +56,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.PartitionPersistInfo;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -194,31 +194,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private static Pair<Integer, Integer> getBucketsNum(DynamicPartitionProperty property, OlapTable table,
             String partitionName, String nowPartitionName, boolean executeFirstTime) {
-        // if execute first time, all partitions no contain data
-        if (!table.isAutoBucket() || executeFirstTime) {
-            return Pair.of(property.getBuckets(), 0);
-        }
+        AutoBucketCalculator.AutoBucketContext context = new AutoBucketCalculator.AutoBucketContext(
+                table, partitionName, nowPartitionName, executeFirstTime, property.getBuckets());
 
-        List<Partition> partitions = getHistoricalPartitions(table, nowPartitionName);
-        List<Long> visibleVersions;
-        try {
-            visibleVersions = Partition.getVisibleVersions(partitions);
-        } catch (RpcException e) {
-            LOG.warn("auto bucket use property's buckets get visible version fail, table: [{}-{}], "
-                    + "partition: {}, buckets num: {}, exception: ",
-                    table.getName(), table.getId(), partitionName, property.getBuckets(), e);
-            return Pair.of(property.getBuckets(), 0);
-        }
-
-        List<Partition> hasDataPartitions = filterDataPartitions(partitions, visibleVersions);
-        if (hasDataPartitions.isEmpty()) {
-            return handleNoDataPartitions(table, partitionName, property.getBuckets());
-        }
-
-        return calculateBuckets(hasDataPartitions);
+        AutoBucketCalculator.AutoBucketResult result = AutoBucketCalculator.calculateAutoBuckets(context);
+        return Pair.of(result.getBuckets(), result.getPreviousBuckets());
     }
 
-    private static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName) {
+    public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName) {
         RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
@@ -228,7 +211,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 .collect(Collectors.toList());
     }
 
-    private static List<Partition> filterDataPartitions(List<Partition> partitions, List<Long> visibleVersions) {
+    public static List<Partition> filterDataPartitions(List<Partition> partitions, List<Long> visibleVersions) {
         Preconditions.checkState(partitions.size() == visibleVersions.size(),
                 String.format("partitions size %d not eq visibleVersions size %d, impossible",
                     partitions.size(), visibleVersions.size()));
@@ -241,14 +224,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return hasDataPartitions;
     }
 
-    private static Pair<Integer, Integer> handleNoDataPartitions(OlapTable table,
-                                                                 String partitionName, int defaultBuckets) {
-        LOG.info("auto bucket use property's buckets due to all partitions no data, table: [{}-{}], "
-                + "partition: {}, buckets num: {}", table.getName(), table.getId(), partitionName, defaultBuckets);
-        return Pair.of(defaultBuckets, 0);
-    }
 
-    private static Pair<Integer, Integer> calculateBuckets(List<Partition> hasDataPartitions) {
+    public static Pair<Integer, Integer> calculateBuckets(List<Partition> hasDataPartitions) {
         List<Long> partitionSizeArray = new ArrayList<>();
         List<Long> sizeUnknownArray = new ArrayList<>();
 
@@ -417,7 +394,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return addPartitionClauses;
     }
 
-    private int checkAndFixAutoBucketCalcNumIsValid(int currentPartitionNumBuckets, int previousPartitionNumBuckets,
+    public static int checkAndFixAutoBucketCalcNumIsValid(int currentPartitionNumBuckets,
+                                                    int previousPartitionNumBuckets,
                                                     String tableName, String partitionName) {
         // previousPartitionBucketsNum == 0, some abnormal case, ignore it
         if (currentPartitionNumBuckets != 0) {

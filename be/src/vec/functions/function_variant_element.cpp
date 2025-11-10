@@ -200,13 +200,13 @@ private:
                                     prefix_ref, src_sparse_data_paths, start, end);
                     for (; lower_bound_index != end; ++lower_bound_index) {
                         auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
-                        std::string_view path(path_ref.data, path_ref.size);
-                        if (!path.starts_with(path_prefix)) {
+                        std::string_view nested_path(path_ref.data, path_ref.size);
+                        if (!nested_path.starts_with(path_prefix)) {
                             break;
                         }
                         // Don't include path that is equal to the prefix.
-                        if (path.size() != path_prefix.size()) {
-                            auto sub_path = get_sub_path(path, path_prefix);
+                        if (nested_path.size() != path_prefix.size()) {
+                            auto sub_path = get_sub_path(nested_path, path_prefix);
                             sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
                             sparse_data_values->insert_from(src_sparse_data_values,
                                                             lower_bound_index);
@@ -217,9 +217,8 @@ private:
                             // {"b" : {"c" : 456}}
                             // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
                             // from "" which is empty path and root
-                            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                                    &src_sparse_data_values, lower_bound_index);
-                            root.insert(data.first, data.second);
+                            root.deserialize_from_sparse_column(&src_sparse_data_values,
+                                                                lower_bound_index);
                         }
                     }
                     if (root.size() == sparse_data_offsets.size()) {
@@ -283,8 +282,8 @@ private:
                                         const std::vector<JsonPath>& paths, ColumnString* column) {
         try {
             simdjson::padded_string json_str {doc.data, doc.size};
-            simdjson::ondemand::document doc = parser.iterate(json_str);
-            simdjson::ondemand::object object = doc.get_object();
+            simdjson::ondemand::document document = parser.iterate(json_str);
+            simdjson::ondemand::object object = document.get_object();
             simdjson::ondemand::value value;
             RETURN_IF_ERROR(JsonFunctions::extract_from_object(object, paths, &value));
             _write_data_to_column(value, column);

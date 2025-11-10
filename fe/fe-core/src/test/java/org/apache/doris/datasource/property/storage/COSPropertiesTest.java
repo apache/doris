@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -175,5 +176,20 @@ public class COSPropertiesTest {
         props.put("cos.secret_key", "mySecretKey");
         obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+    }
+
+    @Test
+    public void testS3DisableHadoopCache() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        COSProperties s3Properties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cos.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cosn.impl.disable.cache"));
+        props.put("fs.cos.impl.disable.cache", "true");
+        props.put("fs.cosn.impl.disable.cache", "false");
+        s3Properties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cos.impl.disable.cache"));
+        Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.cosn.impl.disable.cache"));
     }
 }

@@ -34,6 +34,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
@@ -87,16 +88,20 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                     // base is a single file
                     offset.setFileLists(filePathBase);
                     String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
+                    offset.setStartFile(lastFile);
                     offset.setEndFile(lastFile);
                 } else {
                     // base is dir
                     String normalizedPrefix = basePrefix.endsWith("/")
                             ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
                     String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, normalizedPrefix, joined);
+                    String beginFile = rfiles.get(0).getName().replace(bucketBase, "");
                     String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
                     offset.setFileLists(finalFileLists);
+                    offset.setStartFile(beginFile);
                     offset.setEndFile(lastFile);
                 }
+                offset.setFileNum(rfiles.size());
                 maxEndFile = globListResult.getMaxFile();
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
@@ -111,16 +116,21 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public String getShowCurrentOffset() {
         if (currentOffset != null) {
-            return currentOffset.toSerializedJson();
+            Map<String, String> res = new HashMap<>();
+            res.put("fileName", currentOffset.getEndFile());
+            return new Gson().toJson(res);
         }
         return null;
     }
 
     @Override
     public String getShowMaxOffset() {
-        Map<String, String> res = new HashMap<>();
-        res.put("endFile", maxEndFile);
-        return new Gson().toJson(res);
+        if (maxEndFile != null) {
+            Map<String, String> res = new HashMap<>();
+            res.put("fileName", maxEndFile);
+            return new Gson().toJson(res);
+        }
+        return null;
     }
 
     @Override
@@ -164,8 +174,6 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             GlobListResult globListResult = fileSystem.globListWithLimit(filePath, objects, startFile, 1, 1);
             if (globListResult != null && !objects.isEmpty() && StringUtils.isNotEmpty(globListResult.getMaxFile())) {
                 maxEndFile = globListResult.getMaxFile();
-            } else {
-                maxEndFile = startFile;
             }
         } catch (Exception e) {
             throw e;
@@ -174,10 +182,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (currentOffset == null) {
+        if (currentOffset == null || currentOffset.endFile == null) {
             return true;
         }
-        if (currentOffset.endFile.compareTo(maxEndFile) < 0) {
+
+        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
             return true;
         }
         return false;
@@ -186,5 +195,30 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public Offset deserializeOffset(String offset) {
         return GsonUtils.GSON.fromJson(offset, S3Offset.class);
+    }
+
+    /**
+     * {"fileName": 1.csv} => S3Offset(endFile=1.csv)
+     */
+    @Override
+    public Offset deserializeOffsetProperty(String offset) {
+        if (StringUtils.isBlank(offset)) {
+            return null;
+        }
+        Map<String, String> offsetMap =
+                GsonUtils.GSON.fromJson(offset, new TypeToken<HashMap<String, String>>() {}.getType());
+
+        if (offsetMap == null || offsetMap.isEmpty()) {
+            return null;
+        }
+
+        String fileName = offsetMap.get("fileName");
+        if (StringUtils.isBlank(fileName)) {
+            return null;
+        }
+
+        S3Offset s3Offset = new S3Offset();
+        s3Offset.setEndFile(fileName);
+        return s3Offset;
     }
 }

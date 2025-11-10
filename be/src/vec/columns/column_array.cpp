@@ -291,7 +291,7 @@ size_t ColumnArray::get_max_row_byte_size() const {
     return sizeof(size_t) + max_size;
 }
 
-void ColumnArray::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnArray::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
@@ -310,7 +310,7 @@ size_t ColumnArray::deserialize_impl(const char* pos) {
     return sz;
 }
 
-void ColumnArray::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnArray::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;

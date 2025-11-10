@@ -75,7 +75,7 @@ while true; do
         shift 2
         ;;
     --cluster_snapshot)
-        CLUSTER_SNAPSHOT="--cluster_snapshot $2"
+        CLUSTER_SNAPSHOT="-cluster_snapshot $2"
         shift 2
         ;;
     --)

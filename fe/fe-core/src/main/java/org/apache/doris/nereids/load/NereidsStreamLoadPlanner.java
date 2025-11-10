@@ -56,6 +56,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -191,7 +192,7 @@ public class NereidsStreamLoadPlanner {
                     }
                 }
 
-                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                if (CollectionUtils.isNotEmpty(col.getGeneratedColumnsThatReferToThis())
                         && col.getGeneratedColumnInfo() == null && !existInExpr) {
                     throw new UserException("Partial update should include"
                             + " all ordinary columns referenced"
@@ -311,6 +312,7 @@ public class NereidsStreamLoadPlanner {
                 ? taskInfo.isMemtableOnSinkNode()
                 : false;
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+        queryOptions.setNewVersionUnixTimestamp(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

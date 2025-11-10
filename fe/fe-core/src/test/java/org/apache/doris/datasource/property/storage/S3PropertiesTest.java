@@ -423,4 +423,21 @@ public class S3PropertiesTest {
         Assertions.assertEquals(AwsCredentialsProviderChain.class, provider.getClass());
         Config.aws_credentials_provider_version = "v2";
     }
+
+    @Test
+    public void testS3DisableHadoopCache() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3a.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
+        props.put("fs.s3a.impl.disable.cache", "true");
+        props.put("fs.s3.impl.disable.cache", "false");
+        props.put("fs.s3n.impl.disable.cache", "null");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3a.impl.disable.cache"));
+        Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertEquals("false", s3Properties.hadoopStorageConfig.get("fs.s3n.impl.disable.cache"));
+    }
 }

@@ -118,7 +118,7 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }

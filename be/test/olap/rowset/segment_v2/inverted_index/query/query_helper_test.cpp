@@ -40,6 +40,10 @@ public:
                                     const std::wstring& field_name,
                                     const std::wstring& term) override {}
 
+    MOCK_FUNCTION void for_terms(const IndexQueryContextPtr& context,
+                                 const std::wstring& field_name,
+                                 const std::vector<std::wstring>& terms) override {}
+
     MOCK_FUNCTION float score(float freq, int64_t encoded_norm) override { return _score_value; }
 
 private:

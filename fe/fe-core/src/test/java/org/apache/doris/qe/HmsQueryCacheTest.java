@@ -128,7 +128,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         setField(hmsCatalog, "initialized", true);
         setField(hmsCatalog, "objectCreated", true);
-        setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));

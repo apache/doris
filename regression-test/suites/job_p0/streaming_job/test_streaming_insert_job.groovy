@@ -65,7 +65,7 @@ suite("test_streaming_insert_job") {
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
-                    def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
+                    def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                     log.info("jobSuccendCount: " + jobSuccendCount)
                     // check job status and succeed task count larger than 2
                     jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
@@ -88,12 +88,12 @@ suite("test_streaming_insert_job") {
         PAUSE JOB where jobname =  '${jobName}'
     """
     def pausedJobStatus = sql """
-        select status from jobs("type"="insert") where Name='${jobName}'
+        select status, SucceedTaskCount + FailedTaskCount + CanceledTaskCount from jobs("type"="insert") where Name='${jobName}'
     """
     assert pausedJobStatus.get(0).get(0) == "PAUSED"
 
-    def pauseShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-    assert pauseShowTask.size() == 0
+    def pauseShowTask = sql """select count(1) from tasks("type"="insert") where JobName='${jobName}'"""
+    assert pauseShowTask.get(0).get(0) == pausedJobStatus.get(0).get(1)
 
     // check encrypt sk
     def jobExecuteSQL = sql """
@@ -106,10 +106,20 @@ suite("test_streaming_insert_job") {
         select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
     """
     log.info("jobInfo: " + jobInfo)
-    assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
-    
+    assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+    assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+    assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
+
+    def showTask = sql """select * from tasks("type"="insert") where jobName='${jobName}'"""
+    log.info("showTask is : " + showTask )
+
+    // check task show
+    def taskInfo = sql """select Status,RunningOffset from tasks("type"="insert") where jobName='${jobName}'"""
+    log.info("taskInfo is : " + taskInfo + ", size: " + taskInfo.size())
+    assert taskInfo.size() > 0
+    assert taskInfo.get(taskInfo.size()-1).get(0) == "SUCCESS"
+    assert taskInfo.get(taskInfo.size()-1).get(1) == "{\"startFileName\":\"regression/load/data/example_0.csv\",\"endFileName\":\"regression/load/data/example_0.csv\"}"
+
     // alter streaming job
     sql """
        ALTER JOB ${jobName}
@@ -135,25 +145,28 @@ suite("test_streaming_insert_job") {
     """
     assert alterJobProperties.get(0).get(0) == "PAUSED"
     assert alterJobProperties.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
-    assert alterJobProperties.get(0).get(2) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert alterJobProperties.get(0).get(2) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
 
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
     def resumeJobStatus = sql """
-        select status,properties,currentOffset from jobs("type"="insert") where Name='${jobName}'
+        select status,properties,currentOffset, SucceedTaskCount + FailedTaskCount + CanceledTaskCount from jobs("type"="insert") where Name='${jobName}'
     """
     assert resumeJobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
     assert resumeJobStatus.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
-    assert resumeJobStatus.get(0).get(2) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert resumeJobStatus.get(0).get(2) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+
 
     Awaitility.await().atMost(60, SECONDS)
             .pollInterval(1, SECONDS).until(
             {
                 print("check create streaming task count")
-                def resumeShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-                // check streaming task create success
-                resumeShowTask.size() == 1
+                def resumeShowTask = sql """select count(1) from tasks("type"="insert") where JobName='${jobName}'"""
+                def lastTaskStatus = sql """select status from tasks("type"="insert") where JobName='${jobName}' limit 1 """
+                // A new task is generated
+                resumeShowTask.get(0).get(0) > resumeJobStatus.get(0).get(3) &&
+                        ( lastTaskStatus.get(0).get(0) == "PENDING" || lastTaskStatus.get(0).get(0) == "RUNNING" )
             }
     )
 

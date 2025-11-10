@@ -691,8 +691,9 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
      * shuffled local exchanger will be used before join so it is not followed by shuffle join.
      */
     auto require_shuffled_data_distribution =
-            cur_pipe->operators().empty() ? cur_pipe->sink()->require_shuffled_data_distribution()
-                                          : op->require_shuffled_data_distribution();
+            cur_pipe->operators().empty()
+                    ? cur_pipe->sink()->require_shuffled_data_distribution(_runtime_state.get())
+                    : op->require_shuffled_data_distribution(_runtime_state.get());
     current_followed_by_shuffled_operator =
             (followed_by_shuffled_operator || op->is_shuffled_operator()) &&
             require_shuffled_data_distribution;
@@ -936,7 +937,7 @@ Status PipelineFragmentContext::_plan_local_exchange(
         int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx,
         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     for (int pip_idx = cast_set<int>(_pipelines.size()) - 1; pip_idx >= 0; pip_idx--) {
-        _pipelines[pip_idx]->init_data_distribution();
+        _pipelines[pip_idx]->init_data_distribution(_runtime_state.get());
         // Set property if child pipeline is not join operator's child.
         if (!_pipelines[pip_idx]->children().empty()) {
             for (auto& child : _pipelines[pip_idx]->children()) {
@@ -968,11 +969,12 @@ Status PipelineFragmentContext::_plan_local_exchange(
         do_local_exchange = false;
         // Plan local exchange for each operator.
         for (; idx < ops.size();) {
-            if (ops[idx]->required_data_distribution().need_local_exchange()) {
+            if (ops[idx]->required_data_distribution(_runtime_state.get()).need_local_exchange()) {
                 RETURN_IF_ERROR(_add_local_exchange(
                         pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip,
-                        ops[idx]->required_data_distribution(), &do_local_exchange, num_buckets,
-                        bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
+                        ops[idx]->required_data_distribution(_runtime_state.get()),
+                        &do_local_exchange, num_buckets, bucket_seq_to_instance_idx,
+                        shuffle_idx_to_instance_idx));
             }
             if (do_local_exchange) {
                 // If local exchange is needed for current operator, we will split this pipeline to
@@ -985,11 +987,11 @@ Status PipelineFragmentContext::_plan_local_exchange(
             idx++;
         }
     } while (do_local_exchange);
-    if (pip->sink()->required_data_distribution().need_local_exchange()) {
+    if (pip->sink()->required_data_distribution(_runtime_state.get()).need_local_exchange()) {
         RETURN_IF_ERROR(_add_local_exchange(
                 pip_idx, idx, pip->sink()->node_id(), _runtime_state->obj_pool(), pip,
-                pip->sink()->required_data_distribution(), &do_local_exchange, num_buckets,
-                bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
+                pip->sink()->required_data_distribution(_runtime_state.get()), &do_local_exchange,
+                num_buckets, bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
     }
     return Status::OK();
 }
@@ -1317,14 +1319,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
-                op = std::make_shared<StreamingAggOperatorX>(pool, next_operator_id(), tnode,
-                                                             descs);
+                op = std::make_shared<StreamingAggOperatorX>(pool, next_operator_id(), tnode, descs,
+                                                             _require_bucket_distribution);
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
                 RETURN_IF_ERROR(new_pipe->add_operator(op, _parallel_instances));
                 cur_pipe = new_pipe;
             } else {
-                op = std::make_shared<StreamingAggOperatorX>(pool, next_operator_id(), tnode,
-                                                             descs);
+                op = std::make_shared<StreamingAggOperatorX>(pool, next_operator_id(), tnode, descs,
+                                                             _require_bucket_distribution);
                 RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
             }
         } else {

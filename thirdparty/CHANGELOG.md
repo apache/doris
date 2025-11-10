@@ -2,6 +2,17 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20251031
+
+- Modified: librdkafka 1.9.2 -> 2.11.0
+
+## 20251021
+
+- Modified: gtest 1.11.0 -> 1.12.1
+- Modified: zstd 1.5.5 -> 1.5.7
+- Modified: cctz 2.3 -> 2.5
+- Added: hadoop-libs 3.4.2.1
+
 ## 20250720
 
 - Modified: zlib 1.2.11 -> 1.3.1

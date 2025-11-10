@@ -70,6 +70,8 @@ public:
 
     StringRef get_data_at(size_t n) const override { return _data[n].to_string_ref(); }
 
+    char* alloc(size_t length) { return _arena.alloc(length); }
+
     void insert(const Field& x) override {
         auto value = vectorized::get<const doris::StringView&>(x);
         insert_data(value.data(), value.size());
@@ -100,6 +102,12 @@ public:
     }
 
     void insert_default() override { _data.push_back(doris::StringView()); }
+
+    int compare_at(size_t n, size_t m, const IColumn& rhs_,
+                   int /*nan_direction_hint*/) const override {
+        const ColumnVarbinary& rhs = assert_cast<const ColumnVarbinary&>(rhs_);
+        return this->_data[n].compare(rhs.get_data()[m]);
+    }
 
     void pop_back(size_t n) override { resize(size() - n); }
 

@@ -106,9 +106,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
     {
         do {
-            // if step 2 filter all rows of block, and block will be reused to get next rows,
-            // must clear row_same_bit of block, or will get wrong row_same_bit.size() which not equal block.rows()
-            block->clear_same_bit();
             // 1. Get input block from scanner
             {
                 // get block time
@@ -231,20 +228,21 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
 }
 
 Status Scanner::close(RuntimeState* state) {
-    if (_is_closed) {
-        return Status::OK();
-    }
 #ifndef BE_TEST
     COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
 #endif
-    _is_closed = true;
     return Status::OK();
+}
+
+bool Scanner::_try_close() {
+    bool expected = false;
+    return _is_closed.compare_exchange_strong(expected, true);
 }
 
 void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
-    if (!_state->enable_profile() && !_is_load) return;
+
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);

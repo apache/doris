@@ -20,12 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class BrokerProperties extends StorageProperties {
 
@@ -92,6 +94,12 @@ public class BrokerProperties extends StorageProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         // do nothing
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        //not used
+        return ImmutableSet.of();
     }
 
     private Map<String, String> extractBrokerProperties() {

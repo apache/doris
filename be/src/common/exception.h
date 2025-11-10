@@ -120,7 +120,7 @@ inline const std::string& Exception::to_string() const {
     do {                                                                                         \
         try {                                                                                    \
             doris::enable_thread_catch_bad_alloc++;                                              \
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            Defer macro_defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};               \
             { stmt; }                                                                            \
         } catch (const doris::Exception& e) {                                                    \
             if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \

@@ -52,6 +52,7 @@ struct TColumn {
     22: optional bool variant_enable_typed_paths_to_sparse = false
     23: optional bool is_on_update_current_timestamp = false
     24: optional i32 variant_max_sparse_column_statistics_size = 10000
+    25: optional i32 variant_sparse_hash_shard_count
 }
 
 struct TSlotDescriptor {
@@ -159,6 +160,8 @@ enum TSchemaTableType {
     SCH_CLUSTER_SNAPSHOTS = 60;
     SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
     SCH_BLACKHOLE = 62;
+    SCH_COLUMN_DATA_SIZES = 63;
+    SCH_LOAD_JOBS = 64;
 }
 
 enum THdfsCompression {
@@ -412,6 +415,12 @@ struct TLakeSoulTable {
 struct TDictionaryTable {
 }
 
+struct TRemoteDorisTable {
+  1: optional string db_name
+  2: optional string table_name
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -438,6 +447,7 @@ struct TTableDescriptor {
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
   24: optional TDictionaryTable dictionaryTable
+  25: optional TRemoteDorisTable remoteDorisTable
 }
 
 struct TDescriptorTable {

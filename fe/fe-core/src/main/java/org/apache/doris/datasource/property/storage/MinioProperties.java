@@ -136,4 +136,9 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
             throw new IllegalArgumentException("Property minio.endpoint is required.");
         }
     }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("s3");
+    }
 }

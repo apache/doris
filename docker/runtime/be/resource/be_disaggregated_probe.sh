@@ -75,15 +75,17 @@ ready_probe_with_tls()
 
     if [[ "$http_code" != "200" ]]; then
         exit 1
-    fi
-
-    local res=$(echo "$response" | sed '$d')
-    local status=$(jq -r ".status" <<< $res)
-    if [[ "x$status" == "xOK" ]]; then
-        exit 0
     else
-        exit 1
+        exit 0
     fi
+#
+#    local res=$(echo "$response" | sed '$d')
+#    local status=$(jq -r ".status" <<< $res)
+#    if [[ "x$status" == "xOK" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
 }
 
 ready_probe_with_no_tls()
@@ -98,15 +100,18 @@ ready_probe_with_no_tls()
 
     if [[ "$http_code" != "200" ]]; then
         exit 1
-    fi
-
-    local res=$(echo "$response" | sed '$d')
-    local status=$(jq -r ".status" <<< $res)
-    if [[ "x$status" == "xOK" ]]; then
-        exit 0
     else
-        exit 1
+        exit 0
     fi
+#    fi
+#
+#    local res=$(echo "$response" | sed '$d')
+#    local status=$(jq -r ".status" <<< $res)
+#    if [[ "x$status" == "xOK" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
 }
 
 function ready_probe()

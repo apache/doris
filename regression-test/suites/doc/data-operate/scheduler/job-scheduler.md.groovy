@@ -74,7 +74,7 @@ suite("docs/data-operate/scheduler/job-scheduler.md", "p0,external,mysql,externa
             def mysql_port = context.config.otherConfigs.get("mysql_57_port")
             String s3_endpoint = getS3Endpoint()
             String bucket = getS3BucketName()
-            String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+            String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
             String driver_class = "com.mysql.cj.jdbc.Driver"
 
             multi_sql """

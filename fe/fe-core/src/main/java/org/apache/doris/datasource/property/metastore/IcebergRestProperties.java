@@ -21,10 +21,10 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -49,6 +49,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
 
+    @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
             description = "The uri of the iceberg rest catalog service.")
     private String icebergRestUri = "";
@@ -200,11 +201,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         ParamRules rules = new ParamRules()
                 // OAuth2 requires either credential or token, but not both
                 .mutuallyExclusive(icebergRestOauth2Credential, icebergRestOauth2Token,
-                        "OAuth2 cannot have both credential and token configured")
-                // If using credential flow, server URI is required
-                .requireAllIfPresent(icebergRestOauth2Credential,
-                        new String[] {icebergRestOauth2ServerUri},
-                        "OAuth2 credential flow requires server-uri");
+                        "OAuth2 cannot have both credential and token configured");
 
         // Custom validation: OAuth2 scope should not be used with token
         if (Strings.isNotBlank(icebergRestOauth2Token) && Strings.isNotBlank(icebergRestOauth2Scope)) {
@@ -274,7 +271,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
-            icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
+            if (Strings.isNotBlank(icebergRestOauth2ServerUri)) {
+                icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
+            }
             if (Strings.isNotBlank(icebergRestOauth2Scope)) {
                 icebergRestCatalogProperties.put(OAuth2Properties.SCOPE, icebergRestOauth2Scope);
             }
@@ -322,14 +321,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Map<String, String> fileIOProperties, Configuration conf) {
 
         for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties instanceof HdfsCompatibleProperties) {
-                storageProperties.getBackendConfigProperties().forEach(conf::set);
-            } else if (storageProperties instanceof AbstractS3CompatibleProperties) {
+            if (storageProperties instanceof AbstractS3CompatibleProperties) {
                 // For all S3-compatible storage types, put properties in fileIOProperties map
                 toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
             } else {
                 // For other storage types, just use fileIOProperties map
-                fileIOProperties.putAll(storageProperties.getBackendConfigProperties());
+                storageProperties.getBackendConfigProperties().forEach(conf::set);
             }
         }
 

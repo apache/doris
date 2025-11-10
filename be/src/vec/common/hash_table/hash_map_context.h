@@ -252,7 +252,7 @@ struct MethodSerialized : public MethodBase<TData> {
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(input_keys.data(), num_rows);
+                column->serialize(input_keys.data(), num_rows);
             }
         }
         Base::keys = input_keys.data();
@@ -281,7 +281,7 @@ struct MethodSerialized : public MethodBase<TData> {
     void insert_keys_into_columns(std::vector<StringRef>& input_keys, MutableColumns& key_columns,
                                   const uint32_t num_rows) override {
         for (auto& column : key_columns) {
-            column->deserialize_vec(input_keys.data(), num_rows);
+            column->deserialize(input_keys.data(), num_rows);
         }
     }
 };

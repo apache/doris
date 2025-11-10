@@ -114,7 +114,8 @@ Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
     *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
 }
 
-Status Block::deserialize(const PBlock& pblock) {
+Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
+                          int64_t* decompress_time) {
     swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
@@ -123,7 +124,7 @@ Status Block::deserialize(const PBlock& pblock) {
     std::string compression_scratch;
     if (pblock.compressed()) {
         // Decompress
-        SCOPED_RAW_TIMER(&_decompress_time_ns);
+        SCOPED_RAW_TIMER(decompress_time);
         const char* compressed_data = pblock.column_values().c_str();
         size_t compressed_size = pblock.column_values().size();
         size_t uncompressed_size = 0;
@@ -146,7 +147,7 @@ Status Block::deserialize(const PBlock& pblock) {
                                             compression_scratch.data());
             DCHECK(success) << "snappy::RawUncompress failed";
         }
-        _decompressed_bytes = uncompressed_size;
+        *uncompressed_bytes = uncompressed_size;
         buf = compression_scratch.data();
     } else {
         buf = pblock.column_values().data();
@@ -244,9 +245,6 @@ void Block::erase_tail(size_t start) {
             ++it;
         }
     }
-    if (start < row_same_bit.size()) {
-        row_same_bit.erase(row_same_bit.begin() + start, row_same_bit.end());
-    }
 }
 
 void Block::erase(size_t position) {
@@ -277,9 +275,6 @@ void Block::erase_impl(size_t position) {
                 ++it;
             }
         }
-    }
-    if (position < row_same_bit.size()) {
-        row_same_bit.erase(row_same_bit.begin() + position);
     }
 }
 
@@ -433,9 +428,6 @@ void Block::set_num_rows(size_t length) {
                 elem.column = elem.column->shrink(length);
             }
         }
-        if (length < row_same_bit.size()) {
-            row_same_bit.resize(length);
-        }
     }
 }
 
@@ -449,9 +441,6 @@ void Block::skip_num_rows(int64_t& length) {
             if (elem.column) {
                 elem.column = elem.column->cut(length, origin_rows - length);
             }
-        }
-        if (length < row_same_bit.size()) {
-            row_same_bit.assign(row_same_bit.begin() + length, row_same_bit.end());
         }
     }
 }
@@ -783,7 +772,6 @@ DataTypes Block::get_data_types() const {
 void Block::clear() {
     data.clear();
     index_by_name.clear();
-    row_same_bit.clear();
 }
 
 void Block::clear_column_data(int64_t column_size) noexcept {
@@ -802,7 +790,6 @@ void Block::clear_column_data(int64_t column_size) noexcept {
             (*std::move(d.column)).assume_mutable()->clear();
         }
     }
-    row_same_bit.clear();
 }
 
 void Block::erase_tmp_columns() noexcept {
@@ -836,14 +823,12 @@ void Block::swap(Block& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
-    row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     data = std::move(other.data);
     index_by_name = std::move(other.index_by_name);
-    row_same_bit = std::move(other.row_same_bit);
 }
 
 void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
@@ -976,7 +961,8 @@ Status Block::filter_block(Block* block, size_t filter_column_id, size_t column_
 
 Status Block::serialize(int be_exec_version, PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
-                        size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
+                        size_t* compressed_bytes, int64_t* compress_time,
+                        segment_v2::CompressionTypePB compression_type,
                         bool allow_transfer_large_data) const {
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
     pblock->set_be_exec_version(be_exec_version);
@@ -1016,7 +1002,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
-        SCOPED_RAW_TIMER(&_compress_time_ns);
+        SCOPED_RAW_TIMER(compress_time);
         pblock->set_compression_type(compression_type);
         pblock->set_uncompressed_size(serialize_bytes);
 
@@ -1167,9 +1153,6 @@ void MutableBlock::erase(const String& name) {
             ++it;
         }
     }
-    // if (position < row_same_bit.size()) {
-    //     row_same_bit.erase(row_same_bit.begin() + position);
-    // }
 }
 
 Block MutableBlock::to_block(int start_column) {

@@ -302,7 +302,12 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            const std::unordered_map<vectorized::VExprContext*,
+                                     std::unordered_map<ColumnId, vectorized::VExpr*>>&
+                    common_expr_to_slotref_map,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+
+    uint64_t get_digest(uint64_t seed) const;
 
 private:
     // Close method is called in vexpr context dector, not need call expicility

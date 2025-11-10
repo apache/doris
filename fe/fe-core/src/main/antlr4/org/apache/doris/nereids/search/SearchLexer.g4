@@ -48,6 +48,7 @@ NOT : 'NOT' | 'not' | '!' ;
 LPAREN   : '(' ;
 RPAREN   : ')' ;
 COLON    : ':' ;
+DOT      : '.' ;  // Support for variant subcolumn access (e.g., field.subcolumn)
 
 QUOTED   : '"' QUOTED_CHAR* '"' ;
 TERM     : TERM_START_CHAR TERM_CHAR* ;

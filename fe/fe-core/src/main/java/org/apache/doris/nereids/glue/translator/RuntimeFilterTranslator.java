@@ -36,7 +36,6 @@ import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
@@ -132,7 +131,7 @@ public class RuntimeFilterTranslator {
 
                 // adjust data type
                 if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-                    targetExpr = new CastExpr(src.getType(), targetExpr);
+                    targetExpr = new CastExpr(src.getType(), targetExpr, null);
                 }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
@@ -164,7 +163,7 @@ public class RuntimeFilterTranslator {
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
-                scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)
+                scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {
                             DataStreamSink sink = context.getPlanNodeIdToCTEDataSinkMap().get(f.getId());
                             if (sink != null) {

@@ -289,49 +289,55 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testAnalyzeInvertedIndexFileStorageFormat() throws AnalysisException {
-        TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
-
-        Config.inverted_index_storage_format = "V1";
-        result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(new HashMap<>());
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
-
-        Map<String, String> propertiesWithV1 = new HashMap<>();
-        propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
-        result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1);
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
-
-        Map<String, String> propertiesWithV2 = new HashMap<>();
-        propertiesWithV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v2");
-        result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV2);
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
-
-        Map<String, String> propertiesWithV3 = new HashMap<>();
-        propertiesWithV3.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v3");
-        result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV3);
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
-
-        Config.inverted_index_storage_format = "V1";
-        Map<String, String> propertiesWithDefaultV1 = new HashMap<>();
-        propertiesWithDefaultV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
-        result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV1);
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
-
-        Config.inverted_index_storage_format = "V2";
-        Map<String, String> propertiesWithDefaultV2 = new HashMap<>();
-        propertiesWithDefaultV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
-        result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV2);
-        Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
-
-        Map<String, String> propertiesWithUnknown = new HashMap<>();
-        propertiesWithUnknown.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "unknown_format");
+        String originFormat = Config.inverted_index_storage_format;
         try {
-            PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithUnknown);
-            Assertions.fail("Expected AnalysisException was not thrown");
-        } catch (AnalysisException e) {
-            Assertions.assertEquals(
-                    "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
-                    e.getMessage());
+            Config.inverted_index_storage_format = "V3";
+            TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
+
+            Config.inverted_index_storage_format = "V1";
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(new HashMap<>());
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+
+            Map<String, String> propertiesWithV1 = new HashMap<>();
+            propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+
+            Map<String, String> propertiesWithV2 = new HashMap<>();
+            propertiesWithV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v2");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV2);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+
+            Map<String, String> propertiesWithV3 = new HashMap<>();
+            propertiesWithV3.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v3");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV3);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
+
+            Config.inverted_index_storage_format = "V1";
+            Map<String, String> propertiesWithDefaultV1 = new HashMap<>();
+            propertiesWithDefaultV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV1);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+
+            Config.inverted_index_storage_format = "V2";
+            Map<String, String> propertiesWithDefaultV2 = new HashMap<>();
+            propertiesWithDefaultV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV2);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+
+            Map<String, String> propertiesWithUnknown = new HashMap<>();
+            propertiesWithUnknown.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "unknown_format");
+            try {
+                PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithUnknown);
+                Assertions.fail("Expected AnalysisException was not thrown");
+            } catch (AnalysisException e) {
+                Assertions.assertEquals(
+                        "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
+                        e.getMessage());
+            }
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
         }
     }
 

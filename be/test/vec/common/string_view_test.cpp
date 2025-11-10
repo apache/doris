@@ -246,4 +246,101 @@ TEST_F(StringViewTest, DumpHex) {
     EXPECT_EQ(svb.dump_hex(), oss.str());
 }
 
+// Verify inline strings with length > 4 correctly store and compare tail bytes
+TEST_F(StringViewTest, InlineTailBytesAndEquality) {
+    std::string s1 = "abcdEFGHIJ"; // len=10, inline
+    std::string s2 = "abcdEFGHIQ"; // same prefix, differ at last byte
+    StringView v1(s1);
+    StringView v2(s2);
+    ASSERT_TRUE(v1.isInline());
+    ASSERT_TRUE(v2.isInline());
+
+    // Full content preserved
+    EXPECT_EQ(static_cast<std::string>(v1), s1);
+    // operator== must detect tail difference
+    EXPECT_FALSE(v1 == v2);
+    EXPECT_NE(v1.compare(v2), 0);
+}
+
+// Cover constructors from std::string_view and unsigned char*, and high-bytes dump
+TEST_F(StringViewTest, StringViewAndUnsignedCtorAndHighHex) {
+    // std::string_view ctor (inline boundary)
+    std::string inl = std::string(12, '\xAB');
+    std::string_view svw(inl);
+    StringView v_inl(svw);
+    EXPECT_TRUE(v_inl.isInline());
+    EXPECT_EQ(::memcmp(v_inl.data(), inl.data(), inl.size()), 0);
+
+    // unsigned char* ctor with >0x7F bytes to check sign issues in dump_hex
+    std::vector<uint8_t> bytes = {0x80, 0xFF, 0x00, 0x7F};
+    StringView v_unsigned(reinterpret_cast<unsigned char*>(bytes.data()),
+                          static_cast<uint32_t>(bytes.size()));
+    EXPECT_TRUE(v_unsigned.isInline());
+    EXPECT_EQ(v_unsigned.dump_hex(), "X'80FF007F'");
+}
+
+// Construct from nullptr with zero length should be a valid empty inline view
+TEST_F(StringViewTest, NullPtrZeroLenCtor) {
+    StringView v(static_cast<const char*>(nullptr), 0);
+    EXPECT_TRUE(v.empty());
+    EXPECT_TRUE(v.isInline());
+    EXPECT_EQ(v.size(), 0U);
+    // stream and string conversions should yield empty
+    std::ostringstream oss;
+    oss << v;
+    EXPECT_TRUE(oss.str().empty());
+    EXPECT_TRUE(static_cast<std::string>(v).empty());
+}
+
+// Compare where both sides share prefix but decision comes from length after prefix (inline)
+TEST_F(StringViewTest, CompareAfterPrefixInlineLength) {
+    std::string a = "abcdEF";   // len=6
+    std::string b = "abcdEFGH"; // len=8, starts with a
+    StringView va(a), vb(b);
+    ASSERT_TRUE(va.isInline());
+    ASSERT_TRUE(vb.isInline());
+    EXPECT_LT(va.compare(vb), 0);
+    EXPECT_TRUE((va <=> vb) == std::strong_ordering::less);
+}
+
+// Same as above but with non-inline strings
+TEST_F(StringViewTest, CompareAfterPrefixNonInlineLength) {
+    std::string base = make_bytes(24, 0x41); // >=13 => non-inline
+    std::string short_s = base.substr(0, 20);
+    std::string long_s = short_s + "ZZ"; // same prefix, longer
+    StringView vs(short_s), vl(long_s);
+    ASSERT_FALSE(vs.isInline());
+    ASSERT_FALSE(vl.isInline());
+    EXPECT_LT(vs.compare(vl), 0);
+    EXPECT_TRUE((vs <=> vl) == std::strong_ordering::less);
+}
+
+// Non-inline copy semantics: copying should keep pointer identity and equality
+TEST_F(StringViewTest, NonInlineCopySemanticsAndIteration) {
+    std::string big = make_bytes(32, 0x21);
+    StringView a(big);
+    StringView b = a; // copy
+    ASSERT_FALSE(a.isInline());
+    ASSERT_FALSE(b.isInline());
+    EXPECT_EQ(a.data(), b.data());
+    EXPECT_TRUE(a == b);
+
+    // Iteration reconstructs the same bytes
+    std::string via_iter(a.begin(), a.end());
+    EXPECT_EQ(via_iter.size(), big.size());
+    EXPECT_EQ(::memcmp(via_iter.data(), big.data(), big.size()), 0);
+}
+
+// operator== should also detect non-inline tail differences (not only compare())
+TEST_F(StringViewTest, NonInlineEqualityDetectsTailDiff) {
+    std::string s1 = make_bytes(20, 0x30);
+    std::string s2 = s1;
+    s2[10] ^= 0x1; // differ after prefix
+    StringView v1(s1), v2(s2);
+    ASSERT_FALSE(v1.isInline());
+    ASSERT_FALSE(v2.isInline());
+    EXPECT_FALSE(v1 == v2);
+    EXPECT_NE(v1.compare(v2), 0);
+}
+
 } // namespace doris

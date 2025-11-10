@@ -20,18 +20,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,15 +40,6 @@ public class CompoundPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(CompoundPredicate.class);
     @SerializedName("op")
     private Operator op;
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
-    }
 
     private CompoundPredicate() {
         // use for serde only
@@ -163,40 +149,6 @@ public class CompoundPredicate extends Predicate {
         Expr negatedRight = getChild(1).negate();
         Operator newOp = (op == Operator.OR) ? Operator.AND : Operator.OR;
         return new CompoundPredicate(newOp, negatedLeft, negatedRight);
-    }
-
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        recursiveResetChildrenResult(forPushDownPredicatesToView);
-        boolean compoundResult = false;
-        if (op == Operator.NOT) {
-            final Expr childValue = getChild(0);
-            if (!(childValue instanceof BoolLiteral)) {
-                return this;
-            }
-            final BoolLiteral boolChild = (BoolLiteral) childValue;
-            compoundResult = !boolChild.getValue();
-        } else {
-            final Expr leftChildValue = getChild(0);
-            final Expr rightChildValue = getChild(1);
-            if (!(leftChildValue instanceof BoolLiteral)
-                    || !(rightChildValue instanceof BoolLiteral)) {
-                return this;
-            }
-            final BoolLiteral leftBoolValue = (BoolLiteral) leftChildValue;
-            final BoolLiteral rightBoolValue = (BoolLiteral) rightChildValue;
-            switch (op) {
-                case AND:
-                    compoundResult = leftBoolValue.getValue() && rightBoolValue.getValue();
-                    break;
-                case OR:
-                    compoundResult = leftBoolValue.getValue() || rightBoolValue.getValue();
-                    break;
-                default:
-                    Preconditions.checkState(false, "No defined binary operator.");
-            }
-        }
-        return new BoolLiteral(compoundResult);
     }
 
     @Override

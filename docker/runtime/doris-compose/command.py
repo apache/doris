@@ -462,6 +462,35 @@ class UpCommand(Command):
                 "Only use when creating new cluster and specify --remote-master-fe."
         )
 
+        parser.add_argument(
+            "--external-ms",
+            type=str,
+            help=
+            "Use external meta service cluster (specify cluster name). " \
+            "This cluster will not create its own MS/FDB/Recycler, but use the specified cluster's services. " \
+            "The external cluster must be a cloud cluster with MS/FDB already running. " \
+            "Example: --external-ms shared-meta. Only use when creating new cloud cluster."
+        )
+
+        parser.add_argument(
+            "--instance-id",
+            type=str,
+            help=
+            "Specify instance ID for cloud mode. If not specified, will auto-generate 'default_instance_id'. " \
+            "When using external MS with multiple clusters, each cluster should have a unique instance ID. " \
+            "Example: --instance-id prod_instance_1"
+        )
+
+        parser.add_argument(
+            "--cluster-snapshot",
+            type=str,
+            help=
+            "Cluster snapshot JSON content for FE-1 first startup in cloud mode only. " \
+            "The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh " \
+            "with --cluster_snapshot parameter. Only effective on first startup. " \
+            "Example: --cluster-snapshot '{\"instance_id\":\"instance_id_xxx\"}'"
+        )
+
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-metaservice-endpoint",
@@ -583,17 +612,29 @@ class UpCommand(Command):
 
             cloud_store_config = {}
             if args.cloud:
-                add_fdb_num = 1
-                if not args.add_ms_num:
-                    args.add_ms_num = 1
-                if not args.add_recycle_num:
-                    args.add_recycle_num = 1
+                external_ms_cluster = getattr(args, 'external_ms', None)
+                if external_ms_cluster:
+                    # Using the MS nodes from external cluster, no need to add FDB/MS/Recycler
+                    self._validate_external_ms_cluster(external_ms_cluster)
+                    add_fdb_num = 0
+                    args.add_ms_num = 0
+                    args.add_recycle_num = 0
+                    LOG.info(f"Using external MS cluster: {external_ms_cluster}")
+                else:
+                    add_fdb_num = 1
+                    if not args.add_ms_num:
+                        args.add_ms_num = 1
+                    if not args.add_recycle_num:
+                        args.add_recycle_num = 1
+                    external_ms_cluster = None
+
                 if not args.be_cluster:
                     args.be_cluster = "compute_cluster"
                 cloud_store_config = self._get_cloud_store_config()
             else:
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
+                external_ms_cluster = None
 
             if args.remote_master_fe:
                 if not args.local_network_ip:
@@ -609,13 +650,17 @@ class UpCommand(Command):
                 if args.cloud:
                     args.sql_mode_node_mgr = True
 
+            instance_id = getattr(args, 'instance_id', None)
+            cluster_snapshot = getattr(args, 'cluster_snapshot', '')
+
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
                 args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
-                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk)
+                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
+                external_ms_cluster, instance_id, cluster_snapshot)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -824,6 +869,70 @@ class UpCommand(Command):
                 "add_list": add_fdb_ids,
             },
         }
+
+    def _validate_external_ms_cluster(self, external_ms_cluster_name):
+        # 1. Is the external cluster exist?
+        try:
+            external_cluster = CLUSTER.Cluster.load(external_ms_cluster_name)
+        except Exception as e:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' not found. "
+                f"Please create it first with: "
+                f"python doris-compose.py up {external_ms_cluster_name} <image> --cloud --add-fe-num 0 --add-be-num 0"
+            ) from e
+
+        # 2. Is the external cluster a cloud cluster?
+        if not external_cluster.is_cloud:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' is not a cloud cluster. "
+                f"Only cloud clusters can be used as external MS."
+            )
+
+        # 3. Does the external cluster have MS and FDB nodes?
+        ms_group = external_cluster.get_group(CLUSTER.Node.TYPE_MS)
+        fdb_group = external_cluster.get_group(CLUSTER.Node.TYPE_FDB)
+
+        if ms_group.get_node_num() == 0:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' has no MS nodes. "
+                f"Please add MS nodes first."
+            )
+
+        if fdb_group.get_node_num() == 0:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' has no FDB nodes. "
+                f"Please add FDB nodes first."
+            )
+
+        # 4. Are the MS and FDB containers running?
+        containers = utils.get_doris_running_containers(external_ms_cluster_name)
+
+        ms_running = False
+        fdb_running = False
+        for container_name in containers.keys():
+            _, node_type, _ = utils.parse_service_name(container_name)
+            if node_type == CLUSTER.Node.TYPE_MS:
+                ms_running = True
+            elif node_type == CLUSTER.Node.TYPE_FDB:
+                fdb_running = True
+
+        if not ms_running:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' MS node is not running. "
+                f"Please start it with: python doris-compose.py start {external_ms_cluster_name}"
+            )
+
+        if not fdb_running:
+            raise Exception(
+                f"External MS cluster '{external_ms_cluster_name}' FDB node is not running. "
+                f"Please start it with: python doris-compose.py start {external_ms_cluster_name}"
+            )
+
+        LOG.info(utils.render_green(
+            f"✓ External MS cluster '{external_ms_cluster_name}' validation passed: "
+            f"MS={external_cluster.get_meta_server_addr()}, "
+            f"FDB={external_cluster.get_fdb_cluster()}"
+        ))
 
     def _get_cloud_store_config(self):
         example_cfg_file = os.path.join(CLUSTER.LOCAL_RESOURCE_PATH,
@@ -1394,9 +1503,9 @@ class ListCommand(Command):
                     if cluster and cluster.is_host_network():
                         node.ip = cluster.local_network_ip
                     else:
-                        node.ip = list(
-                            container.attrs["NetworkSettings"]["Networks"].
-                            values())[0]["IPAMConfig"]["IPv4Address"]
+                        network_name = utils.get_network_name(cluster.name)
+                        node.ip = container.attrs["NetworkSettings"]["Networks"][network_name] \
+                                ["IPAMConfig"]["IPv4Address"]
                     node.image = container.attrs["Config"]["Image"]
                     if not node.image:
                         node.image = ",".join(container.image.tags)
@@ -1492,6 +1601,187 @@ class AddRWPermCommand(Command):
         return ""
 
 
+class RollbackCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser(
+            "rollback",
+            help="Rollback cloud cluster to a snapshot. " \
+                 "Stop ALL FE/BE, clean metadata/data, and restart with new cloud_unique_id and instance_id. " \
+                 "Only available for cloud mode clusters."
+        )
+        parser.add_argument("NAME", help="Specify cluster name.")
+        parser.add_argument(
+            "--cluster-snapshot",
+            type=str,
+            required=True,
+            help="Cluster snapshot JSON content for rollback. " \
+                 "Example: '{\"instance_id\":\"instance_id_xxx\"}'"
+        )
+        parser.add_argument(
+            "--instance-id",
+            type=str,
+            help="New instance ID for the cluster after rollback. " \
+                 "If not specified, will generate a new one based on timestamp."
+        )
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help="Specify wait seconds for fe/be ready for service: 0 not wait (default), " \
+                 "> 0 max wait seconds, -1 wait unlimited."
+        )
+        self._add_parser_common_args(parser)
+        return parser
+
+    def _update_config_cloud_unique_id(self, conf_path, new_cloud_unique_id):
+        """Update cloud_unique_id in fe.conf or be.conf file.
+
+        This method updates the cloud_unique_id value in the config file.
+        If the line exists, it will be replaced; if not found, it will be added.
+        """
+        updated = False
+        lines = []
+
+        # Read existing config
+        with open(conf_path, "r") as f:
+            lines = f.readlines()
+
+        # Try to update existing cloud_unique_id line
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # Match lines like: cloud_unique_id = xxx or cloud_unique_id=xxx
+            if stripped.startswith("cloud_unique_id") and ("=" in stripped):
+                lines[i] = f"cloud_unique_id = {new_cloud_unique_id}\n"
+                updated = True
+                break
+
+        # If not found, add it to the doris-compose section
+        if not updated:
+            raise Exception("cloud_unique_id not found in config file: " + conf_path)
+
+        # Write back to file
+        with open(conf_path, "w") as f:
+            f.writelines(lines)
+
+    def run(self, args):
+        cluster = CLUSTER.Cluster.load(args.NAME)
+
+        # Validate: only cloud clusters support rollback
+        if not cluster.is_cloud:
+            raise Exception("Rollback is only supported for cloud clusters")
+
+        # Rollback must include ALL FE/BE nodes
+        fe_nodes = cluster.get_all_nodes(CLUSTER.Node.TYPE_FE)
+        be_nodes = cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
+
+        if not fe_nodes and not be_nodes:
+            raise Exception("No FE or BE nodes to rollback")
+
+        # Generate new instance_id and rollback timestamp
+        rollback_ts = str(int(time.time()))
+        new_instance_id = args.instance_id or f"instance_{cluster.name}_{rollback_ts}"
+
+        LOG.info(f"Starting rollback with instance_id: {new_instance_id}, timestamp: {rollback_ts}")
+
+        # Step 1: Stop FE/BE nodes
+        LOG.info("Step 1/5: Stopping FE/BE nodes...")
+        fe_ids = [node.id for node in fe_nodes]
+        be_ids = [node.id for node in be_nodes]
+
+        stop_nodes = fe_nodes + be_nodes
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "stop",
+            options=["-t", "1"],
+            nodes=stop_nodes
+        )
+        LOG.info(f"Stopped {len(fe_nodes)} FE and {len(be_nodes)} BE nodes")
+
+        cluster.is_rollback = True  # Add ROLLBACK envs
+
+        # Step 2: Clean metadata and data
+        LOG.info("Step 2/5: Cleaning metadata and data directories...")
+
+        for fe in fe_nodes:
+            fe_meta_path = os.path.join(fe.get_path(), "doris-meta")
+            if os.path.exists(fe_meta_path):
+                utils.enable_dir_with_rw_perm(fe_meta_path)
+                shutil.rmtree(fe_meta_path)
+                os.makedirs(fe_meta_path, exist_ok=True)
+                LOG.info(f"  Cleaned FE-{fe.id} doris-meta/")
+
+        for be in be_nodes:
+            be_storage_path = os.path.join(be.get_path(), "storage")
+            if os.path.exists(be_storage_path):
+                utils.enable_dir_with_rw_perm(be_storage_path)
+                shutil.rmtree(be_storage_path)
+                # Recreate storage directories based on disk configuration
+                be.init_disk(cluster.be_disks)
+                LOG.info(f"  Cleaned BE-{be.id} storage/")
+
+        # Step 3: Update cluster configuration
+        LOG.info("Step 3/5: Updating cluster configuration...")
+
+        # Update instance_id
+        old_instance_id = cluster.instance_id
+        cluster.instance_id = new_instance_id
+        LOG.info(f"  Updated instance_id: {old_instance_id} -> {new_instance_id}")
+
+        # Update cluster_snapshot for FE-1
+        cluster.cluster_snapshot = args.cluster_snapshot
+        fe1 = cluster.get_node(CLUSTER.Node.TYPE_FE, 1)
+        snapshot_file = os.path.join(fe1.get_path(), "conf", "cluster_snapshot.json")
+        with open(snapshot_file, "w") as f:
+            f.write(args.cluster_snapshot)
+        LOG.info(f"  Written cluster_snapshot to {snapshot_file}")
+
+        # Step 4: Update cloud_unique_id by setting rollback_timestamp in node meta
+        LOG.info("Step 4/5: Generating new cloud_unique_id...")
+
+        for fe in fe_nodes:
+            fe.meta["rollback_timestamp"] = rollback_ts
+            old_id = f"{cluster.name}_sql_server_{fe.id}"
+            new_id = fe.cloud_unique_id()
+            LOG.info(f"  FE-{fe.id}: {old_id} -> {new_id}")
+
+            fe_conf_path = os.path.join(fe.get_path(), "conf", "fe.conf")
+            if os.path.exists(fe_conf_path):
+                self._update_config_cloud_unique_id(fe_conf_path, new_id)
+
+        for be in be_nodes:
+            be.meta["rollback_timestamp"] = rollback_ts
+            old_id = f"{cluster.name}_compute_node_{be.id}"
+            new_id = be.cloud_unique_id()
+            LOG.info(f"  BE-{be.id}: {old_id} -> {new_id}")
+
+            be_conf_path = os.path.join(be.get_path(), "conf", "be.conf")
+            if os.path.exists(be_conf_path):
+                self._update_config_cloud_unique_id(be_conf_path, new_id)
+
+        # Save updated cluster configuration
+        cluster.save()
+        LOG.info("  Saved cluster configuration")
+
+        # Step 5: Start FE/BE nodes
+        LOG.info("Step 5/5: Starting FE/BE nodes with new configuration...")
+
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "up",
+            options=["-d"],
+            nodes=stop_nodes
+        )
+
+        # Wait for services to be ready
+        if not cluster.is_host_network():
+            wait_service(True, args.wait_timeout, cluster, fe_ids, be_ids)
+
+        LOG.info("Rollback completed successfully.")
+
+        return "Rollback completed successfully."
+
+
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
@@ -1504,4 +1794,5 @@ ALL_COMMANDS = [
     InfoCommand("info"),
     ListCommand("ls"),
     AddRWPermCommand("add-rw-perm"),
+    RollbackCommand("rollback"),
 ]
