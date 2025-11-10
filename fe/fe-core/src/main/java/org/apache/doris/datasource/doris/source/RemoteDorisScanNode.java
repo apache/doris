@@ -34,7 +34,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -78,7 +77,7 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
 
     public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
                                SessionVariable sv) {
-        super(id, desc, "REMOTE_DORIS_SCAN_NODE", StatisticalType.REMOTE_DORIS_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "REMOTE_DORIS_SCAN_NODE", needCheckColumnPriv, sv);
     }
 
     @Override
