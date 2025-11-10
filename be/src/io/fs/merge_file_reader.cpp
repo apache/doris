@@ -49,6 +49,9 @@ Status MergeFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
         return Status::InternalError("FileReader is already closed");
     }
 
+    LOG(INFO) << "read merge file: " << _path.native() << ", offset: " << offset
+              << ", result size: " << result.get_size()
+              << ", merge file offset: " << _merge_file_offset << ", file size: " << _file_size;
     // Calculate the actual offset in merge file
     size_t actual_offset = _merge_file_offset + offset;
 
