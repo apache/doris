@@ -296,6 +296,9 @@ private:
     int32_t _seq_col_unique_id {-1};
 
     bool _is_partial_update_and_auto_inc = false;
+    PartialUpdateInfo* _partial_update_info;
+    std::vector<SlotDescriptor*>* _slot_descs;
+    TupleDescriptor* _tuple_desc;
 }; // class MemTable
 
 } // namespace doris

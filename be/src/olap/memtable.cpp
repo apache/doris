@@ -83,6 +83,9 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     }
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
+    _partial_update_info = partial_update_info;
+    _slot_descs = const_cast<std::vector<SlotDescriptor*>*>(slot_descs);
+    _tuple_desc = tuple_desc;
     _row_in_blocks = std::make_unique<DorisVector<std::shared_ptr<RowInBlock>>>();
     _load_mem_limit = MemInfo::mem_limit() * config::load_process_max_memory_limit_percent / 100;
 }
