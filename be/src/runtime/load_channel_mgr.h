@@ -91,19 +91,19 @@ private:
     };
 
     class LastCancelChannelCache : public LRUCachePolicy {
+    public:
+        class CacheValue : public LRUCacheValueBase {
         public:
-            class CacheValue : public LRUCacheValueBase {
-            public:
-                std::string _cancel_reason;
-            };
-    
-            LastCancelChannelCache(size_t capacity)
-                    : LRUCachePolicy(CachePolicy::CacheType::LAST_CANCEL_CHANNEL_CACHE, capacity,
-                                     LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                     DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+            std::string _cancel_reason;
         };
-    
-        using CacheValue = LastCancelChannelCache::CacheValue;
+
+        LastCancelChannelCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::LAST_CANCEL_CHANNEL_CACHE, capacity,
+                                 LRUCacheType::SIZE, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
+
+    using CacheValue = LastCancelChannelCache::CacheValue;
 
 protected:
     // lock protect the load channel map
