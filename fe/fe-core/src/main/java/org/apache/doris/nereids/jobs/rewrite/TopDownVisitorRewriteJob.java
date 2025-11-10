@@ -114,9 +114,9 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                     Plan newPlan = transform.get(0);
                     currentRule.acceptPlan(originPlan);
                     if (cascadesContext.showPlanProcess()) {
-                        String beforeShape = processState.getNewestPlan().treeString(true);
+                        String beforeShape = processState.getNewestPlan().treeString(true, originPlan);
                         String afterShape = processState.updateChildAndGetNewest(originParent, childIndex, newPlan)
-                                .treeString(true);
+                                .treeString(true, newPlan);
                         cascadesContext.addPlanProcess(
                                 new PlanProcess(currentRule.getRuleType().name(), beforeShape, afterShape)
                         );

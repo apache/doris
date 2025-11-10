@@ -994,22 +994,6 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     return Status::OK();
 }
 
-bool Segment::same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) {
-    const auto* col = schema.column(cid);
-    auto file_column_type = get_data_type_of(col->get_desc(), read_flat_leaves);
-    auto expected_type = Schema::get_data_type_ptr(*col);
-#ifndef NDEBUG
-    if (file_column_type && !file_column_type->equals(*expected_type)) {
-        VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
-                                  col->name(), file_column_type->get_name(),
-                                  expected_type->get_name());
-    }
-#endif
-    bool same =
-            (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
-    return same;
-}
-
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
                                        uint32_t row_id, vectorized::MutableColumnPtr& result,
                                        StorageReadOptions& storage_read_options,

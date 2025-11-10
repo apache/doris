@@ -148,7 +148,6 @@ public class OlapQueryCacheTest {
         };
 
         FunctionSet fs = new FunctionSet();
-        fs.init();
         Deencapsulation.setField(env, "functionSet", fs);
 
         channel.reset();

@@ -180,8 +180,86 @@ void SnapshotChainCompactor::lease_compaction_jobs() {
     }
 }
 
+bool is_instance_cloned_from_snapshot(const InstanceInfoPB& instance_info) {
+    return instance_info.has_source_instance_id() && !instance_info.source_instance_id().empty() &&
+           instance_info.has_source_snapshot_id() && !instance_info.source_snapshot_id().empty();
+}
+
+int get_instance_info(TxnKv* txn_kv, const std::string& instance_id,
+                      InstanceInfoPB& instance_info) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string val;
+    err = txn->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get instance, instance_id=" << instance_id << " err=" << err;
+        return -1;
+    }
+    if (!instance_info.ParseFromString(val)) {
+        LOG(WARNING) << "failed to parse InstanceInfoPB, instance_id=" << instance_id;
+        return -2;
+    }
+    return 0;
+}
+
+int is_instance_cloned(TxnKv* txn_kv, const std::string& instance_id, bool* is_cloned) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+
+    std::string snapshot_ref_key_start = versioned::snapshot_reference_key_prefix(instance_id);
+    std::string snapshot_ref_key_end = snapshot_ref_key_start + '\xFF';
+    std::unique_ptr<RangeGetIterator> it;
+    err = txn->get(snapshot_ref_key_start, snapshot_ref_key_end, &it, false, 1);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get snapshot reference key. instance_id=" << instance_id
+                     << ", err=" << err;
+        return -1;
+    }
+    *is_cloned = it->has_next();
+    return 0;
+}
+
 bool SnapshotChainCompactor::is_snapshot_chain_need_compact(const InstanceInfoPB& instance_info) {
-    // TODO:
+    // compact the instance which meets the following conditions:
+    // 1. the instance is cloned from snapshot
+    // 2. its source instance is not cloned from other snapshots
+    // 3. the instance is cloned by other instances.
+    //
+    // for example, if the clone chain is [instance1 -> instance2 -> instance3], compact the instance2
+    if (!is_instance_cloned_from_snapshot(instance_info)) {
+        return false;
+    }
+
+    InstanceInfoPB source_instance_info;
+    if (get_instance_info(txn_kv_.get(), instance_info.source_instance_id(),
+                          source_instance_info) != 0) {
+        LOG(WARNING) << "failed to get source instance info, instance_id="
+                     << instance_info.source_instance_id();
+        return false;
+    }
+    if (is_instance_cloned_from_snapshot(source_instance_info)) {
+        return false;
+    }
+
+    bool is_cloned = false;
+    if (is_instance_cloned(txn_kv_.get(), instance_info.instance_id(), &is_cloned) != 0) {
+        LOG(WARNING) << "failed to check is instance cloned, instance_id="
+                     << instance_info.instance_id();
+        return false;
+    }
+    if (is_cloned) {
+        return true;
+    }
     return false;
 }
 
@@ -317,7 +395,66 @@ int InstanceChainCompactor::do_compact() {
 }
 
 int InstanceChainCompactor::handle_compaction_completion() {
-    // TODO:
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn in chain compaction").tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    std::string key = instance_key(instance_id_);
+    std::string instance_value;
+    err = txn->get(key, &instance_value);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get instance info in chain compaction")
+                .tag("instance_id", instance_id_)
+                .tag("error", err);
+        return -1;
+    }
+
+    InstanceInfoPB instance_info;
+    if (!instance_info.ParseFromString(instance_value)) {
+        LOG_WARNING("failed to parse instance info in chain compaction")
+                .tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    Versionstamp snapshot_versionstamp;
+    if (!SnapshotManager::parse_snapshot_versionstamp(instance_info.source_snapshot_id(),
+                                                      &snapshot_versionstamp)) {
+        LOG_WARNING("failed to parse snapshot_id to versionstamp in chain compaction")
+                .tag("instance_id", instance_id_)
+                .tag("source_instance_id", instance_info.source_instance_id())
+                .tag("snapshot_id", instance_info.source_snapshot_id());
+        return -1;
+    }
+    auto source_instance_id = instance_info.source_instance_id();
+    auto snapshot_id = instance_info.source_snapshot_id();
+    versioned::SnapshotReferenceKeyInfo ref_key_info {source_instance_id, snapshot_versionstamp,
+                                                      instance_id_};
+    std::string reference_key = versioned::snapshot_reference_key(ref_key_info);
+    txn->remove(reference_key);
+
+    // instance_info.clear_source_instance_id();
+    instance_info.clear_source_snapshot_id();
+    instance_info.clear_compacted_key_sets();
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    txn->put(key, instance_info.SerializeAsString());
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to commit instance info in chain compaction")
+                .tag("instance_id", instance_id_)
+                .tag("source_instance_id", source_instance_id)
+                .tag("snapshot_id", snapshot_id)
+                .tag("error", err);
+        return -1;
+    }
+
+    LOG_INFO("finish chain compaction")
+            .tag("instance_id", instance_id_)
+            .tag("source_instance_id", source_instance_id)
+            .tag("snapshot_id", snapshot_id);
     return 0;
 }
 

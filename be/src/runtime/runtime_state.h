@@ -157,6 +157,12 @@ public:
                        : 1;
     }
 
+    // Support extended regex
+    // like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+    bool enable_extended_regex() const {
+        return _query_options.__isset.enable_extended_regex && _query_options.enable_extended_regex;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }

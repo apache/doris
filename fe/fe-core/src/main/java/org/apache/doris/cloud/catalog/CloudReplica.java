@@ -101,7 +101,7 @@ public class CloudReplica extends Replica {
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
         CloudSystemInfoService infoService = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         List<Backend> bes = infoService.getBackendsByClusterId(clusterId).stream()
-                .filter(be -> !be.isQueryDisabled()).collect(Collectors.toList());
+                .filter(be -> be.isQueryAvailable()).collect(Collectors.toList());
         String clusterName = infoService.getClusterNameByClusterId(clusterId);
         if (bes.isEmpty()) {
             LOG.warn("failed to get available be, cluster: {}-{}", clusterName, clusterId);
@@ -422,7 +422,7 @@ public class CloudReplica extends Replica {
             long lastUpdateMs = be.getLastUpdateMs();
             long missTimeMs = Math.abs(lastUpdateMs - System.currentTimeMillis());
             // be core or restart must in heartbeat_interval_second
-            if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
+            if ((be.isQueryAvailable() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
                     && !be.isSmoothUpgradeSrc()) {
                 if (be.isDecommissioned()) {
                     decommissionAvailBes.add(be);

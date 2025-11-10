@@ -503,7 +503,12 @@ suite("test_date_function") {
         sql """ select utc_timestamp(7) """
         exception "scale must be between 0 and 6"
     }
+    test {
+        sql """ SELECT UTC_TIMESTAMP(NULL); """
+        exception "UTC_TIMESTAMP argument cannot be NULL."
+    }
 
+    // UTC_TIME
     def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
     assertTrue(utc_time_str[0].size() == 2)
     utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
@@ -511,6 +516,10 @@ suite("test_date_function") {
     test {
         sql """ select utc_time(7) """
         exception "scale must be between 0 and 6"
+    }
+    test {
+        sql """ SELECT UTC_TIME(NULL); """
+        exception "UTC_TIME argument cannot be NULL."
     }
 
     def utc_date_str = sql """ select utc_date(),utc_date() + 1 """

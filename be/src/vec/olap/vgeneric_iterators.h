@@ -110,7 +110,7 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const;
 
     // `advanced = false` when current block finished
-    Status copy_rows(Block* block, bool advanced = true);
+    Status copy_rows(BlockWithSameBit* block, bool advanced = true);
 
     Status copy_rows(BlockView* view, bool advanced = true);
 
@@ -200,8 +200,10 @@ public:
 
     Status init(const StorageReadOptions& opts) override;
 
-    Status next_batch(Block* block) override { return _next_batch(block); }
-    Status next_block_view(BlockView* block_view) override { return _next_batch(block_view); }
+    Status next_batch(BlockWithSameBit* block_with_same_bit) override {
+        return _next_batch(block_with_same_bit);
+    }
+    Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
 
     const Schema& schema() const override { return *_schema; }
 
@@ -218,7 +220,9 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return cast_set<int>(block->rows()); }
+    int _get_size(const BlockWithSameBit* block_with_same_bit) {
+        return cast_set<int>(block_with_same_bit->block->rows());
+    }
     int _get_size(BlockView* block_view) { return cast_set<int>(block_view->size()); }
 
     template <typename T>

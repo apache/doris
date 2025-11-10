@@ -212,6 +212,18 @@ public class PushTask extends AgentTask {
         }
     }
 
+    public void countDownLatchWithStatus(long backendId, long tabletId, Status st) {
+        if (this.latch == null) {
+            return;
+        }
+        if (latch.markedCountDownWithStatus(backendId, tabletId, st)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("pushTask current latch count with status: {}. backend: {}, tablet:{}, st::{}",
+                        latch.getCount(), backendId, tabletId, st);
+            }
+        }
+    }
+
     // call this always means one of tasks is failed. count down to zero to finish entire task
     public void countDownToZero(TStatusCode code, String errMsg) {
         if (this.latch != null) {

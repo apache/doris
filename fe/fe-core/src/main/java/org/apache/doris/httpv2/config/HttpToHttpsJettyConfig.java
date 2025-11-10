@@ -17,18 +17,24 @@
 
 package org.apache.doris.httpv2.config;
 
-import org.eclipse.jetty.security.ConstraintMapping;
-import org.eclipse.jetty.security.ConstraintSecurityHandler;
-import org.eclipse.jetty.util.security.Constraint;
-import org.eclipse.jetty.webapp.AbstractConfiguration;
-import org.eclipse.jetty.webapp.WebAppContext;
+import org.eclipse.jetty.ee10.servlet.security.ConstraintMapping;
+import org.eclipse.jetty.ee10.servlet.security.ConstraintSecurityHandler;
+import org.eclipse.jetty.ee10.webapp.AbstractConfiguration;
+import org.eclipse.jetty.ee10.webapp.WebAppContext;
+import org.eclipse.jetty.security.Constraint;
+
 
 public class HttpToHttpsJettyConfig extends AbstractConfiguration {
+    public HttpToHttpsJettyConfig() {
+        super(new AbstractConfiguration.Builder());
+    }
+
+
     @Override
     public void configure(WebAppContext context) throws Exception {
-        Constraint constraint = new Constraint();
-        constraint.setDataConstraint(Constraint.DC_CONFIDENTIAL);
-
+        Constraint constraint = new Constraint.Builder()
+                .transport(Constraint.Transport.SECURE)
+                .build();
         ConstraintSecurityHandler handler = new ConstraintSecurityHandler();
 
         ConstraintMapping mappingGetRest = new ConstraintMapping();

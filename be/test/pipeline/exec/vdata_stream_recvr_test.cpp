@@ -318,8 +318,9 @@ class MockClosure : public google::protobuf::Closure {
 void to_pblock(Block& block, PBlock* pblock) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
+    int64_t compressed_time = 0;
     EXPECT_TRUE(block.serialize(BeExecVersionManager::get_newest_version(), pblock,
-                                &uncompressed_bytes, &compressed_bytes,
+                                &uncompressed_bytes, &compressed_bytes, &compressed_time,
                                 segment_v2::CompressionTypePB::NO_COMPRESSION));
 }
 

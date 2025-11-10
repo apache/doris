@@ -54,7 +54,6 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -2314,16 +2313,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         throw new AnalysisException(String.format(
                             "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
                     }
-                }
-                Function fn = null;
-                try {
-                    fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
-                        Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
-                } catch (Exception e) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
-                }
-                if (fn == null) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
             } else if (expr instanceof SlotRef) {
                 if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {

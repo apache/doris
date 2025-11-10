@@ -2108,4 +2108,67 @@ suite("doc_date_functions_test") {
     // testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56', -5)")
     // testFoldConst("SELECT WEEK_CEIL('2023-07-13 22:28:18', -2)")
     // testFoldConst("SELECT YEAR_CEIL('2023-07-13 22:28:18', -5)")
+
+
+    sql "DROP TABLE IF EXISTS test_datetime_ceil"
+
+    sql """
+    CREATE TABLE test_datetime_ceil (
+        id INT,
+        dt DATETIME,
+        f DECIMAL
+    ) ENGINE=OLAP
+    PROPERTIES("replication_num" = "1");
+    """
+
+   sql "INSERT INTO test_datetime_ceil VALUES (1, '2025-10-10 12:34:56', 123.12);"
+   sql "INSERT INTO test_datetime_ceil VALUES (2, '2025-01-01 00:00:00', 2.22);"
+   sql "INSERT INTO test_datetime_ceil VALUES (3, '2025-12-31 23:59:59', 3.34);"
+
+   qt_dateceil """
+   SELECT
+       dt,
+        year_ceil(dt) AS year_ceil,
+        month_ceil(dt) AS month_ceil,
+        day_ceil(dt) AS day_ceil,
+        hour_ceil(dt) AS hour_ceil,
+        minute_ceil(dt) AS minute_ceil,
+        second_ceil(dt) AS second_ceil
+    FROM test_datetime_ceil ORDER BY id;
+    """
+
+    qt_todays """
+    SELECT
+        id,
+        dt,
+        to_days(dt) AS to_days_result
+    FROM test_datetime_ceil ORDER BY id;
+"""
+
+    qt_ceil """
+    SELECT
+        id,
+        ceil(f) AS ceil_f from test_datetime_ceil ORDER BY id;
+    """
+
+    testFoldConst("""SELECT
+       dt,
+        year_ceil(dt) AS year_ceil,
+        month_ceil(dt) AS month_ceil,
+        day_ceil(dt) AS day_ceil,
+        hour_ceil(dt) AS hour_ceil,
+        minute_ceil(dt) AS minute_ceil,
+        second_ceil(dt) AS second_ceil
+    FROM test_datetime_ceil ORDER BY id;""")
+
+    testFoldConst("""SELECT
+        id,
+        dt,
+        to_days(dt) AS to_days_result
+    FROM test_datetime_ceil ORDER BY id;""")
+
+    testFoldConst("""SELECT
+        id,
+        ceil(f) AS ceil_f from test_datetime_ceil ORDER BY id;""")
+
 }

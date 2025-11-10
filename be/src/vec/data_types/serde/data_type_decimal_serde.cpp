@@ -378,18 +378,18 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<true>& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
+                                                             MysqlRowBinaryBuffer& row_buffer,
+                                                             int64_t row_idx, bool col_const,
+                                                             const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                      MysqlRowBuffer<false>& row_buffer,
-                                                      int64_t row_idx, bool col_const,
-                                                      const FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::write_column_to_mysql_text(const IColumn& column,
+                                                           MysqlRowTextBuffer& row_buffer,
+                                                           int64_t row_idx, bool col_const,
+                                                           const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 

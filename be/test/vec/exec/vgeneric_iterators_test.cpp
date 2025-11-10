@@ -160,10 +160,12 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
 
     do {
-        st = iter->next_batch(&block);
+        st = iter->next_batch(&block_with_same_bit);
     } while (st.ok());
 
     EXPECT_TRUE(st.is<END_OF_FILE>());
@@ -207,10 +209,12 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
 
     do {
-        st = iter->next_batch(&block);
+        st = iter->next_batch(&block_with_same_bit);
     } while (st.ok());
 
     EXPECT_TRUE(st.is<END_OF_FILE>());
@@ -328,10 +332,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
 
     do {
-        st = iter->next_batch(&block);
+        st = iter->next_batch(&block_with_same_bit);
     } while (st.ok());
 
     EXPECT_TRUE(st.is<END_OF_FILE>());

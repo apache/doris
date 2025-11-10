@@ -70,6 +70,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private String query = "";
 
     private JdbcTable tbl;
+    private long catalogId;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
         super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
@@ -90,6 +91,7 @@ public class JdbcScanNode extends ExternalScanNode {
         tbl = (JdbcTable) desc.getTable();
         jdbcType = tbl.getJdbcTableType();
         tableName = tbl.getExternalTableName();
+        catalogId = tbl.getCatalogId();
     }
 
 
@@ -219,8 +221,10 @@ public class JdbcScanNode extends ExternalScanNode {
         StringBuilder output = new StringBuilder();
         if (isTableValuedFunction) {
             output.append(prefix).append("TABLE VALUE FUNCTION\n");
+            output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
             output.append(prefix).append("QUERY: ").append(query).append("\n");
         } else {
+            output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
             output.append(prefix).append("TABLE: ").append(tableName).append("\n");
             if (detailLevel == TExplainLevel.BRIEF) {
                 return output.toString();

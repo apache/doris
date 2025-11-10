@@ -1175,6 +1175,7 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
+DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
@@ -1367,6 +1368,12 @@ DECLARE_Int32(fe_expire_duration_seconds);
 // , but if the waiting time exceed the limit, then be will exit directly.
 // During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 DECLARE_Int32(grace_shutdown_wait_seconds);
+// When using the graceful stop feature, after the main process waits for
+// all currently running tasks to finish, it will continue to wait for
+// an additional period to ensure that queries still running on other nodes have also completed.
+// Since a BE node cannot detect the task execution status on other BE nodes,
+// you may need to increase this threshold to allow for a longer waiting time.
+DECLARE_Int32(grace_shutdown_post_delay_seconds);
 
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
