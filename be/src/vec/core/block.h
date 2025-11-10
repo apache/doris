@@ -75,7 +75,6 @@ private:
     using Container = ColumnsWithTypeAndName;
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     Container data;
-    IndexByName index_by_name;
 
 public:
     Block() = default;
@@ -108,8 +107,6 @@ public:
     void erase_tail(size_t start);
     /// remove the columns at the specified positions
     void erase(const std::set<size_t>& positions);
-    /// remove the column with the specified name
-    void erase(const String& name);
     // T was std::set<int>, std::vector<int>, std::list<int>
     template <class T>
     void erase_not_in(const T& container) {
@@ -123,8 +120,6 @@ public:
     // Use this method only when you are certain index_by_name will not be used
     // This is a temporary compromise; index_by_name may be removed in the future
     void simple_insert(const ColumnWithTypeAndName& elem) { data.emplace_back(elem); }
-
-    void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) {
@@ -150,12 +145,10 @@ public:
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
+    // Get column by name. Throws an exception if there is no column with that name.
+    // ATTN: this method is O(N). better maintain name -> position map in caller if you need to call it frequently.
     ColumnWithTypeAndName& get_by_name(const std::string& name);
     const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
-
-    // return nullptr when no such column name
-    ColumnWithTypeAndName* try_get_by_name(const std::string& name);
-    const ColumnWithTypeAndName* try_get_by_name(const std::string& name) const;
 
     Container::iterator begin() { return data.begin(); }
     Container::iterator end() { return data.end(); }
@@ -164,7 +157,9 @@ public:
     Container::const_iterator cbegin() const { return data.cbegin(); }
     Container::const_iterator cend() const { return data.cend(); }
 
-    size_t get_position_by_name(const std::string& name) const;
+    // Get position of column by name. Returns -1 if there is no column with that name.
+    // ATTN: this method is O(N). better maintain name -> position map in caller if you need to call it frequently.
+    int get_position_by_name(const std::string& name) const;
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
@@ -360,11 +355,6 @@ public:
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
-    // remove tmp columns in block
-    // in inverted index apply logic, in order to optimize query performance,
-    // we built some temporary columns into block
-    void erase_tmp_columns() noexcept;
-
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);
 
@@ -391,9 +381,6 @@ public:
     }
     MutableBlock() = default;
     ~MutableBlock() = default;
-
-    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
-                 bool igore_trivial_slot = false);
 
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()),
