@@ -75,7 +75,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         return Status::OK();
     }
     if (!_is_doris_table) {
-        return Status::NotSupported("peer cache fetch only supports doris table segments");
+        return Status::NotSupported<false>("peer cache fetch only supports doris table segments");
     }
 
     PFetchPeerDataRequest req;
@@ -98,7 +98,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         if (!status.ok()) {
             peer_cache_reader_failed_counter << 1;
             LOG(WARNING) << "failed to get ip from host " << _host << ": " << status.to_string();
-            return Status::InternalError("failed to get ip from host {}", _host);
+            return Status::InternalError<false>("failed to get ip from host {}", _host);
         }
     }
     std::string brpc_addr = get_host_port(realhost, port);
@@ -109,7 +109,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     if (!brpc_stub) {
         peer_cache_reader_failed_counter << 1;
         LOG(WARNING) << "failed to get brpc stub " << brpc_addr;
-        st = Status::RpcError("Address {} is wrong", brpc_addr);
+        st = Status::RpcError<false>("Address {} is wrong", brpc_addr);
         return st;
     }
     LIMIT_REMOTE_SCAN_IO(bytes_read);
@@ -129,7 +129,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     peer_cache_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
     if (cntl.Failed()) {
-        return Status::RpcError(cntl.ErrorText());
+        return Status::RpcError<false>(cntl.ErrorText());
     }
     if (resp.has_status()) {
         Status st2 = Status::create(resp.status());
@@ -141,7 +141,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         if (data.data().empty()) {
             peer_cache_reader_failed_counter << 1;
             LOG(WARNING) << "peer cache read empty data" << data.block_offset();
-            return Status::InternalError("peer cache read empty data");
+            return Status::InternalError<false>("peer cache read empty data");
         }
         int64_t block_off = data.block_offset();
         size_t rel = block_off > static_cast<int64_t>(off)
@@ -159,7 +159,8 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     peer_bytes_per_read << filled;
     if (filled != s.size) {
         peer_cache_reader_failed_counter << 1;
-        return Status::InternalError("peer cache read incomplete: need={}, got={}", s.size, filled);
+        return Status::InternalError<false>("peer cache read incomplete: need={}, got={}", s.size,
+                                            filled);
     }
     peer_cache_reader_succ_counter << 1;
     return Status::OK();
