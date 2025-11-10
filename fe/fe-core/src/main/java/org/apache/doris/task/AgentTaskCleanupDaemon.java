@@ -21,15 +21,19 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
+
 public class AgentTaskCleanupDaemon extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(AgentTaskCleanupDaemon.class);
+
+    private final Map<Long, Integer> beInactiveCheckFailures = Maps.newHashMap();
 
     public AgentTaskCleanupDaemon() {
         super("agent-task-cleanup", Config.agent_task_health_check_intervals_ms);
@@ -40,10 +44,22 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
         LOG.info("Begin to clean up inactive agent tasks");
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         infoService.getAllClusterBackends(false)
-                .stream()
-                .filter(backend -> !backend.isAlive())
-                .map(Backend::getId)
-                .forEach(this::removeInactiveBeAgentTasks);
+                .forEach(backend -> {
+                    long id = backend.getId();
+                    if (backend.isAlive()) {
+                        beInactiveCheckFailures.remove(id);
+                    } else {
+                        Integer failureTimes = beInactiveCheckFailures.compute(id, (beId, failures) -> {
+                            int updated = (failures == null ? 1 : failures + 1);
+                            if (updated >= 2) {
+                                removeInactiveBeAgentTasks(beId);
+                            }
+                            return updated;
+                        });
+                        LOG.info("Check failure on be={}, times={}", failureTimes, failureTimes);
+                    }
+                });
+
         LOG.info("Finish to clean up inactive agent tasks");
     }
 

@@ -3675,7 +3675,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
 
-    @ConfField(mutable = false, description = {
+    @ConfField(description = {
             "agent tasks 健康检查的时间间隔，默认五分钟，小于等于0时不做健康检查",
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
