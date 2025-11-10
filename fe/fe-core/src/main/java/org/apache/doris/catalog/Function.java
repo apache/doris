@@ -155,6 +155,10 @@ public class Function implements Writable {
     protected boolean isStaticLoad = false;
     @SerializedName("eT")
     protected long expirationTime = 360; // default 6 hours;
+    @SerializedName("rv")
+    protected String runtimeVersion;
+    @SerializedName("fc")
+    protected String functionCode;
 
     // Only used for serialization
     protected Function() {
@@ -330,6 +334,22 @@ public class Function implements Writable {
 
     public void setGlobal(boolean global) {
         isGlobal = global;
+    }
+
+    public String getRuntimeVersion() {
+        return runtimeVersion;
+    }
+
+    public void setRuntimeVersion(String runtimeVersion) {
+        this.runtimeVersion = runtimeVersion;
+    }
+
+    public String getFunctionCode() {
+        return functionCode;
+    }
+
+    public void setFunctionCode(String functionCode) {
+        this.functionCode = functionCode;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.

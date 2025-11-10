@@ -1113,6 +1113,25 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// python env mode, options: conda, venv
+DECLARE_String(python_env_mode);
+// root path of conda runtime, python_env_mode should be conda
+DECLARE_String(python_conda_root_path);
+// root path of venv runtime, python_env_mode should be venv
+DECLARE_String(python_venv_root_path);
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DECLARE_String(python_venv_interpreter_paths);
+// python deps index url
+DECLARE_String(python_deps_index_url);
+// min number of python process
+DECLARE_Int32(min_python_process_nums);
+// max number of python process
+DECLARE_Int32(max_python_process_nums);
+// timeout in milliseconds when waiting for available python process
+DECLARE_Int32(python_process_pool_wait_timeout_ms);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 

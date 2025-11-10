@@ -35,6 +35,7 @@
 #include <mutex>
 #include <random>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "util/cpu_info.h"
+#include "util/string_util.h"
 
 namespace doris::config {
 #include "common/compile_check_avoid_begin.h"
@@ -1081,6 +1083,25 @@ DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
+
+// enable python udf
+DEFINE_Bool(enable_python_udf_support, "false");
+// python env mode, options: conda, venv
+DEFINE_String(python_env_mode, "");
+// root path of conda runtime, python_env_mode should be conda
+DEFINE_String(python_conda_root_path, "");
+// root path of venv runtime, python_env_mode should be venv
+DEFINE_String(python_venv_root_path, "${DORIS_HOME}/lib/udf/python");
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DEFINE_String(python_venv_interpreter_paths, "");
+// python deps index url
+DEFINE_String(python_deps_index_url, "https://pypi.org/simple/");
+// min number of python process
+DEFINE_Int32(min_python_process_nums, "16");
+// max number of python process
+DEFINE_Int32(max_python_process_nums, "256");
+// timeout in milliseconds when waiting for available python process
+DEFINE_Int32(python_process_pool_wait_timeout_ms, "30000");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
