@@ -41,16 +41,16 @@ public class VariantType extends ScalarType {
     private final ArrayList<VariantField> predefinedFields;
 
     @SerializedName(value = "variantMaxSubcolumnsCount")
-    private int variantMaxSubcolumnsCount = 0;
+    private final int variantMaxSubcolumnsCount;
 
     @SerializedName(value = "enableTypedPathsToSparse")
-    private boolean enableTypedPathsToSparse = false;
+    private final boolean enableTypedPathsToSparse;
 
     @SerializedName(value = "variantMaxSparseColumnStatisticsSize")
-    private int variantMaxSparseColumnStatisticsSize = 10000;
+    private final int variantMaxSparseColumnStatisticsSize;
 
     @SerializedName(value = "variantSparseHashShardCount")
-    private int variantSparseHashShardCount = 0;
+    private final int variantSparseHashShardCount;
 
     private Map<String, String> properties = Maps.newHashMap();
 
@@ -60,6 +60,7 @@ public class VariantType extends ScalarType {
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
+        this.variantSparseHashShardCount = 0;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -69,12 +70,20 @@ public class VariantType extends ScalarType {
         for (VariantField predefinedField : this.predefinedFields) {
             fieldMap.put(predefinedField.getPattern(), predefinedField);
         }
+        this.variantMaxSubcolumnsCount = 0;
+        this.enableTypedPathsToSparse = false;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
+        this.variantSparseHashShardCount = 0;
     }
 
     public VariantType(Map<String, String> properties) {
         super(PrimitiveType.VARIANT);
         this.predefinedFields = Lists.newArrayList();
         this.properties = properties;
+        this.variantMaxSubcolumnsCount = 0;
+        this.enableTypedPathsToSparse = false;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
+        this.variantSparseHashShardCount = 0;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -85,6 +94,10 @@ public class VariantType extends ScalarType {
             fieldMap.put(predefinedField.getPattern(), predefinedField);
         }
         this.properties = properties;
+        this.variantMaxSubcolumnsCount = 0;
+        this.enableTypedPathsToSparse = false;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
+        this.variantSparseHashShardCount = 0;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -192,10 +205,6 @@ public class VariantType extends ScalarType {
         return type.isVariantType();
     }
 
-    public void setVariantMaxSubcolumnsCount(int variantMaxSubcolumnsCount) {
-        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
-    }
-
     public int getVariantMaxSubcolumnsCount() {
         return variantMaxSubcolumnsCount;
     }
@@ -208,23 +217,11 @@ public class VariantType extends ScalarType {
         return properties;
     }
 
-    public void setEnableTypedPathsToSparse(boolean enableTypedPathsToSparse) {
-        this.enableTypedPathsToSparse = enableTypedPathsToSparse;
-    }
-
     public int getVariantMaxSparseColumnStatisticsSize() {
         return variantMaxSparseColumnStatisticsSize;
     }
 
-    public void setVariantMaxSparseColumnStatisticsSize(int variantMaxSparseColumnStatisticsSize) {
-        this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
-    }
-
     public int getVariantSparseHashShardCount() {
         return variantSparseHashShardCount;
-    }
-
-    public void setVariantSparseHashShardCount(int variantSparseHashShardCount) {
-        this.variantSparseHashShardCount = variantSparseHashShardCount;
     }
 }
