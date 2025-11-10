@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -54,6 +55,8 @@ struct QueryExecutionContext {
 
 class Weight {
 public:
+    using PruningCallback = std::function<float(uint32_t doc_id, float score)>;
+
     Weight() = default;
     virtual ~Weight() = default;
 
@@ -61,6 +64,34 @@ public:
     virtual ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) {
         (void)binding_key;
         return scorer(context);
+    }
+
+    virtual void for_each_pruning(const QueryExecutionContext& context, float threshold,
+                                  PruningCallback callback) {
+        auto sc = scorer(context);
+        if (!sc) {
+            return;
+        }
+        for_each_pruning_scorer(sc, threshold, std::move(callback));
+    }
+
+    virtual void for_each_pruning(const QueryExecutionContext& context,
+                                  const std::string& binding_key, float threshold,
+                                  PruningCallback callback) {
+        (void)binding_key;
+        for_each_pruning(context, threshold, std::move(callback));
+    }
+
+    static void for_each_pruning_scorer(const ScorerPtr& scorer, float threshold,
+                                        PruningCallback callback) {
+        int32_t doc = scorer->doc();
+        while (doc != TERMINATED) {
+            float score = scorer->score();
+            if (score > threshold) {
+                threshold = callback(doc, score);
+            }
+            doc = scorer->advance();
+        }
     }
 
 protected:
@@ -108,27 +139,36 @@ protected:
 
     SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
                                            const std::wstring& field, const std::string& term,
-                                           bool enable_scoring, const io::IOContext* io_ctx) const {
-        auto term_wstr = StringHelper::to_wstring(term);
-        auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
+                                           bool enable_scoring, const SimilarityPtr& similarity,
+                                           const io::IOContext* io_ctx) const {
+        return create_term_posting(reader, field, StringHelper::to_wstring(term), enable_scoring,
+                                   similarity, io_ctx);
+    }
+
+    SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
+                                           const std::wstring& field, const std::wstring& term,
+                                           bool enable_scoring, const SimilarityPtr& similarity,
+                                           const io::IOContext* io_ctx) const {
+        auto t = make_term_ptr(field.c_str(), term.c_str());
         auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
-        if (iter) {
-            return make_segment_postings(std::move(iter), enable_scoring);
-        }
-        return nullptr;
+        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
     }
 
     SegmentPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
                                                const std::wstring& field, const std::string& term,
-                                               bool enable_scoring,
+                                               bool enable_scoring, const SimilarityPtr& similarity,
                                                const io::IOContext* io_ctx) const {
-        auto term_wstr = StringHelper::to_wstring(term);
-        auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
+        return create_position_posting(reader, field, StringHelper::to_wstring(term),
+                                       enable_scoring, similarity, io_ctx);
+    }
+
+    SegmentPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
+                                               const std::wstring& field, const std::wstring& term,
+                                               bool enable_scoring, const SimilarityPtr& similarity,
+                                               const io::IOContext* io_ctx) const {
+        auto t = make_term_ptr(field.c_str(), term.c_str());
         auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
-        if (iter) {
-            return make_segment_postings(std::move(iter), enable_scoring);
-        }
-        return nullptr;
+        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
     }
 };
 

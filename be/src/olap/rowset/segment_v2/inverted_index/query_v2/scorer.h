@@ -71,5 +71,6 @@ public:
 
     float score() override { return 0.0F; }
 };
+using EmptyScorerPtr = std::shared_ptr<EmptyScorer>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -25,11 +25,14 @@
 #include <set>
 #include <vector>
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur_boolean_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
+#include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 namespace {
@@ -702,6 +705,413 @@ TEST_F(OccurBooleanQueryTest, OnlyMustNotClausesEmpty) {
     auto scorer = weight->scorer(_ctx);
 
     EXPECT_EQ(scorer->doc(), TERMINATED);
+}
+
+struct ExpectedToken {
+    std::string term;
+    int32_t pos = 0;
+
+    bool operator==(const ExpectedToken& other) const {
+        return term == other.term && pos == other.pos;
+    }
+};
+
+std::vector<ExpectedToken> tokenize1(const CustomAnalyzerPtr& custom_analyzer,
+                                     const std::string line) {
+    std::vector<ExpectedToken> results;
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(line.data(), line.size(), false);
+    auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
+    token_stream->reset();
+    Token t;
+    while (token_stream->next(&t)) {
+        results.emplace_back(std::string(t.termBuffer<char>(), t.termLength<char>()),
+                             t.getPositionIncrement());
+    }
+    return results;
+}
+
+// 测试用例 1：构建索引（导入数据）
+TEST_F(OccurBooleanQueryTest, BuildIndex) {
+    getchar();
+
+    std::string name = "name";
+    std::string path = "/mnt/disk3/yangsiyu/wikipedia_index_data";
+
+    std::vector<std::string> lines;
+    std::ifstream ifs("/mnt/disk3/yangsiyu/wikipedia/wikipedia.json000");
+    std::string line;
+    while (getline(ifs, line)) {
+        lines.emplace_back(line);
+    }
+    ifs.close();
+
+    std::cout << "lines size: " << lines.size() << std::endl;
+
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("basic", {});
+    builder.add_token_filter_config("lowercase", {});
+    auto custom_analyzer_config = builder.build();
+
+    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+
+    {
+        lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
+        indexwriter.setRAMBufferSizeMB(512);
+        indexwriter.setMaxFieldLength(0x7FFFFFFFL);
+        indexwriter.setMergeFactor(1000000000);
+        indexwriter.setUseCompoundFile(false);
+
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+
+        lucene::document::Document doc;
+        int32_t field_config = lucene::document::Field::STORE_NO;
+        field_config |= lucene::document::Field::INDEX_TOKENIZED;
+        auto field_name = std::wstring(name.begin(), name.end());
+        auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
+        field->setOmitTermFreqAndPositions(false);
+        field->setOmitNorms(false);
+        field->setIndexVersion(IndexVersion::kV4);
+        doc.add(*field);
+
+        for (int32_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < lines.size(); k++) {
+                reader->init(lines[k].data(), lines[k].size(), false);
+                auto* stream = custom_analyzer->reusableTokenStream(field->name(), reader);
+                field->setValue(stream);
+
+                indexwriter.addDocument(&doc);
+            }
+        }
+
+        indexwriter.close();
+    }
+
+    std::cout << "Index built successfully!" << std::endl;
+}
+
+// 测试用例 2：测试单个词（详细输出所有行）
+TEST_F(OccurBooleanQueryTest, TestSingleTermDetailed) {
+    std::string name = "name";
+    std::string path = "/mnt/disk3/yangsiyu/wikipedia_index_data";
+
+    std::cout << "\n=== Detailed Verification for Single Term ===" << std::endl;
+
+    auto* reader = lucene::index::IndexReader::open(path.c_str());
+
+    // Specify term to search for
+    auto field_name_w = std::wstring(name.begin(), name.end());
+    std::wstring search_term = L"easy";
+
+    lucene::index::Term term(field_name_w.c_str(), search_term.c_str());
+    std::wcout << L"Testing term: " << search_term << std::endl;
+
+    // Get term statistics for BM25
+    int32_t numDocs = reader->numDocs();
+    int32_t docFreq = reader->docFreq(&term);
+
+    // Calculate IDF: log(1 + (N - n + 0.5) / (n + 0.5))
+    float idf = std::log(1.0F + (static_cast<float>(numDocs) - docFreq + 0.5F) / (docFreq + 0.5F));
+
+    // 从索引中获取真实的 avgdl (total_term_count / numDocs)
+    float avgdl = 0.0F;
+    auto sumTermFreq = reader->sumTotalTermFreq(field_name_w.c_str());
+    if (sumTermFreq.has_value() && numDocs > 0) {
+        avgdl = static_cast<float>(sumTermFreq.value()) / static_cast<float>(numDocs);
+    }
+    std::cout << "SumTermFreq: "
+              << (sumTermFreq.has_value() ? std::to_string(sumTermFreq.value()) : "N/A")
+              << ", NumDocs: " << numDocs << ", avgdl: " << avgdl << std::endl;
+    std::cout << "NumDocs: " << numDocs << ", DocFreq: " << docFreq << ", IDF: " << idf
+              << std::endl;
+
+    // Create BM25Similarity with real avgdl from index
+    auto bm25 = std::make_shared<BM25Similarity>(idf, avgdl);
+
+    // Get posting list with block reading, enable load_stats to get norm values
+    auto* rawTermPos = reader->termPositions(&term, true);
+    TermPositionsPtr termPosPtr(rawTermPos);
+
+    // 使用新的构造函数，传入 enable_scoring=true 和 similarity
+    SegmentPostings postings(std::move(termPosPtr), true, bm25);
+
+    float maxScore = 0.0F;
+    int32_t maxScoreDocId = -1;
+    int32_t docCount = 0;
+    int32_t violationCount = 0;
+    int32_t noSkipCount = 0;
+    int32_t okCount = 0;
+
+    // Block 级别统计（使用 block_id 跟踪）
+    std::set<int64_t> blocksWithViolation;
+    int64_t maxBlockId = 0;
+
+    // 限制文档数量，避免处理时间过长
+    const int32_t MAX_DOCS = 100000;
+
+    std::cout << "\n=== Processing documents (max " << MAX_DOCS << ") ===" << std::endl;
+
+    uint32_t docId = postings.doc();
+    while (docId != TERMINATED && docCount < MAX_DOCS) {
+        int32_t freq = postings.freq();
+        int32_t normEncoded = postings.norm();
+
+        // Calculate BM25 score
+        float score = bm25->score(static_cast<float>(freq), normEncoded);
+
+        // 获取 block_max_score 和 block_id
+        float blockMaxScore = postings.block_max_score();
+        int64_t blockId = postings.block_id();
+        maxBlockId = std::max(maxBlockId, blockId);
+
+        // 判断状态
+        if (blockMaxScore == SegmentPostings::MAX_SCORE) {
+            noSkipCount++;
+        } else if (score <= blockMaxScore + 0.001F) {
+            okCount++;
+        } else {
+            violationCount++;
+            blocksWithViolation.insert(blockId);
+        }
+
+        if (score > maxScore) {
+            maxScore = score;
+            maxScoreDocId = docId;
+        }
+
+        docCount++;
+        docId = postings.advance();
+    }
+
+    std::cout << "\n=== Final Summary ===" << std::endl;
+    std::cout << "Total docs processed: " << docCount << std::endl;
+    std::cout << "Total docFreq: " << docFreq << std::endl;
+    std::cout << "Total blocks: " << maxBlockId << std::endl;
+    std::cout << "Global Max Score: " << maxScore << " (DocID: " << maxScoreDocId << ")"
+              << std::endl;
+    std::cout << "OK count: " << okCount << std::endl;
+    std::cout << "NO_SKIP count: " << noSkipCount << std::endl;
+    std::cout << "Violations (docs): " << violationCount << std::endl;
+    std::cout << "Blocks with violations: " << blocksWithViolation.size() << std::endl;
+
+    // 先清理资源，再检查断言
+    reader->close();
+    _CLLDELETE(reader);
+
+    // 计算违规比例
+    float docViolationRate =
+            docCount > 0 ? (static_cast<float>(violationCount) / docCount * 100.0F) : 0.0F;
+    float blockViolationRate =
+            maxBlockId > 0 ? (static_cast<float>(blocksWithViolation.size()) / maxBlockId * 100.0F)
+                           : 0.0F;
+    std::cout << "Doc violation rate: " << docViolationRate << "%" << std::endl;
+    std::cout << "Block violation rate: " << blockViolationRate << "%" << std::endl;
+}
+
+// 测试用例 3：测试所有词，输出每个 term 的 Block violation rate
+TEST_F(OccurBooleanQueryTest, TestAllTerms) {
+    std::string name = "name";
+    std::string path = "/mnt/disk3/yangsiyu/wikipedia_index_data";
+
+    std::cout << "\n=== Block Violation Rate Analysis for All Terms ===" << std::endl;
+
+    auto* reader = lucene::index::IndexReader::open(path.c_str());
+    auto field_name_w = std::wstring(name.begin(), name.end());
+
+    int32_t numDocs = reader->numDocs();
+
+    // 从索引中获取真实的 avgdl (total_term_count / numDocs)
+    float avgdl = 128.0F; // 默认值
+    auto sumTermFreq = reader->sumTotalTermFreq(field_name_w.c_str());
+    if (sumTermFreq.has_value() && numDocs > 0) {
+        avgdl = static_cast<float>(sumTermFreq.value()) / static_cast<float>(numDocs);
+    }
+    std::cout << "SumTermFreq: "
+              << (sumTermFreq.has_value() ? std::to_string(sumTermFreq.value()) : "N/A")
+              << ", NumDocs: " << numDocs << ", avgdl: " << avgdl << std::endl;
+
+    // Get all terms in the field
+    lucene::index::Term fieldTerm(field_name_w.c_str(), L"");
+    auto* termEnum = reader->terms(&fieldTerm);
+
+    int32_t totalTerms = 0;
+    int32_t testedTerms = 0;
+    int32_t termsWithViolations = 0;
+
+    // 全局统计
+    int64_t globalTotalBlocks = 0;
+    int64_t globalBlocksWithViolation = 0;
+    int64_t globalTotalDocs = 0;
+    int64_t globalDocsWithViolation = 0;
+
+    // 先输出表头，只有当有 violation 时才会输出数据行
+    bool headerPrinted = false;
+
+    // Iterate through all terms
+    while (termEnum->next()) {
+        lucene::index::Term* currentTerm = termEnum->term();
+
+        // Only process terms from our field
+        if (wcscmp(currentTerm->field(), field_name_w.c_str()) != 0) {
+            _CLDECDELETE(currentTerm);
+            break;
+        }
+
+        totalTerms++;
+        std::wstring termText = currentTerm->text();
+
+        // Get term statistics
+        int32_t docFreq = reader->docFreq(currentTerm);
+
+        // 不再跳过低频词，测试所有词
+        testedTerms++;
+
+        try {
+            // Calculate IDF for BM25
+            float idf = std::log(1.0F +
+                                 (static_cast<float>(numDocs) - docFreq + 0.5F) / (docFreq + 0.5F));
+            auto bm25 = std::make_shared<BM25Similarity>(idf, avgdl);
+
+            // Get posting list
+            auto* rawTermPos = reader->termPositions(currentTerm, true);
+            if (rawTermPos != nullptr) {
+                TermPositionsPtr termPosPtr(rawTermPos);
+                SegmentPostings postings(std::move(termPosPtr), true, bm25);
+
+                int32_t docCount = 0;
+                int32_t violationCount = 0;
+                int32_t noSkipCount = 0;
+                int32_t okCount = 0;
+
+                // Block 级别统计（使用 block_id 跟踪）
+                std::set<int64_t> blocksWithViolation;
+                int64_t maxBlockId = 0;
+
+                // 跟踪最大误差（实际 score - 跳表 block_max_score）
+                float maxScoreGap = 0.0F;
+
+                uint32_t docId = postings.doc();
+                while (docId != TERMINATED) {
+                    int32_t freq = postings.freq();
+                    int32_t normEncoded = postings.norm();
+
+                    // Calculate BM25 score
+                    float score = bm25->score(static_cast<float>(freq), normEncoded);
+
+                    // 获取 block_max_score 和 block_id
+                    float blockMaxScore = postings.block_max_score();
+                    int64_t blockId = postings.block_id();
+                    maxBlockId = std::max(maxBlockId, blockId);
+
+                    // 判断状态
+                    if (blockMaxScore == SegmentPostings::MAX_SCORE) {
+                        noSkipCount++;
+                    } else if (score <= blockMaxScore + 0.001F) {
+                        okCount++;
+                    } else {
+                        violationCount++;
+                        blocksWithViolation.insert(blockId);
+                        // 计算误差：实际 score - 跳表 block_max_score
+                        float gap = score - blockMaxScore;
+                        if (gap > maxScoreGap) {
+                            maxScoreGap = gap;
+                        }
+                    }
+
+                    docCount++;
+                    docId = postings.advance();
+                }
+                (void)noSkipCount;
+                (void)okCount;
+
+                // 计算该 term 的 block violation rate
+                float blockViolationRate = 0.0F;
+                if (maxBlockId > 0) {
+                    blockViolationRate = static_cast<float>(blocksWithViolation.size()) /
+                                         static_cast<float>(maxBlockId) * 100.0F;
+                }
+
+                // 更新全局统计
+                globalTotalBlocks += maxBlockId;
+                globalBlocksWithViolation += blocksWithViolation.size();
+                globalTotalDocs += docCount;
+                globalDocsWithViolation += violationCount;
+
+                // 只输出有 violation 的 term
+                if (!blocksWithViolation.empty()) {
+                    termsWithViolations++;
+
+                    // 第一次有 violation 时打印表头
+                    if (!headerPrinted) {
+                        std::cout << "\n--- Terms with Block Violations ---" << std::endl;
+                        std::cout << std::left << std::setw(30) << "Term" << std::setw(12)
+                                  << "DocFreq" << std::setw(12) << "Blocks" << std::setw(12)
+                                  << "ViolBlocks" << std::setw(12) << "ViolRate(%)" << std::setw(12)
+                                  << "MaxScoreGap" << std::endl;
+                        std::cout << std::string(90, '-') << std::endl;
+                        headerPrinted = true;
+                    }
+
+                    // 转换 wstring 为 string 用于输出
+                    std::string termStr(termText.begin(), termText.end());
+                    if (termStr.length() > 28) {
+                        termStr = termStr.substr(0, 25) + "...";
+                    }
+
+                    std::cout << std::left << std::setw(30) << termStr << std::setw(12) << docFreq
+                              << std::setw(12) << maxBlockId << std::setw(12)
+                              << blocksWithViolation.size() << std::setw(12) << std::fixed
+                              << std::setprecision(2) << blockViolationRate << std::setw(12)
+                              << std::setprecision(4) << maxScoreGap << std::endl;
+                }
+            }
+
+        } catch (const std::exception& e) {
+            std::wcerr << L"[ERROR] Term '" << termText << L"': " << e.what() << std::endl;
+        } catch (...) {
+            std::wcerr << L"[ERROR] Term '" << termText << L"': Unknown exception" << std::endl;
+        }
+
+        _CLDECDELETE(currentTerm);
+    }
+
+    termEnum->close();
+    _CLDELETE(termEnum);
+
+    // Print summary
+    std::cout << "\n=== Global Summary ===" << std::endl;
+    std::cout << "Total terms in field: " << totalTerms << std::endl;
+    std::cout << "Terms tested: " << testedTerms << std::endl;
+    std::cout << "Terms with violations: " << termsWithViolations << std::endl;
+    std::cout << "Total blocks: " << globalTotalBlocks << std::endl;
+    std::cout << "Blocks with violations: " << globalBlocksWithViolation << std::endl;
+    std::cout << "Total docs: " << globalTotalDocs << std::endl;
+    std::cout << "Docs with violations: " << globalDocsWithViolation << std::endl;
+
+    // 计算全局违规比例
+    float globalBlockViolationRate = 0.0F;
+    float globalDocViolationRate = 0.0F;
+    if (globalTotalBlocks > 0) {
+        globalBlockViolationRate = static_cast<float>(globalBlocksWithViolation) /
+                                   static_cast<float>(globalTotalBlocks) * 100.0F;
+    }
+    if (globalTotalDocs > 0) {
+        globalDocViolationRate = static_cast<float>(globalDocsWithViolation) /
+                                 static_cast<float>(globalTotalDocs) * 100.0F;
+    }
+
+    std::cout << "\n=== Violation Rates ===" << std::endl;
+    std::cout << "Global Block Violation Rate: " << std::fixed << std::setprecision(4)
+              << globalBlockViolationRate << "%" << std::endl;
+    std::cout << "Global Doc Violation Rate: " << std::fixed << std::setprecision(4)
+              << globalDocViolationRate << "%" << std::endl;
+
+    if (termsWithViolations == 0) {
+        std::cout << "\n[PASS] No violations found in any term!" << std::endl;
+    }
+
+    reader->close();
+    _CLLDELETE(reader);
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

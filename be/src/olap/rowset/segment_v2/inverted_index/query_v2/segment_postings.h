@@ -17,13 +17,18 @@
 
 #pragma once
 
+#include <limits>
 #include <variant>
 
 #include "CLucene/index/DocRange.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
+#include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
+
+using doris::segment_v2::Similarity;
+using doris::segment_v2::SimilarityPtr;
 
 class Postings : public DocSet {
 public:
@@ -40,20 +45,25 @@ public:
 
 using PostingsPtr = std::shared_ptr<Postings>;
 
-class SegmentPostings final : public Postings {
+class SegmentPostings : public Postings {
 public:
     using IterVariant = std::variant<std::monostate, TermDocsPtr, TermPositionsPtr>;
 
-    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring = false)
-            : _iter(std::move(iter)), _enable_scoring(enable_scoring) {
+    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring, SimilarityPtr similarity)
+            : _iter(std::move(iter)),
+              _enable_scoring(enable_scoring),
+              _similarity(std::move(similarity)) {
         if (auto* p = std::get_if<TermDocsPtr>(&_iter)) {
             _raw_iter = p->get();
         }
         _init_doc();
     }
 
-    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring = false)
-            : _iter(std::move(iter)), _enable_scoring(enable_scoring), _has_positions(true) {
+    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring, SimilarityPtr similarity)
+            : _iter(std::move(iter)),
+              _enable_scoring(enable_scoring),
+              _has_positions(true),
+              _similarity(std::move(similarity)) {
         if (auto* p = std::get_if<TermPositionsPtr>(&_iter)) {
             _raw_iter = p->get();
         }
@@ -155,14 +165,58 @@ public:
 
     bool scoring_enabled() const { return _enable_scoring; }
 
+    int64_t block_id() const { return _block_id; }
+
+    void seek_block(uint32_t target_doc) {
+        if (target_doc <= _doc) {
+            return;
+        }
+        if (_raw_iter->skipToBlock(target_doc)) {
+            _block_max_score_cache = -1.0F;
+            _cursor = 0;
+            _block.doc_many_size_ = 0;
+        }
+    }
+
+    uint32_t last_doc_in_block() const {
+        int32_t last_doc = _raw_iter->getLastDocInBlock();
+        if (last_doc == -1 || last_doc == 0x7FFFFFFFL) {
+            return TERMINATED;
+        }
+        return static_cast<uint32_t>(last_doc);
+    }
+
+    float block_max_score() {
+        if (!_enable_scoring || !_similarity) {
+            return std::numeric_limits<float>::max();
+        }
+        if (_block_max_score_cache >= 0.0F) {
+            return _block_max_score_cache;
+        }
+        int32_t max_block_freq = _raw_iter->getMaxBlockFreq();
+        int32_t max_block_norm = _raw_iter->getMaxBlockNorm();
+        if (max_block_freq >= 0 && max_block_norm >= 0) {
+            _block_max_score_cache = _similarity->score(static_cast<float>(max_block_freq),
+                                                        static_cast<int64_t>(max_block_norm));
+            return _block_max_score_cache;
+        }
+        return _similarity->max_score();
+    }
+
+    float max_score() const { return _similarity->max_score(); }
+
+    int32_t max_block_freq() const { return _raw_iter->getMaxBlockFreq(); }
+    int32_t max_block_norm() const { return _raw_iter->getMaxBlockNorm(); }
+
 private:
     bool _refill() {
-        _block.need_positions = _has_positions;
-        if (!_raw_iter->readRange(&_block)) {
+        if (!_raw_iter->readBlock(&_block)) {
             return false;
         }
         _cursor = 0;
         _prox_cursor = 0;
+        _block_max_score_cache = -1.0F;
+        _block_id++;
         return _block.doc_many_size_ > 0;
     }
 
@@ -187,17 +241,20 @@ private:
     DocRange _block;
     uint32_t _cursor = 0;
     uint32_t _prox_cursor = 0;
+    mutable float _block_max_score_cache = -1.0F;
+    mutable int64_t _block_id = 0;
+    SimilarityPtr _similarity;
 };
-
 using SegmentPostingsPtr = std::shared_ptr<SegmentPostings>;
 
-inline SegmentPostingsPtr make_segment_postings(TermDocsPtr iter, bool enable_scoring = false) {
-    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring);
+inline SegmentPostingsPtr make_segment_postings(TermDocsPtr iter, bool enable_scoring,
+                                                SimilarityPtr similarity) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity);
 }
 
-inline SegmentPostingsPtr make_segment_postings(TermPositionsPtr iter,
-                                                bool enable_scoring = false) {
-    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring);
+inline SegmentPostingsPtr make_segment_postings(TermPositionsPtr iter, bool enable_scoring,
+                                                SimilarityPtr similarity) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity);
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

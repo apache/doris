@@ -161,10 +161,13 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return Status::OK();
     }
 
+    auto index_query_context = index_context->get_index_query_context();
+
     auto function = std::make_shared<FunctionSearch>();
     auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
-            _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap);
+            _search_param, bundle.field_types, bundle.iterators, segment_num_rows,
+            index_query_context, result_bitmap);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();

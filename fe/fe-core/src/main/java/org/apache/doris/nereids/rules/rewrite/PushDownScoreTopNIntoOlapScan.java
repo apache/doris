@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -98,12 +99,13 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
             return null;
         }
 
-        // 2. Requirement: WHERE clause must contain a MATCH function.
-        boolean hasMatchPredicate = filter.getConjuncts().stream()
-                .anyMatch(conjunct -> !conjunct.collect(e -> e instanceof Match).isEmpty());
-        if (!hasMatchPredicate) {
+        // 2. Requirement: WHERE clause must contain a MATCH or SEARCH function.
+        boolean hasMatchOrSearchPredicate = filter.getConjuncts().stream()
+                .anyMatch(conjunct -> !conjunct.collect(
+                        e -> e instanceof Match || e instanceof SearchExpression).isEmpty());
+        if (!hasMatchOrSearchPredicate) {
             throw new AnalysisException(
-                    "WHERE clause must contain at least one MATCH function"
+                    "WHERE clause must contain at least one MATCH or SEARCH function"
                             + " for score() push down optimization");
         }
 

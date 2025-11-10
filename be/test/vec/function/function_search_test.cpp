@@ -521,7 +521,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyInputs) 
 
     // Test with empty iterators
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, empty_data_types, empty_iterators, num_rows, bitmap_result);
+            search_param, empty_data_types, empty_iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK but with empty result
 
     // Test with empty data types but non-empty iterators - should still return OK
@@ -529,7 +529,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyInputs) 
     std::unordered_map<std::string, IndexIterator*> non_empty_iterators;
     non_empty_iterators["title"] = nullptr; // Add null iterator
     status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, empty_data_types, non_empty_iterators, num_rows, bitmap_result);
+            search_param, empty_data_types, non_empty_iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK due to empty data_types check
 }
 
@@ -817,7 +817,7 @@ TEST_F(FunctionSearchTest, TestEmptySearchParam) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            empty_param, data_types, iterators, num_rows, bitmap_result);
+            empty_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should handle gracefully
 }
 
@@ -844,7 +844,7 @@ TEST_F(FunctionSearchTest, TestNullIterators) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error when iterator is null
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -876,7 +876,7 @@ TEST_F(FunctionSearchTest, TestMismatchedFieldNames) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error when field not found
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1000,7 +1000,7 @@ TEST_F(FunctionSearchTest, TestZeroRowsScenario) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should handle zero data gracefully and return empty result
 }
 
@@ -1023,7 +1023,7 @@ TEST_F(FunctionSearchTest, TestVeryLargeRowCount) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should handle large row counts gracefully and return empty result
 }
 
@@ -1130,7 +1130,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) 
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
     EXPECT_NE(status.to_string().find("iterator for field 'title' is not InvertedIndexIterator"),
@@ -1162,7 +1162,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithValidIterator) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1191,7 +1191,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithEmptyFieldName) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error when field not found
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1223,7 +1223,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithSpecialCharacters) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error when field not found
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1256,7 +1256,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithUnicodeFieldName) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error when field not found
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1290,7 +1290,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithVeryLongFieldName) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error when field not found
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1326,7 +1326,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithDifferentQueryTypes) {
         InvertedIndexResultBitmap bitmap_result;
 
         auto status = function_search->evaluate_inverted_index_with_search_param(
-                search_param, data_types, iterators, num_rows, bitmap_result);
+                search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
         EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
         EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1359,7 +1359,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyQuery) {
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1389,7 +1389,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamNullBitmapHan
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1419,7 +1419,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamExecutionCont
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1449,7 +1449,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamWeightAndScor
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1479,7 +1479,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamDocumentItera
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1509,7 +1509,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamResultMasking
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_FALSE(status.ok()); // Should return error due to iterator issues
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -1553,7 +1553,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamComplexQuery)
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_types, iterators, num_rows, bitmap_result);
+            search_param, data_types, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK because root_query will be nullptr (empty query)
 
     // The function should return OK with an empty result when all child queries fail
