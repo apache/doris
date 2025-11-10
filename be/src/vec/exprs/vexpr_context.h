@@ -139,6 +139,14 @@ public:
 
     ScoreRuntimeSPtr get_score_runtime() const { return _score_runtime; }
 
+    void set_index_query_context(const segment_v2::IndexQueryContextPtr& index_query_context) {
+        _index_query_context = index_query_context;
+    }
+
+    segment_v2::IndexQueryContextPtr get_index_query_context() const {
+        return _index_query_context;
+    }
+
 private:
     // A reference to a vector of column IDs for the current expression's output columns.
     const std::vector<ColumnId>& _col_ids;
@@ -161,6 +169,7 @@ private:
             _expr_inverted_index_status;
 
     ScoreRuntimeSPtr _score_runtime;
+    segment_v2::IndexQueryContextPtr _index_query_context;
 };
 
 class VExprContext {
