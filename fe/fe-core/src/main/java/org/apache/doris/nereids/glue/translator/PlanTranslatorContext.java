@@ -317,7 +317,6 @@ public class PlanTranslatorContext {
                             + "." + String.join(".", slotReference.getSubPath()));
             }
         }
-        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());

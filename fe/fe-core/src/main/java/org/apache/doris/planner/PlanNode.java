@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -480,9 +479,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         }
 
         for (Expr e : conjuncts) {
-            if  (!(e instanceof BitmapFilterPredicate)) {
-                msg.addToConjuncts(e.treeToThrift());
-            }
+            msg.addToConjuncts(e.treeToThrift());
         }
 
         // Serialize any runtime filters

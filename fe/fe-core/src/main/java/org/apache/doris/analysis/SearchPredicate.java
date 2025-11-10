@@ -102,8 +102,8 @@ public class SearchPredicate extends Predicate {
                     i, child.getClass().getSimpleName(), child.getType());
             if (child instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) child;
-                LOG.info("SearchPredicate.toThrift: SlotRef details - column={}, isAnalyzed={}",
-                        slotRef.getColumnName(), slotRef.isAnalyzed());
+                LOG.info("SearchPredicate.toThrift: SlotRef details - column={}",
+                        slotRef.getColumnName());
                 if (slotRef.isAnalyzed() && slotRef.getDesc() != null) {
                     LOG.info("SearchPredicate.toThrift: SlotRef analyzed - slotId={}",
                             slotRef.getSlotId());

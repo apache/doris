@@ -96,11 +96,6 @@ public class IsNullPredicate extends Predicate {
                 : " IS NULL");
     }
 
-    @Override
-    public String toDigestImpl() {
-        return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
-    }
-
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
     }
@@ -108,14 +103,6 @@ public class IsNullPredicate extends Predicate {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
-    }
-
-    /**
-     * Negates an IsNullPredicate.
-     */
-    @Override
-    public Expr negate() {
-        return new IsNullPredicate(getChild(0), !isNotNull);
     }
 
     @Override

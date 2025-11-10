@@ -90,9 +90,6 @@ public class DateLiteral extends LiteralExpr {
             = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
     private static final int MAX_MICROSECOND = 999999;
 
-    private static DateTimeFormatter DATE_TIME_FORMATTER = null;
-    private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
-    private static DateTimeFormatter DATE_FORMATTER = null;
     private static List<DateTimeFormatter> formatterList = null;
     /*
      *  The datekey type is widely used in data warehouses
@@ -113,18 +110,9 @@ public class DateLiteral extends LiteralExpr {
 
     static {
         try {
-            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
-            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
             DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter()
                 .withResolverStyle(ResolverStyle.STRICT);
             DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
-            DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
-                .appendPattern("uuuu-MM-dd HH:mm:ss")
-                .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                .toFormatter()
                 .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
                 formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
