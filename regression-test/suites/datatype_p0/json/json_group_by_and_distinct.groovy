@@ -40,11 +40,11 @@ suite("test_json_group_by_and_distinct", "p0") {
     """
 
     qt_order"""
-        select j, count(*)  from test_jsonb_groupby group by j;
+        select j, count(*) as cnt from test_jsonb_groupby group by j order by cnt desc, cast(j as string);
     """
 
     qt_order"""
-        select distinct j from test_jsonb_groupby;
+        select distinct j from test_jsonb_groupby order by cast(j as string);
     """
 
 
@@ -70,11 +70,11 @@ suite("test_json_group_by_and_distinct", "p0") {
     """
 
     qt_order"""
-        select j from test_jsonb_obj group by j;
+        select j from test_jsonb_obj group by j order by cast(j as string);
     """
 
     qt_order"""
-        select  SORT_JSON_OBJECT_KEYS(j), count(*) from test_jsonb_obj group by SORT_JSON_OBJECT_KEYS(j);
+        select SORT_JSON_OBJECT_KEYS(j), count(*) from test_jsonb_obj group by SORT_JSON_OBJECT_KEYS(j) order by cast(SORT_JSON_OBJECT_KEYS(j) as string);
     """
 
 
@@ -103,10 +103,10 @@ suite("test_json_group_by_and_distinct", "p0") {
     """
 
     qt_order"""
-        select j from test_jsonb_number group by j;
+        select j from test_jsonb_number group by j order by cast(j as string);
     """
 
     qt_order"""
-        select  NORMALIZE_JSON_NUMBERS_TO_DOUBLE(j), count(*) from test_jsonb_number group by NORMALIZE_JSON_NUMBERS_TO_DOUBLE(j);   
+        select NORMALIZE_JSON_NUMBERS_TO_DOUBLE(j), count(*) from test_jsonb_number group by NORMALIZE_JSON_NUMBERS_TO_DOUBLE(j) order by cast(NORMALIZE_JSON_NUMBERS_TO_DOUBLE(j) as string);
     """
 }
