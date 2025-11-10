@@ -350,7 +350,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
             do {
-                SCOPED_RAW_TIMER(&stats.remote_read_timer);
+                SCOPED_RAW_TIMER(&stats.cache_block_download_wait_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
                 block_state = block->wait();
                 if (block_state != FileBlock::State::DOWNLOADING) {
@@ -508,6 +508,7 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->lock_wait_timer += read_stats.lock_wait_timer;
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
+    statis->cache_block_download_wait_timer += read_stats.cache_block_download_wait_timer;
 
     if (is_inverted_index) {
         if (read_stats.hit_cache) {

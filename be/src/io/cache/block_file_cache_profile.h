@@ -87,6 +87,7 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* lock_wait_timer = nullptr;
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
+    RuntimeProfile::Counter* cache_block_download_wait_timer = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
@@ -122,6 +123,8 @@ struct FileCacheProfileReporter {
         lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
         get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
         set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+        cache_block_download_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                profile, "CacheBlockDownloadWaitTimer", cache_profile, 1);
 
         inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
                 profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -154,6 +157,7 @@ struct FileCacheProfileReporter {
         COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
         COUNTER_UPDATE(get_timer, statistics->get_timer);
         COUNTER_UPDATE(set_timer, statistics->set_timer);
+        COUNTER_UPDATE(cache_block_download_wait_timer, statistics->cache_block_download_wait_timer);
 
         COUNTER_UPDATE(inverted_index_num_local_io_total,
                        statistics->inverted_index_num_local_io_total);
