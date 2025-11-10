@@ -69,8 +69,8 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
                                          Slice s, size_t* bytes_read, const IOContext* ctx) {
     VLOG_DEBUG << "enter PeerFileCacheReader::fetch_blocks, off=" << off
                << " bytes_read=" << *bytes_read;
-    *bytes_read = 0;
     if (blocks.empty()) {
+        *bytes_read = 0;
         return Status::OK();
     }
     if (!_is_doris_table) {
@@ -154,13 +154,13 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     }
     VLOG_DEBUG << "peer cache read filled=" << filled;
     peer_bytes_read_total << filled;
-    *bytes_read = filled;
     peer_bytes_per_read << filled;
     if (filled != s.size) {
         peer_cache_reader_failed_counter << 1;
         return Status::InternalError("peer cache read incomplete: need={}, got={}", s.size, filled);
     }
     peer_cache_reader_succ_counter << 1;
+    *bytes_read = filled;
     return Status::OK();
 }
 

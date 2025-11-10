@@ -257,15 +257,19 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         }
     });
 
-    if (!_is_doris_table || !doris::config::enable_cache_read_from_peer) {
+    if (!_is_doris_table || io_ctx->is_warmup || !doris::config::enable_cache_read_from_peer) {
         return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
     } else {
         // first try peer read, if peer failed, fallback to S3
         // peer timeout is 5 seconds
         // TODO(dx): here peer and s3 reader need to get data in parallel, and take the one that is correct and returns first
+        // ATTN: Save original size before peer read, as it may be modified by fetch_blocks, read peer ref size
+        size_t original_size = size;
         auto st = execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
                                     _is_doris_table, stats, io_ctx);
         if (!st.ok()) {
+            // Restore original size for S3 fallback, as peer read may have modified it
+            size = original_size;
             // Fallback to S3
             return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
         }
