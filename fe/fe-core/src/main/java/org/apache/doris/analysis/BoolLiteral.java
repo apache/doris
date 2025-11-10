@@ -44,6 +44,7 @@ public class BoolLiteral extends LiteralExpr {
 
     public BoolLiteral(boolean value) {
         this.setValue(value);
+        setNullableFromNereids(false);
         type = Type.BOOLEAN;
     }
 

@@ -38,7 +38,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -3025,16 +3024,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Expr rhs = exprIdToSlotRef.get(exprId);
 
         Expr bothNull = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                new IsNullPredicate(lhs, false, true), new IsNullPredicate(rhs, false, true));
+                new IsNullPredicate(lhs, false, true), new IsNullPredicate(rhs, false, true), false);
         Expr lhsEqRhsNotNull = new CompoundPredicate(CompoundPredicate.Operator.AND,
                 new CompoundPredicate(CompoundPredicate.Operator.AND,
-                        new IsNullPredicate(lhs, true, true), new IsNullPredicate(rhs, true, true)),
+                        new IsNullPredicate(lhs, true, true), new IsNullPredicate(rhs, true, true), false),
                 new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs,
-                        Type.BOOLEAN, NullableMode.DEPEND_ON_ARGUMENT));
+                        Type.BOOLEAN, lhs.isNullable() || rhs.isNullable()), lhs.isNullable() || rhs.isNullable());
 
         Expr remainder = windowExprsHaveMatchedNullable(exprIdToExpr, exprIdToSlotRef, expressions, i + 1, size);
         return new CompoundPredicate(CompoundPredicate.Operator.AND,
-                new CompoundPredicate(CompoundPredicate.Operator.OR, bothNull, lhsEqRhsNotNull), remainder);
+                new CompoundPredicate(CompoundPredicate.Operator.OR, bothNull, lhsEqRhsNotNull,
+                        bothNull.isNullable() || lhsEqRhsNotNull.isNullable()), remainder,
+                bothNull.isNullable() || lhsEqRhsNotNull.isNullable() || remainder.isNullable());
     }
 
     private PlanFragment createPlanFragment(PlanNode planNode, DataPartition dataPartition, AbstractPlan physicalPlan) {

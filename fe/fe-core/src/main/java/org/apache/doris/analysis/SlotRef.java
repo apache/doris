@@ -96,6 +96,7 @@ public class SlotRef extends Expr {
         desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
         tupleDescriptor.addSlot(desc);
         desc.setIsNullable(nullable);
+        setNullableFromNereids(nullable);
         desc.setType(type);
         this.type = type;
     }
@@ -413,6 +414,7 @@ public class SlotRef extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         Preconditions.checkNotNull(desc);
         return desc.getIsNullable();
     }

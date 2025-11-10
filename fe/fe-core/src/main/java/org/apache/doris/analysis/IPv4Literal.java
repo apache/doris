@@ -47,6 +47,7 @@ public class IPv4Literal extends LiteralExpr {
         super();
         this.value = value;
         this.type = Type.IPV4;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

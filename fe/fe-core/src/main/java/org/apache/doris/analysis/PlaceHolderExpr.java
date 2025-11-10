@@ -126,6 +126,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         return this.lExpr instanceof NullLiteral;
     }
 

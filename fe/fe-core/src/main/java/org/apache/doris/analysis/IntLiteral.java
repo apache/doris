@@ -62,9 +62,9 @@ public class IntLiteral extends NumericLiteralExpr {
     public IntLiteral(long longValue, Type type) throws AnalysisException {
         super();
         checkValueValid(longValue, type);
-
         this.value = longValue;
         this.type = type;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

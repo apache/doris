@@ -170,6 +170,7 @@ public class InPredicate extends Predicate {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         return hasNullableChild();
     }
 }

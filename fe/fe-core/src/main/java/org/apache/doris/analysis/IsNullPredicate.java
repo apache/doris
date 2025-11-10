@@ -58,8 +58,8 @@ public class IsNullPredicate extends Predicate {
         if (isNereids) {
             fn = new Function(new FunctionName(isNotNull ? IS_NOT_NULL : IS_NULL),
                     Lists.newArrayList(e.getType()), Type.BOOLEAN, false, true, NullableMode.ALWAYS_NOT_NULLABLE);
-            Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
         }
+        setNullableFromNereids(false);
     }
 
     protected IsNullPredicate(IsNullPredicate other) {

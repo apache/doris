@@ -51,6 +51,16 @@ public class CompoundPredicate extends Predicate {
         }
     }
 
+    public CompoundPredicate(Operator op, Expr e1, Expr e2, boolean nullable) {
+        super();
+        this.op = op;
+        children.add(e1);
+        if (e2 != null) {
+            children.add(e2);
+        }
+        setNullableFromNereids(nullable);
+    }
+
     protected CompoundPredicate(CompoundPredicate other) {
         super(other);
         op = other.op;
@@ -129,6 +139,7 @@ public class CompoundPredicate extends Predicate {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         return hasNullableChild();
     }
 

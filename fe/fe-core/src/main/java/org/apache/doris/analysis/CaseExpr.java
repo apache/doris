@@ -168,6 +168,7 @@ public class CaseExpr extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         int loopStart;
         int loopEnd = children.size();
         if (hasCaseExpr) {

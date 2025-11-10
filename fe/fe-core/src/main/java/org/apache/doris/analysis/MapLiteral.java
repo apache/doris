@@ -52,6 +52,7 @@ public class MapLiteral extends LiteralExpr {
             children.add(keys.get(i));
             children.add(values.get(i));
         }
+        setNullableFromNereids(false);
     }
 
     protected MapLiteral(MapLiteral other) {

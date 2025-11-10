@@ -52,6 +52,7 @@ public class JsonLiteral extends LiteralExpr {
         }
         this.value = value;
         type = Type.JSONB;
+        setNullableFromNereids(false);
         analysisDone();
     }
 

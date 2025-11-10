@@ -24,6 +24,8 @@ import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import com.google.common.base.Preconditions;
+
 import java.util.Optional;
 
 public class ColumnRefExpr extends Expr {
@@ -64,6 +66,7 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         return isNullable;
     }
 

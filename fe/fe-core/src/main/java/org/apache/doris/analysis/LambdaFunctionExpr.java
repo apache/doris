@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
@@ -107,6 +108,7 @@ public class LambdaFunctionExpr extends Expr {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         for (int i = 1; i < slotExprs.size(); ++i) {
             if (slotExprs.get(i).isNullable()) {
                 return true;

@@ -122,7 +122,7 @@ public class BinaryPredicate extends Predicate {
         children.add(e2);
     }
 
-    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, boolean nullable) {
         super();
         this.op = op;
         this.opcode = op.opcode;
@@ -131,7 +131,9 @@ public class BinaryPredicate extends Predicate {
         Preconditions.checkNotNull(e2);
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
-                false, true, nullableMode);
+                false, true,
+                op == Operator.GT.EQ_FOR_NULL ? NullableMode.ALWAYS_NOT_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+        setNullableFromNereids(nullable);
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -238,6 +240,7 @@ public class BinaryPredicate extends Predicate {
 
     @Override
     public boolean isNullable() {
+        Preconditions.checkState(nullableFromNereids.isPresent(), "nullableFromNereids is null");
         if (op == Operator.EQ_FOR_NULL) {
             return false;
         }

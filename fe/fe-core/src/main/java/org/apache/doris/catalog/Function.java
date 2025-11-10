@@ -545,7 +545,9 @@ public class Function implements Writable {
                 aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
-        return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()));
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()));
+        functionCallExpr.setNullableFromNereids(false);
+        return functionCallExpr;
     }
 
     public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
