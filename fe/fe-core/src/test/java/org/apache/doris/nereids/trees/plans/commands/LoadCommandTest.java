@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -196,9 +196,9 @@ public class LoadCommandTest extends TestWithFeService {
         Assertions.assertTrue(loadProperties.get("exec_mem_limit").equalsIgnoreCase("8589934592"));
 
         // label
-        LabelName labelName = command.getLabel();
+        LabelNameInfo labelName = command.getLabel();
         Assertions.assertNotNull(labelName);
-        Assertions.assertEquals("customer_lable_for_test", labelName.getLabelName());
+        Assertions.assertEquals("customer_lable_for_test", labelName.getLabel());
 
         // comment
         String comment = command.getComment();
