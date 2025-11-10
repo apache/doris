@@ -415,7 +415,6 @@ void CachedRemoteFileReader::_write_to_file_cache(const std::vector<FileBlockSPt
         } else {
             _insert_file_reader(block);
         }
-        g_bytes_write_into_file_cache_total << block_size;
     }
 }
 
