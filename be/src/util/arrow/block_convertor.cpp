@@ -53,38 +53,7 @@ class Array;
 namespace doris {
 #include "common/compile_check_begin.h"
 
-class FromBlockConverter {
-public:
-    FromBlockConverter(const vectorized::Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                       arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
-            : _block(block),
-              _schema(schema),
-              _pool(pool),
-              _cur_field_idx(-1),
-              _timezone_obj(timezone_obj) {}
-
-    ~FromBlockConverter() = default;
-
-    Status convert(std::shared_ptr<arrow::RecordBatch>* out);
-
-private:
-    const vectorized::Block& _block;
-    const std::shared_ptr<arrow::Schema>& _schema;
-    arrow::MemoryPool* _pool;
-
-    size_t _cur_field_idx;
-    size_t _cur_start;
-    size_t _cur_rows;
-    vectorized::ColumnPtr _cur_col;
-    vectorized::DataTypePtr _cur_type;
-    arrow::ArrayBuilder* _cur_builder = nullptr;
-
-    const cctz::time_zone& _timezone_obj;
-
-    std::vector<std::shared_ptr<arrow::Array>> _arrays;
-};
-
-Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
+Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     int num_fields = _schema->num_fields();
     if (_block.columns() != num_fields) {
         return Status::InvalidArgument("number fields not match");
@@ -127,12 +96,43 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     return Status::OK();
 }
 
+Status FromRecordBatchToBlockConverter::convert(vectorized::Block* block) {
+    DCHECK(block);
+    int num_fields = _batch->num_columns();
+    if ((size_t)num_fields != _types.size()) {
+        return Status::InvalidArgument("number fields not match");
+    }
+
+    int64_t num_rows = _batch->num_rows();
+    _columns.reserve(num_fields);
+
+    for (int idx = 0; idx < num_fields; ++idx) {
+        auto doris_type = _types[idx];
+        auto doris_column = doris_type->create_column();
+        auto arrow_column = _batch->column(idx);
+        DCHECK_EQ(arrow_column->length(), num_rows);
+        RETURN_IF_ERROR(doris_type->get_serde()->read_column_from_arrow(
+                *doris_column, &*arrow_column, 0, num_rows, _timezone_obj));
+        _columns.emplace_back(std::move(doris_column), std::move(doris_type), std::to_string(idx));
+    }
+
+    block->swap(_columns);
+    return Status::OK();
+}
+
 Status convert_to_arrow_batch(const vectorized::Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
-    FromBlockConverter converter(block, schema, pool, timezone_obj);
+    FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj);
     return converter.convert(result);
+}
+
+Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
+                                const vectorized::DataTypes& types, vectorized::Block* block,
+                                const cctz::time_zone& timezone_obj) {
+    FromRecordBatchToBlockConverter converter(batch, types, timezone_obj);
+    return converter.convert(block);
 }
 
 #include "common/compile_check_end.h"

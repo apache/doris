@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vectorized_fn_call.h"
 
+#include <fmt/compile.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Opcodes_types.h>
@@ -57,6 +58,7 @@
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
+#include "vec/functions/function_python_udf.h"
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
@@ -114,6 +116,17 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             return Status::InternalError(
                     "Java UDF is not enabled, you can change be config enable_java_support to true "
                     "and restart be.");
+        }
+    } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        if (config::enable_python_udf_support) {
+            _function = PythonFunctionCall::create(_fn, argument_template, _data_type);
+            LOG(INFO) << fmt::format(
+                    "create python function call: {}, runtime version: {}, function code: {}",
+                    _fn.name.function_name, _fn.runtime_version, _fn.function_code);
+        } else {
+            return Status::InternalError(
+                    "Python UDF is not enabled, you can change be config enable_python_udf_support "
+                    "to true and restart be.");
         }
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
         DataTypes argument_types;
