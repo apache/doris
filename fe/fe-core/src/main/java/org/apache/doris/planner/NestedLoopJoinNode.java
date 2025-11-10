@@ -18,31 +18,21 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.Collections;
 import java.util.List;
 
 /**
  * Nested loop join between left child and right child.
  */
 public class NestedLoopJoinNode extends JoinNodeBase {
-    private static final Logger LOG = LogManager.getLogger(NestedLoopJoinNode.class);
-
     // If isOutputLeftSideOnly=true, the data from the left table is returned directly without a join operation.
     // This is used to optimize `in bitmap`, because bitmap will make a lot of copies when doing Nested Loop Join,
     // which is very resource intensive.
@@ -57,7 +47,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     //    there is no data on the build side.
     private boolean isOutputLeftSideOnly = false;
 
-    private List<Expr> runtimeFilterExpr = Lists.newArrayList();
     private List<Expr> joinConjuncts;
 
     private List<Expr> markJoinConjuncts;
@@ -77,19 +66,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         this.markJoinConjuncts = markJoinConjuncts;
     }
 
-
-    /**
-     * Only for Nereids.
-     */
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
-            JoinOperator joinOperator, List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
-            TupleDescriptor outputTuple, boolean isMarkJoin) {
-        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, joinOperator, isMarkJoin);
+            JoinOperator joinOperator, boolean isMarkJoin) {
+        super(id, "NESTED LOOP JOIN", joinOperator, isMarkJoin);
         this.tupleIds.addAll(tupleIds);
         children.add(outer);
         children.add(inner);
-        // TODO: need to set joinOp by Nereids
-
         // Inherits all the nullable tuple from the children
         // Mark tuples that form the "nullable" side of the outer join as nullable.
         nullableTupleIds.addAll(outer.getNullableTupleIds());
@@ -102,23 +84,10 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
             nullableTupleIds.addAll(outer.getOutputTupleIds());
         }
-        vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
-        outputTupleDesc = outputTuple;
-        vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
     public void setOutputLeftSideOnly(boolean outputLeftSideOnly) {
         isOutputLeftSideOnly = outputLeftSideOnly;
-    }
-
-    public List<Expr> getRuntimeFilterExpr() {
-        return runtimeFilterExpr;
-    }
-
-
-    @Override
-    protected String debugString() {
-        return MoreObjects.toStringHelper(this).addValue(super.debugString()).toString();
     }
 
     @Override
@@ -149,10 +118,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
-        String distrModeStr = "";
         StringBuilder output =
-                new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
-                        .append(distrModeStr).append(")\n");
+                new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("()\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
