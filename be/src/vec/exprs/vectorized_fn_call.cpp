@@ -272,6 +272,65 @@ Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block
     return _do_execute(context, block, result_column_id, arguments);
 }
 
+Status VectorizedFnCall::execute(VExprContext* context, Block* block,
+                                 ColumnPtr& result_column) const {
+    if (is_const_and_have_executed()) { // const have executed in open function
+        return get_result_from_const(block, _expr_name, result_column);
+    }
+    if (fast_execute(context, result_column)) {
+        return Status::OK();
+    }
+    DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
+        if (get_child(0)->is_slot_ref()) {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "VectorizedFnCall.must_in_slow_path", "column_name", "");
+
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+            std::string column_name = column_slot_ref->expr_name();
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "column {} should in slow path while VectorizedFnCall::execute.",
+                        column_name);
+            }
+        }
+    })
+    DCHECK(_open_finished || _getting_const_col) << debug_string();
+
+    Block temp_block;
+    ColumnNumbers args(_children.size());
+
+    for (int i = 0; i < _children.size(); ++i) {
+        ColumnPtr arg_column;
+        RETURN_IF_ERROR(_children[i]->execute(context, block, arg_column));
+        auto arg_type = _children[i]->execute_type(block);
+        temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
+        args[i] = i;
+    }
+
+    uint32_t num_columns_without_result = temp_block.columns();
+    // prepare a column to save result
+    temp_block.insert({nullptr, _data_type, _expr_name});
+
+    DBUG_EXECUTE_IF("VectorizedFnCall.wait_before_execute", {
+        auto possibility = DebugPoints::instance()->get_debug_param_or_default<double>(
+                "VectorizedFnCall.wait_before_execute", "possibility", 0);
+        if (random_bool_slow(possibility)) {
+            LOG(WARNING) << "VectorizedFnCall::execute sleep 30s";
+            sleep(30);
+        }
+    });
+
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block, args,
+                                       num_columns_without_result, temp_block.rows()));
+    result_column = temp_block.get_by_position(num_columns_without_result).column;
+    RETURN_IF_ERROR(block->check_type_and_column());
+    return Status::OK();
+}
+
 const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }

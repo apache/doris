@@ -108,6 +108,15 @@ Status VSlotRef::execute(VExprContext* context, Block* block, ColumnPtr& result_
     return Status::OK();
 }
 
+DataTypePtr VSlotRef::execute_type(const Block* block) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "input block not contain slot column {}, column_id={}, block={}",
+                               *_column_name, _column_id, block->dump_structure());
+    }
+    return block->get_by_position(_column_id).type;
+}
+
 const std::string& VSlotRef::expr_name() const {
     return *_column_name;
 }

@@ -63,5 +63,12 @@ Status VInfoFunc::execute(VExprContext* context, vectorized::Block* block,
     return Status::OK();
 }
 
+Status VInfoFunc::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+    // Info function should return least one row, e.g. select current_user().
+    size_t row_size = std::max(block->rows(), _column_ptr->size());
+    result_column = _column_ptr->clone_resized(row_size);
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

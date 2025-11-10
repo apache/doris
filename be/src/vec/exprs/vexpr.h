@@ -139,6 +139,10 @@ public:
         return Status::OK();
     }
 
+    // 目前因为fe规划的问题，对于slot ref expr。返回的column的类型，可能和data_type不一致。
+    // 所以需要这样的一个函数来返回真正执行结果的类型。
+    virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
@@ -288,6 +292,8 @@ public:
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                       int* result_column_id) const;
+
+    bool fast_execute(VExprContext* context, ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
