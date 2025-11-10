@@ -38,34 +38,25 @@ import java.util.Objects;
 
 public class ArithmeticExpr extends Expr {
 
-    enum OperatorPosition {
-        BINARY_INFIX,
-        UNARY_PREFIX,
-        UNARY_POSTFIX,
-    }
-
     public enum Operator {
-        MULTIPLY("*", "multiply", OperatorPosition.BINARY_INFIX, TExprOpcode.MULTIPLY),
-        DIVIDE("/", "divide", OperatorPosition.BINARY_INFIX, TExprOpcode.DIVIDE),
-        MOD("%", "mod", OperatorPosition.BINARY_INFIX, TExprOpcode.MOD),
-        INT_DIVIDE("DIV", "int_divide", OperatorPosition.BINARY_INFIX, TExprOpcode.INT_DIVIDE),
-        ADD("+", "add", OperatorPosition.BINARY_INFIX, TExprOpcode.ADD),
-        SUBTRACT("-", "subtract", OperatorPosition.BINARY_INFIX, TExprOpcode.SUBTRACT),
-        BITAND("&", "bitand", OperatorPosition.BINARY_INFIX, TExprOpcode.BITAND),
-        BITOR("|", "bitor", OperatorPosition.BINARY_INFIX, TExprOpcode.BITOR),
-        BITXOR("^", "bitxor", OperatorPosition.BINARY_INFIX, TExprOpcode.BITXOR),
-        BITNOT("~", "bitnot", OperatorPosition.UNARY_PREFIX, TExprOpcode.BITNOT),
-        FACTORIAL("!", "factorial", OperatorPosition.UNARY_POSTFIX, TExprOpcode.FACTORIAL);
+        MULTIPLY("*", "multiply", TExprOpcode.MULTIPLY),
+        DIVIDE("/", "divide", TExprOpcode.DIVIDE),
+        MOD("%", "mod", TExprOpcode.MOD),
+        INT_DIVIDE("DIV", "int_divide", TExprOpcode.INT_DIVIDE),
+        ADD("+", "add", TExprOpcode.ADD),
+        SUBTRACT("-", "subtract", TExprOpcode.SUBTRACT),
+        BITAND("&", "bitand", TExprOpcode.BITAND),
+        BITOR("|", "bitor", TExprOpcode.BITOR),
+        BITXOR("^", "bitxor", TExprOpcode.BITXOR),
+        BITNOT("~", "bitnot", TExprOpcode.BITNOT);
 
         private final String description;
         private final String name;
-        private final OperatorPosition pos;
         private final TExprOpcode opcode;
 
-        Operator(String description, String name, OperatorPosition pos, TExprOpcode opcode) {
+        Operator(String description, String name, TExprOpcode opcode) {
             this.description = description;
             this.name = name;
-            this.pos = pos;
             this.opcode = opcode;
         }
 
@@ -80,15 +71,6 @@ public class ArithmeticExpr extends Expr {
 
         public TExprOpcode getOpcode() {
             return opcode;
-        }
-
-        public boolean isUnary() {
-            return pos == OperatorPosition.UNARY_PREFIX
-                    || pos == OperatorPosition.UNARY_POSTFIX;
-        }
-
-        public boolean isBinary() {
-            return pos == OperatorPosition.BINARY_INFIX;
         }
     }
 
@@ -157,15 +139,6 @@ public class ArithmeticExpr extends Expr {
         } else {
             return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString()
                     + " " + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
-        }
-    }
-
-    @Override
-    public String toDigestImpl() {
-        if (children.size() == 1) {
-            return op.toString() + " " + getChild(0).toDigest();
-        } else {
-            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
         }
     }
 
