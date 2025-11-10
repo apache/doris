@@ -345,7 +345,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             if (!partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("append")
                     && !partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("error")) {
                 throw new DdlException(PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of [append, error], but found "
-                    + partialUpdateNewKeyPolicyProperty);
+                        + partialUpdateNewKeyPolicyProperty);
             }
         }
 
@@ -382,13 +382,13 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (Strings.isNullOrEmpty(label.getDbName())) {
+        if (Strings.isNullOrEmpty(label.getDb())) {
             if (Strings.isNullOrEmpty(ctx.getDatabase())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            label.setDbName(ctx.getDatabase());
+            label.setDb(ctx.getDatabase());
         }
-        FeNameFormat.checkLabel(label.getLabelName());
+        FeNameFormat.checkLabel(label.getLabel());
 
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
@@ -401,7 +401,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             if (brokerDesc == null && resourceDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
-            String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), ctx);
+            String fullDbName = dataDescription.analyzeFullDbName(label.getDb(), ctx);
             dataDescription.analyze(fullDbName);
 
             if (dataDescription.isLoadFromTable()) {
