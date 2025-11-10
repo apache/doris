@@ -222,7 +222,7 @@ private:
                 null_flag = true;
             }
             // nested column nullable check
-            if (!null_flag && array_nested_null_map && array_nested_null_map[index]) {
+            if (!null_flag && array_nested_null_map[index]) {
                 null_flag = true;
             }
             // actual data copy
@@ -270,7 +270,7 @@ private:
                 null_flag = true;
             }
             // nested column nullable check
-            if (!null_flag && nested_null_map && nested_null_map[index]) {
+            if (!null_flag && nested_null_map[index]) {
                 null_flag = true;
             }
             // actual string copy
@@ -348,7 +348,7 @@ private:
                 null_flag = true;
             }
             // nested column nullable check
-            if (!null_flag && nested_null_map && nested_null_map[index]) {
+            if (!null_flag && nested_null_map[index]) {
                 null_flag = true;
             }
             // actual data copy
