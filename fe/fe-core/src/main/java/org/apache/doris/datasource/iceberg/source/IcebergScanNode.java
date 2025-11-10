@@ -43,7 +43,6 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -117,7 +116,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // for test
     @VisibleForTesting
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, false, sv);
+        super(id, desc, "ICEBERG_SCAN_NODE", false, sv);
     }
 
     /**
@@ -127,7 +126,7 @@ public class IcebergScanNode extends FileQueryScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "ICEBERG_SCAN_NODE", needCheckColumnPriv, sv);
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
