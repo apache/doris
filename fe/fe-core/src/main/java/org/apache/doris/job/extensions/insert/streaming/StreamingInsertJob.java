@@ -368,7 +368,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public boolean needScheduleTask() {
-        return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
+        readLock();
+        try {
+            return (getJobStatus().equals(JobStatus.RUNNING)
+                    || getJobStatus().equals(JobStatus.PENDING));
+        } finally {
+            readUnlock();
+        }
     }
 
     public void clearRunningStreamTask(JobStatus newJobStatus) {
