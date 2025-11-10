@@ -137,7 +137,7 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         // Should return the first one since they have same priority, compared by slot size
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result == mapSlot);
+        Assertions.assertSame(structSlot, result);
     }
 
     @Test
@@ -402,10 +402,10 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
                     Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRING);
                     break;
                 case 18:
-                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.MAP);
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRUCT);
                     break;
                 case 19:
-                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRUCT);
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.MAP);
                     break;
                 case 20:
                     Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.ARRAY);
