@@ -422,15 +422,10 @@ Status CachedRemoteFileReader::_read_small_request_with_async_write_back(
         size_t offset, Slice result, size_t bytes_req, const IOContext* io_ctx,
         std::vector<FileBlockSPtr>&& empty_blocks, size_t empty_start, size_t size,
         size_t* bytes_read, ReadStatistics* stats) {
-    // Read directly from remote to user buffer
-    {
-        s3_read_counter << 1;
-        SCOPED_RAW_TIMER(&stats->remote_read_timer);
-        size_t direct_read_size = bytes_req;
-        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, result, &direct_read_size, io_ctx));
-        DCHECK(direct_read_size == bytes_req);
-        *bytes_read = bytes_req;
-    }
+    // Update statistics
+    stats->num_small_request_with_async_write_back++;
+    stats->small_request_with_async_write_back_bytes += bytes_req;
+    SCOPED_RAW_TIMER(&stats->small_request_with_async_write_back_timer);
 
     // Submit async task to write cache in background
     auto* engine = dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
@@ -480,6 +475,15 @@ Status CachedRemoteFileReader::_read_small_request_with_async_write_back(
         }
     }
 
+    // Read directly from remote to user buffer
+    {
+        s3_read_counter << 1;
+        SCOPED_RAW_TIMER(&stats->remote_read_timer);
+        size_t direct_read_size = bytes_req;
+        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, result, &direct_read_size, io_ctx));
+        DCHECK(direct_read_size == bytes_req);
+        *bytes_read = bytes_req;
+    }
     return Status::OK();
 }
 
@@ -508,6 +512,12 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
     statis->cache_block_download_wait_timer += read_stats.cache_block_download_wait_timer;
+    statis->num_small_request_with_async_write_back +=
+            read_stats.num_small_request_with_async_write_back;
+    statis->small_request_with_async_write_back_bytes +=
+            read_stats.small_request_with_async_write_back_bytes;
+    statis->small_request_with_async_write_back_timer +=
+            read_stats.small_request_with_async_write_back_timer;
 
     if (is_inverted_index) {
         if (read_stats.hit_cache) {
