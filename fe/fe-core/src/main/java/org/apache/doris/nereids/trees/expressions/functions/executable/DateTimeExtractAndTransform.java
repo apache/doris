@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -537,6 +538,16 @@ public class DateTimeExtractAndTransform {
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
 
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalLiteral second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
     /**
      * date transformation function: from_unixtime
      */
@@ -557,6 +568,46 @@ public class DateTimeExtractAndTransform {
         return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
                         dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
                 format);
+    }
+
+    /**
+     * date transformation function: from_unixtime
+     */
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalLiteral second, StringLikeLiteral format) {
+        BigDecimal val = second.getValue();
+        return fromUnixTime(val, format);
+    }
+
+    /**
+     * date transformation function: from_unixtime
+     */
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second, StringLikeLiteral format) {
+        BigDecimal val = second.getValue();
+        return fromUnixTime(val, format);
+    }
+
+    private static Expression fromUnixTime(BigDecimal second, StringLikeLiteral format) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (second.signum() < 0 || second.longValue() > 32536771199L) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+        BigDecimal microSeconds = second.movePointRight(second.scale()).setScale(0, RoundingMode.DOWN);
+        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+                .plus(microSeconds.longValue(), ChronoUnit.MICROS)
+                .atZone(ZoneId.of("UTC+0"))
+                .toOffsetDateTime()
+                .atZoneSameInstant(DateUtils.getTimeZone());
+        DateTimeV2Literal datetime = new DateTimeV2Literal(DateTimeV2Type.of(6), dateTime.getYear(),
+                dateTime.getMonthValue(),
+                dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                dateTime.getNano() / 1000);
+        if (datetime.checkRange()) {
+            throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
+        }
+        return dateFormat(datetime, format);
     }
 
     /**
