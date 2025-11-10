@@ -41,6 +41,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -450,6 +451,12 @@ public class MTMVPlanUtil {
                 if (table.isTemporary()) {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
                             + Util.getTempTableDisplayName(table.getName()) + ")");
+                }
+                if (table instanceof ExternalTable) {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    if (externalTable.isView()) {
+                        throw new AnalysisException("can not contain external VIEW");
+                    }
                 }
             }
             MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
