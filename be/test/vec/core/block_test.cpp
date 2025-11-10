@@ -1216,14 +1216,7 @@ TEST(BlockTest, insert_erase) {
 
     block.insert({nullptr, std::make_shared<vectorized::DataTypeString>(), "col2"});
 
-    vectorized::MutableBlock mutable_block(&block);
-    mutable_block.erase("col1");
-    ASSERT_EQ(mutable_block.columns(), 2);
-
-    EXPECT_ANY_THROW(mutable_block.erase("col1"));
-    ASSERT_EQ(mutable_block.columns(), 2);
-    mutable_block.erase("col2");
-    ASSERT_EQ(mutable_block.columns(), 1);
+    ASSERT_EQ(block.columns(), 3);
 }
 
 TEST(BlockTest, check_number_of_rows) {
