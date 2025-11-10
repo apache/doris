@@ -128,7 +128,7 @@ message InstanceInfoPB {
 
     // Inherited from which instance (only used during rollback, the earliest instance id).
     optional string original_instance_id = 114;
-    optional string succeed_instance_id = 115;  // The last heir (only used during rollback).
+    optional string successor_instance_id = 115;  // The last heir (only used during rollback).
     optional bool ready_only = 116;             // A read only instance.
 
     // Snapshot properties.
