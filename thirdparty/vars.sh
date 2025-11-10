@@ -630,7 +630,7 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
     BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
 
     #gettext
-    GETTEXT_DOWNLOAD='https://ftp.nluug.nl/pub/gnu/gettext/gettext-0.21.tar.g'
+    GETTEXT_DOWNLOAD='https://ftp.nluug.nl/pub/gnu/gettext/gettext-0.21.tar.gz'
     GETTEXT_NAME='gettext-0.21.tar.gz'
     GETTEXT_SOURCE='gettext-0.21'
     GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'
