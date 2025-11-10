@@ -180,6 +180,7 @@ private:
             _expr_index_status;
 
     ScoreRuntimeSPtr _score_runtime;
+    segment_v2::IndexQueryContextPtr _index_query_context;
 };
 
 class VExprContext {

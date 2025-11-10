@@ -21,8 +21,7 @@
 #include <unordered_map>
 
 #include "common/be_mock_util.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
+#include "olap/predicate_collector.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_fwd.h"
 

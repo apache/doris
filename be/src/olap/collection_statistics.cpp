@@ -24,13 +24,12 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
-#include "olap/rowset/segment_v2/index_reader_helper.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
-#include "util/uid_util.h"
+#include "olap/rowset/segment_v2/inverted_index/util/term_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
@@ -194,8 +193,13 @@ Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_sch
 
 Status CollectionStatistics::extract_collect_info(
         RuntimeState* state, const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
-        const TabletSchemaSPtr& tablet_schema,
-        std::unordered_map<std::wstring, CollectInfo>* collect_infos) {
+        const TabletSchemaSPtr& tablet_schema, CollectInfoMap* collect_infos) {
+    DCHECK(collect_infos != nullptr);
+
+    std::unordered_map<TExprNodeType::type, PredicateCollectorPtr> collectors;
+    collectors[TExprNodeType::MATCH_PRED] = std::make_unique<MatchPredicateCollector>();
+    collectors[TExprNodeType::SEARCH_EXPR] = std::make_unique<SearchPredicateCollector>();
+
     for (const auto& root_expr_ctx : common_expr_ctxs_push_down) {
         const auto& root_expr = root_expr_ctx->root();
         if (root_expr == nullptr) {
@@ -203,24 +207,31 @@ Status CollectionStatistics::extract_collect_info(
         }
 
         std::stack<vectorized::VExprSPtr> stack;
-        stack.emplace(root_expr);
+        stack.push(root_expr);
 
         while (!stack.empty()) {
-            const auto& expr = stack.top();
+            auto expr = stack.top();
             stack.pop();
 
-            if (expr->node_type() == TExprNodeType::MATCH_PRED) {
-                RETURN_IF_ERROR(handle_match_pred(state, tablet_schema, expr, collect_infos));
+            if (!expr) {
+                continue;
+            }
+
+            auto collector_it = collectors.find(expr->node_type());
+            if (collector_it != collectors.end()) {
+                RETURN_IF_ERROR(
+                        collector_it->second->collect(state, tablet_schema, expr, collect_infos));
             }
 
             const auto& children = expr->children();
-            for (int32_t i = static_cast<int32_t>(children.size()) - 1; i >= 0; --i) {
-                if (!children[i]->children().empty()) {
-                    stack.emplace(children[i]);
-                }
+            for (const auto& child : children) {
+                stack.push(child);
             }
         }
     }
+
+    LOG(INFO) << "Extracted collect info for " << collect_infos->size() << " fields";
+
     return Status::OK();
 }
 
@@ -238,36 +249,42 @@ Status CollectionStatistics::process_segment(
     RETURN_IF_ERROR(idx_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
 
     int32_t total_seg_num_docs = 0;
+
     for (const auto& [ws_field_name, collect_info] : collect_infos) {
+        lucene::search::IndexSearcher* index_searcher = nullptr;
+        lucene::index::IndexReader* index_reader = nullptr;
+
 #ifdef BE_TEST
         auto compound_reader = DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
         auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-        auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
-
-        auto* index_reader = index_searcher->getReader();
+        auto searcher_ptr = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+        index_searcher = searcher_ptr.get();
+        index_reader = index_searcher->getReader();
 #else
         InvertedIndexCacheHandle inverted_index_cache_handle;
         auto index_file_key = idx_file_reader->get_index_file_cache_key(collect_info.index_meta);
         InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+
         if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                             &inverted_index_cache_handle)) {
             auto compound_reader =
                     DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
             auto* reader = lucene::index::IndexReader::open(compound_reader.get());
             size_t reader_size = reader->getTermInfosRAMUsed();
-            auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+            auto searcher_ptr = std::make_shared<lucene::search::IndexSearcher>(reader, true);
             auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
-                    std::move(index_searcher), reader_size, UnixMillis());
+                    std::move(searcher_ptr), reader_size, UnixMillis());
             InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
                                                            &inverted_index_cache_handle);
         }
 
         auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-        auto index_searcher = std::get<FulltextIndexSearcherPtr>(searcher_variant);
-        auto* index_reader = index_searcher->getReader();
+        auto index_searcher_ptr = std::get<FulltextIndexSearcherPtr>(searcher_variant);
+        index_searcher = index_searcher_ptr.get();
+        index_reader = index_searcher->getReader();
 #endif
-
         total_seg_num_docs = std::max(total_seg_num_docs, index_reader->maxDoc());
+
         _total_num_tokens[ws_field_name] +=
                 index_reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
 
@@ -277,7 +294,9 @@ Status CollectionStatistics::process_segment(
             _term_doc_freqs[ws_field_name][iter->term()] += iter->doc_freq();
         }
     }
+
     _total_num_docs += total_seg_num_docs;
+
     return Status::OK();
 }
 
