@@ -335,7 +335,7 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     return Status::OK();
 }
 
-Status FileScanner::_process_conjuncts_for_dict_filter() {
+Status FileScanner::_process_conjuncts() {
     _slot_id_to_filter_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     for (auto& conjunct : _push_down_conjuncts) {
@@ -373,7 +373,7 @@ Status FileScanner::_process_late_arrival_conjuncts() {
         for (size_t i = 0; i != _conjuncts.size(); ++i) {
             RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
         }
-        RETURN_IF_ERROR(_process_conjuncts_for_dict_filter());
+        RETURN_IF_ERROR(_process_conjuncts());
         _discard_conjuncts();
     }
     if (_applied_rf_num == _total_rf_num) {
@@ -386,6 +386,8 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     for (auto& child_expr : expr->children()) {
         if (child_expr->is_slot_ref()) {
             VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr.get());
+            SlotDescriptor* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
+            slot_desc->set_is_predicate(true);
             slot_ids->emplace_back(slot_ref->slot_id());
         } else {
             _get_slot_ids(child_expr.get(), slot_ids);
