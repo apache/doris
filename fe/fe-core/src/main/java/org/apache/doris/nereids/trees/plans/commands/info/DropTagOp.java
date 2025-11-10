@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.DropTagClause;
 
 import java.util.Map;
 
@@ -57,8 +55,7 @@ public class DropTagOp extends AlterTableOp {
         return null;
     }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new DropTagClause(dropTagInfo);
+    public DropTagInfo getDropTagInfo() {
+        return dropTagInfo;
     }
 }

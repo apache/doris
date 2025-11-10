@@ -29,6 +29,7 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBrokerOp;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -84,6 +85,22 @@ public class BrokerMgr {
             lock.unlock();
         }
         return brokers;
+    }
+
+    public void execute(ModifyBrokerOp modifyBrokerOp) throws DdlException {
+        switch (modifyBrokerOp.getOp()) {
+            case OP_ADD:
+                addBrokers(modifyBrokerOp.getBrokerName(), modifyBrokerOp.getHostPortPairs());
+                break;
+            case OP_DROP:
+                dropBrokers(modifyBrokerOp.getBrokerName(), modifyBrokerOp.getHostPortPairs());
+                break;
+            case OP_DROP_ALL:
+                dropAllBroker(modifyBrokerOp.getBrokerName());
+                break;
+            default:
+                break;
+        }
     }
 
     public void execute(ModifyBrokerClause clause) throws DdlException {

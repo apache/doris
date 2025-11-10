@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.AutoBucketCalculator;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.base.Objects;
@@ -124,10 +125,10 @@ public class PartitionExprUtil {
         return null;
     }
 
-    public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
-            ArrayList<List<TNullableStringLiteral>> partitionValues, PartitionInfo partitionInfo)
+    public static Map<String, AddPartitionOp> getAddPartitionClauseFromPartitionValues(
+            OlapTable olapTable, ArrayList<List<TNullableStringLiteral>> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
-        Map<String, AddPartitionClause> result = Maps.newHashMap();
+        Map<String, AddPartitionOp> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
         List<Column> partitionColumn = partitionInfo.getPartitionColumns();
@@ -162,8 +163,8 @@ public class PartitionExprUtil {
                 Type partitionColumnType = partitionColumn.get(0).getType();
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
-                        beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
-                        beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());
+                    beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
+                    beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());
                 DateLiteral endDateTime = getRangeEnd(beginDateTime, intervalInfo);
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
@@ -182,7 +183,7 @@ public class PartitionExprUtil {
                 if (hasStringType) {
                     if (partitionName.length() > MAX_PARTITION_NAME_LENGTH) {
                         partitionName = partitionName.substring(0, MAX_PARTITION_NAME_LENGTH)
-                                + "_" + Integer.toHexString(partitionName.hashCode());
+                            + "_" + Integer.toHexString(partitionName.hashCode());
                     }
                 }
             } else {
@@ -223,8 +224,9 @@ public class PartitionExprUtil {
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
                         olapTable.getStorageMedium().name());
             }
-            AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
-                    distributionDesc, partitionProperties, false);
+            AddPartitionOp addPartitionClause = new AddPartitionOp(
+                    singleRangePartitionDesc.translateToPartitionDefinition(),
+                    distributionDesc.toDistributionDescriptor(), partitionProperties, false);
             result.put(partitionName, addPartitionClause);
         }
         return result;

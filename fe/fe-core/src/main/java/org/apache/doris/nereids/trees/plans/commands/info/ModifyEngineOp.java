@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyEngineClause;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -65,11 +63,6 @@ public class ModifyEngineOp extends AlterTableOp {
         if (properties == null || !properties.containsKey(OdbcTable.ODBC_DRIVER)) {
             throw new AnalysisException("Need specify 'driver' property");
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyEngineClause(engine, properties);
     }
 
     @Override

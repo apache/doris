@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendHostNameOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
@@ -955,6 +956,20 @@ public class SystemInfoService {
             return;
         }
         be.setHost(destHost);
+        Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+    }
+
+    public void modifyBackendHost(ModifyBackendHostNameOp op) throws UserException {
+        Backend be = getBackendWithHeartbeatPort(op.getHost(), op.getPort());
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + NetUtils
+                .getHostPortInAccessibleFormat(op.getHost(), op.getPort()) + "]");
+        }
+        if (be.getHost().equals(op.getNewHost())) {
+            // no need to modify
+            return;
+        }
+        be.setHost(op.getNewHost());
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
     }
 

@@ -22,7 +22,9 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -66,5 +68,10 @@ public class RandomDistributionDesc extends DistributionDesc {
     @Override
     public List<String> getDistributionColumnNames() {
         return null;
+    }
+
+    @Override
+    public DistributionDescriptor toDistributionDescriptor() {
+        return new DistributionDescriptor(false, this.autoBucket, this.numBucket, new ArrayList<>());
     }
 }

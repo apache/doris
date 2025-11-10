@@ -238,7 +238,7 @@ public class IndexDef {
     }
 
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+                            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.ANN) {
             if (column.isAllowNull()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");
@@ -348,8 +348,8 @@ public class IndexDef {
 
     public boolean isAnalyzedInvertedIndex() {
         return indexType == IndexDef.IndexType.INVERTED
-            && properties != null
-            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                && properties != null
+                && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
