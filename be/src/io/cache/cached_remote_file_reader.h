@@ -39,7 +39,7 @@ struct IOContext;
 struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader,
-                                      public std::enable_shared_from_this<CachedRemoteFileReader> {
+                                     public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 
@@ -56,12 +56,12 @@ public:
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
-    
+
     // Asynchronously prefetch a range of data into cache.
     // This is a fire-and-forget operation that returns immediately (non-blocking).
     // The actual I/O happens asynchronously in the I/O threadpool.
     Status prefetch(size_t offset, size_t size, const IOContext* io_ctx = nullptr);
-    
+
     // Asynchronously prefetch multiple ranges of data into cache (batch version).
     Status prefetch_batch(const std::vector<std::pair<size_t, size_t>>& ranges,
                           const IOContext* io_ctx = nullptr);
@@ -77,16 +77,17 @@ private:
     Status _submit_prefetch_task(size_t offset, size_t size, IOContext io_ctx);
 
     // Helper to write data to file cache blocks
-    void _write_to_file_cache(const std::vector<FileBlockSPtr>& empty_blocks,
-                              const char* buffer, size_t empty_start);
+    void _write_to_file_cache(const std::vector<FileBlockSPtr>& empty_blocks, const char* buffer,
+                              size_t empty_start);
 
     // Handle small read requests with async cache write
-    Status _read_small_request_with_async_write_back(size_t offset, Slice result, size_t bytes_req,
-                                                 const IOContext* io_ctx,
-                                                 std::vector<FileBlockSPtr>&& empty_blocks,
-                                                 size_t empty_start, size_t size,
-                                                 size_t* bytes_read, ReadStatistics* stats);
-    
+    Status _read_small_request_with_async_write_back(std::shared_ptr<FileBlocksHolder> holder,
+                                                     size_t offset, Slice result, size_t bytes_req,
+                                                     const IOContext* io_ctx,
+                                                     std::vector<FileBlockSPtr>&& empty_blocks,
+                                                     size_t empty_start, size_t size,
+                                                     size_t* bytes_read, ReadStatistics* stats);
+
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
