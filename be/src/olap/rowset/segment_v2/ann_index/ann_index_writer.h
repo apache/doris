@@ -77,7 +77,6 @@ private:
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
     vectorized::PODArray<float> _float_array;
-    size_t _array_offset;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
