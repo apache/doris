@@ -139,7 +139,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
-        if (_probe_expr_ctxs.empty()) {
+        if (_partition_exprs.empty()) {
             return _needs_finalize
                            ? DataDistribution(ExchangeType::NOOP)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
