@@ -27,10 +27,12 @@
 
 namespace doris::io {
 
-MergeFileWriter::MergeFileWriter(FileWriterPtr inner_writer, Path path)
+MergeFileWriter::MergeFileWriter(FileWriterPtr inner_writer, Path path,
+                                 MergeFileAppendInfo append_info)
         : _inner_writer(std::move(inner_writer)),
           _file_path(path.native()),
-          _merge_file_manager(MergeFileManager::instance()) {
+          _merge_file_manager(MergeFileManager::instance()),
+          _append_info(std::move(append_info)) {
     DCHECK(_inner_writer != nullptr);
     DCHECK(!_file_path.empty());
 }
@@ -175,8 +177,12 @@ Status MergeFileWriter::_send_to_merge_manager() {
     }
     LOG(INFO) << "send_to_merge_manager: " << _file_path << " buffer size: " << _buffer.size();
 
+    if (_append_info.resource_id.empty()) {
+        return Status::InternalError("Missing resource id for merge file append");
+    }
+
     Slice data_slice(_buffer.data(), _buffer.size());
-    RETURN_IF_ERROR(_merge_file_manager->append(_file_path, data_slice));
+    RETURN_IF_ERROR(_merge_file_manager->append(_file_path, data_slice, _append_info));
     _buffer.clear();
     return Status::OK();
 }

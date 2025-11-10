@@ -31,10 +31,11 @@ namespace doris::io {
 // When opening a file, it checks if the file is in a merge file and wraps with MergeFileReader
 class MergeFileSystem final : public FileSystem {
 public:
-    MergeFileSystem(FileSystemSPtr inner_fs);
+    MergeFileSystem(FileSystemSPtr inner_fs, MergeFileAppendInfo append_info = {});
 
     MergeFileSystem(FileSystemSPtr inner_fs,
-                    std::unordered_map<std::string, MergeFileSegmentIndex> index_map);
+                    std::unordered_map<std::string, MergeFileSegmentIndex> index_map,
+                    MergeFileAppendInfo append_info = {});
 
     ~MergeFileSystem() override = default;
 
@@ -93,6 +94,7 @@ private:
     FileSystemSPtr _inner_fs;
     // Map from small file path to merge file segment index
     std::unordered_map<std::string, MergeFileSegmentIndex> _index_map;
+    MergeFileAppendInfo _append_info;
 };
 
 } // namespace doris::io

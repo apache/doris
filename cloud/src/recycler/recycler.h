@@ -494,6 +494,7 @@ private:
     // Recompute merged-file counters and lifecycle state after validating contained fragments.
     // @param stats optional recycle statistics collector.
     int correct_merged_file_info(cloud::MergedFileInfoPB* merged_info, bool* changed,
+                                 const std::string& merged_file_path,
                                  MergedFileRecycleStats* stats = nullptr);
     // Correct and recycle a single merged-file record, updating metadata and accounting statistics.
     // @param stats optional recycle statistics collector.

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <chrono>
 #include <ctime>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <unordered_set>
@@ -49,10 +50,12 @@ Status MergeFileManager::init() {
 }
 
 Status MergeFileManager::create_new_merge_file_state(
-        std::unique_ptr<MergeFileState>& merge_file_state) {
-    RETURN_IF_ERROR(ensure_file_system());
-    if (_file_system == nullptr) {
-        return Status::InternalError("File system is not available for merge file creation");
+        const std::string& resource_id, std::unique_ptr<MergeFileState>& merge_file_state) {
+    FileSystemSPtr file_system;
+    RETURN_IF_ERROR(ensure_file_system(resource_id, &file_system));
+    if (file_system == nullptr) {
+        return Status::InternalError("File system is not available for merge file creation: " +
+                                     resource_id);
     }
 
     std::stringstream path_stream;
@@ -63,20 +66,39 @@ Status MergeFileManager::create_new_merge_file_state(
     merge_file_state->create_time = std::time(nullptr);
     merge_file_state->create_timestamp = std::chrono::steady_clock::now();
     merge_file_state->state = MergeFileStateEnum::INIT;
+    merge_file_state->resource_id = resource_id;
+    merge_file_state->file_system = std::move(file_system);
 
     // Create file writer for the merge file
     FileWriterPtr new_writer;
     FileWriterOptions opts;
-    RETURN_IF_ERROR(
-            _file_system->create_file(Path(merge_file_state->merge_file_path), &new_writer, &opts));
+    RETURN_IF_ERROR(merge_file_state->file_system->create_file(
+            Path(merge_file_state->merge_file_path), &new_writer, &opts));
     merge_file_state->writer = std::move(new_writer);
 
     return Status::OK();
 }
 
-Status MergeFileManager::ensure_file_system() {
-    if (_file_system != nullptr) {
-        return Status::OK();
+Status MergeFileManager::ensure_file_system(const std::string& resource_id,
+                                            FileSystemSPtr* file_system) {
+    if (file_system == nullptr) {
+        return Status::InvalidArgument("file_system output parameter is null");
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_file_system_mutex);
+        if (resource_id.empty()) {
+            if (_default_file_system != nullptr) {
+                *file_system = _default_file_system;
+                return Status::OK();
+            }
+        } else {
+            auto it = _file_systems.find(resource_id);
+            if (it != _file_systems.end()) {
+                *file_system = it->second;
+                return Status::OK();
+            }
+        }
     }
 
     if (!config::is_cloud_mode()) {
@@ -87,17 +109,39 @@ Status MergeFileManager::ensure_file_system() {
     if (exec_env == nullptr) {
         return Status::InternalError("ExecEnv instance is not initialized");
     }
-    // TODO(luwei) support multi vault
-    auto fs = exec_env->storage_engine().to_cloud().latest_fs();
-    if (fs == nullptr) {
-        return Status::InternalError("Cloud file system is not ready");
+
+    FileSystemSPtr resolved_fs;
+    if (resource_id.empty()) {
+        resolved_fs = exec_env->storage_engine().to_cloud().latest_fs();
+        if (resolved_fs == nullptr) {
+            return Status::InternalError("Cloud file system is not ready");
+        }
+    } else {
+        auto storage_resource =
+                exec_env->storage_engine().to_cloud().get_storage_resource(resource_id);
+        if (!storage_resource.has_value() || storage_resource->fs == nullptr) {
+            return Status::InternalError("Cloud file system is not ready for resource: " +
+                                         resource_id);
+        }
+        resolved_fs = storage_resource->fs;
     }
 
-    _file_system = fs;
+    {
+        std::lock_guard<std::mutex> lock(_file_system_mutex);
+        if (resource_id.empty()) {
+            _default_file_system = resolved_fs;
+            *file_system = _default_file_system;
+        } else {
+            _file_systems[resource_id] = resolved_fs;
+            *file_system = resolved_fs;
+        }
+    }
+
     return Status::OK();
 }
 
-Status MergeFileManager::append(const std::string& path, const Slice& data) {
+Status MergeFileManager::append(const std::string& path, const Slice& data,
+                                const MergeFileAppendInfo& info) {
     // Check if file is too large to be merged
     if (data.get_size() > config::small_file_threshold_bytes) {
         return Status::OK(); // Skip merging for large files
@@ -105,32 +149,42 @@ Status MergeFileManager::append(const std::string& path, const Slice& data) {
 
     std::lock_guard<std::mutex> lock(_current_merge_file_mutex);
 
-    if (!_current_merge_file || !_current_merge_file->writer) {
-        RETURN_IF_ERROR(create_new_merge_file_state(_current_merge_file));
+    auto& current_state = _current_merge_files[info.resource_id];
+    if (!current_state || !current_state->writer) {
+        RETURN_IF_ERROR(create_new_merge_file_state(info.resource_id, current_state));
     }
 
     // Check if we need to create a new merge file
-    if (_current_merge_file->total_size + data.get_size() >=
-        config::merge_file_size_threshold_bytes) {
-        RETURN_IF_ERROR(mark_current_merge_file_for_upload_locked());
+    if (current_state->total_size + data.get_size() >= config::merge_file_size_threshold_bytes) {
+        RETURN_IF_ERROR(mark_current_merge_file_for_upload_locked(info.resource_id));
+        auto it = _current_merge_files.find(info.resource_id);
+        if (it == _current_merge_files.end() || !it->second || !it->second->writer) {
+            RETURN_IF_ERROR(create_new_merge_file_state(info.resource_id,
+                                                        _current_merge_files[info.resource_id]));
+        }
     }
 
+    MergeFileState* active_state = current_state.get();
+
     // Write data to current merge file
-    RETURN_IF_ERROR(_current_merge_file->writer->append(data));
+    RETURN_IF_ERROR(active_state->writer->append(data));
 
     // Update index
     MergeFileSegmentIndex index;
-    index.merge_file_path = _current_merge_file->merge_file_path;
-    index.offset = _current_merge_file->current_offset;
+    index.merge_file_path = active_state->merge_file_path;
+    index.offset = active_state->current_offset;
     index.size = data.get_size();
+    index.tablet_id = info.tablet_id;
+    index.rowset_id = info.rowset_id;
+    index.resource_id = info.resource_id;
 
-    _current_merge_file->index_map[path] = index;
-    _current_merge_file->current_offset += data.get_size();
-    _current_merge_file->total_size += data.get_size();
+    active_state->index_map[path] = index;
+    active_state->current_offset += data.get_size();
+    active_state->total_size += data.get_size();
 
     // Mark as active if this is the first write
-    if (_current_merge_file->state == MergeFileStateEnum::INIT) {
-        _current_merge_file->state = MergeFileStateEnum::ACTIVE;
+    if (active_state->state == MergeFileStateEnum::INIT) {
+        active_state->state = MergeFileStateEnum::ACTIVE;
     }
 
     // Update global index
@@ -201,8 +255,11 @@ Status MergeFileManager::wait_write_done(const std::string& path) {
     MergeFileState* merge_file_ptr = nullptr;
     {
         std::lock_guard<std::mutex> current_lock(_current_merge_file_mutex);
-        if (_current_merge_file && _current_merge_file->merge_file_path == merge_file_path) {
-            merge_file_ptr = _current_merge_file.get();
+        for (auto& [resource_id, state] : _current_merge_files) {
+            if (state && state->merge_file_path == merge_file_path) {
+                merge_file_ptr = state.get();
+                break;
+            }
         }
     }
 
@@ -260,31 +317,32 @@ void MergeFileManager::stop_background_manager() {
     _background_thread.reset();
 }
 
-Status MergeFileManager::mark_current_merge_file_for_upload_locked() {
-    if (!_current_merge_file || !_current_merge_file->writer) {
+Status MergeFileManager::mark_current_merge_file_for_upload_locked(const std::string& resource_id) {
+    auto it = _current_merge_files.find(resource_id);
+    if (it == _current_merge_files.end() || !it->second || !it->second->writer) {
         return Status::OK(); // Nothing to mark for upload
     }
 
+    auto& current = it->second;
+
     // Mark as ready for upload
-    _current_merge_file->state = MergeFileStateEnum::UPLOADING;
+    current->state = MergeFileStateEnum::UPLOADING;
 
     // Move to uploading files list
     {
         std::shared_ptr<MergeFileState> uploading_ptr =
-                std::shared_ptr<MergeFileState>(std::move(_current_merge_file));
+                std::shared_ptr<MergeFileState>(std::move(current));
         std::lock_guard<std::mutex> lock(_merge_files_mutex);
         _uploading_merge_files[uploading_ptr->merge_file_path] = uploading_ptr;
     }
 
     // Create new merge file
-    RETURN_IF_ERROR(create_new_merge_file_state(_current_merge_file));
-
-    return Status::OK();
+    return create_new_merge_file_state(resource_id, it->second);
 }
 
-Status MergeFileManager::mark_current_merge_file_for_upload() {
+Status MergeFileManager::mark_current_merge_file_for_upload(const std::string& resource_id) {
     std::lock_guard<std::mutex> lock(_current_merge_file_mutex);
-    return mark_current_merge_file_for_upload_locked();
+    return mark_current_merge_file_for_upload_locked(resource_id);
 }
 
 void MergeFileManager::background_manager() {
@@ -295,23 +353,27 @@ void MergeFileManager::background_manager() {
         std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
 
         // Check if current merge file should be closed due to time threshold
-        bool should_mark_current = false;
+        std::vector<std::string> resources_to_mark;
         {
             std::lock_guard<std::mutex> current_lock(_current_merge_file_mutex);
-            if (_current_merge_file && _current_merge_file->state == MergeFileStateEnum::ACTIVE) {
+            for (auto& [resource_id, state] : _current_merge_files) {
+                if (!state || state->state != MergeFileStateEnum::ACTIVE) {
+                    continue;
+                }
                 auto current_time = std::chrono::steady_clock::now();
                 auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                          current_time - _current_merge_file->create_timestamp)
+                                          current_time - state->create_timestamp)
                                           .count();
                 if (elapsed_ms >= config::merge_file_time_threshold_ms) {
-                    should_mark_current = true;
+                    resources_to_mark.push_back(resource_id);
                 }
             }
         }
-        if (should_mark_current) {
-            Status st = mark_current_merge_file_for_upload();
+        for (const auto& resource_id : resources_to_mark) {
+            Status st = mark_current_merge_file_for_upload(resource_id);
             if (!st.ok()) {
-                LOG(WARNING) << "Failed to close current merge file: " << st.to_string();
+                LOG(WARNING) << "Failed to close current merge file for resource " << resource_id
+                             << ": " << st.to_string();
             }
         }
 
@@ -360,6 +422,7 @@ void MergeFileManager::process_uploading_files() {
         merge_file_info.set_created_at_sec(merge_file->create_time);
         merge_file_info.set_corrected(false);
         merge_file_info.set_state(doris::cloud::MergedFileInfoPB::NORMAL);
+        merge_file_info.set_resource_id(merge_file->resource_id);
 
         // Add small file information
         for (const auto& [small_file_path, index] : merge_file->index_map) {
@@ -368,6 +431,12 @@ void MergeFileManager::process_uploading_files() {
             small_file->set_offset(index.offset);
             small_file->set_size(index.size);
             small_file->set_deleted(false);
+            if (index.tablet_id != 0) {
+                small_file->set_tablet_id(index.tablet_id);
+            }
+            if (!index.rowset_id.empty()) {
+                small_file->set_rowset_id(index.rowset_id);
+            }
         }
 
         Status meta_status = update_meta_service(merge_file->merge_file_path, merge_file_info);
@@ -481,8 +550,10 @@ void MergeFileManager::cleanup_expired_data() {
         std::unordered_set<std::string> active_merge_files;
         {
             std::lock_guard<std::mutex> current_lock(_current_merge_file_mutex);
-            if (_current_merge_file) {
-                active_merge_files.insert(_current_merge_file->merge_file_path);
+            for (const auto& [resource_id, state] : _current_merge_files) {
+                if (state) {
+                    active_merge_files.insert(state->merge_file_path);
+                }
             }
         }
         {

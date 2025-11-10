@@ -5591,7 +5591,8 @@ void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* 
               << ", merge_file_path=" << request->merge_file_path()
               << ", total_file_num=" << request->merge_file_info().total_file_num()
               << ", left_file_num=" << request->merge_file_info().left_file_num()
-              << ", ref_cnt=" << request->merge_file_info().ref_cnt();
+              << ", ref_cnt=" << request->merge_file_info().ref_cnt()
+              << ", key=" << hex(merge_file_key_str);
 }
 
 std::string hide_access_key(const std::string& ak) {

@@ -43,6 +43,15 @@ struct MergeFileSegmentIndex {
     std::string merge_file_path;
     int64_t offset;
     int64_t size;
+    int64_t tablet_id = 0;
+    std::string rowset_id;
+    std::string resource_id;
+};
+
+struct MergeFileAppendInfo {
+    std::string resource_id;
+    int64_t tablet_id = 0;
+    std::string rowset_id;
 };
 
 // Global object that manages merging small files into large files for S3 optimization
@@ -54,7 +63,7 @@ public:
     Status init();
 
     // Write a small file to the current merge file
-    Status append(const std::string& path, const Slice& data);
+    Status append(const std::string& path, const Slice& data, const MergeFileAppendInfo& info);
 
     // Block until the small file's merge file is uploaded to S3
     Status wait_write_done(const std::string& path);
@@ -69,10 +78,10 @@ public:
     void stop_background_manager();
 
     // Mark current merge file for upload and create new one
-    Status mark_current_merge_file_for_upload();
+    Status mark_current_merge_file_for_upload(const std::string& resource_id);
 
     // Internal helper; expects caller holds _current_merge_file_mutex
-    Status mark_current_merge_file_for_upload_locked();
+    Status mark_current_merge_file_for_upload_locked(const std::string& resource_id);
 
 private:
     MergeFileManager() = default;
@@ -119,12 +128,15 @@ private:
         std::mutex upload_mutex;
         std::string last_error;
         std::atomic<bool> processing {false};
+        std::string resource_id;
+        FileSystemSPtr file_system;
     };
 
     // Create a new merge file state with file writer
-    Status create_new_merge_file_state(std::unique_ptr<MergeFileState>& merge_file_state);
+    Status create_new_merge_file_state(const std::string& resource_id,
+                                       std::unique_ptr<MergeFileState>& merge_file_state);
 
-    Status ensure_file_system();
+    Status ensure_file_system(const std::string& resource_id, FileSystemSPtr* file_system);
 
     // Helper function to wait for merge file upload completion
     Status wait_for_merge_file_upload(MergeFileState* merge_file_ptr);
@@ -134,10 +146,12 @@ private:
     std::unique_ptr<std::thread> _background_thread;
 
     // File system
-    FileSystemSPtr _file_system;
+    FileSystemSPtr _default_file_system;
+    std::unordered_map<std::string, FileSystemSPtr> _file_systems;
+    std::mutex _file_system_mutex;
 
     // Current active merge file
-    std::unique_ptr<MergeFileState> _current_merge_file;
+    std::unordered_map<std::string, std::unique_ptr<MergeFileState>> _current_merge_files;
     std::mutex _current_merge_file_mutex;
 
     // Merge files ready for upload or being processed

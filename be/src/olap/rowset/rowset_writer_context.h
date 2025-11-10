@@ -180,7 +180,10 @@ struct RowsetWriterContext {
         // Index information will be populated after write completes
         if (enable_merge_file && config::is_cloud_mode() && config::enable_merge_file) {
             std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
-            fs = std::make_shared<io::MergeFileSystem>(fs, index_map);
+            io::MergeFileAppendInfo append_info;
+            append_info.tablet_id = tablet_id;
+            append_info.rowset_id = rowset_id.to_string();
+            fs = std::make_shared<io::MergeFileSystem>(fs, index_map, append_info);
         }
 
         return fs;

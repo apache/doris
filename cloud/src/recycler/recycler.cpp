@@ -983,6 +983,7 @@ InstanceRecycler::resolve_merged_file_accessor(const std::string& hint) {
 }
 
 int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_info, bool* changed,
+                                               const std::string& merged_file_path,
                                                MergedFileRecycleStats* stats) {
     bool local_changed = false;
     int64_t left_num = 0;
@@ -1010,8 +1011,10 @@ int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_i
         }
 
         if (!rowset_exists) {
-            small_file->set_deleted(true);
-            local_changed = true;
+            if (!small_file->deleted()) {
+                small_file->set_deleted(true);
+                local_changed = true;
+            }
             continue;
         }
 
@@ -1028,7 +1031,14 @@ int InstanceRecycler::correct_merged_file_info(cloud::MergedFileInfoPB* merged_i
         local_changed = true;
     }
     if (merged_info->ref_cnt() != left_num) {
+        auto old_ref_cnt = merged_info->ref_cnt();
         merged_info->set_ref_cnt(left_num);
+        LOG_INFO("corrected merged file ref count")
+                .tag("instance_id", instance_id_)
+                .tag("resource_id", merged_info->resource_id())
+                .tag("merged_file_path", merged_file_path)
+                .tag("old_ref_cnt", old_ref_cnt)
+                .tag("new_ref_cnt", left_num);
         local_changed = true;
     }
     if (!merged_info->corrected()) {
@@ -1095,7 +1105,7 @@ int InstanceRecycler::process_single_merged_file(const std::string& merged_key,
 
     if (!corrected && due) {
         bool changed = false;
-        if (correct_merged_file_info(&merged_info, &changed, stats) != 0) {
+        if (correct_merged_file_info(&merged_info, &changed, merged_file_path, stats) != 0) {
             LOG_WARNING("correct_merged_file_info failed")
                     .tag("instance_id", instance_id_)
                     .tag("merged_file_path", merged_file_path);
@@ -2498,7 +2508,9 @@ int InstanceRecycler::process_merged_file_segment_index(
                         .tag("instance_id", instance_id_)
                         .tag("merged_file_path", merged_file_path)
                         .tag("rowset_id", rs_meta_pb.rowset_id_v2())
-                        .tag("tablet_id", rs_meta_pb.tablet_id());
+                        .tag("tablet_id", rs_meta_pb.tablet_id())
+                        .tag("key", hex(merged_key))
+                        .tag("tablet id", rs_meta_pb.tablet_id());
                 ret = -1;
                 break;
             }
@@ -2564,6 +2576,14 @@ int InstanceRecycler::process_merged_file_segment_index(
             merge_info.set_left_file_num(left_file_num);
             merge_info.set_left_file_bytes(left_file_bytes);
             merge_info.set_ref_cnt(left_file_num);
+            LOG_INFO("updated merged file reference info")
+                    .tag("instance_id", instance_id_)
+                    .tag("rowset_id", rs_meta_pb.rowset_id_v2())
+                    .tag("tablet_id", rs_meta_pb.tablet_id())
+                    .tag("merged_file_path", merged_file_path)
+                    .tag("left_file_num", left_file_num)
+                    .tag("left_file_bytes", left_file_bytes);
+
             if (left_file_num == 0) {
                 merge_info.set_state(cloud::MergedFileInfoPB::RECYCLING);
             }
@@ -2584,6 +2604,9 @@ int InstanceRecycler::process_merged_file_segment_index(
             if (err == TxnErrorCode::TXN_OK) {
                 success = true;
                 if (left_file_num == 0) {
+                    LOG_INFO("merged file ready to delete")
+                            .tag("instance_id", instance_id_)
+                            .tag("merged_file_path", merged_file_path);
                     merged_files_to_delete->push_back(merged_file_path);
                 }
                 break;
@@ -2785,6 +2808,9 @@ int InstanceRecycler::delete_rowset_data(
                                   if (auto pos = str.back().find('_'); pos != std::string::npos) {
                                       rowset_id = str.back().substr(0, pos);
                                   } else {
+                                      if (path.find("merge_file/") != std::string::npos) {
+                                          return; // merged files do not have rowset_id encoded
+                                      }
                                       LOG(WARNING) << "failed to parse rowset_id, path=" << path;
                                       return;
                                   }
@@ -2914,6 +2940,8 @@ int InstanceRecycler::recycle_merged_files() {
         return handle_merged_file_kv(std::forward<decltype(key)>(key),
                                      std::forward<decltype(value)>(value), &stats, &ret);
     };
+
+    LOG_INFO("begin to recycle merged file").tag("instance_id", instance_id_);
 
     std::string begin = merge_file_key({instance_id_, ""});
     std::string end = merge_file_key({instance_id_, "\xff"});

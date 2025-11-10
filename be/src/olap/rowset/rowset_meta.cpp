@@ -143,10 +143,16 @@ io::FileSystemSPtr RowsetMeta::fs() {
             index.merge_file_path = index_pb.merge_file_path();
             index.offset = index_pb.offset();
             index.size = index_pb.size();
+            index.tablet_id = tablet_id();
+            index.rowset_id = _rowset_id.to_string();
+            index.resource_id = wrapped->id();
             index_map[path] = index;
         }
         if (!index_map.empty()) {
-            wrapped = std::make_shared<io::MergeFileSystem>(wrapped, index_map);
+            io::MergeFileAppendInfo append_info;
+            append_info.tablet_id = tablet_id();
+            append_info.rowset_id = _rowset_id.to_string();
+            wrapped = std::make_shared<io::MergeFileSystem>(wrapped, index_map, append_info);
         }
     }
     return wrapped;

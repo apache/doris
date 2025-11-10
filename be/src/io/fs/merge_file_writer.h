@@ -33,7 +33,8 @@ namespace doris::io {
 // Otherwise, it buffers data and writes to MergeFileManager on close
 class MergeFileWriter final : public FileWriter {
 public:
-    MergeFileWriter(FileWriterPtr inner_writer, Path path);
+    MergeFileWriter(FileWriterPtr inner_writer, Path path,
+                    MergeFileAppendInfo append_info = MergeFileAppendInfo {});
     ~MergeFileWriter() override;
 
     MergeFileWriter(const MergeFileWriter&) = delete;
@@ -81,6 +82,7 @@ private:
     MergeFileManager* _merge_file_manager = nullptr; // Merge file manager instance
     mutable MergeFileSegmentIndex
             _merge_file_index; // Merge file index information (mutable for lazy init in const getter)
+    MergeFileAppendInfo _append_info;
 };
 
 } // namespace doris::io

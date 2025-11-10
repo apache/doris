@@ -179,9 +179,10 @@ protected:
 
         file_system = std::make_shared<MockFileSystem>();
         manager = std::make_unique<MergeFileManager>();
-        manager->_file_system = file_system;
+        manager->_file_systems[_resource_id] = file_system;
         ASSERT_TRUE(manager->init().ok());
-        ASSERT_TRUE(manager->create_new_merge_file_state(manager->_current_merge_file).ok());
+        auto& state = manager->_current_merge_files[_resource_id];
+        ASSERT_TRUE(manager->create_new_merge_file_state(_resource_id, state).ok());
         ASSERT_NE(file_system->last_writer(), nullptr);
     }
 
@@ -196,6 +197,14 @@ protected:
         config::cloud_unique_id = _old_cloud_id;
     }
 
+    MergeFileAppendInfo default_append_info() const {
+        MergeFileAppendInfo info;
+        info.resource_id = _resource_id;
+        info.tablet_id = _tablet_id;
+        info.rowset_id = _rowset_id;
+        return info;
+    }
+
     std::shared_ptr<MockFileSystem> file_system;
     std::unique_ptr<MergeFileManager> manager;
 
@@ -205,14 +214,18 @@ private:
     int64_t _old_retention = 0;
     std::string _old_deploy_mode;
     std::string _old_cloud_id;
+    std::string _resource_id = "test_resource";
+    int64_t _tablet_id = 12345;
+    std::string _rowset_id = "rowset_1";
 };
 
 TEST_F(MergeFileManagerTest, CreateNewMergeFileStateFailure) {
     auto failing_fs = std::make_shared<MockFileSystem>();
     failing_fs->set_create_status(Status::IOError("create failed"));
     MergeFileManager local_manager;
-    local_manager._file_system = failing_fs;
-    EXPECT_FALSE(local_manager.create_new_merge_file_state(local_manager._current_merge_file).ok());
+    local_manager._file_systems[_resource_id] = failing_fs;
+    auto& state = local_manager._current_merge_files[_resource_id];
+    EXPECT_FALSE(local_manager.create_new_merge_file_state(_resource_id, state).ok());
 }
 
 TEST_F(MergeFileManagerTest, AppendSmallFileSuccess) {
@@ -221,7 +234,8 @@ TEST_F(MergeFileManagerTest, AppendSmallFileSuccess) {
     std::string payload = "abc";
     Slice slice(payload);
 
-    Status st = manager->append("s/path", slice);
+    auto info = default_append_info();
+    Status st = manager->append("s/path", slice, info);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(writer->append_calls(), 1);
     EXPECT_EQ(writer->bytes_appended(), payload.size());
@@ -230,6 +244,9 @@ TEST_F(MergeFileManagerTest, AppendSmallFileSuccess) {
     ASSERT_NE(it, manager->_global_index_map.end());
     EXPECT_EQ(it->second.size, payload.size());
     EXPECT_EQ(it->second.offset, 0);
+    EXPECT_EQ(it->second.tablet_id, info.tablet_id);
+    EXPECT_EQ(it->second.rowset_id, info.rowset_id);
+    EXPECT_EQ(it->second.resource_id, info.resource_id);
 }
 
 TEST_F(MergeFileManagerTest, AppendLargeFileSkipped) {
@@ -239,7 +256,8 @@ TEST_F(MergeFileManagerTest, AppendLargeFileSkipped) {
 
     std::string payload = "0123456789";
     Slice slice(payload);
-    Status st = manager->append("large", slice);
+    auto info = default_append_info();
+    Status st = manager->append("large", slice, info);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(writer->append_calls(), 0);
     EXPECT_EQ(manager->_global_index_map.count("large"), 0);
@@ -252,7 +270,8 @@ TEST_F(MergeFileManagerTest, AppendWriterFailure) {
 
     std::string payload = "data";
     Slice slice(payload);
-    Status st = manager->append("broken", slice);
+    auto info = default_append_info();
+    Status st = manager->append("broken", slice, info);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(manager->_global_index_map.count("broken"), 0);
 }
@@ -263,24 +282,28 @@ TEST_F(MergeFileManagerTest, AppendTriggersRotationWhenThresholdReached) {
     std::string payload2 = "bbbb";
     Slice slice1(payload1);
     Slice slice2(payload2);
+    auto info = default_append_info();
 
-    EXPECT_TRUE(manager->append("file1", slice1).ok());
+    EXPECT_TRUE(manager->append("file1", slice1, info).ok());
 
     size_t create_before = file_system->created_paths().size();
-    EXPECT_TRUE(manager->append("file2", slice2).ok());
+    EXPECT_TRUE(manager->append("file2", slice2, info).ok());
     EXPECT_EQ(file_system->created_paths().size(), create_before + 1);
     EXPECT_EQ(manager->_uploading_merge_files.size(), 1);
 }
 
 TEST_F(MergeFileManagerTest, MarkCurrentMergeFileForUploadMovesState) {
-    auto current_path = manager->_current_merge_file->merge_file_path;
-    EXPECT_TRUE(manager->mark_current_merge_file_for_upload().ok());
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    auto current_path = current_state->merge_file_path;
+    EXPECT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
     auto uploading = manager->_uploading_merge_files.begin()->second;
     EXPECT_EQ(uploading->merge_file_path, current_path);
     EXPECT_EQ(uploading->state.load(), MergeFileManager::MergeFileStateEnum::UPLOADING);
-    EXPECT_NE(manager->_current_merge_file, nullptr);
-    EXPECT_NE(manager->_current_merge_file->merge_file_path, current_path);
+    auto* new_state = manager->_current_merge_files[_resource_id].get();
+    EXPECT_NE(new_state, nullptr);
+    EXPECT_NE(new_state->merge_file_path, current_path);
 }
 
 TEST_F(MergeFileManagerTest, GetMergeFileIndexForUnknownPathReturnsNotFound) {
@@ -293,20 +316,24 @@ TEST_F(MergeFileManagerTest, GetMergeFileIndexForUnknownPathReturnsNotFound) {
 TEST_F(MergeFileManagerTest, GetMergeFileIndexReturnsStoredValue) {
     std::string payload = "abc";
     Slice slice(payload);
-    EXPECT_TRUE(manager->append("stored", slice).ok());
+    auto info = default_append_info();
+    EXPECT_TRUE(manager->append("stored", slice, info).ok());
     std::vector<MergeFileSegmentIndex> indices;
     EXPECT_TRUE(manager->get_merge_file_index("stored", &indices).ok());
     ASSERT_EQ(indices.size(), 1);
     EXPECT_EQ(indices[0].size, payload.size());
     EXPECT_EQ(indices[0].offset, 0);
-    EXPECT_EQ(indices[0].merge_file_path, manager->_current_merge_file->merge_file_path);
+    auto* current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
+    EXPECT_EQ(indices[0].merge_file_path, current_state->merge_file_path);
 }
 
 TEST_F(MergeFileManagerTest, WaitWriteDoneReturnsOkWhenAlreadyUploaded) {
     std::string payload = "abc";
     Slice slice(payload);
-    ASSERT_TRUE(manager->append("path", slice).ok());
-    ASSERT_TRUE(manager->mark_current_merge_file_for_upload().ok());
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("path", slice, info).ok());
+    ASSERT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
 
     auto uploading = manager->_uploading_merge_files.begin()->second;
@@ -325,8 +352,9 @@ TEST_F(MergeFileManagerTest, WaitWriteDoneReturnsOkWhenAlreadyUploaded) {
 TEST_F(MergeFileManagerTest, WaitWriteDoneReturnsErrorWhenFailed) {
     std::string payload = "abc";
     Slice slice(payload);
-    ASSERT_TRUE(manager->append("bad", slice).ok());
-    ASSERT_TRUE(manager->mark_current_merge_file_for_upload().ok());
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("bad", slice, info).ok());
+    ASSERT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
 
     auto uploading = manager->_uploading_merge_files.begin()->second;
     {
@@ -354,9 +382,11 @@ TEST_F(MergeFileManagerTest, WaitWriteDoneReturnsErrorWhenPathMissing) {
 TEST_F(MergeFileManagerTest, WaitWriteDoneBlocksUntilUploadCompletes) {
     std::string payload = "abc";
     Slice slice(payload);
-    ASSERT_TRUE(manager->append("waiting", slice).ok());
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("waiting", slice, info).ok());
 
-    auto current_state = manager->_current_merge_file.get();
+    auto current_state = manager->_current_merge_files[_resource_id].get();
+    ASSERT_NE(current_state, nullptr);
     {
         std::lock_guard lock(current_state->upload_mutex);
         current_state->state = MergeFileManager::MergeFileStateEnum::UPLOADING;
@@ -405,8 +435,9 @@ TEST_F(MergeFileManagerTest, UploadMergeFileSucceedsWhenWriterCloses) {
 TEST_F(MergeFileManagerTest, ProcessUploadingFilesSetsFailedWhenMetaUpdateFails) {
     std::string payload = "abc";
     Slice slice(payload);
-    ASSERT_TRUE(manager->append("meta_fail", slice).ok());
-    ASSERT_TRUE(manager->mark_current_merge_file_for_upload().ok());
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("meta_fail", slice, info).ok());
+    ASSERT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
     ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
 
     manager->process_uploading_files();
@@ -422,6 +453,7 @@ TEST_F(MergeFileManagerTest, CleanupExpiredDataRemovesOldEntries) {
     config::uploaded_file_retention_seconds = 0;
     auto state = std::make_shared<MergeFileManager::MergeFileState>();
     state->merge_file_path = "old";
+    state->resource_id = _resource_id;
     state->state = MergeFileManager::MergeFileStateEnum::UPLOADED;
     state->upload_time = 0;
     manager->_uploaded_merge_files[state->merge_file_path] = state;
