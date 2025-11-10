@@ -353,8 +353,18 @@ struct creator_with_type_list_base {
                                                              const AggregateFunctionAttr& attr,
                                                              TArgs&&... args) {
         auto create = [&]<PrimitiveType InputType, PrimitiveType ResultType>() {
-            return creator_without_type::create<typename Class::template T<InputType, ResultType>>(
-                    argument_types, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            if constexpr (is_decimalv3(InputType) && is_decimalv3(ResultType) &&
+                          ResultType < InputType) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "agg function {} error, arg type {}, result type {}", name,
+                                       argument_types[define_index]->get_name(),
+                                       result_type->get_name());
+                return nullptr;
+            } else {
+                return creator_without_type::create<
+                        typename Class::template T<InputType, ResultType>>(
+                        argument_types, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            }
         };
         AggregateFunctionPtr result = nullptr;
         auto type = argument_types[define_index]->get_primitive_type();

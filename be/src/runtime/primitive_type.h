@@ -222,14 +222,16 @@ constexpr bool is_int_or_bool(PrimitiveType type) {
     return type == TYPE_BOOLEAN || is_int(type);
 }
 
-constexpr bool is_decimal(PrimitiveType type) {
-    return type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I ||
-           type == TYPE_DECIMAL256 || type == TYPE_DECIMALV2;
+constexpr bool is_decimalv2(PrimitiveType type) {
+    return type == TYPE_DECIMALV2;
 }
 
 constexpr bool is_decimalv3(PrimitiveType type) {
     return type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I ||
            type == TYPE_DECIMAL256;
+}
+constexpr bool is_decimal(PrimitiveType type) {
+    return is_decimalv3(type) || is_decimalv2(type);
 }
 
 constexpr bool is_same_or_wider_decimalv3(PrimitiveType type1, PrimitiveType type2) {
@@ -273,7 +275,6 @@ struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TINYINT> {
@@ -286,7 +287,6 @@ struct PrimitiveTypeTraits<TYPE_TINYINT> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_SMALLINT> {
@@ -299,7 +299,6 @@ struct PrimitiveTypeTraits<TYPE_SMALLINT> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_INT> {
@@ -312,7 +311,6 @@ struct PrimitiveTypeTraits<TYPE_INT> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BIGINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BIGINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BIGINT> {
@@ -325,7 +323,6 @@ struct PrimitiveTypeTraits<TYPE_BIGINT> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_LARGEINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_LARGEINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {
@@ -338,7 +335,6 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
     using NearestFieldType = vectorized::Int128;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_LARGEINT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_LARGEINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_LARGEINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_NULL> {
@@ -351,7 +347,6 @@ struct PrimitiveTypeTraits<TYPE_NULL> {
     using NearestFieldType = vectorized::Null;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_NULL;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_NULL;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_NULL;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_FLOAT> {
@@ -364,7 +359,6 @@ struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using NearestFieldType = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DOUBLE> {
@@ -377,7 +371,6 @@ struct PrimitiveTypeTraits<TYPE_DOUBLE> {
     using NearestFieldType = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TIMEV2> {
@@ -390,7 +383,6 @@ struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using NearestFieldType = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TIME> {
@@ -403,7 +395,6 @@ struct PrimitiveTypeTraits<TYPE_TIME> {
     using NearestFieldType = vectorized::Float64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DOUBLE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
@@ -417,7 +408,6 @@ struct PrimitiveTypeTraits<TYPE_DATE> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
@@ -430,7 +420,6 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using NearestFieldType = vectorized::Int64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIME;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATETIME;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATETIME;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
@@ -443,7 +432,6 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using NearestFieldType = vectorized::UInt64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIMEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATETIMEV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATETIMEV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
@@ -456,7 +444,6 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using NearestFieldType = vectorized::UInt64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATEV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATEV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
@@ -470,7 +457,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V2>;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMALV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMALV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
@@ -483,7 +469,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal32>;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL32;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL128I;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
@@ -496,7 +481,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal64>;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL64;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL128I;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
@@ -509,7 +493,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V3>;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL128I;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL128I;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
@@ -522,7 +505,6 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal256>;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMAL256;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMAL256;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
@@ -535,7 +517,6 @@ struct PrimitiveTypeTraits<TYPE_IPV4> {
     using NearestFieldType = IPv4;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_IPV4;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_IPV4;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_IPV4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
@@ -548,7 +529,6 @@ struct PrimitiveTypeTraits<TYPE_IPV6> {
     using NearestFieldType = IPv6;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_IPV6;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_IPV6;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_IPV6;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
@@ -561,7 +541,6 @@ struct PrimitiveTypeTraits<TYPE_CHAR> {
     using NearestFieldType = vectorized::String;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_CHAR;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_CHAR;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_CHAR;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARCHAR> {
@@ -574,7 +553,6 @@ struct PrimitiveTypeTraits<TYPE_VARCHAR> {
     using NearestFieldType = vectorized::String;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARCHAR;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARCHAR;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARCHAR;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
@@ -587,7 +565,6 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     using NearestFieldType = vectorized::String;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_STRING;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_STRING;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRING;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARBINARY> {
@@ -600,7 +577,6 @@ struct PrimitiveTypeTraits<TYPE_VARBINARY> {
     using NearestFieldType = doris::StringView;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARBINARY;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARBINARY;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARBINARY;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
@@ -613,7 +589,6 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using NearestFieldType = HyperLogLog;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_HLL;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_HLL;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_HLL;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
@@ -626,7 +601,6 @@ struct PrimitiveTypeTraits<TYPE_JSONB> {
     using NearestFieldType = vectorized::JsonbField;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_JSONB;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_JSONB;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_JSONB;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_ARRAY> {
@@ -639,7 +613,6 @@ struct PrimitiveTypeTraits<TYPE_ARRAY> {
     using NearestFieldType = vectorized::Array;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_ARRAY;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_ARRAY;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_ARRAY;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_MAP> {
@@ -652,7 +625,6 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
     using NearestFieldType = vectorized::Map;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_MAP;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_MAP;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_MAP;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
@@ -665,7 +637,6 @@ struct PrimitiveTypeTraits<TYPE_STRUCT> {
     using NearestFieldType = vectorized::Tuple;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_STRUCT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_STRUCT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRUCT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARIANT> {
@@ -678,7 +649,6 @@ struct PrimitiveTypeTraits<TYPE_VARIANT> {
     using NearestFieldType = vectorized::VariantMap;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARIANT;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARIANT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARIANT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BITMAP> {
@@ -691,7 +661,6 @@ struct PrimitiveTypeTraits<TYPE_BITMAP> {
     using NearestFieldType = BitmapValue;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BITMAP;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BITMAP;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BITMAP;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {
@@ -704,7 +673,6 @@ struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {
     using NearestFieldType = QuantileState;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_QUANTILE_STATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_QUANTILE_STATE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_QUANTILE_STATE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT32> {
@@ -717,7 +685,6 @@ struct PrimitiveTypeTraits<TYPE_UINT32> {
     using NearestFieldType = vectorized::UInt64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_UINT32;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_UINT32;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_UINT32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT64> {
@@ -730,7 +697,6 @@ struct PrimitiveTypeTraits<TYPE_UINT64> {
     using NearestFieldType = vectorized::UInt64;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_UINT64;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
 };
 
 template <PrimitiveType PT>
