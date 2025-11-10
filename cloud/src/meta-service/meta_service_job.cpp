@@ -1586,13 +1586,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     if (is_versioned_write) {
         std::string versioned_new_tablet_key =
                 versioned::meta_tablet_key({instance_id, new_tablet_id});
-        if (!versioned::document_put(txn.get(), versioned_new_tablet_key,
-                                     std::move(new_tablet_meta))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
-                              hex(versioned_new_tablet_key));
-            return;
-        }
+        versioned_put(txn.get(), versioned_new_tablet_key, new_tablet_val);
         LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
                   << " key=" << hex(versioned_new_tablet_key);
     }
@@ -1828,8 +1822,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         txn->put(rowset_key, rowset_val);
         txn->remove(tmp_rowset_key);
         if (is_versioned_write) {
-            doris::RowsetMetaCloudPB rs_meta;
-            rs_meta.ParseFromString(tmp_rowset_val);
+            doris::RowsetMetaCloudPB rs_meta(tmp_rowset_meta);
             std::string meta_rowset_compact_key = versioned::meta_rowset_compact_key(
                     {instance_id, new_tablet_id, rs_meta.end_version()});
             // Put versioned rowset compact metadata for new tablet's rowsets
