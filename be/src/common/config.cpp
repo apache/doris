@@ -315,13 +315,11 @@ DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // doris_remote_scanner_prefetch_depth
 DEFINE_Bool(enable_segment_iterator_prefetch, "true");
 DEFINE_Int32(segment_iterator_prefetch_lookahead, "3");
-DEFINE_Validator(segment_iterator_prefetch_lookahead, [](const int config) -> bool {
-    return config >= 0;
-});
+DEFINE_Validator(segment_iterator_prefetch_lookahead,
+                 [](const int config) -> bool { return config >= 0; });
 DEFINE_mInt64(segment_iterator_prefetch_max_bytes, "33554432");
-DEFINE_Validator(segment_iterator_prefetch_max_bytes, [](const int64_t config) -> bool {
-    return config >= 0;
-});
+DEFINE_Validator(segment_iterator_prefetch_max_bytes,
+                 [](const int64_t config) -> bool { return config >= 0; });
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 
@@ -1589,6 +1587,11 @@ DEFINE_mBool(enable_wal_tde, "false");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+DEFINE_mBool(enable_async_write_back_file_cache, "false");
+DEFINE_mInt32(file_cache_async_write_back_threshold_factor, "1");
+DEFINE_Validator(file_cache_async_write_back_threshold_factor,
+                 [](const int32_t config) -> bool { return config >= 1; });
 
 // clang-format off
 #ifdef BE_TEST

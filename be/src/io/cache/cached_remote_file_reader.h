@@ -72,9 +72,20 @@ protected:
 
 private:
     void _insert_file_reader(FileBlockSPtr file_block);
-    
+
     // Helper to submit a single prefetch task to the I/O threadpool
     Status _submit_prefetch_task(size_t offset, size_t size, IOContext io_ctx);
+
+    // Helper to write data to file cache blocks
+    void _write_to_file_cache(const std::vector<FileBlockSPtr>& empty_blocks,
+                              const char* buffer, size_t empty_start);
+
+    // Handle small read requests with async cache write
+    Status _read_small_request_with_async_write_back(size_t offset, Slice result, size_t bytes_req,
+                                                 const IOContext* io_ctx,
+                                                 std::vector<FileBlockSPtr>&& empty_blocks,
+                                                 size_t empty_start, size_t size,
+                                                 size_t* bytes_read, ReadStatistics* stats);
     
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;

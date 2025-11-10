@@ -1644,6 +1644,9 @@ DECLARE_mBool(enable_wal_tde);
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
+DECLARE_mBool(enable_async_write_back_file_cache);
+DECLARE_mInt32(file_cache_async_write_back_threshold_factor);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
