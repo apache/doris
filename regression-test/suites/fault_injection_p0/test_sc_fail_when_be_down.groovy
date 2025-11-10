@@ -59,8 +59,6 @@ suite("test_sc_fail_when_be_down", "docker") {
             assertTrue(false)
         } catch (Throwable ignore) {
             // do nothing
-        } finally {
-            GetDebugPoint().clearDebugPointsForAllBEs()
         }
     }
 }

@@ -33,6 +33,8 @@ import java.util.Map;
 public class AgentTaskCleanupDaemon extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(AgentTaskCleanupDaemon.class);
 
+    public static final Integer MAX_FAILURE_TIMES = 3;
+
     private final Map<Long, Integer> beInactiveCheckFailures = Maps.newHashMap();
 
     public AgentTaskCleanupDaemon() {
@@ -51,7 +53,7 @@ public class AgentTaskCleanupDaemon extends MasterDaemon {
                     } else {
                         Integer failureTimes = beInactiveCheckFailures.compute(id, (beId, failures) -> {
                             int updated = (failures == null ? 1 : failures + 1);
-                            if (updated >= 2) {
+                            if (updated >= MAX_FAILURE_TIMES) {
                                 removeInactiveBeAgentTasks(beId);
                             }
                             return updated;
