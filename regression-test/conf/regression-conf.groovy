@@ -72,12 +72,12 @@ suites = {
 }
 
 // docker image
-image = "refrain:master1"
+image = ""
 dockerCoverageOutputDir = "" // if not empty, will save docker coverage output files
 dockerEndDeleteFiles = false
 dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 // do run docker test because pipeline not support build image now
-excludeDockerTest = false
+excludeDockerTest = true
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
