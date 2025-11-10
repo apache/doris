@@ -254,11 +254,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     cache_context.stats = &stats;
     MonotonicStopWatch sw;
     sw.start();
-    FileBlocksHolder holder =
-            _cache->get_or_set(_cache_hash, align_left, align_size, cache_context);
+    auto holder = std::make_shared<FileBlocksHolder>(
+            _cache->get_or_set(_cache_hash, align_left, align_size, cache_context));
     stats.cache_get_or_set_timer += sw.elapsed_time();
     std::vector<FileBlockSPtr> empty_blocks;
-    for (auto& block : holder.file_blocks) {
+    for (auto& block : holder->file_blocks) {
         switch (block->state()) {
         case FileBlock::State::EMPTY:
             block->get_or_set_downloader();
@@ -291,9 +291,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         if (!stats.hit_cache && config::enable_async_write_back_file_cache &&
             bytes_req < config::file_cache_each_block_size *
                                 config::file_cache_async_write_back_threshold_factor) {
-            return _read_small_request_with_async_write_back(offset, result, bytes_req, io_ctx,
-                                                             std::move(empty_blocks), empty_start,
-                                                             size, bytes_read, &stats);
+            return _read_small_request_with_async_write_back(holder, offset, result, bytes_req,
+                                                             io_ctx, std::move(empty_blocks),
+                                                             empty_start, size, bytes_read, &stats);
         }
 
         // Synchronous path for large requests or other cases
@@ -328,7 +328,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     size_t current_offset = offset;
     size_t end_offset = offset + bytes_req - 1;
     *bytes_read = 0;
-    for (auto& block : holder.file_blocks) {
+    for (auto& block : holder->file_blocks) {
         if (current_offset > end_offset) {
             break;
         }
@@ -419,9 +419,9 @@ void CachedRemoteFileReader::_write_to_file_cache(const std::vector<FileBlockSPt
 }
 
 Status CachedRemoteFileReader::_read_small_request_with_async_write_back(
-        size_t offset, Slice result, size_t bytes_req, const IOContext* io_ctx,
-        std::vector<FileBlockSPtr>&& empty_blocks, size_t empty_start, size_t size,
-        size_t* bytes_read, ReadStatistics* stats) {
+        std::shared_ptr<FileBlocksHolder> holder, size_t offset, Slice result, size_t bytes_req,
+        const IOContext* io_ctx, std::vector<FileBlockSPtr>&& empty_blocks, size_t empty_start,
+        size_t size, size_t* bytes_read, ReadStatistics* stats) {
     // Update statistics
     stats->num_small_request_with_async_write_back++;
     stats->small_request_with_async_write_back_bytes += bytes_req;
@@ -431,7 +431,6 @@ Status CachedRemoteFileReader::_read_small_request_with_async_write_back(
     auto* engine = dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
     if (engine) {
         auto& downloader = engine->file_cache_block_downloader();
-        std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
 
         // Prepare IOContext for async task (clear pointers to avoid dangling references)
         IOContext async_io_ctx;
@@ -440,12 +439,9 @@ Status CachedRemoteFileReader::_read_small_request_with_async_write_back(
         }
 
         // Capture necessary data for async cache write
-        auto async_cache_write_task = [weak_this, empty_blocks = std::move(empty_blocks),
-                                       empty_start, size, async_io_ctx]() mutable {
-            auto reader = weak_this.lock();
-            if (!reader) {
-                return;
-            }
+        auto async_cache_write_task = [reader = shared_from_this(), holder = std::move(holder),
+                                       empty_blocks = std::move(empty_blocks), empty_start, size,
+                                       async_io_ctx]() mutable {
             TUniqueId query_id = TUniqueId();
             FileCacheStatistics file_cache_stats;
             FileReaderStats file_reader_stats;
