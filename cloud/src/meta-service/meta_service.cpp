@@ -681,6 +681,9 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         }
         txn->put(rs_key, rs_val);
         if (is_versioned_write) {
+            std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, tablet_id, first_rowset->rowset_id_v2()});
+            txn->atomic_add(rowset_ref_count_key, 1);
             std::string versioned_rs_key = versioned::meta_rowset_load_key(
                     {instance_id, tablet_id, first_rowset->end_version()});
             if (!versioned::document_put(txn.get(), versioned_rs_key, std::move(*first_rowset))) {
@@ -691,7 +694,8 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
             }
             LOG(INFO) << "put first versioned rowset meta, tablet_id=" << tablet_id
                       << " end_version=" << first_rowset->end_version()
-                      << " key=" << hex(versioned_rs_key);
+                      << " key=" << hex(versioned_rs_key)
+                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key);
         }
 
         tablet_meta.clear_rs_metas(); // Strip off rowset meta
