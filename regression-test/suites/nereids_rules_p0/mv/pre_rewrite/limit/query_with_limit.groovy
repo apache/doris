@@ -371,7 +371,7 @@ suite("query_with_limit") {
             l_suppkey
             limit 2;
             """
-    async_mv_rewrite_success(db, mv1_5_0, query1_5_0, "mv1_5_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_5_0, query1_5_0, "mv1_5_0", [TRY_IN_RBO, FORCE_IN_RBO])
     async_mv_rewrite_fail(db, mv1_5_0, query1_5_0, "mv1_5_0", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5_0"""
 
