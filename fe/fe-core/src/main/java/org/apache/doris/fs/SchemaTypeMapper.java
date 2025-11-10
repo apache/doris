@@ -78,7 +78,8 @@ public enum SchemaTypeMapper {
     WASBS("wasbs", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     HDFS("hdfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     LOCAL("local", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
-    HTTP("http",StorageProperties.Type.HTTP, FileSystemType.HTTP, TFileType.FILE_HTTP);
+    HTTP("http", StorageProperties.Type.HTTP, FileSystemType.HTTP, TFileType.FILE_HTTP),
+    HTTPS("https", StorageProperties.Type.HTTP, FileSystemType.HTTP, TFileType.FILE_HTTP);
     //LAKEFS("lakefs", StorageProperties.Type.LAKEFS),
     //GCS("gs", StorageProperties.Type.S3),
     //BOS("bos", StorageProperties.Type.BOS),
@@ -157,3 +158,4 @@ public enum SchemaTypeMapper {
         return SCHEMA_TO_FILE_TYPE_MAP.get(schema.toLowerCase());
     }
 }
+

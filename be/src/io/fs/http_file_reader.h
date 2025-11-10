@@ -51,13 +51,20 @@ public:
     const Path& path() const override { return _path; }
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
     size_t size() const override { return _file_size; }
-    std::shared_ptr<HttpClient> get_client();
-    Status read_at(size_t offset, void* buf, size_t nbytes, size_t* bytes_read);
-    Status read_range(size_t offset, size_t length, char* buffer);
 
 private:
+    // Prepare and initialize the HTTP client for a new request
+    Status prepare_client(bool set_fail_on_error = true);
+
+    // Detect if the HTTP server supports Range requests
+    // Returns OK on success with _range_supported set appropriately
+    Status detect_range_support();
+
     std::unique_ptr<char[]> _read_buffer;
-    static constexpr size_t READ_BUFFER_SIZE = 1 << 20;
+    static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB
+    // Default maximum file size for servers that don't support Range requests
+    static constexpr size_t DEFAULT_MAX_REQUEST_SIZE = 100 << 20; // 100MB
+
     size_t _buffer_start = 0;
     size_t _buffer_end = 0;
     bool _size_known = false;
@@ -70,6 +77,11 @@ private:
     std::string _url;
     int64_t _last_modified = 0;
     std::atomic<bool> _closed = false;
+    std::unique_ptr<HttpClient> _client;
+
+    // Configuration for non-Range request handling
+    bool _enable_range_request = true;                         // Whether Range request is required
+    size_t _max_request_size_bytes = DEFAULT_MAX_REQUEST_SIZE; // Max size for non-Range downloads
 };
 
 } // namespace doris::io

@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.table;
 
-
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
@@ -29,12 +27,13 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
 
-
+/**
+ * http tvf
+ */
 public class Http extends TableValuedFunction {
     public Http(Properties properties) {
         super("http", properties);
     }
-
 
     @Override
     protected TableValuedFunctionIf toCatalogFunction() {

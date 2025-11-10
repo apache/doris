@@ -27,20 +27,24 @@
 #include "io/fs/http_file_reader.h"
 
 namespace doris::io {
-HttpFileSystem::HttpFileSystem(Path&& root_path, std::string id)
-        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HTTP) {}
+HttpFileSystem::HttpFileSystem(Path&& root_path, std::string id,
+                               std::map<std::string, std::string> properties)
+        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HTTP),
+          _properties(std::move(properties)) {}
 
-Status HttpFileSystem::init(const std::string& url) {
+Status HttpFileSystem::_init(const std::string& url) {
     _url = url;
     return Status::OK();
 }
 
-Result<std::shared_ptr<HttpFileSystem>> HttpFileSystem::create(std::string id,
-                                                               const std::string& url) {
+Result<std::shared_ptr<HttpFileSystem>> HttpFileSystem::create(
+        std::string id, const std::string& url,
+        const std::map<std::string, std::string>& properties) {
     Path root_path = "";
-    std::shared_ptr<HttpFileSystem> fs(new HttpFileSystem(std::move(root_path), std::move(id)));
+    std::shared_ptr<HttpFileSystem> fs(
+            new HttpFileSystem(std::move(root_path), std::move(id), properties));
 
-    RETURN_IF_ERROR_RESULT(fs->init(url));
+    RETURN_IF_ERROR_RESULT(fs->_init(url));
 
     return fs;
 }
@@ -49,33 +53,12 @@ Status HttpFileSystem::open_file_internal(const Path& path, FileReaderSPtr* read
                                           const FileReaderOptions& opts) {
     OpenFileInfo file_info;
     file_info.path = path;
+    // Pass properties (including HTTP headers) to the file reader
+    file_info.extend_info = _properties;
+
     auto http_reader = std::make_shared<HttpFileReader>(file_info, path.native());
     RETURN_IF_ERROR(http_reader->open(opts));
     *reader = http_reader;
-    return Status::OK();
-}
-
-Status HttpFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
-    FileReaderSPtr reader;
-    RETURN_IF_ERROR(open_file(remote_file, &reader));
-
-    auto* http_reader = dynamic_cast<HttpFileReader*>(reader.get());
-    if (http_reader == nullptr) {
-        return Status::InternalError("Expected HttpFileReader");
-    }
-
-    int64_t total_size = http_reader->size();
-    std::vector<char> buffer(total_size);
-
-    RETURN_IF_ERROR(http_reader->read_range(0, total_size, buffer.data()));
-
-    std::ofstream ofs(local_file.native(), std::ios::binary);
-
-    if (!ofs) {
-        return Status::IOError("Failed to open local file: {}", local_file.native());
-    }
-
-    ofs.write(buffer.data(), total_size);
     return Status::OK();
 }
 

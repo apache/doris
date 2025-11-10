@@ -130,7 +130,7 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
         if (it == kv.end() || it->second.empty()) {
             return ResultError(Status::InternalError("http fs must set uri property"));
         }
-        return io::HttpFileSystem::create(it->second, io::FileSystem::TMP_FS_ID);
+        return io::HttpFileSystem::create(it->second, io::FileSystem::TMP_FS_ID, kv);
     }
     default:
         return ResultError(Status::InternalError("unsupported fs type: {}",

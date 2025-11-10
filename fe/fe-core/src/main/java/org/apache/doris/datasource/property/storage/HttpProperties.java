@@ -17,40 +17,22 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import com.baidubce.services.cdn.model.OriginPeer;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.parser.Origin;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.http.annotation.Immutable;
-import org.apache.hudi.common.util.MapUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import java.util.Set;
+
 import com.google.common.collect.ImmutableSet;
+import org.apache.hudi.common.util.MapUtils;
 
 import java.util.Map;
+import java.util.Set;
 
 public class HttpProperties extends StorageProperties {
-    public static final String PROP_URL = "uri";
-    private static final Logger LOG = LogManager.getLogger(HttpProperties.class);
     private static final ImmutableSet<String> HTTP_PROPERTIES =
         new ImmutableSet.Builder<String>()
-            .add(PROP_URL)
             .add(StorageProperties.FS_HTTP_SUPPORT)
             .build();
 
     public HttpProperties(Map<String, String> origProps) {
         super(Type.HTTP, origProps);
-        LOG.info("HttpProperties initialized with props: {}", origProps);
-    }
-
-    public static boolean canHandle(Map<String, String> props) {
-        if (MapUtils.isNullOrEmpty(props)) {
-            return false;
-        }
-        String uri = props.get(PROP_URL);
-        return uri != null && (uri.startsWith("http://") || uri.startsWith("https://"))
-            || props.containsKey(StorageProperties.FS_HTTP_SUPPORT);
     }
 
     @Override
@@ -61,14 +43,14 @@ public class HttpProperties extends StorageProperties {
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
         if(url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-            throw  new UserException("Invalid http url: " + url);
+            throw new UserException("Invalid http url: " + url);
         }
         return url;
     }
 
     @Override
-    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        String url = loadProps.get(PROP_URL);
+    public String validateAndGetUri(Map<String, String> props) throws UserException {
+        String url = props.get(URI_KEY);
         return validateAndNormalizeUri(url);
     }
 
@@ -78,22 +60,18 @@ public class HttpProperties extends StorageProperties {
     }
 
     public String getUri() {
-        return origProps.get(PROP_URL);
+        return origProps.get(URI_KEY);
     }
 
     @Override
     public String getStorageName() {
-        return origProps.get(PROP_URL);
+        return "http";
     }
 
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig.set("fs.http.impl", org.apache.hadoop.fs.http.HttpFileSystem.class.getName());
-        hadoopStorageConfig.setBoolean(StorageProperties.FS_HTTP_SUPPORT, true);
-        for (Map.Entry<String, String> entry : origProps.entrySet()) {
-            hadoopStorageConfig.set(entry.getKey(), entry.getValue());
-        }
+        // not used
+        hadoopStorageConfig = null;
     }
    
      @Override

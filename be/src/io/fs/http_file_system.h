@@ -18,6 +18,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -33,21 +34,31 @@
 namespace doris::io {
 class HttpFileSystem final : public RemoteFileSystem {
 public:
-    static Result<std::shared_ptr<HttpFileSystem>> create(std::string id, const std::string& uri);
+    static Result<std::shared_ptr<HttpFileSystem>> create(
+            std::string id, const std::string& uri,
+            const std::map<std::string, std::string>& properties = {});
     ~HttpFileSystem() override = default;
 
 protected:
+    Status file_size_impl(const Path& file, int64_t* file_size) const override;
+
+    Status exists_impl(const Path& path, bool* res) const override;
+
     Status open_file_internal(const Path& file, FileReaderSPtr* reader,
                               const FileReaderOptions& opts) override;
-    Status download_impl(const Path& remote_file, const Path& local_file) override;
+    Status download_impl(const Path& remote_file, const Path& local_file) override {
+        return Status::NotSupported("not supported");
+    }
 
     Status batch_upload_impl(const std::vector<Path>& local_files,
                              const std::vector<Path>& remote_files) override {
         return Status::NotSupported("not supported");
     }
+
     Status upload_impl(const Path& local_file, const Path& remote_file) override {
         return Status::NotSupported("not supported");
     }
+
     Status open_file_impl(const Path& file, FileReaderSPtr* reader,
                           const FileReaderOptions* opts) override {
         return Status::NotSupported("not suported");
@@ -74,8 +85,6 @@ protected:
         return Status::NotSupported("not supported");
     }
 
-    Status file_size_impl(const Path& file, int64_t* file_size) const override;
-
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override {
         return Status::NotSupported("not supported");
@@ -85,11 +94,11 @@ protected:
         return Status::NotSupported("not supported");
     }
 
-    Status exists_impl(const Path& path, bool* res) const override;
-
 private:
-    HttpFileSystem(Path&& root_path, std::string id);
-    Status init(const std::string& url);
+    HttpFileSystem(Path&& root_path, std::string id, std::map<std::string, std::string> properties);
+    Status _init(const std::string& url);
+
     std::string _url;
+    std::map<std::string, std::string> _properties;
 };
 } // namespace doris::io

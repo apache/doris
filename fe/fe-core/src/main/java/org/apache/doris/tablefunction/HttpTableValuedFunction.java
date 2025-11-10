@@ -15,33 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.tablefunction;
 
-
-import com.amazonaws.services.dynamodbv2.xspec.S;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.property.storage.HttpProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.plsql.Column;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
-import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
+/**
+ * The Implement of table valued function
+ * http("uri" = "https://example.com/data.csv", "FORMAT" = "csv").
+ */
 public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "http";
 
@@ -50,7 +40,7 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
 
     public HttpTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         Map<String, String> props = super.parseCommonProperties(properties);
-
+        props.put(StorageProperties.FS_HTTP_SUPPORT, "true");
         try {
             this.storageProperties = StorageProperties.createPrimary(props);
             if (!(storageProperties instanceof HttpProperties)) {
@@ -63,24 +53,15 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
 
             this.fileStatuses.clear();
-            this.fileStatuses.add(new TBrokerFileStatus(this.uri, false, -1, false));
+            this.fileStatuses.add(new TBrokerFileStatus(this.uri, false, HttpUtils.getHttpFileSize(this.uri), true));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
 
-        TFileFormatType t = fileFormatProperties.getFileFormatType();
-        switch (t) {
-            case FORMAT_CSV_PLAIN:
-            case FORMAT_CSV_GZ:
-            case FORMAT_CSV_BZ2:
-            case FORMAT_CSV_LZOP:
-            case FORMAT_CSV_LZ4FRAME:
-                break;
-            default:
-                throw new AnalysisException(
-                    "http() only supports format='csv' (plain/gz/bz2/lzop/lz4frame)" /* + " or json" */
-                );
-        }
+        // TFileFormatType t = fileFormatProperties.getFileFormatType();
+        // if (!Util.isCsvFormat(t) && t != TFileFormatType.FORMAT_JSON) {
+        //     throw new AnalysisException("http() only supports format 'csv' and 'json'");
+        // }
     }
 
     @Override
@@ -105,6 +86,6 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
     public String getTableName() {
         return "HttpTableValuedFunction";
     }
-
-
 }
+
+

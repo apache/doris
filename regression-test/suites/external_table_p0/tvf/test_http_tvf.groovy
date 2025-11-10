@@ -24,71 +24,123 @@ import java.nio.file.Paths
 import java.net.InetSocketAddress
 
 suite("test_http_tvf", "p2") {
-
-    def port = 8800
-    def httpRoot = "/tmp/http_test_files"
-    def httpHost = "http://127.0.0.1:${port}"
-
-    new File(httpRoot).mkdirs()
-    new File("${httpRoot}/test.csv").text = """id,name,score
-1,Alice,95
-2,Bob,88
-3,Charlie,91
-"""
-    new File("${httpRoot}/test_no_header.csv").text = """1,Alice,95
-2,Bob,88
-3,Charlie,91
-"""
-    new File("${httpRoot}/test.json").text = """{"id":1,"name":"Alice","score":95}
-{"id":2,"name":"Bob","score":88}
-{"id":3,"name":"Charlie","score":91}
-"""
-
-
-    def server = HttpServer.create(new InetSocketAddress(port), 0)
-    server.createContext("/", { HttpExchange exchange ->
-        def path = exchange.getRequestURI().getPath()
-        def file = new File(httpRoot + path)
-        if (file.exists()) {
-            def bytes = Files.readAllBytes(file.toPath())
-            exchange.sendResponseHeaders(200, bytes.length)
-            exchange.responseBody.write(bytes)
-        } else {
-            exchange.sendResponseHeaders(404, 0)
-            exchange.responseBody.write("Not Found".bytes)
-        }
-        exchange.responseBody.close()
-    } as HttpHandler)
-    server.start()
-    logger.info("Embedded HTTP server started at ${httpHost}")
-
-    
-    qt_http_csv_basic """
+    // csv
+    qt_sql01 """
         SELECT *
         FROM http(
-            "uri" = "${httpHost}/test.csv",
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
             "format" = "csv",
-            "csv_with_header" = "true",
-            "csv_schema" = "id:int;name:string;score:int",
-            "column_separator" = ",",
-            "strict_mode" = "true"
+            "column_separator" = ","
         )
-        ORDER BY id;
+        ORDER BY c1 limit 10;
     """
 
-    qt_http_json_line """
-        SELECT *
+    qt_sql02 """
+        SELECT count(*)
         FROM http(
-            "uri" = "${httpHost}/test.json",
-            "format" = "json",
-            "read_json_by_line" = "true"
-        )
-        ORDER BY id;
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "format" = "csv",
+            "column_separator" = ","
+        );
     """
 
+    qt_sql03 """
+        desc function
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "format" = "csv",
+            "column_separator" = ","
+        );
+    """
 
-    teardown {
-        logger.info("Stop embedded HTTP server...")
-        server.stop(0)
-    }
+    qt_sql04 """
+        desc function
+        file(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "format" = "csv",
+            "fs.http.support" = "true",
+            "column_separator" = ","
+        );
+    """
+
+    // csv with gz
+    qt_sql05 """
+        desc function
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/all_types.csv.gz",
+            "format" = "csv",
+            "column_separator" = ",",
+            "compress_type" = "gz"
+        );
+    """
+
+    qt_sql05 """
+        select count(*) from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/all_types.csv.gz",
+            "format" = "csv",
+            "column_separator" = ",",
+            "compress_type" = "gz"
+        );
+    """
+
+    // json
+    qt_sql06 """
+        select * from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/basic_data.json",
+            "format" = "json",
+            "strip_outer_array" = true
+        ) order by k00;
+    """
+
+    qt_sql07 """
+        desc function
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/basic_data.json",
+            "format" = "json",
+            "strip_outer_array" = true
+        );
+    """
+
+    // parquet/orc
+    qt_sql08 """
+        select * from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/external_table_p0/tvf/t.parquet",
+            "format" = "parquet"
+        ) order by id limit 10;
+    """
+
+    qt_sql09 """
+        select arr_map, id from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/external_table_p0/tvf/t.parquet",
+            "format" = "parquet"
+        ) order by id limit 10;
+    """
+
+    qt_sql10 """
+        desc function
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/external_table_p0/tvf/t.parquet",
+            "format" = "parquet"
+        );
+    """
+
+    qt_sql11 """
+        select m, id from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/types/complex_types/mm.orc",
+            "format" = "orc"
+        ) order by id limit 10;
+    """
+
+    qt_sql12 """
+        desc function
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/types/complex_types/mm.orc",
+            "format" = "orc"
+        );
+    """
 }
