@@ -286,6 +286,17 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_start = empty_blocks.front()->range().left;
         empty_end = empty_blocks.back()->range().right;
         size_t size = empty_end - empty_start + 1;
+
+        // For small requests that don't hit cache, read directly and write cache asynchronously
+        if (!stats.hit_cache && config::enable_async_write_back_file_cache &&
+            bytes_req < config::file_cache_each_block_size *
+                                config::file_cache_async_write_back_threshold_factor) {
+            return _read_small_request_with_async_write_back(offset, result, bytes_req, io_ctx,
+                                                             std::move(empty_blocks), empty_start,
+                                                             size, bytes_read, &stats);
+        }
+
+        // Synchronous path for large requests or other cases
         std::unique_ptr<char[]> buffer(new char[size]);
         {
             s3_read_counter << 1;
@@ -293,23 +304,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                          &size, io_ctx));
         }
-        for (auto& block : empty_blocks) {
-            if (block->state() == FileBlock::State::SKIP_CACHE) {
-                continue;
-            }
+        {
             SCOPED_RAW_TIMER(&stats.local_write_timer);
-            char* cur_ptr = buffer.get() + block->range().left - empty_start;
-            size_t block_size = block->range().size();
-            Status st = block->append(Slice(cur_ptr, block_size));
-            if (st.ok()) {
-                st = block->finalize();
+            _write_to_file_cache(empty_blocks, buffer.get(), empty_start);
+        }
+        for (auto& block : empty_blocks) {
+            if (block->state() != FileBlock::State::SKIP_CACHE) {
+                stats.bytes_write_into_file_cache += block->range().size();
             }
-            if (!st.ok()) {
-                LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
-            } else {
-                _insert_file_reader(block);
-            }
-            stats.bytes_write_into_file_cache += block_size;
         }
         // copy from memory directly
         size_t right_offset = offset + bytes_req - 1;
@@ -396,6 +398,92 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     return Status::OK();
 }
 
+void CachedRemoteFileReader::_write_to_file_cache(const std::vector<FileBlockSPtr>& empty_blocks,
+                                                  const char* buffer, size_t empty_start) {
+    for (auto& block : empty_blocks) {
+        if (block->state() == FileBlock::State::SKIP_CACHE) {
+            continue;
+        }
+        char* cur_ptr = const_cast<char*>(buffer) + block->range().left - empty_start;
+        size_t block_size = block->range().size();
+        Status st = block->append(Slice(cur_ptr, block_size));
+        if (st.ok()) {
+            st = block->finalize();
+        }
+        if (!st.ok()) {
+            LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
+        } else {
+            _insert_file_reader(block);
+        }
+        g_bytes_write_into_file_cache_total << block_size;
+    }
+}
+
+Status CachedRemoteFileReader::_read_small_request_with_async_write_back(
+        size_t offset, Slice result, size_t bytes_req, const IOContext* io_ctx,
+        std::vector<FileBlockSPtr>&& empty_blocks, size_t empty_start, size_t size,
+        size_t* bytes_read, ReadStatistics* stats) {
+    // Read directly from remote to user buffer
+    {
+        s3_read_counter << 1;
+        SCOPED_RAW_TIMER(&stats->remote_read_timer);
+        size_t direct_read_size = bytes_req;
+        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, result, &direct_read_size, io_ctx));
+        DCHECK(direct_read_size == bytes_req);
+        *bytes_read = bytes_req;
+    }
+
+    // Submit async task to write cache in background
+    auto* engine = dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
+    if (engine) {
+        auto& downloader = engine->file_cache_block_downloader();
+        std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
+
+        // Prepare IOContext for async task (clear pointers to avoid dangling references)
+        IOContext async_io_ctx;
+        if (io_ctx) {
+            async_io_ctx = *io_ctx;
+        }
+
+        // Capture necessary data for async cache write
+        auto async_cache_write_task = [weak_this, empty_blocks = std::move(empty_blocks),
+                                       empty_start, size, async_io_ctx]() mutable {
+            auto reader = weak_this.lock();
+            if (!reader) {
+                return;
+            }
+            TUniqueId query_id = TUniqueId();
+            FileCacheStatistics file_cache_stats;
+            FileReaderStats file_reader_stats;
+            async_io_ctx.query_id = &query_id;
+            async_io_ctx.file_cache_stats = &file_cache_stats;
+            async_io_ctx.file_reader_stats = &file_reader_stats;
+
+            // Read from remote
+            std::unique_ptr<char[]> buffer(new char[size]);
+            size_t read_size = size;
+            Status st = reader->_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
+                                                             &read_size, &async_io_ctx);
+            if (!st.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "Async cache write: read from remote failed. err=" << st.msg();
+                return;
+            }
+
+            // Write to file cache using the extracted helper function
+            reader->_write_to_file_cache(empty_blocks, buffer.get(), empty_start);
+        };
+
+        Status submit_st = downloader.submit_io_task(std::move(async_cache_write_task));
+        if (!submit_st.ok()) {
+            LOG_EVERY_N(WARNING, 100)
+                    << "Failed to submit async cache write task: " << submit_st.msg();
+        }
+    }
+
+    return Status::OK();
+}
+
 void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                            FileCacheStatistics* statis,
                                            bool is_inverted_index) const {
@@ -442,131 +530,119 @@ Status CachedRemoteFileReader::prefetch(size_t offset, size_t size, const IOCont
         VLOG_DEBUG << "Prefetch: No cache available, skipping";
         return Status::OK();
     }
-    
+
     if (offset >= this->size()) {
-        VLOG_DEBUG << fmt::format(
-            "Prefetch: Invalid offset {} >= file size {}, skipping",
-            offset, this->size());
+        VLOG_DEBUG << fmt::format("Prefetch: Invalid offset {} >= file size {}, skipping", offset,
+                                  this->size());
         return Status::OK();
     }
-    
+
     size_t adjusted_size = std::min(size, this->size() - offset);
     if (adjusted_size == 0) {
         return Status::OK();
     }
-    
+
     IOContext ctx_copy;
     if (io_ctx) {
         ctx_copy = *io_ctx;
     }
-    
-    VLOG_DEBUG << fmt::format(
-        "Prefetch: Submitting range [offset={}, size={}] for file {}",
-        offset, adjusted_size, path().native());
-    
+
+    VLOG_DEBUG << fmt::format("Prefetch: Submitting range [offset={}, size={}] for file {}", offset,
+                              adjusted_size, path().native());
+
     return _submit_prefetch_task(offset, adjusted_size, std::move(ctx_copy));
 }
 
-Status CachedRemoteFileReader::prefetch_batch(
-        const std::vector<std::pair<size_t, size_t>>& ranges,
-        const IOContext* io_ctx) {
-    
+Status CachedRemoteFileReader::prefetch_batch(const std::vector<std::pair<size_t, size_t>>& ranges,
+                                              const IOContext* io_ctx) {
     if (!_cache) {
         VLOG_DEBUG << "Prefetch: No cache available, skipping batch";
         return Status::OK();
     }
-    
+
     if (ranges.empty()) {
         return Status::OK();
     }
-    
+
     IOContext ctx_copy;
     if (io_ctx) {
         ctx_copy = *io_ctx;
     }
-    
-    VLOG_DEBUG << fmt::format(
-        "Prefetch: Submitting batch of {} ranges for file {}",
-        ranges.size(), path().native());
-    
+
+    VLOG_DEBUG << fmt::format("Prefetch: Submitting batch of {} ranges for file {}", ranges.size(),
+                              path().native());
+
     size_t submitted = 0;
     for (const auto& [offset, size] : ranges) {
         if (offset >= this->size()) {
-            VLOG_DEBUG << fmt::format(
-                "Prefetch: Skipping invalid range [offset={}, size={}]",
-                offset, size);
+            VLOG_DEBUG << fmt::format("Prefetch: Skipping invalid range [offset={}, size={}]",
+                                      offset, size);
             continue;
         }
-        
+
         size_t adjusted_size = std::min(size, this->size() - offset);
         if (adjusted_size == 0) {
             continue;
         }
-        
+
         Status st = _submit_prefetch_task(offset, adjusted_size, ctx_copy);
         if (st.ok()) {
             submitted++;
         } else {
-            VLOG(1) << fmt::format(
-                "Prefetch: Failed to submit range [offset={}, size={}]: {}",
-                offset, size, st.to_string());
+            VLOG(1) << fmt::format("Prefetch: Failed to submit range [offset={}, size={}]: {}",
+                                   offset, size, st.to_string());
         }
     }
-    
-    VLOG_DEBUG << fmt::format(
-        "Prefetch: Successfully submitted {}/{} ranges",
-        submitted, ranges.size());
-    
+
+    VLOG_DEBUG << fmt::format("Prefetch: Successfully submitted {}/{} ranges", submitted,
+                              ranges.size());
+
     return Status::OK();
 }
 
-Status CachedRemoteFileReader::_submit_prefetch_task(size_t offset, size_t size, 
-                                                      IOContext io_ctx) {
+Status CachedRemoteFileReader::_submit_prefetch_task(size_t offset, size_t size, IOContext io_ctx) {
     auto* engine = dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
     if (!engine) {
         VLOG_DEBUG << "Prefetch: Not in cloud mode, skipping";
         return Status::OK();
     }
-    
+
     auto& downloader = engine->file_cache_block_downloader();
-    
+
     std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
-    
+
     auto prefetch_task = [weak_this, offset, size, io_ctx = std::move(io_ctx)]() {
         auto reader = weak_this.lock();
         if (!reader) {
             VLOG_DEBUG << "Prefetch: Reader destroyed before prefetch executed";
             return;
         }
-        
+
         std::vector<char> dummy_buffer(0);
         size_t bytes_read = 0;
-        
+
         auto io_ctx_copy = io_ctx;
         io_ctx_copy.is_dryrun = true;
-        
-        Status st = reader->read_at(offset, Slice(dummy_buffer.data(), size), 
-                                    &bytes_read, &io_ctx_copy);
-        
+
+        Status st = reader->read_at(offset, Slice(dummy_buffer.data(), size), &bytes_read,
+                                    &io_ctx_copy);
+
         if (st.ok()) {
             VLOG_DEBUG << fmt::format(
-                "Prefetch: Successfully cached range [offset={}, size={}] for file {}",
-                offset, size, reader->path().native());
+                    "Prefetch: Successfully cached range [offset={}, size={}] for file {}", offset,
+                    size, reader->path().native());
         } else {
-            VLOG(1) << fmt::format(
-                "Prefetch: Failed for range [offset={}, size={}] on file {}: {}",
-                offset, size, reader->path().native(), st.to_string());
+            VLOG(1) << fmt::format("Prefetch: Failed for range [offset={}, size={}] on file {}: {}",
+                                   offset, size, reader->path().native(), st.to_string());
         }
     };
-    
+
     Status st = downloader.submit_io_task(std::move(prefetch_task));
     if (!st.ok()) {
-        VLOG(1) << fmt::format(
-            "Prefetch: Failed to submit task to threadpool: {}", 
-            st.to_string());
+        VLOG(1) << fmt::format("Prefetch: Failed to submit task to threadpool: {}", st.to_string());
         return st;
     }
-    
+
     return Status::OK();
 }
 
