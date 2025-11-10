@@ -192,7 +192,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             Optional<LogicalRepeat<? extends Plan>> childRepeat =
                     copiedAggregate.collectFirst(LogicalRepeat.class::isInstance);
             if (childRepeat.isPresent()) {
-                return copiedAggregate.withSourceRepeat(childRepeat.get());
+                copiedAggregate = copiedAggregate.withSourceRepeat(childRepeat.get());
             }
         }
         return copiedAggregate;
