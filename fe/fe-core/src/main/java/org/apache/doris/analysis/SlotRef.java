@@ -295,7 +295,6 @@ public class SlotRef extends Expr {
 
     @Override
     public String toColumnLabel() {
-        // return tblName == null ? col : tblName.getTbl() + "." + col;
         return col;
     }
 

@@ -20,10 +20,14 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -53,6 +57,7 @@ import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
@@ -70,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
@@ -97,6 +103,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -740,6 +747,18 @@ public class CreateTableInfo {
 
             for (RollupDefinition rollup : rollups) {
                 rollup.validate();
+            }
+
+            Env env = Env.getCurrentEnv();
+            if (ctx != null && env != null && partitionTableInfo != null
+                    && !partitionTableInfo.getPartitionList().isEmpty()) {
+                checkLegalityOfPartitionExprs(partitionTableInfo);
+            }
+
+            if (partitionDesc != null) {
+                for (SinglePartitionDesc singlePartitionDesc : partitionDesc.getSinglePartitionDescs()) {
+                    checkPartitionNullity(getColumns(), partitionDesc, singlePartitionDesc);
+                }
             }
         } else {
             // mysql, broker and hive do not need key desc
@@ -1496,5 +1515,101 @@ public class CreateTableInfo {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * checkPartitionNullity
+     */
+    public void checkPartitionNullity(List<Column> baseSchema, PartitionDesc partitionDesc,
+                                       SinglePartitionDesc partition)
+            throws AnalysisException {
+        // in creating OlapTable, expr.desc is null. so we should find the column ourself.
+        ArrayList<Expr> partitionExprs = partitionDesc.getPartitionExprs();
+        ArrayList<Boolean> partitionSlotNullables = new ArrayList<Boolean>();
+        for (Expr expr : partitionExprs) {
+            if (expr instanceof SlotRef) {
+                partitionSlotNullables.add(findAllowNullforSlotRef(baseSchema, (SlotRef) expr));
+            } else if (expr instanceof FunctionCallExpr) {
+                partitionSlotNullables.add(Expr.isNullable(((FunctionCallExpr) expr).getFn(), expr.getChildren()));
+            } else {
+                throw new AnalysisException("Unknown partition expr type:" + expr.getExprName());
+            }
+        }
+
+        if (partition.getPartitionKeyDesc().getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.IN) {
+            List<List<PartitionValue>> inValues = partition.getPartitionKeyDesc().getInValues();
+            for (List<PartitionValue> item : inValues) {
+                checkNullityEqual(partitionSlotNullables, item);
+            }
+        } else if (partition.getPartitionKeyDesc().getPartitionType()
+                == PartitionKeyDesc.PartitionKeyValueType.LESS_THAN) {
+            // only upper
+            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
+            checkNullityEqual(partitionSlotNullables, upperValues);
+        } else {
+            // fixed. upper and lower
+            List<PartitionValue> lowerValues = partition.getPartitionKeyDesc().getLowerValues();
+            List<PartitionValue> upperValues = partition.getPartitionKeyDesc().getUpperValues();
+            checkNullityEqual(partitionSlotNullables, lowerValues);
+            checkNullityEqual(partitionSlotNullables, upperValues);
+        }
+    }
+
+    private boolean findAllowNullforSlotRef(List<Column> baseSchema, SlotRef slot) throws AnalysisException {
+        for (Column col : baseSchema) {
+            if (col.nameEquals(slot.getColumnName(), true)) {
+                return col.isAllowNull();
+            }
+        }
+        throw new AnalysisException("Unknown partition column name:" + slot.getColumnName());
+    }
+
+    private void checkNullityEqual(ArrayList<Boolean> partitionSlotNullables, List<PartitionValue> item)
+            throws AnalysisException {
+        // for MAX_VALUE or somethings
+        if (item == null) {
+            return;
+        }
+        for (int i = 0; i < item.size(); i++) {
+            try {
+                if (!partitionSlotNullables.get(i) && item.get(i).isNullPartition()) {
+                    throw new AnalysisException(
+                        "Can't have null partition is for NOT NULL partition "
+                        + "column in partition expr's index " + i);
+                }
+            } catch (IndexOutOfBoundsException e) {
+                throw new AnalysisException(
+                    "partition item's size out of partition columns: " + e.getMessage());
+            }
+        }
+    }
+
+    private void checkLegalityOfPartitionExprs(PartitionTableInfo partitionTableInfo) {
+        List<Expression> paritionExprs = partitionTableInfo.getPartitionList();
+        for (Expression expr : paritionExprs) {
+            if (expr instanceof UnboundFunction) {
+                if (!partitionTableInfo.isAutoPartition()
+                        || partitionTableInfo.getPartitionType() != PartitionType.RANGE.name()) {
+                    throw new AnalysisException("only Auto Range Partition support UnboundFunction");
+                }
+                UnboundFunction func = (UnboundFunction) expr;
+                List<Expression> children = func.children();
+                for (int i = 0; i < children.size(); i++) {
+                    Expression child = children.get(i);
+                    if (!(child instanceof Literal || child instanceof UnboundSlot)) {
+                        throw new AnalysisException(String.format(
+                            "partition expression %s has unrecognized parameter in slot %d",
+                            func.getExpressionName(), i));
+                    }
+                }
+            } else if (expr instanceof UnboundSlot) {
+                if (partitionTableInfo.isAutoPartition() || Objects.equals(partitionTableInfo.getPartitionType(),
+                        PartitionType.RANGE.name())) {
+                    throw new AnalysisException("Auto Range Partition need UnboundFunction");
+                }
+            } else {
+                throw new AnalysisException("partition expression " + expr.getExpressionName() + " is illegal!");
+            }
+        }
     }
 }

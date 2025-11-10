@@ -415,4 +415,8 @@ public class PartitionTableInfo {
     public List<PartitionDefinition> getPartitionDefs() {
         return partitionDefs;
     }
+
+    public List<Expression> getPartitionList() {
+        return partitionList == null ? new ArrayList<>() : partitionList;
+    }
 }
