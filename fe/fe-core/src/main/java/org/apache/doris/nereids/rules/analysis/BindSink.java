@@ -324,7 +324,9 @@ public class BindSink implements AnalysisRuleFactory {
             if (castExpr instanceof NamedExpression) {
                 castExprs.add(((NamedExpression) castExpr));
             } else {
-                castExprs.add(new Alias(castExpr));
+                // use expr's original name as alias name
+                // so that the LogicalPostFilter node in stream load can bind its slot successfully
+                castExprs.add(new Alias(castExpr, expr.getName()));
             }
         }
         if (!castExprs.equals(fullOutputExprs)) {
