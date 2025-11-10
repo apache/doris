@@ -1095,15 +1095,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            TColumn tColumn = globalRowIdColumn.toThrift();
-            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
-            tColumn.setIsKey(false);
-            tColumn.setIsAllowNull(false);
-            // keep compatibility
-            tColumn.setVisible(false);
-            tColumn.setColUniqueId(Integer.MAX_VALUE);
-            columnsDesc.add(tColumn);
+            columnsDesc.add(globalRowIdColumn.toThrift());
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
