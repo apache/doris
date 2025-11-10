@@ -193,6 +193,7 @@ public class DateLiteral extends LiteralExpr {
 
     public DateLiteral() {
         super();
+        this.nullable = false;
     }
 
     public DateLiteral(Type type, boolean isMax) throws AnalysisException {
@@ -223,52 +224,21 @@ public class DateLiteral extends LiteralExpr {
             }
         }
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
     public DateLiteral(String s, Type type) throws AnalysisException {
         super();
         init(s, type);
+        this.nullable = false;
         analysisDone();
     }
 
     public DateLiteral(String s) throws AnalysisException {
         super();
         init(s, null);
-        analysisDone();
-    }
-
-    public DateLiteral(long unixTimestamp, TimeZone timeZone, Type type) throws AnalysisException {
-        Timestamp timestamp = new Timestamp(unixTimestamp);
-
-        ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(timestamp.toInstant(), ZoneId.of(timeZone.getID()));
-        year = zonedDateTime.getYear();
-        month = zonedDateTime.getMonthValue();
-        day = zonedDateTime.getDayOfMonth();
-        hour = zonedDateTime.getHour();
-        minute = zonedDateTime.getMinute();
-        second = zonedDateTime.getSecond();
-        microsecond = zonedDateTime.get(ChronoField.MICRO_OF_SECOND);
-        if (type.equals(Type.DATE)) {
-            hour = 0;
-            minute = 0;
-            second = 0;
-            microsecond = 0;
-            this.type = Type.DATE;
-        } else if (type.equals(Type.DATETIME)) {
-            this.type = Type.DATETIME;
-            microsecond = 0;
-        } else if (type.equals(Type.DATEV2)) {
-            hour = 0;
-            minute = 0;
-            second = 0;
-            microsecond = 0;
-            this.type = Type.DATEV2;
-        } else if (type.equals(Type.DATETIMEV2)) {
-            this.type = Type.DATETIMEV2;
-        } else {
-            throw new AnalysisException("Error date literal type : " + type);
-        }
+        this.nullable = false;
         analysisDone();
     }
 
@@ -280,6 +250,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATE);
+        this.nullable = false;
         analysisDone();
     }
 
@@ -290,10 +261,11 @@ public class DateLiteral extends LiteralExpr {
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATE.getPrimitiveType())
                 || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
-    public DateLiteral(long year, long month, long day, long hour, long minute, long second) {
+    private DateLiteral(long year, long month, long day, long hour, long minute, long second) {
         this.hour = hour;
         this.minute = minute;
         this.second = second;
@@ -301,6 +273,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+        this.nullable = false;
         analysisDone();
     }
 
@@ -315,6 +288,7 @@ public class DateLiteral extends LiteralExpr {
         this.microsecond = microsecond;
         Preconditions.checkArgument(type.isDatetimeV2() || type.isTimeStampTz());
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
@@ -329,6 +303,7 @@ public class DateLiteral extends LiteralExpr {
                 || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType())
                 || type.getPrimitiveType().equals(Type.TIMESTAMPTZ.getPrimitiveType()));
         this.type = type;
+        this.nullable = false;
         analysisDone();
     }
 
@@ -343,6 +318,7 @@ public class DateLiteral extends LiteralExpr {
             this.second = dateTime.getSecond();
             this.microsecond = dateTime.get(ChronoField.MICRO_OF_SECOND);
         }
+        this.nullable = false;
         analysisDone();
     }
 

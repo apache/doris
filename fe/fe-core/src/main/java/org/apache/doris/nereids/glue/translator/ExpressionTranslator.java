@@ -106,7 +106,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TDictFunction;
@@ -118,6 +117,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
@@ -153,8 +153,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 equalTo.child(0).accept(this, context),
                 equalTo.child(1).accept(this, context),
                 equalTo.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
-        eq.setNullableFromNereids(equalTo.nullable());
+                equalTo.nullable());
         return eq;
     }
 
@@ -164,8 +163,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 greaterThan.child(0).accept(this, context),
                 greaterThan.child(1).accept(this, context),
                 greaterThan.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
-        gt.setNullableFromNereids(greaterThan.nullable());
+                greaterThan.nullable());
         return gt;
     }
 
@@ -175,8 +173,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 greaterThanEqual.child(0).accept(this, context),
                 greaterThanEqual.child(1).accept(this, context),
                 greaterThanEqual.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
-        ge.setNullableFromNereids(greaterThanEqual.nullable());
+                greaterThanEqual.nullable());
         return ge;
     }
 
@@ -186,8 +183,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 lessThan.child(0).accept(this, context),
                 lessThan.child(1).accept(this, context),
                 lessThan.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
-        lt.setNullableFromNereids(lessThan.nullable());
+                lessThan.nullable());
         return lt;
     }
 
@@ -197,8 +193,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 lessThanEqual.child(0).accept(this, context),
                 lessThanEqual.child(1).accept(this, context),
                 lessThanEqual.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
-        le.setNullableFromNereids(lessThanEqual.nullable());
+                lessThanEqual.nullable());
         return le;
     }
 
@@ -238,8 +233,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         MatchPredicate.Operator op = match.op();
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
                 match.right().accept(this, context), match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT, invertedIndex);
-        matchPredicate.setNullableFromNereids(match.nullable());
+                NullableMode.DEPEND_ON_ARGUMENT, invertedIndex, match.nullable());
         return matchPredicate;
     }
 
@@ -249,8 +243,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 nullSafeEqual.child(0).accept(this, context),
                 nullSafeEqual.child(1).accept(this, context),
                 nullSafeEqual.getDataType().toCatalogDataType(),
-                NullableMode.ALWAYS_NOT_NULLABLE);
-        eq.setNullableFromNereids(nullSafeEqual.nullable());
+                nullSafeEqual.nullable());
         return eq;
     }
 
@@ -264,29 +257,24 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             boolean allConstant = inPredicate.getOptions().stream().allMatch(Expression::isConstant);
             org.apache.doris.analysis.InPredicate in = new org.apache.doris.analysis.InPredicate(
                     inPredicate.getCompareExpr().accept(this, context),
-                    inList, true, allConstant);
-            in.setNullableFromNereids(inPredicate.nullable());
+                    inList, true, allConstant, inPredicate.nullable());
             return in;
         } else if (not.child() instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) not.child();
-            BinaryPredicate ne = new BinaryPredicate(Operator.NE,
+            return new BinaryPredicate(Operator.NE,
                     equalTo.child(0).accept(this, context),
                     equalTo.child(1).accept(this, context),
                     equalTo.getDataType().toCatalogDataType(),
-                    NullableMode.DEPEND_ON_ARGUMENT);
-            ne.setNullableFromNereids(equalTo.nullable());
-            return ne;
+                    equalTo.nullable());
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
         } else if (not.child() instanceof IsNull) {
             IsNullPredicate isNull = new IsNullPredicate(
-                    ((IsNull) not.child()).child().accept(this, context), true, true);
-            isNull.setNullableFromNereids(not.child().nullable());
+                    ((IsNull) not.child()).child().accept(this, context), true);
             return isNull;
         } else {
             CompoundPredicate cp = new CompoundPredicate(CompoundPredicate.Operator.NOT,
-                    not.child(0).accept(this, context), null);
-            cp.setNullableFromNereids(not.nullable());
+                    not.child(0).accept(this, context), null, not.nullable());
             return cp;
         }
     }
@@ -314,14 +302,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
-        return literal.toLegacyLiteral();
-    }
-
-    @Override
-    public Expr visitNullLiteral(NullLiteral nullLiteral, PlanTranslatorContext context) {
-        org.apache.doris.analysis.NullLiteral nullLit = new org.apache.doris.analysis.NullLiteral();
-        nullLit.setType(nullLiteral.getDataType().toCatalogDataType());
-        return nullLit;
+        Expr lit = literal.toLegacyLiteral();
+        return lit;
     }
 
     private static class Frame {
@@ -338,13 +320,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
     }
 
-    private boolean computeCompoundPredicateNullable(CompoundPredicate cp) {
-        Expr left = cp.getChild(0);
-        Expr right = cp.getChild(1);
-        return left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
-                || !left.getNullableFromNereids().isPresent() && left.isNullable()
-                || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
-                || !right.getNullableFromNereids().isPresent() && right.isNullable();
+    private boolean computeCompoundPredicateNullable(Expr left, Expr right) {
+        return left.isNullable() || right.isNullable();
     }
 
     private Expr toBalancedTree(int low, int high, List<Expr> children,
@@ -368,8 +345,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 } else if (diff == 1) {
                     Expr left = children.get(l);
                     Expr right = children.get(h);
-                    CompoundPredicate cp = new CompoundPredicate(op, left, right);
-                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
+                    CompoundPredicate cp = new CompoundPredicate(op, left, right,
+                            computeCompoundPredicateNullable(left, right));
                     results.push(cp);
                     stack.pop();
                 } else {
@@ -385,8 +362,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 if (results.size() >= 2) {
                     Expr right = results.pop();
                     Expr left = results.pop();
-                    CompoundPredicate cp = new CompoundPredicate(currentFrame.op, left, right);
-                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
+                    CompoundPredicate cp = new CompoundPredicate(currentFrame.op, left, right,
+                            computeCompoundPredicateNullable(left, right));
                     results.push(cp);
                 }
             }
@@ -401,8 +378,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         ).collect(Collectors.toList());
         CompoundPredicate cp = (CompoundPredicate) toBalancedTree(0, children.size() - 1,
                 children, CompoundPredicate.Operator.AND);
-
-        cp.setNullableFromNereids(and.nullable());
         return cp;
     }
 
@@ -413,8 +388,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         ).collect(Collectors.toList());
         CompoundPredicate cp = (CompoundPredicate) toBalancedTree(0, children.size() - 1,
                 children, CompoundPredicate.Operator.OR);
-
-        cp.setNullableFromNereids(or.nullable());
         return cp;
     }
 
@@ -432,8 +405,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         if (defaultValue.isPresent()) {
             elseExpr = defaultValue.get().accept(this, context);
         }
-        CaseExpr caseExpr = new CaseExpr(caseWhenClauses, elseExpr);
-        caseExpr.setNullableFromNereids(caseWhen.nullable());
+        CaseExpr caseExpr = new CaseExpr(caseWhenClauses, elseExpr, caseWhen.nullable());
         return caseExpr;
     }
 
@@ -441,19 +413,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitCast(Cast cast, PlanTranslatorContext context) {
         // left child of cast is expression, right child of cast is target type
         CastExpr castExpr = new CastExpr(cast.getDataType().toCatalogDataType(),
-                cast.child().accept(this, context), null);
+                cast.child().accept(this, context), cast.nullable());
         castExpr.setImplicit(!cast.isExplicitType());
-        castExpr.setNullableFromNereids(cast.nullable());
         return castExpr;
     }
 
     @Override
-    public Expr visitTryCast(TryCast cast, PlanTranslatorContext context) {
+    public Expr visitTryCast(TryCast tryCast, PlanTranslatorContext context) {
         // left child of cast is expression, right child of cast is target type
-        TryCastExpr tryCastExpr = new TryCastExpr(cast.getDataType().toCatalogDataType(),
-                cast.child().accept(this, context), null);
-        tryCastExpr.setNullableFromNereids(cast.nullable());
-        tryCastExpr.setOriginCastNullable(cast.parentNullable());
+        TryCastExpr tryCastExpr = new TryCastExpr(tryCast.getDataType().toCatalogDataType(),
+                tryCast.child().accept(this, context), tryCast.nullable(), tryCast.originCastNullable());
         return tryCastExpr;
     }
 
@@ -465,8 +434,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         boolean allConstant = inPredicate.getOptions().stream().allMatch(Expression::isConstant);
         org.apache.doris.analysis.InPredicate in = new org.apache.doris.analysis.InPredicate(
                 inPredicate.getCompareExpr().accept(this, context),
-                inList, false, allConstant);
-        in.setNullableFromNereids(inPredicate.nullable());
+                inList, false, allConstant, inPredicate.nullable());
         return in;
     }
 
@@ -508,10 +476,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         // generate FunctionCallExpr
         boolean isMergeFn = false;
-        FunctionCallExpr functionCallExpr =
-                new FunctionCallExpr(catalogFunction, windowFnParams, windowFnParams, isMergeFn, catalogArguments);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(catalogFunction, windowFnParams, windowFnParams,
+                isMergeFn, catalogArguments, function.nullable());
         functionCallExpr.setIsAnalyticFnCall(true);
-        functionCallExpr.setNullableFromNereids(function.nullable());
         return functionCallExpr;
 
     }
@@ -521,8 +488,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Expr func = lambda.getLambdaFunction().accept(this, context);
         List<Expr> arguments = lambda.getLambdaArguments().stream().map(e -> e.accept(this, context))
                 .collect(Collectors.toList());
-        LambdaFunctionExpr functionExpr = new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), arguments);
-        functionExpr.setNullableFromNereids(lambda.nullable());
+        LambdaFunctionExpr functionExpr = new LambdaFunctionExpr(
+                func, lambda.getLambdaArgumentNames(), arguments, lambda.nullable());
         return functionExpr;
     }
 
@@ -537,10 +504,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
             arguments.add(expr);
 
-            ColumnRefExpr column = new ColumnRefExpr();
+            ColumnRefExpr column = new ColumnRefExpr(true);
             column.setName(argName);
             column.setColumnId(columnId);
-            column.setNullable(true);
             column.setType(((ArrayType) expr.getType()).getItemType());
             context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
             columnId += 1;
@@ -566,9 +532,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // create catalog FunctionCallExpr without analyze again
         Expr lambdaBody = visitLambda(lambda, context);
         arguments.set(0, lambdaBody);
-        LambdaFunctionCallExpr functionCallExpr =
-                new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(arrayMap.nullable());
+        LambdaFunctionCallExpr functionCallExpr = new LambdaFunctionCallExpr(catalogFunction,
+                new FunctionParams(false, arguments), arrayMap.nullable());
         return functionCallExpr;
     }
 
@@ -586,10 +551,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         String argName = arrayItemReference.getName();
         Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
         arguments.add(expr);
-        ColumnRefExpr column = new ColumnRefExpr();
+        ColumnRefExpr column = new ColumnRefExpr(true);
         column.setName(argName);
         column.setColumnId(0);
-        column.setNullable(true);
         column.setType(((ArrayType) expr.getType()).getItemType());
         context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
 
@@ -622,8 +586,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Expr lambdaBody = visitLambda(lambda, context);
         arguments.set(0, lambdaBody);
         LambdaFunctionCallExpr functionCallExpr = new LambdaFunctionCallExpr(catalogFunction,
-                new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(arraySort.nullable());
+                new FunctionParams(false, arguments), arraySort.nullable());
         return functionCallExpr;
     }
 
@@ -653,11 +616,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         dictFunction.setVersionId(dictionary.getVersion());
         catalogFunction.setDictFunction(dictFunction);
 
-        FunctionCallExpr functionCallExpr;
         // create catalog FunctionCallExpr without analyze again
-        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(dictGet.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), dictGet.nullable());
     }
 
     @Override
@@ -683,11 +643,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         dictFunction.setVersionId(dictionary.getVersion());
         catalogFunction.setDictFunction(dictFunction);
 
-        FunctionCallExpr functionCallExpr;
         // create catalog FunctionCallExpr without analyze again
-        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(dictGetMany.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), dictGetMany.nullable());
     }
 
     @Override
@@ -702,13 +659,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
 
         // Create SearchPredicate with proper slot children for BE "action on slot" detection
-        SearchPredicate searchPredicate =
-                new SearchPredicate(
-                        searchExpression.getDslString(),
-                        searchExpression.getQsPlan(),
-                        slotChildren);
-
-        searchPredicate.setNullableFromNereids(searchExpression.nullable());
+        SearchPredicate searchPredicate = new SearchPredicate(searchExpression.getDslString(),
+                searchExpression.getQsPlan(), slotChildren, searchExpression.nullable());
         return searchPredicate;
     }
 
@@ -732,11 +684,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
-        FunctionCallExpr functionCallExpr;
         // create catalog FunctionCallExpr without analyze again
-        functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(function.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
     }
 
     @Override
@@ -781,10 +730,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
-        FunctionCallExpr functionCallExpr =
-                new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(function.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
     }
 
     @Override
@@ -798,8 +744,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
                 binaryArithmetic.child(1).accept(this, context),
-                binaryArithmetic.getDataType().toCatalogDataType(), nullableMode);
-        arithmeticExpr.setNullableFromNereids(binaryArithmetic.nullable());
+                binaryArithmetic.getDataType().toCatalogDataType(), nullableMode, binaryArithmetic.nullable());
         return arithmeticExpr;
     }
 
@@ -807,8 +752,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, PlanTranslatorContext context) {
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(unaryArithmetic.getLegacyOperator(),
                 unaryArithmetic.child().accept(this, context), null,
-                unaryArithmetic.getDataType().toCatalogDataType(), NullableMode.DEPEND_ON_ARGUMENT);
-        arithmeticExpr.setNullableFromNereids(unaryArithmetic.nullable());
+                unaryArithmetic.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT, unaryArithmetic.nullable());
         return arithmeticExpr;
     }
 
@@ -820,28 +765,52 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 arithmetic.getFuncName(), arithmetic.getOp(),
                 arithmetic.left().accept(this, context), arithmetic.right().accept(this, context),
                 arithmetic.getTimeUnit().toString(), arithmetic.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
-        timestampArithmeticExpr.setNullableFromNereids(arithmetic.nullable());
+                arithmetic.nullable());
         return timestampArithmeticExpr;
     }
 
     @Override
     public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
-        IsNullPredicate isNullPredicate = new IsNullPredicate(isNull.child().accept(this, context), false, true);
-        isNullPredicate.setNullableFromNereids(isNull.nullable());
+        IsNullPredicate isNullPredicate = new IsNullPredicate(isNull.child().accept(this, context), false);
         return isNullPredicate;
     }
 
     @Override
     public Expr visitStateCombinator(StateCombinator combinator, PlanTranslatorContext context) {
-        List<Expr> arguments = combinator.getArguments().stream().map(arg -> arg instanceof OrderExpression
-                        ? translateOrderExpression((OrderExpression) arg, context).getExpr()
-                        : arg.accept(this, context))
+        List<Expr> arguments = combinator.getArguments().stream()
+                .map(arg -> {
+                    Expr expr;
+                    if (arg instanceof OrderExpression) {
+                        expr = ((OrderExpression) arg).accept(this, context);
+                    } else {
+                        expr = arg.accept(this, context);
+                    }
+                    return expr;
+                })
                 .collect(Collectors.toList());
         boolean isReturnNullable = !(combinator.getNestedFunction() instanceof NotNullableAggregateFunction);
-        return Function.convertToStateCombinator(
-                new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments)), isReturnNullable);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
+                visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
+                new FunctionParams(false, arguments), isReturnNullable);
+        return convertToStateCombinator(combinator.getName(), functionCallExpr,
+                arguments.stream().map(Expr::getType).collect(Collectors.toList()),
+                combinator.getArguments().stream().map(Expression::nullable).collect(Collectors.toList()),
+                isReturnNullable);
+    }
+
+    private FunctionCallExpr convertToStateCombinator(String name, FunctionCallExpr fnCall,
+            List<Type> argTypes, List<Boolean> argNullables,
+            boolean returnNullable) {
+        Function aggFunction = fnCall.getFn();
+        List<Type> arguments = Arrays.asList(aggFunction.getArgs());
+        org.apache.doris.catalog.ScalarFunction fn = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(name), arguments,
+                Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
+                        argTypes, argNullables, returnNullable),
+                aggFunction.hasVarArgs(), aggFunction.isUserVisible());
+        fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()), false);
     }
 
     @Override
@@ -849,9 +818,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> arguments = combinator.children().stream()
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
-        return Function.convertToMergeCombinator(
+        return convertToMergeCombinator(combinator.getName(),
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments)));
+                        new FunctionParams(false, arguments), combinator.nullable()));
+    }
+
+    private FunctionCallExpr convertToMergeCombinator(String name, FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(name));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return fnCall;
     }
 
     @Override
@@ -859,9 +836,20 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> arguments = combinator.children().stream()
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
-        return Function.convertToUnionCombinator(
+        return convertToUnionCombinator(combinator.getName(),
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments)));
+                        new FunctionParams(false, arguments), combinator.nullable()));
+    }
+
+    private FunctionCallExpr convertToUnionCombinator(String name, FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(name));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
+        fnCall.setType(fnCall.getChildren().get(0).getType());
+        return fnCall;
     }
 
     @Override
@@ -869,9 +857,22 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> arguments = combinator.children().stream()
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
-        return Function.convertForEachCombinator(
+        return convertForEachCombinator(combinator.getName(),
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
-                        new FunctionParams(false, arguments)));
+                        new FunctionParams(false, arguments), combinator.nullable()));
+    }
+
+    private FunctionCallExpr convertForEachCombinator(String name, FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(name + "v2"));
+        List<Type> argTypes = new ArrayList();
+        for (Type type : aggFunction.getArgs()) {
+            argTypes.add(new ArrayType(type));
+        }
+        aggFunction.setArgs(argTypes);
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), true));
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
+        return fnCall;
     }
 
     @Override
@@ -894,10 +895,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 TFunctionBinaryType.BUILTIN, true, true,
                 function.nullable() ? NullableMode.ALWAYS_NULLABLE : NullableMode.ALWAYS_NOT_NULLABLE);
 
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(catalogFunction,
-                new FunctionParams(function.isDistinct(), arguments));
-        functionCallExpr.setNullableFromNereids(function.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(catalogFunction,
+                new FunctionParams(function.isDistinct(), arguments), function.nullable());
     }
 
     @Override
@@ -905,9 +904,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionParams exprs = new FunctionParams(udf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udf.getCatalogFunction(), exprs);
-        functionCallExpr.setNullableFromNereids(udf.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(udf.getCatalogFunction(), exprs, udf.nullable());
     }
 
     @Override
@@ -915,9 +912,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionParams exprs = new FunctionParams(udf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udf.getCatalogFunction(), exprs);
-        functionCallExpr.setNullableFromNereids(udf.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(udf.getCatalogFunction(), exprs, udf.nullable());
     }
 
     @Override
@@ -925,9 +920,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionParams exprs = new FunctionParams(udaf.isDistinct(), udaf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udaf.getCatalogFunction(), exprs);
-        functionCallExpr.setNullableFromNereids(udaf.nullable());
-        return functionCallExpr;
+        return new FunctionCallExpr(udaf.getCatalogFunction(), exprs, udaf.nullable());
     }
 
     // TODO: Supports for `distinct`
@@ -970,10 +963,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         boolean isMergeFn = aggregateParam.aggMode.consumeAggregateBuffer;
         // create catalog FunctionCallExpr without analyze again
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
-                catalogFunction, fnParams, aggFnParams, isMergeFn, currentPhaseCatalogArguments);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(catalogFunction, fnParams, aggFnParams,
+                isMergeFn, currentPhaseCatalogArguments, function.nullable());
         functionCallExpr.setOrderByElements(orderByElements);
-        functionCallExpr.setNullableFromNereids(function.nullable());
         return functionCallExpr;
     }
 

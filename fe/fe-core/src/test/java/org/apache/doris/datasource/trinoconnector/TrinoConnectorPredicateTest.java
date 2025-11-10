@@ -565,7 +565,7 @@ public class TrinoConnectorPredicateTest {
         // test results, construct equal binary predicate
         List<TupleDomain<ColumnHandle>> testTupleDomain = Lists.newArrayList();
         for (int i = 0; i < slotRefs.size(); i++) {
-            InPredicate expr = new InPredicate(slotRefs.get(i), literalList.get(i), false);
+            InPredicate expr = new InPredicate(slotRefs.get(i), Lists.newArrayList(literalList.get(i)), false);
             TupleDomain<ColumnHandle> tupleDomain = trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(
                     expr);
             testTupleDomain.add(tupleDomain);
@@ -577,7 +577,7 @@ public class TrinoConnectorPredicateTest {
 
         testTupleDomain.clear();
         for (int i = 0; i < slotRefs.size(); i++) {
-            InPredicate expr = new InPredicate(slotRefs.get(i), literalList.get(i), true);
+            InPredicate expr = new InPredicate(slotRefs.get(i), Lists.newArrayList(literalList.get(i)), true);
             TupleDomain<ColumnHandle> tupleDomain = trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(
                     expr);
             testTupleDomain.add(tupleDomain);
