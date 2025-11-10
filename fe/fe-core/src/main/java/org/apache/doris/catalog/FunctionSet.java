@@ -67,7 +67,6 @@ public class FunctionSet<T> {
                     .add("CURRENT_TIMESTAMP")
                     .add("CURRENT_TIME")
                     .add("UNIX_TIMESTAMP")
-                    .add()
                     .build();
 
     public static final String HLL_HASH = "hll_hash";
