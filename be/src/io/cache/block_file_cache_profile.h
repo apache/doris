@@ -88,6 +88,9 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
     RuntimeProfile::Counter* cache_block_download_wait_timer = nullptr;
+    RuntimeProfile::Counter* num_small_request_with_async_write_back = nullptr;
+    RuntimeProfile::Counter* small_request_with_async_write_back_bytes = nullptr;
+    RuntimeProfile::Counter* small_request_with_async_write_back_timer = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
@@ -125,6 +128,12 @@ struct FileCacheProfileReporter {
         set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
         cache_block_download_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(
                 profile, "CacheBlockDownloadWaitTimer", cache_profile, 1);
+        num_small_request_with_async_write_back = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "NumSmallRequestWithAsyncWriteBack", TUnit::UNIT, cache_profile, 1);
+        small_request_with_async_write_back_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                profile, "SmallRequestWithAsyncWriteBackBytes", TUnit::BYTES, cache_profile, 1);
+        small_request_with_async_write_back_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                profile, "SmallRequestWithAsyncWriteBackTimer", cache_profile, 1);
 
         inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
                 profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -158,6 +167,12 @@ struct FileCacheProfileReporter {
         COUNTER_UPDATE(get_timer, statistics->get_timer);
         COUNTER_UPDATE(set_timer, statistics->set_timer);
         COUNTER_UPDATE(cache_block_download_wait_timer, statistics->cache_block_download_wait_timer);
+        COUNTER_UPDATE(num_small_request_with_async_write_back,
+                       statistics->num_small_request_with_async_write_back);
+        COUNTER_UPDATE(small_request_with_async_write_back_bytes,
+                       statistics->small_request_with_async_write_back_bytes);
+        COUNTER_UPDATE(small_request_with_async_write_back_timer,
+                       statistics->small_request_with_async_write_back_timer);
 
         COUNTER_UPDATE(inverted_index_num_local_io_total,
                        statistics->inverted_index_num_local_io_total);

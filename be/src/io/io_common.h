@@ -58,6 +58,9 @@ struct FileCacheStatistics {
     int64_t get_timer = 0;
     int64_t set_timer = 0;
     int64_t cache_block_download_wait_timer = 0;
+    int64_t num_small_request_with_async_write_back = 0;
+    int64_t small_request_with_async_write_back_bytes = 0;
+    int64_t small_request_with_async_write_back_timer = 0;
 
     int64_t inverted_index_num_local_io_total = 0;
     int64_t inverted_index_num_remote_io_total = 0;
