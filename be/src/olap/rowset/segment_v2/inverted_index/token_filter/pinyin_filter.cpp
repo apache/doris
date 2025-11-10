@@ -144,10 +144,16 @@ bool PinyinFilter::readTerm(Token* token) {
         }
     }
 
-    // Process original text if needed
-    if (config_->keepOriginal && !processed_original_) {
+    // Preserve original text if configured or if no candidates were generated
+    // This ensures Unicode symbols (emoji, etc.) are preserved even without keep_original setting
+    // matching Elasticsearch behavior
+    if (!processed_original_ && has_current_token_) {
         processed_original_ = true;
-        addCandidate(TermItem(current_source_, 0, static_cast<int>(current_source_.length()), 1));
+        // Keep original if explicitly configured or if no candidates generated (fallback for emoji, symbols)
+        if (config_->keepOriginal || candidate_.empty()) {
+            addCandidate(
+                    TermItem(current_source_, 0, static_cast<int>(current_source_.length()), 1));
+        }
     }
 
     // Process joined full pinyin if needed
@@ -232,8 +238,22 @@ bool PinyinFilter::processCurrentToken() {
             PinyinUtil::instance().convert(source_codepoints, PinyinFormat::TONELESS_PINYIN_FORMAT);
     auto chinese_list = ChineseUtil::segmentChinese(source_codepoints);
 
+    // Early return optimization: if no Chinese characters found
     if (pinyin_list.empty() && chinese_list.empty()) {
-        return false;
+        // Check if there are non-ASCII Unicode characters (like emoji) to preserve
+        bool has_unicode_symbols = false;
+        for (const auto& cp : source_codepoints) {
+            if (cp >= 128) { // Non-ASCII character
+                has_unicode_symbols = true;
+                break;
+            }
+        }
+
+        // If no Unicode symbols, return false and let other filters handle it
+        if (!has_unicode_symbols) {
+            return false;
+        }
+        // Otherwise, continue processing to preserve Unicode symbols
     }
 
     // Process each character and generate candidates
@@ -324,6 +344,20 @@ bool PinyinFilter::processCurrentToken() {
                         }
                     }
                 }
+            } else if (!is_ascii && pinyin.empty() && chinese.empty()) {
+                // Handle non-ASCII, non-Chinese characters (e.g., emoji, symbols)
+                // These should be preserved as-is (similar to ES pinyin filter behavior)
+                position_++;
+
+                // Convert codepoint back to UTF-8 string
+                std::string unicode_char;
+                char utf8_buffer[4];
+                int32_t utf8_len = 0;
+                U8_APPEND_UNSAFE(utf8_buffer, utf8_len, codepoint);
+                unicode_char.append(utf8_buffer, utf8_len);
+
+                addCandidate(TermItem(unicode_char, static_cast<int>(i), static_cast<int>(i + 1),
+                                      position_));
             }
         }
     }
