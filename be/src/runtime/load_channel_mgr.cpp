@@ -74,8 +74,8 @@ void LoadChannelMgr::stop() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _last_success_channels = std::make_unique<LoadStateChannelCache>(1024);
-    _last_cancel_channels = std::make_unique<LoadStateChannelCache>(1024);
+    _last_success_channels = std::make_unique<LastSuccessChannelCache>(1024);
+    _last_cancel_channels = std::make_unique<LastCancelChannelCache>(1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
