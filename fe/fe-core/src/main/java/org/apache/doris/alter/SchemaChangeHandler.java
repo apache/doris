@@ -718,6 +718,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     otherCol = new Column(modColumn);
                     otherCol.setName(col.getName());
                     otherCol.setDefineExpr(col.getDefineExpr());
+                    otherCol.setUniqueId(col.getUniqueId());
                     Preconditions.checkState(modColIndex != -1);
                     Preconditions.checkState(otherCol != null);
                     // replace the old column
