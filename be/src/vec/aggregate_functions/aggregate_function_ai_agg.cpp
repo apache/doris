@@ -17,7 +17,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 

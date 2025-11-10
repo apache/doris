@@ -34,7 +34,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -107,150 +106,13 @@ struct AggregateFunctionAvgData {
 };
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
-class AggregateFunctionAvg
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, TResult, Data>>,
-          UnaryExpression,
-          NullableAggregateFunction {
-public:
-    using ResultType = PrimitiveTypeTraits<TResult>::ColumnItemType;
-    AggregateFunctionAvg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, TResult, Data>>(
-                      argument_types_) {}
-    String get_name() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement get_name of AggregateFunctionAvg");
-    }
-    DataTypePtr get_return_type() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement get_return_type of AggregateFunctionAvg");
-    }
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena&) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement get_return_type of AggregateFunctionAvg");
-    }
-    void reset(AggregateDataPtr place) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement reset of AggregateFunctionAvg");
-    }
-
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement merge of AggregateFunctionAvg");
-    }
-
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement serialize of AggregateFunctionAvg");
-    }
-
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena&) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement deserialize of AggregateFunctionAvg");
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement insert_result_into of AggregateFunctionAvg");
-    }
-
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement deserialize_from_column of AggregateFunctionAvg");
-    }
-
-    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
-                             MutableColumnPtr& dst, const size_t num_rows) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement serialize_to_column of AggregateFunctionAvg");
-    }
-
-    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena&) const override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "not implement streaming_agg_serialize_to_column of AggregateFunctionAvg");
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "not implement deserialize_and_merge_from_column of AggregateFunctionAvg");
-    }
-
-    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
-                                                 const IColumn& column, size_t begin, size_t end,
-                                                 Arena&) const override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "not implement deserialize_and_merge_from_column_range of AggregateFunctionAvg");
-    }
-
-    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
-                                   const size_t num_rows) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement deserialize_and_merge_vec of AggregateFunctionAvg");
-    }
-
-    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column,
-                                            Arena& arena, const size_t num_rows) const override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "not implement deserialize_and_merge_vec_selected of AggregateFunctionAvg");
-    }
-
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         IColumn& to) const override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "not implement serialize_without_key_to_column of AggregateFunctionAvg");
-    }
-
-    MutableColumnPtr create_serialize_column() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement create_serialize_column of AggregateFunctionAvg");
-    }
-
-    DataTypePtr get_serialized_type() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement get_serialized_type of AggregateFunctionAvg");
-    }
-
-    bool supported_incremental_mode() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement supported_incremental_mode of AggregateFunctionAvg");
-    }
-
-    NO_SANITIZE_UNDEFINED void execute_function_with_incremental(
-            int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
-            AggregateDataPtr place, const IColumn** columns, Arena& arena, bool previous_is_nul,
-            bool end_is_nul, bool has_null, UInt8* use_null_result,
-            UInt8* could_use_previous_result) const override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "not implement execute_function_with_incremental of AggregateFunctionAvg");
-    }
-
-    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
-                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena& arena, UInt8* use_null_result,
-                                UInt8* could_use_previous_result) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "not implement add_range_single_place of AggregateFunctionAvg");
-    }
-};
+class AggregateFunctionAvg;
 
 template <PrimitiveType T, PrimitiveType TResult>
 constexpr static bool is_valid_avg_types =
-        (is_same_or_wider_decimalv3(T, TResult) ||
+        (is_same_or_wider_decimalv3(T, TResult) || (is_decimalv2(T) && is_decimalv2(TResult)) ||
          (is_float_or_double(T) && is_float_or_double(TResult)) ||
-         (is_int_or_bool(T) && is_float_or_double(TResult)));
+         (is_int_or_bool(T) && (is_float_or_double(TResult) || is_int(TResult))));
 /// Calculates arithmetic mean of numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
     requires(is_valid_avg_types<T, TResult>)
@@ -261,7 +123,7 @@ class AggregateFunctionAvg<T, TResult, Data> final
 public:
     using ResultType = PrimitiveTypeTraits<TResult>::ColumnItemType;
     using ResultDataType = PrimitiveTypeTraits<TResult>::DataType;
-    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecType = PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = PrimitiveTypeTraits<TResult>::ColumnType;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
