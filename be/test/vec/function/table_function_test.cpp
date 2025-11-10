@@ -136,11 +136,10 @@ TEST_F(TableFunctionTest, vexplode_outer_v2) {
         Array vec = {Int32(1), Null(), Int32(2), Int32(3)};
         InputDataSet input_set = {{vec}, {Null()}, {Array()}};
 
-        InputTypeSet output_types = {TypeIndex::Struct, TypeIndex::Int32};
+        InputTypeSet output_types = {TypeIndex::Int32};
 
-        InputDataSet output_set = {{{CellSet {Int32(1)}}}, {{CellSet {Null()}}},
-                                   {{CellSet {Int32(2)}}}, {{CellSet {Int32(3)}}},
-                                   {{CellSet {Null()}}},   {{CellSet {Null()}}}};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)},
+                                   {Int32(3)}, {Null()}, {Null()}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -151,29 +150,26 @@ TEST_F(TableFunctionTest, vexplode_outer_v2) {
         Array vec = {Field(std::string("abc")), Field(std::string("")), Field(std::string("def"))};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
-        InputTypeSet output_types = {TypeIndex::Struct, TypeIndex::String};
+        InputTypeSet output_types = {TypeIndex::String};
 
-        InputDataSet output_set = {{{CellSet {Null()}}},
-                                   {{CellSet {Null()}}},
-                                   {{CellSet {std::string("abc")}}},
-                                   {{CellSet {std::string("")}}},
-                                   {{CellSet {std::string("def")}}}};
+        InputDataSet output_set = {
+                {Null()}, {Null()}, {std::string("abc")}, {std::string("")}, {std::string("def")}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
 
-    // explode_outer(Array<Decimal>)
+    // // explode_outer(Array<Decimal>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2};
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67)};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
-        InputTypeSet output_types = {TypeIndex::Struct, TypeIndex::Decimal128V2};
+        InputTypeSet output_types = {TypeIndex::Decimal128V2};
 
-        InputDataSet output_set = {{{CellSet {Null()}}},
-                                   {{CellSet {Null()}}},
-                                   {{CellSet {ut_type::DECIMALV2(17014116.67)}}},
-                                   {{CellSet {ut_type::DECIMALV2(-17014116.67)}}}};
+        InputDataSet output_set = {{Null()},
+                                   {Null()},
+                                   {ut_type::DECIMALV2(17014116.67)},
+                                   {ut_type::DECIMALV2(-17014116.67)}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -234,11 +230,8 @@ TEST_F(TableFunctionTest, vexplode_v2) {
         Array vec = {Int32(1), Null(), Int32(2), Int32(3)};
         InputDataSet input_set = {{vec}, {Null()}, {Array()}};
 
-        InputTypeSet output_types = {TypeIndex::Struct, TypeIndex::Int32};
-        InputDataSet output_set = {{{CellSet {Int32(1)}}},
-                                   {{CellSet {Null()}}},
-                                   {{CellSet {Int32(2)}}},
-                                   {{CellSet {Int32(3)}}}};
+        InputTypeSet output_types = {TypeIndex::Int32};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)}, {Int32(3)}};
 
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
@@ -249,11 +242,9 @@ TEST_F(TableFunctionTest, vexplode_v2) {
         Array vec = {Field(std::string("abc")), Field(std::string("")), Field(std::string("def"))};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
-        InputTypeSet output_types = {TypeIndex::Struct, TypeIndex::String};
+        InputTypeSet output_types = {TypeIndex::String};
 
-        InputDataSet output_set = {{{CellSet {std::string("abc")}}},
-                                   {{CellSet {std::string("")}}},
-                                   {{CellSet {std::string("def")}}}};
+        InputDataSet output_set = {{std::string("abc")}, {std::string("")}, {std::string("def")}};
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
 
@@ -263,9 +254,9 @@ TEST_F(TableFunctionTest, vexplode_v2) {
         Array vec = {Null(), str_to_date_time("2022-01-02", false)};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
-        InputTypeSet output_types = {TypeIndex::Struct, TypeIndex::Date};
+        InputTypeSet output_types = {TypeIndex::Date};
 
-        InputDataSet output_set = {{{CellSet {Null()}}}, {{CellSet {std::string("2022-01-02")}}}};
+        InputDataSet output_set = {{Null()}, {std::string("2022-01-02")}};
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
 }
