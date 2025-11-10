@@ -624,7 +624,7 @@ suite("null_aware_anti") {
             );
             """
     order_qt_query7_0_before "${query7_0}"
-    async_mv_rewrite_fail(db, mv7_0, query7_0, "mv7_0")
+    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
@@ -661,7 +661,7 @@ suite("null_aware_anti") {
             );
             """
     order_qt_query7_1_before "${query7_1}"
-    async_mv_rewrite_fail(db, mv7_1, query7_1, "mv7_1")
+    async_mv_rewrite_success(db, mv7_1, query7_1, "mv7_1")
     order_qt_query7_1_after "${query7_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
 
