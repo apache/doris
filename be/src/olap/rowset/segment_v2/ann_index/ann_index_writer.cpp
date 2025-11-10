@@ -76,6 +76,12 @@ Status AnnIndexColumnWriter::init() {
             "ef_construction {}, quantizer {}",
             index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
             build_parameter.ef_construction, quantizer);
+
+    size_t block_size = CHUNK_SIZE * build_parameter.dim;
+    // The array capacity will not change after resizing
+    _float_array.resize(block_size);
+    _array_offset = 0;
+
     return Status::OK();
 }
 
@@ -105,27 +111,23 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    // Add to buffer
-    _ann_vec.reserve(_ann_vec.size() + num_rows * dim);
-    _ann_vec.insert(_ann_vec.end(), p, p + num_rows * dim);
-    DCHECK(_ann_vec.size() % dim == 0);
+    size_t remaining_elements = num_rows * dim;
+    size_t src_offset = 0;
+    while (remaining_elements > 0) {
+        size_t available_space = _float_array.size() - _array_offset;
+        size_t elements_to_add = std::min(remaining_elements, available_space);
 
-    // Train the index if needed
-    // Faiss index will do nothing if index does not need train.
-    vectorized::Int64 chunk_size = 1'000'000;
-    vectorized::Int64 i = 0;
+        memcpy(_float_array.data() + _array_offset, p + src_offset,
+               elements_to_add * sizeof(float));
+        _array_offset += elements_to_add;
+        src_offset += elements_to_add;
+        remaining_elements -= elements_to_add;
 
-    // train/add chunk_size rows once. if the remaining rows are less than chunk_size, nothing will happen.
-    // In finish(), all remaining data will be trained and added.
-    for (; i + chunk_size < _ann_vec.size() / dim; i += chunk_size) {
-        RETURN_IF_ERROR(_vector_index->train(chunk_size, _ann_vec.data() + i * dim));
-        RETURN_IF_ERROR(_vector_index->add(chunk_size, _ann_vec.data() + i * dim));
-    }
-
-    if (i > 0) {
-        vectorized::Int64 offset = i * dim;
-        std::copy(_ann_vec.begin() + offset, _ann_vec.end(), _ann_vec.begin());
-        _ann_vec.resize(_ann_vec.size() - offset);
+        if (_array_offset == _float_array.size()) {
+            RETURN_IF_ERROR(_vector_index->train(CHUNK_SIZE, _float_array.data()));
+            RETURN_IF_ERROR(_vector_index->add(CHUNK_SIZE, _float_array.data()));
+            _array_offset = 0;
+        }
     }
 
     return Status::OK();
@@ -149,13 +151,14 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
-    DCHECK(_ann_vec.size() % _vector_index->get_dimension() == 0);
-
     // train/add the remaining data
-    vectorized::Int64 num_rows = _ann_vec.size() / _vector_index->get_dimension();
-    RETURN_IF_ERROR(_vector_index->train(num_rows, _ann_vec.data()));
-    RETURN_IF_ERROR(_vector_index->add(num_rows, _ann_vec.data()));
-    _ann_vec.clear();
+    if (_array_offset > 0) {
+        DCHECK(_array_offset % _vector_index->get_dimension() == 0);
+        vectorized::Int64 num_rows = _array_offset / _vector_index->get_dimension();
+        RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+        RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
+        _array_offset = 0;
+    }
 
     return _vector_index->save(_dir.get());
 }
