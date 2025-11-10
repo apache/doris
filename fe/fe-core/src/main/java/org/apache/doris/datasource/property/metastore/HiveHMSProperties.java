@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.BooleanUtils;
 
@@ -29,6 +30,7 @@ import java.util.Map;
 @Slf4j
 public class HiveHMSProperties extends AbstractHiveProperties {
 
+    @Getter
     private HMSBaseProperties hmsBaseProperties;
 
     @ConnectorProperty(names = {"hive.enable_hms_events_incremental_sync"},
@@ -58,7 +60,6 @@ public class HiveHMSProperties extends AbstractHiveProperties {
         this.hiveConf = hmsBaseProperties.getHiveConf();
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
-
 
     private void initRefreshParams() {
         this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledInput);

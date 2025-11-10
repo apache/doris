@@ -33,7 +33,6 @@ under the License.
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
-        <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
     <profiles>
         <profile>
