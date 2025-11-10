@@ -144,9 +144,9 @@ public class SlotRef extends Expr {
     }
 
     // NOTE: this is used to set tblName to null,
-    // so we can to get the only column name when calling toSql
-    public void setTableNameInfo(TableNameInfo name) {
-        this.tableNameInfo = name;
+    // so we can only get column name when calling toSql
+    public void setTableNameInfoToNull() {
+        this.tableNameInfo = null;
     }
 
     public void setDesc(SlotDescriptor desc) {
