@@ -1593,6 +1593,8 @@ DEFINE_mInt32(file_cache_async_write_back_threshold_factor, "1");
 DEFINE_Validator(file_cache_async_write_back_threshold_factor,
                  [](const int32_t config) -> bool { return config >= 1; });
 
+DEFINE_mBool(prefetch_segment_footer, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
