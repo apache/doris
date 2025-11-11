@@ -2964,8 +2964,8 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                 }
                 if (child->is_slot_ref()) {
                     auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
-                    _common_expr_index_exec_status[_schema->column_id(
-                            column_slot_ref->column_id())][expr.get()] = false;
+                    _common_expr_index_exec_status[_schema->column_id(column_slot_ref->column_id())]
+                                                  [expr.get()] = false;
                     _common_expr_to_slotref_map[root_expr_ctx.get()][column_slot_ref->column_id()] =
                             expr.get();
                 }

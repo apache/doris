@@ -520,7 +520,6 @@ private:
     bool _find_condition_cache = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     static constexpr int CONDITION_CACHE_OFFSET = 2048;
-
 };
 
 } // namespace segment_v2
