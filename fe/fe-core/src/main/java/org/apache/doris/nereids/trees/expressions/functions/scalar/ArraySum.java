@@ -75,8 +75,13 @@ public class ArraySum extends ScalarFunction implements ExplicitlyCastableSignat
         DataType argType = child(0).getDataType();
         if (argType.isArrayType() && !((((ArrayType) argType).getItemType().isNumericType())
                                         || ((ArrayType) argType).getItemType().isNullType())) {
-            throw new AnalysisException("array_sum does not support types: " + argType.toSql());
+            throw new AnalysisException("array_sum does not support type: " + argType.toSql());
         }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 
     /**

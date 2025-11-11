@@ -68,5 +68,17 @@ suite("test_variant_array_function", "p0") {
 
     qt_sql """ select array_avg(cast(var['b'] as array<string>)) from ${tableName} order by id; """
 
-    qt_sql """ select array_product(cast(var['b'] as array<string>)) from ${tableName} order by id; """
+    test {
+        sql """ select array_product(cast(var['b'] as array<string>)) from ${tableName} order by id; """
+        exception "array_product does not support type"
+    }
+
+    test {
+        sql """ select array_sum(cast(var['b'] as array<datetime>)) from ${tableName} order by id; """
+        exception "array_sum does not support type"
+    }
+    test {
+        sql """ select array_sum(cast(var['b'] as array<string>)) from ${tableName} order by id; """
+        exception "array_sum does not support type"
+    }
 }
