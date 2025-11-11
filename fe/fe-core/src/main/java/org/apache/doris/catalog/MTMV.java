@@ -308,8 +308,8 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
-        Set<TableNameInfo> res = Sets.newHashSet();
+    public Set<TableName> getQueryRewriteConsistencyRelaxedTables() {
+        Set<TableName> res = Sets.newHashSet();
         readMvLock();
         try {
             String stillRewrittenTables
@@ -319,7 +319,7 @@ public class MTMV extends OlapTable {
             }
             String[] split = stillRewrittenTables.split(",");
             for (String alias : split) {
-                res.add(new TableNameInfo(alias));
+                res.add(new TableName(alias));
             }
             return res;
         } finally {
