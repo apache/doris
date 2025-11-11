@@ -488,14 +488,21 @@ private:
     * a boolean value to indicate whether the column has been read by the index.
     */
     std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
-            _column_predicate_inverted_index_status;
+            _column_predicate_index_exec_status;
 
     /*
     * column and common expr on it.
     * a boolean value to indicate whether the column has been read by the index.
     */
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
-            _common_expr_inverted_index_status;
+            _common_expr_index_exec_status;
+
+    /*
+    * common expr context to slotref map
+    * slot ref map is used to get slot ref expr by using column id.
+    */
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            _common_expr_to_slotref_map;
 
     vectorized::ScoreRuntimeSPtr _score_runtime;
 
@@ -513,8 +520,7 @@ private:
     bool _find_condition_cache = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     static constexpr int CONDITION_CACHE_OFFSET = 2048;
-    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
-            _common_expr_to_slotref_map;
+
 };
 
 } // namespace segment_v2

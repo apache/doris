@@ -332,6 +332,7 @@ Status ThreadPool::init() {
 }
 
 void ThreadPool::shutdown() {
+    VLOG_DEBUG << "Shutting down thread pool " << _name;
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
