@@ -194,6 +194,16 @@ private:
     RuntimeProfile::Counter* _dict_pages_num_counter = nullptr;
     RuntimeProfile::Counter* _short_key_pages_num_counter = nullptr;
 
+    // bytes read by page type
+    RuntimeProfile::Counter* _data_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _data_page_uncompressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _index_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _index_page_uncompressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _dict_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _dict_page_uncompressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _short_key_page_compressed_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _short_key_page_uncompressed_bytes_read_counter = nullptr;
+
     // row count filtered by bitmap inverted index
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
     // time fro bitmap inverted index read and filter
