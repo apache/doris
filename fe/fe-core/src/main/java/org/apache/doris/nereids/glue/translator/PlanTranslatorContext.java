@@ -100,7 +100,6 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
-    private TupleDescriptor bufferedTupleForWindow = null;
 
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
@@ -284,10 +283,6 @@ public class PlanTranslatorContext {
 
     public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {
         return bufferedSlotRefForWindow;
-    }
-
-    public TupleDescriptor getBufferedTupleForWindow() {
-        return bufferedTupleForWindow;
     }
 
     /**

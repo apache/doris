@@ -205,7 +205,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
         LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
                                   << ", host=" << host << ", port=" << port
                                   << ", file_path=" << file_path;
-        return Status::InternalError("host or port is empty");
+        return Status::InternalError<false>("host or port is empty");
     }
     SCOPED_RAW_TIMER(&stats.peer_read_timer);
     peer_read_counter << 1;

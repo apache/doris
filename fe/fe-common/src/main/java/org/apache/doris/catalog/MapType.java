@@ -155,23 +155,6 @@ public class MapType extends Type {
         return String.format("%sMAP<%s,%s>", leftPadding, keyType.toSql(), structStr);
     }
 
-    public static Type getAssignmentCompatibleType(MapType t1, MapType t2, boolean strict, boolean enableDecimal256) {
-        Type keyCompatibleType = Type.getAssignmentCompatibleType(t1.getKeyType(), t2.getKeyType(), strict,
-                enableDecimal256);
-        if (keyCompatibleType.isInvalid()) {
-            return ScalarType.INVALID;
-        }
-        Type valCompatibleType = Type.getAssignmentCompatibleType(t1.getValueType(), t2.getValueType(), strict,
-                enableDecimal256);
-        if (valCompatibleType.isInvalid()) {
-            return ScalarType.INVALID;
-        }
-
-        return new MapType(keyCompatibleType, valCompatibleType,
-            t1.getIsKeyContainsNull() || t2.getIsKeyContainsNull(),
-            t1.getIsValueContainsNull() || t2.getIsValueContainsNull());
-    }
-
     @Override
     public boolean supportSubType(Type subType) {
         for (Type supportedType : Type.getMapSubTypes()) {
@@ -180,6 +163,11 @@ public class MapType extends Type {
             }
         }
         return false;
+    }
+
+    @Override
+    public int getSlotSize() {
+        return PrimitiveType.MAP.getSlotSize();
     }
 
     @Override

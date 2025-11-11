@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TAssertNumRowsNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -41,18 +40,12 @@ public class AssertNumRowsNode extends PlanNode {
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement,
                              boolean convertToNullable, TupleDescriptor tupleDescriptor) {
-        super(id, "ASSERT NUMBER OF ROWS", StatisticalType.ASSERT_NUM_ROWS_NODE);
+        super(id, "ASSERT NUMBER OF ROWS");
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
-        if (tupleDescriptor != null) {
-            this.tupleIds.add(tupleDescriptor.getId());
-        } else {
-            this.tupleIds.addAll(input.getOutputTupleIds());
-        }
-
-        this.tblRefIds.addAll(input.getTblRefIds());
+        this.tupleIds.add(tupleDescriptor.getId());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.shouldConvertOutputToNullable = convertToNullable;
     }

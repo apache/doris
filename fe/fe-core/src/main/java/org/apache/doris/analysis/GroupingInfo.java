@@ -21,20 +21,14 @@ import java.util.List;
 import java.util.Objects;
 
 public class GroupingInfo {
-    public static final String GROUPING_PREFIX = "GROUPING_PREFIX_";
-    private TupleDescriptor virtualTuple;
     private TupleDescriptor outputTupleDesc;
-    private GroupByClause.GroupingType groupingType;
 
     private List<Expr> preRepeatExprs;
 
     /**
      * Used by new optimizer.
      */
-    public GroupingInfo(GroupByClause.GroupingType groupingType, TupleDescriptor virtualTuple,
-            TupleDescriptor outputTupleDesc, List<Expr> preRepeatExprs) {
-        this.groupingType = groupingType;
-        this.virtualTuple = Objects.requireNonNull(virtualTuple, "virtualTuple can not be null");
+    public GroupingInfo(TupleDescriptor outputTupleDesc, List<Expr> preRepeatExprs) {
         this.outputTupleDesc = Objects.requireNonNull(outputTupleDesc, "outputTupleDesc can not be null");
         this.preRepeatExprs = Objects.requireNonNull(preRepeatExprs, "preRepeatExprs can not be null");
     }

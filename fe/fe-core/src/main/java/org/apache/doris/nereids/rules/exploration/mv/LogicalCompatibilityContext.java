@@ -56,8 +56,12 @@ public class LogicalCompatibilityContext {
             queryToViewJoinEdgeExpressionMappingSupplier;
     private final Supplier<Map<Expression, Expression>> queryToQueryShuttledJoinExpressionMappingSupplier;
     private final Supplier<Multimap<Expression, Pair<Expression, HyperElement>>>
-            queryToViewNodeExpressionMappingSupplier;
-    private final Supplier<Map<Expression, Expression>> queryToQueryShuttledNodeExpressionMappingSupplier;
+            queryToViewNodeCouldMoveExpressionMappingSupplier;
+    private final Supplier<Map<Expression, Expression>> queryToQueryShuttledNodeCouldMoveExpressionMappingSupplier;
+
+    private final Supplier<Multimap<Expression, Pair<Expression, HyperElement>>>
+            queryToViewNodeCouldNotMoveExpressionMappingSupplier;
+    private final Supplier<Map<Expression, Expression>> queryToQueryShuttledNodeCouldNotMoveExpressionMappingSupplier;
     private final Supplier<Multimap<Expression, Pair<Expression, HyperElement>>>
             queryToViewFilterEdgeExpressionMappingSupplier;
     private final Supplier<Map<Expression, Expression>> queryToQueryShuttledFilterExpressionMappingSupplier;
@@ -77,13 +81,26 @@ public class LogicalCompatibilityContext {
         this.queryToQueryShuttledJoinExpressionMappingSupplier = Suppliers.memoize(
                 () -> queryStructInfo.getExpressionToShuttledExpressionToMap().get(ExpressionPosition.JOIN_EDGE));
 
-        this.queryToViewNodeExpressionMappingSupplier =
+        this.queryToViewNodeCouldMoveExpressionMappingSupplier =
                 Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
-                        queryStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.NODE),
-                        viewStructInfo.getShuttledExpressionsToExpressionsMap().get(ExpressionPosition.NODE)));
+                        queryStructInfo.getShuttledExpressionsToExpressionsMap()
+                                .get(ExpressionPosition.NODE_COULD_MOVE),
+                        viewStructInfo.getShuttledExpressionsToExpressionsMap()
+                                .get(ExpressionPosition.NODE_COULD_MOVE)));
 
-        this.queryToQueryShuttledNodeExpressionMappingSupplier = Suppliers.memoize(
-                () -> queryStructInfo.getExpressionToShuttledExpressionToMap().get(ExpressionPosition.NODE));
+        this.queryToQueryShuttledNodeCouldMoveExpressionMappingSupplier = Suppliers.memoize(
+                () -> queryStructInfo.getExpressionToShuttledExpressionToMap().get(ExpressionPosition.NODE_COULD_MOVE));
+
+        this.queryToViewNodeCouldNotMoveExpressionMappingSupplier =
+                Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
+                        queryStructInfo.getShuttledExpressionsToExpressionsMap()
+                                .get(ExpressionPosition.NODE_COULD_NOT_MOVE),
+                        viewStructInfo.getShuttledExpressionsToExpressionsMap()
+                                .get(ExpressionPosition.NODE_COULD_NOT_MOVE)));
+
+        this.queryToQueryShuttledNodeCouldNotMoveExpressionMappingSupplier = Suppliers.memoize(
+                () -> queryStructInfo.getExpressionToShuttledExpressionToMap()
+                        .get(ExpressionPosition.NODE_COULD_NOT_MOVE));
 
         this.queryToViewFilterEdgeExpressionMappingSupplier =
                 Suppliers.memoize(() -> generateExpressionMapping(viewToQuerySlotMapping,
@@ -125,12 +142,20 @@ public class LogicalCompatibilityContext {
         return queryToQueryShuttledFilterExpressionMappingSupplier.get().get(queryFilterExpr);
     }
 
-    public Collection<Pair<Expression, HyperElement>> getViewNodeExprFromQuery(Expression queryJoinExpr) {
-        return queryToViewNodeExpressionMappingSupplier.get().get(queryJoinExpr);
+    public Collection<Pair<Expression, HyperElement>> getViewNodeCouldMoveExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewNodeCouldMoveExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public Expression getQueryNodeShuttledExpr(Expression queryNodeExpr) {
-        return queryToQueryShuttledNodeExpressionMappingSupplier.get().get(queryNodeExpr);
+    public Expression getQueryNodeShuttledCouldMoveExpr(Expression queryNodeExpr) {
+        return queryToQueryShuttledNodeCouldMoveExpressionMappingSupplier.get().get(queryNodeExpr);
+    }
+
+    public Collection<Pair<Expression, HyperElement>> getViewNodeCouldNotMoveExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewNodeCouldNotMoveExpressionMappingSupplier.get().get(queryJoinExpr);
+    }
+
+    public Expression getQueryNodeShuttledCouldNotMoveExpr(Expression queryNodeExpr) {
+        return queryToQueryShuttledNodeCouldNotMoveExpressionMappingSupplier.get().get(queryNodeExpr);
     }
 
     /**
@@ -224,8 +249,8 @@ public class LogicalCompatibilityContext {
                 queryToViewJoinEdgeExpressionMappingSupplier.get() == null
                         ? "" : queryToViewJoinEdgeExpressionMappingSupplier.get().toString(),
                 "queryToViewNodeExpressionMapping",
-                queryToViewNodeExpressionMappingSupplier.get() == null
-                        ? "" : queryToViewNodeExpressionMappingSupplier.get().toString(),
+                queryToViewNodeCouldMoveExpressionMappingSupplier.get() == null
+                        ? "" : queryToViewNodeCouldMoveExpressionMappingSupplier.get().toString(),
                 "queryToViewFilterEdgeExpressionMapping",
                 queryToViewFilterEdgeExpressionMappingSupplier.get() == null
                         ? "" : queryToViewFilterEdgeExpressionMappingSupplier.get().toString());

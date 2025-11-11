@@ -63,6 +63,26 @@ void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
                                     const std::string& instance_id, const TabletIndexPB& idx,
                                     TabletStatsPB& stats, bool snapshot = false);
 
+// Batch version: Get versioned load tablet stats for multiple tablets via `txn`.
+// If an error occurs, `code` will be set to non OK.
+//
+// For tablets whose versioned load stats doesn't exist, fall back to get single version detached tablet stats.
+// tablet_indexes: map of tablet_id -> TabletIndexPB
+// tablet_stats: output map of tablet_id -> TabletStatsPB
+void internal_get_load_tablet_stats_batch(
+        MetaServiceCode& code, std::string& msg, CloneChainReader& meta_reader, Transaction* txn,
+        const std::string& instance_id,
+        const std::unordered_map<int64_t, TabletIndexPB>& tablet_indexes,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats, bool snapshot = false);
+
+// Overload for std::map
+void internal_get_load_tablet_stats_batch(MetaServiceCode& code, std::string& msg,
+                                          CloneChainReader& meta_reader, Transaction* txn,
+                                          const std::string& instance_id,
+                                          const std::map<int64_t, TabletIndexPB>& tablet_indexes,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          bool snapshot = false);
+
 // clang-format off
 /**
  * Get detached tablet stats via with given stats_kvs

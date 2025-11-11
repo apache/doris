@@ -48,6 +48,18 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
                 exception "internal"
             }
 
+            test {
+                    sql """
+                        CREATE MATERIALIZED VIEW ${mvName}
+                        BUILD DEFERRED REFRESH AUTO ON MANUAL
+                        DISTRIBUTED BY RANDOM BUCKETS 2
+                        PROPERTIES ('replication_num' = '1')
+                        AS
+                        SELECT * FROM ${catalog_name}.`default`.test_view1;
+                        """
+                    exception "contain"
+                }
+
             sql """
                 CREATE MATERIALIZED VIEW ${mvName}
                     BUILD DEFERRED REFRESH AUTO ON MANUAL

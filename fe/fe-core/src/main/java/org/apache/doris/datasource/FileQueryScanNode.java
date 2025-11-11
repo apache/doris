@@ -39,7 +39,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -102,9 +101,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 
