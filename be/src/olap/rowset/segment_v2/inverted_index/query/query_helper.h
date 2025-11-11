@@ -37,6 +37,8 @@ public:
                              const DocRange& doc_range);
     static void collect_range(const IndexQueryContextPtr& context, const SimilarityPtr& similarity,
                               const DocRange& doc_range);
+
+    static bool is_simple_phrase(const std::vector<TermInfo>& term_infos);
 };
 
 #include "common/compile_check_end.h"

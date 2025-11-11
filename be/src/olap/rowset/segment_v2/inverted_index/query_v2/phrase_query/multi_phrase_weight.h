@@ -20,25 +20,28 @@
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/nullable_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_scorer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/postings/loaded_postings.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/union/simple_union.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-constexpr uint32_t LOADED_POSTINGS_DOC_FREQ_THRESHOLD = 100;
+constexpr uint32_t SPARSE_TERM_DOC_THRESHOLD = 100;
 
-class PhraseWeight : public Weight {
+class MultiPhraseWeight : public Weight {
 public:
-    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<TermInfo> term_infos,
-                 SimilarityPtr similarity, bool enable_scoring, bool nullable)
+    MultiPhraseWeight(IndexQueryContextPtr context, std::wstring field,
+                      std::vector<TermInfo> term_infos, SimilarityPtr similarity,
+                      bool enable_scoring, bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
               _term_infos(std::move(term_infos)),
               _similarity(std::move(similarity)),
               _enable_scoring(enable_scoring),
               _nullable(nullable) {}
-    ~PhraseWeight() override = default;
+    ~MultiPhraseWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto scorer = phrase_scorer(ctx, binding_key);
@@ -57,19 +60,45 @@ private:
                             StringHelper::to_string(_field));
         }
 
-        std::vector<std::pair<size_t, PositionPostingsPtr>> term_postings_list;
+        std::vector<std::pair<size_t, PostingsPtr>> term_postings_list;
         for (const auto& term_info : _term_infos) {
             size_t offset = term_info.position;
-            auto posting =
-                    create_position_posting(reader.get(), _field, term_info.get_single_term(),
-                                            _enable_scoring, _context->io_ctx);
-            if (posting) {
-                term_postings_list.emplace_back(offset, std::move(posting));
+            if (term_info.is_single_term()) {
+                auto posting =
+                        create_position_posting(reader.get(), _field, term_info.get_single_term(),
+                                                _enable_scoring, _context->io_ctx);
+                if (posting) {
+                    if (posting->size_hint() > SPARSE_TERM_DOC_THRESHOLD) {
+                        auto loaded_posting = LoadedPostings::load(*posting);
+                        term_postings_list.emplace_back(offset, std::move(loaded_posting));
+                    } else {
+                        term_postings_list.emplace_back(offset, std::move(posting));
+                    }
+                } else {
+                    return std::make_shared<EmptyScorer>();
+                }
             } else {
-                return std::make_shared<EmptyScorer>();
+                const auto& terms = term_info.get_multi_terms();
+                std::vector<PostingsPtr> postings;
+                for (const auto& term : terms) {
+                    auto posting = create_position_posting(reader.get(), _field, term,
+                                                           _enable_scoring, _context->io_ctx);
+                    if (posting) {
+                        if (posting->size_hint() <= SPARSE_TERM_DOC_THRESHOLD) {
+                            postings.push_back(LoadedPostings::load(*posting));
+                        } else {
+                            postings.push_back(posting);
+                        }
+                    }
+                }
+                if (postings.empty()) {
+                    return std::make_shared<EmptyScorer>();
+                }
+                auto union_posting = SimpleUnion<PostingsPtr>::create(std::move(postings));
+                term_postings_list.emplace_back(offset, std::move(union_posting));
             }
         }
-        return PhraseScorer<PositionPostingsPtr>::create(term_postings_list, _similarity, 0);
+        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, 0);
     }
 
     IndexQueryContextPtr _context;
