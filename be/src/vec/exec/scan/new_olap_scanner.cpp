@@ -747,6 +747,7 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);
     COUNTER_UPDATE(local_state->_segment_load_index_timer, stats.segment_load_index_timer_ns);
+    COUNTER_UPDATE(local_state->_load_ordinal_index_timer, stats.load_ordinal_index_timer_ns);
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(
