@@ -949,7 +949,7 @@ const signed char* BaseTablet::get_delete_sign_column_data(int32_t delete_sign_i
     const vectorized::ColumnWithTypeAndName& delete_sign_column =
             block.safe_get_by_position(block.columns() - 1);
     if (delete_sign_column.name != DELETE_SIGN) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "The last column is not delete sign column");
+        return nullptr;
     }
     const auto& delete_sign_col =
             assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
