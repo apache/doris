@@ -215,6 +215,8 @@ suite('test_balance_warm_up', 'docker') {
         // test expired be tablet cache info be removed
         // after cache_read_from_peer_expired_seconds = 100s
         assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "balance_tablet_be_mapping_size"))
+        assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
+        assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))
     }
 
     docker(options) {
