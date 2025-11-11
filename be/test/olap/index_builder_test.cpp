@@ -661,7 +661,7 @@ TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
 
     // 3. Update schema in tablet meta
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, false);
 
     TabletSchemaPB ann_schema_pb;
     ann_schema->to_schema_pb(&ann_schema_pb);
