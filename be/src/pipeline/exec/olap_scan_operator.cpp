@@ -457,9 +457,25 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
                 stats->file_cache_stats.bytes_read_from_remote);
 
+        _scanner_profile->add_info_string("UseParallelScannerBuilder", "true");
         return Status::OK();
     }
 
+    // Add reason for not using ParallelScannerBuilder
+    std::string reason = "false (";
+    if (!enable_parallel_scan) {
+        reason += "parallel_scan disabled";
+    } else if (p._should_run_serial) {
+        reason += "should_run_serial=true";
+    } else if (has_cpu_limit) {
+        reason += "has_cpu_limit";
+    } else if (p._push_down_agg_type != TPushAggOp::NONE) {
+        reason += "has_push_down_agg";
+    } else {
+        reason += "not_preaggregation_and_not_no_merge";
+    }
+    reason += ")";
+    _scanner_profile->add_info_string("UseParallelScannerBuilder", reason);
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
         int64_t version = 0;
