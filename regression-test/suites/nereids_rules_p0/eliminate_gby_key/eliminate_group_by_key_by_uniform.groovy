@@ -239,9 +239,6 @@ suite("eliminate_group_by_key_by_uniform") {
     qt_to_limit_multi_group_by_shape "explain shape plan select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
 
     // test when has repeat above agg
-    // disable CONSTANT_PROPAGATION rules to test eliminate aggregate by uniform
-    sql """set disable_nereids_rules = 'CONSTANT_PROPAGATION';"""
-
 
     sql """drop table if exists test_event"""
     sql """
