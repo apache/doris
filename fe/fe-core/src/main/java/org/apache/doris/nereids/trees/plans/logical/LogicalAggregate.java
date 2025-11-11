@@ -313,7 +313,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public LogicalAggregate<Plan> withSourceRepeat(LogicalRepeat<?> sourceRepeat) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved,
-                generated, hasPushed, withInProjection, Optional.ofNullable(sourceRepeat),
+                generated, hasPushed, Optional.ofNullable(sourceRepeat),
                 Optional.empty(), Optional.empty(), child());
     }
 

@@ -109,7 +109,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                     matchesType(SlotReference.class).thenApply(ctx -> {
                         Slot slot = ctx.expr;
                         return slot.accept(SLOT_REPLACER, replaceMap);
-                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE),
+                    }),
                     matchesType(VirtualSlotReference.class).thenApply(ctx -> {
                         VirtualSlotReference virtualSlot = ctx.expr;
                         return virtualSlot.accept(new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
@@ -132,7 +132,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                                 return virtualSlot;
                             }
                         }, replaceMap);
-                    }).toRule(ExpressionRuleType.VIRTUAL_EXPR_ID_REWRITE_REPLACE)
+                    })
             );
         }
     }
