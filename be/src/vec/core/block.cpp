@@ -788,15 +788,6 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     }
 }
 
-void Block::erase_tmp_columns() noexcept {
-    auto all_column_names = get_names();
-    for (auto& name : all_column_names) {
-        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-            erase(name);
-        }
-    }
-}
-
 void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                       bool need_keep_first) {
     if (data.size() >= column_keep_flags.size()) {

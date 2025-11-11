@@ -1193,12 +1193,6 @@ TEST(BlockTest, insert_erase) {
     ASSERT_NE(block.try_get_by_name("column"), nullptr);
     EXPECT_EQ(block.get_position_by_name("column"), 0);
 
-    block.insert({nullptr, nullptr, BeConsts::BLOCK_TEMP_COLUMN_PREFIX});
-    EXPECT_NO_THROW(auto item = block.get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX));
-
-    block.erase_tmp_columns();
-    ASSERT_EQ(block.try_get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX), nullptr);
-
     {
         // test const block
         const auto const_block = block;
