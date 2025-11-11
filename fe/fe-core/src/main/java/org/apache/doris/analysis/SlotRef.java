@@ -504,7 +504,7 @@ public class SlotRef extends Expr {
         if (KeysType.UNIQUE_KEYS.equals(keysType)) {
             Column column = getColumn();
             if (column != null && !column.isKey()) {
-                return false;
+                return true;
             }
         }
         return desc.getColumn().isAggregated();
