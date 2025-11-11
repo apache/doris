@@ -172,6 +172,7 @@ private:
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
+    std::atomic<bool> _shared_terminated = false; // indicate whether build_hash_table-instance terminate has been called
     std::mutex _mutex;
     std::vector<std::shared_ptr<pipeline::Dependency>> _finish_dependencies;
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> _runtime_filters;

@@ -108,6 +108,12 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
+
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (p._use_shared_hash_table && _should_build_hash_table) {
+        p._shared_terminated = true;
+    }
+
     RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
     return JoinBuildSinkLocalState::terminate(state);
 }
@@ -242,8 +248,13 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     try {
         if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
             if (!_should_build_hash_table && p._use_shared_hash_table && !p._signaled) {
-                st = Status::InternalError(
-                        "shared hash table build sink operator wake up before signaled");
+                if (!p._shared_terminated) {
+                    st = Status::InternalError(
+                            "shared hash table build sink operator wake up before signaled");
+                } else {
+                    LOG(WARNING) << "build_hash_table-instance have terminated, but non-build "
+                                    "instance not terminated";
+                }
             } else {
                 st = _runtime_filter_producer_helper->build(state, _shared_state->build_block.get(),
                                                             p._use_shared_hash_table,
@@ -258,10 +269,11 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     }
     if (!st) {
         return Status::InternalError(
-                "rf process meet error: {}, terminated: {}, should_build_hash_table: {}, "
+                "rf process meet error: {}, terminated: {}, shared_terminated: {}, "
+                "should_build_hash_table: {}, "
                 "use_shared_hash_table: {}, signaled: {}, cancelled: {}, finish_dependency: {}",
-                st.to_string(), _terminated, _should_build_hash_table, p._use_shared_hash_table,
-                p._signaled, state->is_cancelled(),
+                st.to_string(), _terminated, p._shared_terminated, _should_build_hash_table,
+                p._use_shared_hash_table, p._signaled, state->is_cancelled(),
                 _finish_dependency ? _finish_dependency->debug_string() : "null");
     }
     if (_runtime_filter_producer_helper) {
@@ -626,13 +638,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         local_state.init_short_circuit_for_probe();
     } else if (!local_state._should_build_hash_table) {
-        if (!_signaled) {
-            return Status::InternalError("hash table build sink operator wake up before signaled");
-        }
         // the instance which is not build hash table, it's should wait the signal of hash table build finished.
         // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
         // return eof will make task marked as wake_up_early
-        if (local_state._terminated) {
+        // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
+        if (!_signaled || local_state._terminated) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 
