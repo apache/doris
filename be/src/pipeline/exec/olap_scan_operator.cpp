@@ -279,6 +279,14 @@ Status OlapScanLocalState::_init_profile() {
     _load_ordinal_index_timer = ADD_TIMER(_scanner_profile, "LoadOrdinalIndexTimer");
     _load_zone_map_index_timer = ADD_TIMER(_scanner_profile, "LoadZoneMapIndexTimer");
 
+    _parse_footer_count_counter = ADD_COUNTER(_scanner_profile, "ParseFooterCount", TUnit::UNIT);
+    _parse_footer_total_bytes_counter =
+            ADD_COUNTER(_scanner_profile, "ParseFooterTotalBytes", TUnit::BYTES);
+    _parse_footer_read_fixed_timer =
+            ADD_TIMER(_scanner_profile, "ParseFooterReadFixedTimer");
+    _parse_footer_read_footer_timer =
+            ADD_TIMER(_scanner_profile, "ParseFooterReadFooterTimer");
+
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
 
