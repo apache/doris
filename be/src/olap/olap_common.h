@@ -419,6 +419,7 @@ struct OlapReaderStatistics {
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
+    int64_t load_ordinal_index_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;

@@ -245,6 +245,7 @@ private:
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
+    RuntimeProfile::Counter* _load_ordinal_index_timer = nullptr;
 
     std::mutex _profile_mtx;
     std::vector<TabletWithVersion> _tablets;
