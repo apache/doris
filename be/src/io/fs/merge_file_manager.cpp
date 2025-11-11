@@ -19,8 +19,8 @@
 
 #include <algorithm>
 #include <chrono>
-#include <ctime>
 #include <cstdint>
+#include <ctime>
 #include <functional>
 #include <optional>
 #include <random>
@@ -61,7 +61,7 @@ Status MergeFileManager::create_new_merge_file_state(
     }
 
     auto uuid = generate_uuid_string();
-    auto hash_val = std::hash<std::string>{}(uuid);
+    auto hash_val = std::hash<std::string> {}(uuid);
     uint16_t path_bucket = hash_val % 4096 + 1;
     std::stringstream path_stream;
     path_stream << "data/merge_file/" << path_bucket << "/" << uuid;
@@ -153,8 +153,7 @@ Status MergeFileManager::append(const std::string& path, const Slice& data,
     }
 
     if (info.txn_id <= 0) {
-        return Status::InvalidArgument(
-                "Missing valid txn id for merge file append: " + path);
+        return Status::InvalidArgument("Missing valid txn id for merge file append: " + path);
     }
 
     std::lock_guard<std::timed_mutex> lock(_current_merge_file_mutex);
@@ -368,8 +367,7 @@ void MergeFileManager::background_manager() {
         {
             std::unique_lock<std::timed_mutex> current_lock(_current_merge_file_mutex,
                                                             std::defer_lock);
-            int64_t lock_wait_ms =
-                    std::max<int64_t>(0, config::merge_file_try_lock_timeout_ms);
+            int64_t lock_wait_ms = std::max<int64_t>(0, config::merge_file_try_lock_timeout_ms);
             if (current_lock.try_lock_for(std::chrono::milliseconds(lock_wait_ms))) {
                 for (auto& [resource_id, state] : _current_merge_files) {
                     if (!state || state->state != MergeFileStateEnum::ACTIVE) {

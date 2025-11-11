@@ -5979,8 +5979,8 @@ TEST(RecyclerTest, recycle_merged_files_respect_recycle_and_tmp_refs) {
     schema.set_schema_version(1);
 
     // Create recycle rowset metadata (no rowset meta) so small file should be preserved.
-    auto recycle_rowset = create_rowset(std::string(kResourceId), 5010, 6010, 1, schema,
-                                        RowsetStatePB::VISIBLE);
+    auto recycle_rowset =
+            create_rowset(std::string(kResourceId), 5010, 6010, 1, schema, RowsetStatePB::VISIBLE);
     ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), recycle_rowset,
                                        RecycleRowsetPB::COMPACT, true));
 
@@ -6002,7 +6002,8 @@ TEST(RecyclerTest, recycle_merged_files_respect_recycle_and_tmp_refs) {
     merged_info.set_resource_id(obj_info->id());
 
     auto* recycle_file = merged_info.add_small_files();
-    recycle_file->set_path(segment_path(recycle_rowset.tablet_id(), recycle_rowset.rowset_id_v2(), 0));
+    recycle_file->set_path(
+            segment_path(recycle_rowset.tablet_id(), recycle_rowset.rowset_id_v2(), 0));
     recycle_file->set_size(10);
     recycle_file->set_deleted(false);
     recycle_file->set_tablet_id(recycle_rowset.tablet_id());

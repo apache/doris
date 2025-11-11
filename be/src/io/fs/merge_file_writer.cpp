@@ -182,8 +182,7 @@ Status MergeFileWriter::_send_to_merge_manager() {
     }
 
     if (_append_info.txn_id <= 0) {
-        return Status::InvalidArgument("Missing valid txn id for merge file append: " +
-                                       _file_path);
+        return Status::InvalidArgument("Missing valid txn id for merge file append: " + _file_path);
     }
 
     Slice data_slice(_buffer.data(), _buffer.size());
