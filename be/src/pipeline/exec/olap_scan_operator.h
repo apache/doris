@@ -188,6 +188,12 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
+    // pages read by type
+    RuntimeProfile::Counter* _data_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _index_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _dict_pages_num_counter = nullptr;
+    RuntimeProfile::Counter* _short_key_pages_num_counter = nullptr;
+
     // row count filtered by bitmap inverted index
     RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
     // time fro bitmap inverted index read and filter

@@ -162,6 +162,15 @@ Status OlapScanLocalState::_init_profile() {
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
+    _data_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _index_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _dict_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _short_key_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPagesNum", TUnit::UNIT, "TotalPagesNum");
+
     _bitmap_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
