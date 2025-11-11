@@ -17,8 +17,10 @@
 
 #include "pipeline/exec/olap_scan_operator.h"
 
+#include <bthread/mutex.h>
 #include <fmt/format.h>
 
+#include <future>
 #include <memory>
 #include <numeric>
 
@@ -30,12 +32,15 @@
 #include "common/config.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -171,21 +176,18 @@ Status OlapScanLocalState::_init_profile() {
     _short_key_pages_num_counter =
             ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPagesNum", TUnit::UNIT, "TotalPagesNum");
 
-    _data_page_compressed_bytes_read_counter =
-            ADD_CHILD_COUNTER(_segment_profile, "DataPageCompressedBytesRead", TUnit::BYTES,
-                              "CompressedBytesRead");
+    _data_page_compressed_bytes_read_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "DataPageCompressedBytesRead", TUnit::BYTES, "CompressedBytesRead");
     _data_page_uncompressed_bytes_read_counter =
             ADD_CHILD_COUNTER(_segment_profile, "DataPageUncompressedBytesRead", TUnit::BYTES,
                               "UncompressedBytesRead");
-    _index_page_compressed_bytes_read_counter =
-            ADD_CHILD_COUNTER(_segment_profile, "IndexPageCompressedBytesRead", TUnit::BYTES,
-                              "CompressedBytesRead");
+    _index_page_compressed_bytes_read_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "IndexPageCompressedBytesRead", TUnit::BYTES, "CompressedBytesRead");
     _index_page_uncompressed_bytes_read_counter =
             ADD_CHILD_COUNTER(_segment_profile, "IndexPageUncompressedBytesRead", TUnit::BYTES,
                               "UncompressedBytesRead");
-    _dict_page_compressed_bytes_read_counter =
-            ADD_CHILD_COUNTER(_segment_profile, "DictPageCompressedBytesRead", TUnit::BYTES,
-                              "CompressedBytesRead");
+    _dict_page_compressed_bytes_read_counter = ADD_CHILD_COUNTER(
+            _segment_profile, "DictPageCompressedBytesRead", TUnit::BYTES, "CompressedBytesRead");
     _dict_page_uncompressed_bytes_read_counter =
             ADD_CHILD_COUNTER(_segment_profile, "DictPageUncompressedBytesRead", TUnit::BYTES,
                               "UncompressedBytesRead");
@@ -282,10 +284,10 @@ Status OlapScanLocalState::_init_profile() {
     _parse_footer_count_counter = ADD_COUNTER(_scanner_profile, "ParseFooterCount", TUnit::UNIT);
     _parse_footer_total_bytes_counter =
             ADD_COUNTER(_scanner_profile, "ParseFooterTotalBytes", TUnit::BYTES);
-    _parse_footer_read_fixed_timer =
-            ADD_TIMER(_scanner_profile, "ParseFooterReadFixedTimer");
-    _parse_footer_read_footer_timer =
-            ADD_TIMER(_scanner_profile, "ParseFooterReadFooterTimer");
+    _parse_footer_read_fixed_timer = ADD_TIMER(_scanner_profile, "ParseFooterReadFixedTimer");
+    _parse_footer_read_footer_timer = ADD_TIMER(_scanner_profile, "ParseFooterReadFooterTimer");
+
+    _prefetch_segment_footer_timer = ADD_TIMER(_scanner_profile, "PrefetchSegmentFooterTimer");
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
@@ -657,7 +659,98 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 cost_secs, print_id(PipelineXLocalState<>::_state->query_id()), _parent->node_id(),
                 _scan_ranges.size());
     }
+
+    // Prefetch segment footers in parallel to warm up file cache
+    if (config::prefetch_segment_footer) {
+        SCOPED_TIMER(_prefetch_segment_footer_timer);
+        RETURN_IF_ERROR(_prefetch_segment_footers());
+    }
+
     _prepared = true;
+    return Status::OK();
+}
+
+Status OlapScanLocalState::_prefetch_segment_footers() {
+    std::vector<std::shared_ptr<std::promise<Status>>> proms;
+    auto* pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
+
+    for (const auto& read_source : _read_sources) {
+        for (const auto& rs_split : read_source.rs_splits) {
+            auto rowset = rs_split.rs_reader->rowset();
+
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            if (!beta_rowset) {
+                continue;
+            }
+
+            int64_t num_segments = rowset->num_segments();
+            for (int64_t seg_id = 0; seg_id < num_segments; seg_id++) {
+                auto prom = std::make_shared<std::promise<Status>>();
+                proms.emplace_back(prom);
+
+                auto st = pool->submit_scan_task(vectorized::SimplifiedScanTask(
+                        [rowset, seg_id, p = std::move(prom)] {
+                            auto task_st = [&]() -> Status {
+                                auto fs = rowset->rowset_meta()->fs();
+                                if (!fs) {
+                                    return Status::InternalError<false>("get fs failed");
+                                }
+
+                                auto seg_path = rowset->segment_path(seg_id);
+                                if (!seg_path.has_value()) {
+                                    return seg_path.error();
+                                }
+
+                                int64_t file_size =
+                                        rowset->rowset_meta()->segment_file_size(seg_id);
+                                if (file_size < 12) {
+                                    return Status::OK(); // Skip invalid segments
+                                }
+
+                                io::FileReaderOptions reader_options {
+                                        .cache_type =
+                                                config::enable_file_cache
+                                                        ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                        : io::FileCachePolicy::NO_CACHE,
+                                        .is_doris_table = true,
+                                        .cache_base_path = "",
+                                        .file_size = file_size,
+                                };
+
+                                io::FileReaderSPtr file_reader;
+                                RETURN_IF_ERROR(fs->open_file(seg_path.value(), &file_reader,
+                                                              &reader_options));
+
+                                // due to file block alignment, this will prefetch segment footer into cache
+                                uint8_t fixed_buf[12];
+                                size_t bytes_read = 0;
+                                io::IOContext io_ctx {.is_index_data = true, .is_dryrun = true};
+                                RETURN_IF_ERROR(file_reader->read_at(file_size - 12,
+                                                                     Slice(fixed_buf, 12),
+                                                                     &bytes_read, &io_ctx));
+
+                                return Status::OK();
+                            }();
+                            Defer defer([p, &task_st] { p->set_value(task_st); });
+                        },
+                        nullptr));
+
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to submit prefetch task, err=" << st;
+                    return st;
+                }
+            }
+        }
+    }
+
+    // Wait for all prefetch tasks to complete
+    for (auto& p : proms) {
+        auto st = p->get_future().get();
+        if (!st.ok()) {
+            LOG(WARNING) << "prefetch segment footer failed: " << st;
+            // Continue even if some prefetch tasks fail
+        }
+    }
     return Status::OK();
 }
 
