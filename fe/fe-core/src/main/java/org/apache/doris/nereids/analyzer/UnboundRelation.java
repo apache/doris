@@ -42,6 +42,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Represent a relation plan node that has not been bound.
@@ -185,6 +186,28 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             args.add(StringUtils.join(hints, ", "));
         }
         return Utils.toSqlString("UnboundRelation", args.toArray());
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (nameParts.size() > 0) {
+            sb.append(nameParts.stream().collect(Collectors.joining(".")));
+            sb.append(" ");
+        }
+        if (indexName.isPresent()) {
+            sb.append("INDEX ").append(indexName.get()).append(" ");
+        }
+        if (tabletIds.size() > 0) {
+            sb.append("TABLET(?)").append(" ");
+        }
+        if (scanParams != null) {
+            sb.append("@").append(scanParams.getParamType()).append(" ");
+        }
+        if (tableSnapshot.isPresent()) {
+            sb.append(tableSnapshot.get().toDigest()).append(" ");
+        }
+        return sb.substring(0, sb.length() - 1);
     }
 
     @Override

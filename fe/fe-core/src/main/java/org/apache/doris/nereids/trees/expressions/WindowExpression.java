@@ -228,6 +228,24 @@ public class WindowExpression extends Expression {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(function.toDigest()).append(" OVER (");
+        if (!partitionKeys.isEmpty()) {
+            sb.append("PARTITION BY ").append(partitionKeys.stream()
+                    .map(Expression::toDigest)
+                    .collect(Collectors.joining(", ", "", " ")));
+        }
+        if (!orderKeys.isEmpty()) {
+            sb.append("ORDER BY ").append(orderKeys.stream()
+                    .map(OrderExpression::toDigest)
+                    .collect(Collectors.joining(", ", "", " ")));
+        }
+        windowFrame.ifPresent(wf -> sb.append(" ").append(wf.toDigest()));
+        return sb.toString().trim() + ")";
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitWindow(this, context);
     }

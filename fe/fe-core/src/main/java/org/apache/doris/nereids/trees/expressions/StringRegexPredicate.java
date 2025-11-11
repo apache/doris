@@ -64,6 +64,17 @@ public abstract class StringRegexPredicate extends ScalarFunction
         return "(" + left() + " " + getName() + " " + right() + ")";
     }
 
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(left().toDigest())
+                .append(' ')
+                .append(getName())
+                .append(' ')
+                .append(right().toDigest());
+        return sb.toString();
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitStringRegexPredicate(this, context);
     }
