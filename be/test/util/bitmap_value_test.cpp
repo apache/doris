@@ -308,6 +308,104 @@ TEST(BitmapValueTest, set) {
     config::enable_set_in_bitmap_value = false;
 }
 
+TEST(BitmapValueTest, set_extra) {
+    const auto old_config = config::enable_set_in_bitmap_value;
+    config::enable_set_in_bitmap_value = true;
+    {   
+        //BitmapValue::empty() and BitmapValue::minimum() special case for SET type with 0 element
+        BitmapValue bitmap_value;
+        bitmap_value.add(1);
+        bitmap_value.remove(1);
+
+        //now will get a SET type with 0 element
+        EXPECT_EQ(bitmap_value.get_type_code(), BitmapTypeCode::SET);
+        EXPECT_EQ(bitmap_value.cardinality(), 0);
+
+        // this check will fail before fix, because empty() always return false for SET type
+        EXPECT_TRUE(bitmap_value.empty());
+        // this line will crash because of ASAN check before fix, because minimum() will calc *std::min_element(_set.begin(), _set.end())  for a empty set ,which is UB
+        EXPECT_EQ(bitmap_value.minimum(), (std::numeric_limits<uint64_t>::max)());
+        //this is similar
+        EXPECT_EQ(bitmap_value.maximum(), (std::numeric_limits<uint64_t>::min)());
+    }
+
+    {
+        //BitmapValue xor make a SET type with more than 32 element
+        BitmapValue bitmap_value;
+        bitmap_value.add(1);
+        for(int i = 0;i <32 ; i++) {
+            BitmapValue tmp;
+            tmp.add(i+2);
+            bitmap_value ^= tmp;
+        }
+        //now will get a SET type with 33 element
+
+        std::vector<char> buf(bitmap_value.getSizeInBytes());
+        bitmap_value.write_to(buf.data());
+        BitmapValue res;
+        //this line will crash before fix, because deserialize CHECK(count <= SET_TYPE_THRESHOLD)
+        EXPECT_TRUE(res.deserialize(buf.data()));
+    }
+    
+    {
+        //BitmapValue xor may not clear set, when covert to bitmap
+        BitmapValue b1;
+        b1.add(2);
+        //b1 is set type {2}
+        EXPECT_EQ(b1.get_type_code(), BitmapTypeCode::SET);
+        EXPECT_EQ(b1.to_string(),"2");
+
+        BitmapValue b2;
+        for (int i = 0; i < 33; i++) {
+            b2.add(2 + i);
+        }
+        for (int i = 2; i < 33; i++) {
+            b2.remove(2 + i);
+        }
+        //b2 is bitmap type {2,3}
+        EXPECT_EQ(b2.get_type_code(), BitmapTypeCode::BITMAP32);
+        EXPECT_EQ(b2.to_string(),"2,3");
+
+        b1 ^= b2;
+
+        //the correct result is 3, but  it is 2,3 before fix
+        EXPECT_EQ(b1.to_string(),"3");
+    }
+
+    {
+        //BitmapValue or may not clear set, when covert to bitmap
+        BitmapValue b1;
+        b1.add(2);
+        //b1 is set type {2}
+        EXPECT_EQ(b1.get_type_code(), BitmapTypeCode::SET);
+        EXPECT_EQ(b1.to_string(),"2");
+
+        BitmapValue b2;
+        for (int i = 0; i < 33; i++) {
+            b2.add(2 + i);
+        }
+        for (int i = 2; i < 33; i++) {
+            b2.remove(2 + i);
+        }
+        //b2 is bitmap type {2,3}
+        EXPECT_EQ(b2.get_type_code(), BitmapTypeCode::BITMAP32);
+        EXPECT_EQ(b2.to_string(),"2,3");
+    
+        b1 |= b2;
+        //b1 is bitmap type {2,3}, but the set is not clear with {2}
+
+        BitmapValue b3;
+        b3.add(3);
+        b3.add(4);
+
+        b1 &= b3;
+
+        //the correct result is 3, but it is 2,3 before fix
+        EXPECT_EQ(b1.to_string(),"3");
+    }
+    config::enable_set_in_bitmap_value = old_config;
+}
+
 TEST(BitmapValueTest, add) {
     config::enable_set_in_bitmap_value = true;
 
