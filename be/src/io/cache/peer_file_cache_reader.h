@@ -61,7 +61,7 @@ public:
      * - blocks: List of file blocks to fetch (global file offsets, inclusive ranges).
      * - off: Base file offset corresponding to the start of Slice s.
      * - s: Destination buffer; must be large enough to hold all requested block bytes.
-     * - n: Output number of bytes successfully written.
+     * - bytes_read: Output number of bytes read.
      * - file_size: Size of the file to be read.
      * - ctx: IO context (kept for interface symmetry).
      *
