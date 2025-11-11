@@ -69,5 +69,10 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
     }
 }
 
+bool QueryHelper::is_simple_phrase(const std::vector<TermInfo>& term_infos) {
+    return std::ranges::all_of(term_infos,
+                               [](const auto& term_info) { return term_info.is_single_term(); });
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2
