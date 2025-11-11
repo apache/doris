@@ -144,7 +144,7 @@ TEST_F(IntersectionScorerTest, AllTermsMatchWithScoring) {
 
     std::vector<ScorerPtr> children {scorer1, scorer2, scorer3};
     auto and_scorer = segment_v2::inverted_index::query_v2::intersection_scorer_build(
-            std::move(children), true, nullptr);
+            std::move(children), nullptr);
     ASSERT_NE(nullptr, and_scorer);
 
     EXPECT_EQ(2u, and_scorer->size_hint());
@@ -175,7 +175,7 @@ TEST_F(IntersectionScorerTest, SeekAndNoScoring) {
 
     std::vector<ScorerPtr> children {scorer1, scorer2};
     auto and_scorer = segment_v2::inverted_index::query_v2::intersection_scorer_build(
-            std::move(children), false, nullptr);
+            std::move(children), nullptr);
     ASSERT_NE(nullptr, and_scorer);
 
     EXPECT_EQ(6u, and_scorer->doc());
@@ -200,7 +200,7 @@ TEST_F(IntersectionScorerTest, NullBitmapPropagation) {
 
     std::vector<ScorerPtr> children {scorer1, scorer2, scorer3};
     auto and_scorer = segment_v2::inverted_index::query_v2::intersection_scorer_build(
-            std::move(children), false, &resolver);
+            std::move(children), &resolver);
     ASSERT_NE(nullptr, and_scorer);
 
     EXPECT_EQ(6u, and_scorer->doc());

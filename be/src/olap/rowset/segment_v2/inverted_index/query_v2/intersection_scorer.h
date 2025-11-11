@@ -24,13 +24,12 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers, bool enable_scoring,
+ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers,
                                     const NullBitmapResolver* resolver);
 
 class AndScorer final : public Scorer {
 public:
-    AndScorer(std::vector<ScorerPtr> scorers, bool enable_scoring,
-              const NullBitmapResolver* resolver);
+    AndScorer(std::vector<ScorerPtr> scorers, const NullBitmapResolver* resolver);
     ~AndScorer() override = default;
 
     uint32_t advance() override;
@@ -47,7 +46,6 @@ private:
     void _ensure_null_bitmap(const NullBitmapResolver* resolver);
 
     std::vector<ScorerPtr> _scorers;
-    bool _enable_scoring = false;
     const NullBitmapResolver* _resolver = nullptr;
 
     uint32_t _doc = TERMINATED;

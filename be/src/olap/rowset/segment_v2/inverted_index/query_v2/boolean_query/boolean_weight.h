@@ -61,7 +61,6 @@ public:
                 base_scorer = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
             } else {
                 base_scorer = intersection_scorer_build(std::move(include_scorers),
-                                                        !_is_do_nothing_combiner(),
                                                         context.null_resolver);
             }
 

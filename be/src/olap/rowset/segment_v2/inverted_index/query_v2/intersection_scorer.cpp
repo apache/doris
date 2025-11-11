@@ -22,14 +22,13 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers, bool enable_scoring,
+ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers,
                                     const NullBitmapResolver* resolver) {
-    return std::make_shared<AndScorer>(std::move(scorers), enable_scoring, resolver);
+    return std::make_shared<AndScorer>(std::move(scorers), resolver);
 }
 
-AndScorer::AndScorer(std::vector<ScorerPtr> scorers, bool enable_scoring,
-                     const NullBitmapResolver* resolver)
-        : _scorers(std::move(scorers)), _enable_scoring(enable_scoring), _resolver(resolver) {
+AndScorer::AndScorer(std::vector<ScorerPtr> scorers, const NullBitmapResolver* resolver)
+        : _scorers(std::move(scorers)), _resolver(resolver) {
     if (_scorers.empty()) {
         _doc = TERMINATED;
         return;
@@ -154,11 +153,6 @@ bool AndScorer::_advance_to(uint32_t target) {
         if (all_match) {
             _doc = candidate;
             _current_score = 0.0F;
-            if (_enable_scoring) {
-                for (const auto& scorer : _scorers) {
-                    _current_score += scorer->score();
-                }
-            }
             _true_bitmap.add(_doc);
             if (_possible_null.contains(_doc)) {
                 _possible_null.remove(_doc);

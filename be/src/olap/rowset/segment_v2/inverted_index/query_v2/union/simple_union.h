@@ -17,34 +17,44 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
+#include <memory>
+#include <vector>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-template <typename TPostings>
-class PostingsWithOffset : public DocSet {
+template <typename TDocSet>
+class SimpleUnion;
+
+template <typename TDocSet>
+using SimpleUnionPtr = std::shared_ptr<SimpleUnion<TDocSet>>;
+
+template <typename TDocSet>
+class SimpleUnion final : public Postings {
 public:
-    PostingsWithOffset(TPostings postings, uint32_t offset)
-            : _postings(std::move(postings)), _offset(offset) {}
+    explicit SimpleUnion(std::vector<TDocSet> docsets);
+    ~SimpleUnion() override = default;
 
-    void postings(std::vector<uint32_t>& output) {
-        _postings->positions_with_offset(_offset, output);
-    }
+    static SimpleUnionPtr<TDocSet> create(std::vector<TDocSet> docsets);
 
-    uint32_t advance() override { return _postings->advance(); }
-    uint32_t seek(uint32_t target) override { return _postings->seek(target); }
-    uint32_t doc() const override { return _postings->doc(); }
-    uint32_t size_hint() const override { return _postings->size_hint(); }
-    uint32_t freq() const override { return _postings->freq(); }
-    uint32_t norm() const override { return _postings->norm(); }
+    uint32_t advance() override;
+    uint32_t seek(uint32_t target) override;
+    uint32_t doc() const override;
+    uint32_t size_hint() const override;
+    uint32_t freq() const override;
+    uint32_t norm() const override;
+
+    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override;
+
+    size_t num_docsets() const { return _docsets.size(); }
 
 private:
-    TPostings _postings;
-    uint32_t _offset = 0;
-};
+    void initialize_first_doc_id();
+    uint32_t advance_to_next();
 
-template <typename TPostings>
-using PostingsWithOffsetPtr = std::shared_ptr<PostingsWithOffset<TPostings>>;
+    std::vector<TDocSet> _docsets;
+    uint32_t _doc;
+};
 
 } // namespace doris::segment_v2::inverted_index::query_v2

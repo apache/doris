@@ -17,149 +17,318 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 
+#include <CLucene.h>
 #include <gtest/gtest.h>
 
-#include <cstdint>
+#include <climits>
 #include <memory>
 #include <vector>
 
-namespace doris {
+#include "CLucene/index/DocRange.h"
 
-using namespace segment_v2::inverted_index::query_v2;
+namespace doris::segment_v2::inverted_index::query_v2 {
 
-class SegmentPostingsTest : public ::testing::Test {
+class MockTermDocs : public lucene::index::TermDocs {
 public:
-    void SetUp() override {}
-    void TearDown() override {}
-};
+    MockTermDocs(std::vector<int32_t> docs, std::vector<int32_t> freqs, std::vector<int32_t> norms,
+                 int32_t doc_freq)
+            : _docs(std::move(docs)),
+              _freqs(std::move(freqs)),
+              _norms(std::move(norms)),
+              _doc_freq(doc_freq) {}
 
-class FakeIter {
-public:
-    struct Entry {
-        int32_t d;
-        int32_t f;
-        int32_t n;
-    };
+    void seek(lucene::index::Term* term) override {}
+    void seek(lucene::index::TermEnum* termEnum) override {}
 
-    explicit FakeIter(std::vector<Entry> postings) : _postings(std::move(postings)) {}
+    int32_t doc() const override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_docs.size())) {
+            return _docs[_index];
+        }
+        return INT_MAX;
+    }
 
-    bool next() {
-        if (_idx + 1 < static_cast<int32_t>(_postings.size())) {
-            ++_idx;
+    int32_t freq() const override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_freqs.size())) {
+            return _freqs[_index];
+        }
+        return 0;
+    }
+
+    int32_t norm() const override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_norms.size())) {
+            return _norms[_index];
+        }
+        return 1;
+    }
+
+    bool next() override {
+        if (_index + 1 < static_cast<int32_t>(_docs.size())) {
+            ++_index;
             return true;
         }
         return false;
     }
 
-    bool skipTo(uint32_t target) {
-        int32_t start = std::max(_idx, 0);
-        for (int32_t j = start; j < static_cast<int32_t>(_postings.size()); ++j) {
-            if (static_cast<uint32_t>(_postings[j].d) >= target) {
-                _idx = j;
-                return true;
-            }
+    int32_t read(int32_t*, int32_t*, int32_t) override { return 0; }
+    int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
+    bool readRange(DocRange*) override { return false; }
+
+    bool skipTo(const int32_t target) override {
+        auto size = static_cast<int32_t>(_docs.size());
+        while (_index + 1 < size && _docs[_index + 1] < target) {
+            ++_index;
+        }
+        if (_index + 1 < size) {
+            ++_index;
+            return true;
         }
         return false;
     }
 
-    int32_t doc() const { return _postings[_idx].d; }
-    int32_t freq() const { return _postings[_idx].f; }
-    int32_t norm() const { return _postings[_idx].n; }
-    uint32_t docFreq() const { return static_cast<uint32_t>(_postings.size()); }
+    void close() override {}
+    lucene::index::TermPositions* __asTermPositions() override { return nullptr; }
+    int32_t docFreq() override { return _doc_freq; }
 
 private:
-    std::vector<Entry> _postings;
-    int32_t _idx = -1;
+    std::vector<int32_t> _docs;
+    std::vector<int32_t> _freqs;
+    std::vector<int32_t> _norms;
+    int32_t _doc_freq;
+    int32_t _index = -1;
 };
 
-TEST_F(SegmentPostingsTest, BasicIterationAndScore) {
-    using IterPtr = std::shared_ptr<FakeIter>;
-    std::vector<FakeIter::Entry> data = {{1, 2, 10}, {3, 1, 7}, {5, 4, 5}};
-    auto iter = std::make_shared<FakeIter>(data);
+class MockTermPositions : public lucene::index::TermPositions {
+public:
+    MockTermPositions(std::vector<int32_t> docs, std::vector<int32_t> freqs,
+                      std::vector<int32_t> norms, std::vector<std::vector<int32_t>> positions,
+                      int32_t doc_freq)
+            : _docs(std::move(docs)),
+              _freqs(std::move(freqs)),
+              _norms(std::move(norms)),
+              _positions(std::move(positions)),
+              _doc_freq(doc_freq) {}
 
-    SegmentPostings<IterPtr> sp(iter);
+    void seek(lucene::index::Term* term) override {}
+    void seek(lucene::index::TermEnum* termEnum) override {}
 
-    EXPECT_EQ(sp.size_hint(), 3u);
-    EXPECT_EQ(sp.doc(), 1u);
-    EXPECT_EQ(sp.freq(), 2);
-    EXPECT_EQ(sp.norm(), 10);
+    int32_t doc() const override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_docs.size())) {
+            return _docs[_index];
+        }
+        return INT_MAX;
+    }
 
-    EXPECT_EQ(sp.advance(), 3u);
-    EXPECT_EQ(sp.doc(), 3u);
-    EXPECT_EQ(sp.freq(), 1);
-    EXPECT_EQ(sp.norm(), 7);
+    int32_t freq() const override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_freqs.size())) {
+            return _freqs[_index];
+        }
+        return 0;
+    }
 
-    EXPECT_EQ(sp.advance(), 5u);
-    EXPECT_EQ(sp.doc(), 5u);
-    EXPECT_EQ(sp.freq(), 4);
-    EXPECT_EQ(sp.norm(), 5);
+    int32_t norm() const override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_norms.size())) {
+            return _norms[_index];
+        }
+        return 1;
+    }
 
-    EXPECT_EQ(sp.advance(), TERMINATED);
-    EXPECT_EQ(sp.doc(), TERMINATED);
+    bool next() override {
+        if (_index + 1 < static_cast<int32_t>(_docs.size())) {
+            ++_index;
+            _pos_index = 0;
+            return true;
+        }
+        return false;
+    }
+
+    int32_t read(int32_t*, int32_t*, int32_t) override { return 0; }
+    int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
+    bool readRange(DocRange*) override { return false; }
+
+    bool skipTo(const int32_t target) override {
+        auto size = static_cast<int32_t>(_docs.size());
+        while (_index + 1 < size && _docs[_index + 1] < target) {
+            ++_index;
+        }
+        _pos_index = 0;
+        if (_index + 1 < size) {
+            ++_index;
+            return true;
+        }
+        return false;
+    }
+
+    void close() override {}
+    lucene::index::TermPositions* __asTermPositions() override { return this; }
+    lucene::index::TermDocs* __asTermDocs() override { return this; }
+
+    int32_t nextPosition() override {
+        if (_index >= 0 && _index < static_cast<int32_t>(_positions.size()) &&
+            _pos_index < _positions[_index].size()) {
+            return _positions[_index][_pos_index++];
+        }
+        return 0;
+    }
+
+    int32_t getPayloadLength() const override { return 0; }
+    uint8_t* getPayload(uint8_t*) override { return nullptr; }
+    bool isPayloadAvailable() const override { return false; }
+    int32_t docFreq() override { return _doc_freq; }
+
+private:
+    std::vector<int32_t> _docs;
+    std::vector<int32_t> _freqs;
+    std::vector<int32_t> _norms;
+    std::vector<std::vector<int32_t>> _positions;
+    int32_t _doc_freq;
+    int32_t _index = -1;
+    size_t _pos_index = 0;
+};
+
+class SegmentPostingsTest : public testing::Test {};
+
+TEST_F(SegmentPostingsTest, test_postings_positions_with_offset) {
+    class TestPostings : public Postings {
+    public:
+        void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
+            output.push_back(offset + 10);
+            output.push_back(offset + 20);
+        }
+    };
+
+    TestPostings postings;
+    std::vector<uint32_t> output = {999};
+    postings.positions_with_offset(100, output);
+
+    EXPECT_EQ(output.size(), 2);
+    EXPECT_EQ(output[0], 110);
+    EXPECT_EQ(output[1], 120);
 }
 
-TEST_F(SegmentPostingsTest, SeekBehavior) {
-    using IterPtr = std::shared_ptr<FakeIter>;
-    std::vector<FakeIter::Entry> data = {{2, 1, 1}, {10, 2, 3}, {15, 3, 9}};
-    auto iter = std::make_shared<FakeIter>(data);
-
-    SegmentPostings<IterPtr> sp(iter);
-
-    EXPECT_EQ(sp.doc(), 2u);
-    EXPECT_EQ(sp.seek(0), 2u);
-    EXPECT_EQ(sp.seek(2), 2u);
-    EXPECT_EQ(sp.seek(3), 10u);
-    EXPECT_EQ(sp.seek(10), 10u);
-    EXPECT_EQ(sp.seek(11), 15u);
-    EXPECT_EQ(sp.seek(100), TERMINATED);
-    EXPECT_EQ(sp.doc(), TERMINATED);
+TEST_F(SegmentPostingsTest, test_segment_postings_base_default_constructor) {
+    SegmentPostingsBase<TermDocsPtr> base;
+    EXPECT_EQ(base.doc(), TERMINATED);
 }
 
-TEST_F(SegmentPostingsTest, NoScoreSegmentPostingAlwaysOne) {
-    using IterPtr = std::shared_ptr<FakeIter>;
-    std::vector<FakeIter::Entry> data = {{1, 100, 200}, {2, 300, 400}};
-    auto iter = std::make_shared<FakeIter>(data);
+TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
 
-    NoScoreSegmentPosting<IterPtr> sp(iter);
-    EXPECT_EQ(sp.doc(), 1u);
-    EXPECT_EQ(sp.freq(), 1);
-    EXPECT_EQ(sp.norm(), 1);
-
-    EXPECT_EQ(sp.advance(), 2u);
-    EXPECT_EQ(sp.freq(), 1);
-    EXPECT_EQ(sp.norm(), 1);
-
-    EXPECT_EQ(sp.advance(), TERMINATED);
-    EXPECT_EQ(sp.doc(), TERMINATED);
+    EXPECT_EQ(base.doc(), 1);
+    EXPECT_EQ(base.size_hint(), 3);
+    EXPECT_EQ(base.freq(), 2);
+    EXPECT_EQ(base.norm(), 1);
 }
 
-TEST_F(SegmentPostingsTest, EmptySegmentPostingAlwaysTerminated) {
-    EmptySegmentPosting<std::shared_ptr<FakeIter>> sp;
-    EXPECT_EQ(sp.size_hint(), 0u);
-    EXPECT_EQ(sp.doc(), TERMINATED);
-    EXPECT_EQ(sp.advance(), TERMINATED);
-    EXPECT_EQ(sp.seek(123), TERMINATED);
-    EXPECT_EQ(sp.freq(), 1);
-    EXPECT_EQ(sp.norm(), 1);
+TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_false) {
+    TermDocsPtr ptr(new MockTermDocs({}, {}, {}, 0));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+
+    EXPECT_EQ(base.doc(), TERMINATED);
 }
 
-TEST_F(SegmentPostingsTest, ConstructorWithEmptyIterator) {
-    using IterPtr = std::shared_ptr<FakeIter>;
-    std::vector<FakeIter::Entry> data;
-    auto iter = std::make_shared<FakeIter>(data);
+TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_doc_int_max) {
+    TermDocsPtr ptr(new MockTermDocs({INT_MAX}, {1}, {1}, 1));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
 
-    SegmentPostings<IterPtr> sp(iter);
-    EXPECT_EQ(sp.size_hint(), 0u);
-    EXPECT_EQ(sp.doc(), TERMINATED);
+    EXPECT_EQ(base.doc(), TERMINATED);
 }
 
-TEST_F(SegmentPostingsTest, IntMaxDocBecomesTerminatedOnInit) {
-    using IterPtr = std::shared_ptr<FakeIter>;
-    std::vector<FakeIter::Entry> data = {{INT_MAX, 1, 1}};
-    auto iter = std::make_shared<FakeIter>(data);
+TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_success) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
 
-    SegmentPostings<IterPtr> sp(iter);
-    EXPECT_EQ(sp.doc(), TERMINATED);
+    EXPECT_EQ(base.doc(), 1);
+    EXPECT_EQ(base.advance(), 3);
+    EXPECT_EQ(base.advance(), 5);
 }
 
-} // namespace doris
+TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_end) {
+    TermDocsPtr ptr(new MockTermDocs({1}, {2}, {1}, 1));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+
+    EXPECT_EQ(base.advance(), TERMINATED);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_target_le_doc) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+
+    EXPECT_EQ(base.seek(0), 1);
+    EXPECT_EQ(base.seek(1), 1);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_skipTo_success) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3, 5, 7}, {2, 4, 6, 8}, {1, 1, 1, 1}, 4));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+
+    EXPECT_EQ(base.seek(5), 5);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_skipTo_fail) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+
+    EXPECT_EQ(base.seek(10), TERMINATED);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_base_append_positions_exception) {
+    TermDocsPtr ptr(new MockTermDocs({1}, {2}, {1}, 1));
+    SegmentPostingsBase<TermDocsPtr> base(std::move(ptr));
+
+    std::vector<uint32_t> output;
+    EXPECT_THROW(base.append_positions_with_offset(0, output), Exception);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_termdocs) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3}, {2, 4}, {1, 1}, 2));
+    SegmentPostings<TermDocsPtr> postings(std::move(ptr));
+
+    EXPECT_EQ(postings.doc(), 1);
+    EXPECT_EQ(postings.size_hint(), 2);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_termpositions) {
+    TermPositionsPtr ptr(
+            new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
+    SegmentPostings<TermPositionsPtr> postings(std::move(ptr));
+
+    EXPECT_EQ(postings.doc(), 1);
+    EXPECT_EQ(postings.freq(), 2);
+}
+
+TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions) {
+    TermPositionsPtr ptr(
+            new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
+    SegmentPostings<TermPositionsPtr> postings(std::move(ptr));
+
+    std::vector<uint32_t> output = {999};
+    postings.append_positions_with_offset(100, output);
+
+    EXPECT_EQ(output.size(), 3);
+    EXPECT_EQ(output[0], 999);
+    EXPECT_EQ(output[1], 110);
+    EXPECT_EQ(output[2], 120);
+}
+
+TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
+    TermDocsPtr ptr(new MockTermDocs({1, 3}, {5, 7}, {10, 20}, 2));
+    NoScoreSegmentPosting<TermDocsPtr> posting(std::move(ptr));
+
+    EXPECT_EQ(posting.doc(), 1);
+    EXPECT_EQ(posting.freq(), 1);
+    EXPECT_EQ(posting.norm(), 1);
+}
+
+TEST_F(SegmentPostingsTest, test_empty_segment_posting) {
+    EmptySegmentPosting<TermDocsPtr> posting;
+
+    EXPECT_EQ(posting.doc(), TERMINATED);
+    EXPECT_EQ(posting.size_hint(), 0);
+    EXPECT_EQ(posting.freq(), 1);
+    EXPECT_EQ(posting.norm(), 1);
+    EXPECT_EQ(posting.advance(), TERMINATED);
+    EXPECT_EQ(posting.seek(100), TERMINATED);
+}
+
+} // namespace doris::segment_v2::inverted_index::query_v2

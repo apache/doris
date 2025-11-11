@@ -18,29 +18,35 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class RegexpQuery : public Query {
+class MultiPhraseQuery : public Query {
 public:
-    RegexpQuery(IndexQueryContextPtr context, std::wstring field, std::string pattern)
+    MultiPhraseQuery(IndexQueryContextPtr context, std::wstring field,
+                     std::vector<TermInfo> term_infos)
             : _context(std::move(context)),
               _field(std::move(field)),
-              _pattern(std::move(pattern)) {}
-    ~RegexpQuery() override = default;
+              _term_infos(std::move(term_infos)) {}
+    ~MultiPhraseQuery() override = default;
 
     WeightPtr weight() override {
-        return std::make_shared<RegexpWeight>(std::move(_context), std::move(_field),
-                                              std::move(_pattern), _nullable);
+        if (_term_infos.size() < 2) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Multi-phrase query requires at least 2 terms, got {}",
+                            _term_infos.size());
+        }
+
+        return std::make_shared<MultiPhraseWeight>(_context, _field, _term_infos, _nullable);
     }
 
 private:
     IndexQueryContextPtr _context;
 
     std::wstring _field;
-    std::string _pattern;
+    std::vector<TermInfo> _term_infos;
     bool _nullable = true;
 };
 
