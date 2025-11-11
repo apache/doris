@@ -28,6 +28,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+// TODO: use result type got from FE plan
 template <PrimitiveType T>
 struct Avg {
     using Function = AggregateFunctionAvg<
@@ -38,6 +39,7 @@ struct Avg {
 template <PrimitiveType T>
 using AggregateFuncAvg = typename Avg<T>::Function;
 
+// use result type got from FE plan
 template <PrimitiveType InputType, PrimitiveType ResultType>
 struct AvgDecimalV3 {
     using Function =

@@ -374,11 +374,11 @@ struct ArrayAggregateFunctionCreatorWithResultType {
     }
 };
 template <AggregateOperation operation, PrimitiveType ResultType>
-struct ArrayAggregateImpl2;
+struct ArrayAggregateImplDecimalV3;
 template <AggregateOperation operation, PrimitiveType ResultType>
     requires(operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
              operation == AggregateOperation::AVERAGE)
-struct ArrayAggregateImpl2<operation, ResultType> {
+struct ArrayAggregateImplDecimalV3<operation, ResultType> {
     using column_type = ColumnArray;
     using data_type = DataTypeArray;
 
@@ -389,8 +389,9 @@ struct ArrayAggregateImpl2<operation, ResultType> {
     static bool skip_return_type_check() { return true; }
 
     static DataTypePtr get_return_type(const DataTypes& arguments) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_return_type is not implemented for ArrayAggregateImpl2");
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "get_return_type is not implemented for ArrayAggregateImplDecimalV3");
         __builtin_unreachable();
     }
 
@@ -536,8 +537,8 @@ template <PrimitiveType ResultType>
 struct ArrayProductDecimalV3Attributes {
     static_assert(is_decimalv3(ResultType));
     using AggregateDataType = AggregateFunctionProductData<ResultType>;
-    using Function = FunctionArrayAgg<ArrayAggregateImpl2<AggregateOperation::PRODUCT, ResultType>,
-                                      NameArrayProduct>;
+    using Function = FunctionArrayAggDecimalV3<
+            ArrayAggregateImplDecimalV3<AggregateOperation::PRODUCT, ResultType>, NameArrayProduct>;
 };
 template <PrimitiveType ResultType>
 using ArrayProductDecimalV3 = typename ArrayProductDecimalV3Attributes<ResultType>::Function;

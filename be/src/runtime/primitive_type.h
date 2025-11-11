@@ -213,6 +213,10 @@ constexpr bool is_float_or_double(PrimitiveType type) {
     return type == TYPE_FLOAT || type == TYPE_DOUBLE;
 }
 
+constexpr bool is_double(PrimitiveType type) {
+    return type == TYPE_DOUBLE;
+}
+
 constexpr bool is_int(PrimitiveType type) {
     return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT ||
            type == TYPE_BIGINT || type == TYPE_LARGEINT;
