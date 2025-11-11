@@ -264,6 +264,11 @@ private:
     RuntimeProfile::Counter* _load_ordinal_index_timer = nullptr;
     RuntimeProfile::Counter* _load_zone_map_index_timer = nullptr;
 
+    RuntimeProfile::Counter* _parse_footer_count_counter = nullptr;
+    RuntimeProfile::Counter* _parse_footer_total_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _parse_footer_read_fixed_timer = nullptr;
+    RuntimeProfile::Counter* _parse_footer_read_footer_timer = nullptr;
+
     std::mutex _profile_mtx;
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
