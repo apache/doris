@@ -72,6 +72,9 @@ void MemoryProfile::init_memory_overview_counter() {
             tasks_memory_overview_profile->create_child("Details", true, false);
     RuntimeProfile* global_memory_overview_profile =
             tracked_memory_profile->create_child("GlobalMemory", true, false);
+
+    RuntimeProfile* jvm_memory_overview_profile =
+            tracked_memory_profile->create_child("JvmMemory", true, false);
     RuntimeProfile* metadata_memory_overview_profile =
             tracked_memory_profile->create_child("MetadataMemory", true, false);
     RuntimeProfile* cache_memory_overview_profile =
@@ -109,7 +112,7 @@ void MemoryProfile::init_memory_overview_counter() {
     _cache_usage_counter =
             cache_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     _jvm_memory_usage_counter =
-            tracked_memory_profile->AddHighWaterMarkCounter("JvmMemory", TUnit::BYTES);
+            jvm_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
 
     // 5 add tasks memory counter
     _tasks_memory_usage_counter =
