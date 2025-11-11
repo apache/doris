@@ -139,6 +139,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Century;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
@@ -2484,6 +2485,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYear(Year year, C context) {
         return visitScalarFunction(year, context);
+    }
+
+    default R visitCentury(Century century, C context) {
+        return visitScalarFunction(century, context);
     }
 
     default R visitYearOfWeek(YearOfWeek yearOfWeek, C context) {
