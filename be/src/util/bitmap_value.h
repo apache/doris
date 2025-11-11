@@ -990,6 +990,8 @@ public:
             break;
         }
         _is_shared = other._is_shared;
+        other._type = EMPTY;
+        other._is_shared = false;
         return *this;
     }
 
@@ -2371,6 +2373,7 @@ private:
                 }
             }
             _bitmap.reset();
+            _is_shared = false;
         } else if (_type == SET) {
             if (_set.size() == 1 && !config::enable_set_in_bitmap_value) {
                 _type = SINGLE;
