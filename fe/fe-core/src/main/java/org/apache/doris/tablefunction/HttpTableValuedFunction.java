@@ -47,7 +47,7 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
                 throw new AnalysisException("HttpTableValuedFunction only support http storage properties");
             }
 
-            this.httpProperties = (HttpProperties)storageProperties;
+            this.httpProperties = (HttpProperties) storageProperties;
             this.uri = this.httpProperties.validateAndGetUri(props);
 
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
@@ -71,10 +71,10 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public String getFilePath() {
-       if(uri == null) {
-           throw new IllegalArgumentException("HttpTableValuedFunction uri is null");
-       }
-       return uri;
+        if (uri == null) {
+            throw new IllegalArgumentException("HttpTableValuedFunction uri is null");
+        }
+        return uri;
     }
 
     @Override

@@ -141,7 +141,6 @@ public class HttpUtils {
      * Get the file size of the HTTP resource by sending a HEAD request.
      * This method uses HTTP HEAD request to get the Content-Length header
      * without downloading the entire file content.
-     * 
      * @param uri the HTTP URI to get file size for
      * @return the file size in bytes, or -1 if the size cannot be determined
      * @throws IOException if there's an error connecting to the HTTP resource
@@ -156,20 +155,20 @@ public class HttpUtils {
         try {
             URL url = new URL(uri);
             connection = (HttpURLConnection) url.openConnection();
-            
+
             // Use HEAD request to get headers without downloading content
             connection.setRequestMethod("HEAD");
             connection.setConnectTimeout(10000); // 10 seconds connection timeout
             connection.setReadTimeout(30000);    // 30 seconds read timeout
-            
+
             // Set common headers
             connection.setRequestProperty("User-Agent", "Doris-HttpUtils/1.0");
             connection.setRequestProperty("Accept", "*/*");
-            
+
             // Connect and get response
             connection.connect();
             int responseCode = connection.getResponseCode();
-            
+
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 // Try to get Content-Length header
                 String contentLengthStr = connection.getHeaderField("Content-Length");
@@ -184,8 +183,8 @@ public class HttpUtils {
                     return -1;
                 }
             } else {
-                throw new IOException("HTTP request failed with response code: " + responseCode 
-                    + ", message: " + connection.getResponseMessage());
+                throw new IOException("HTTP request failed with response code: " + responseCode
+                        + ", message: " + connection.getResponseMessage());
             }
         } catch (IOException e) {
             throw new IOException("Failed to get file size for URI: " + uri, e);

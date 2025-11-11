@@ -26,8 +26,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class HttpProperties extends StorageProperties {
-    private static final ImmutableSet<String> HTTP_PROPERTIES =
-        new ImmutableSet.Builder<String>()
+    private static final ImmutableSet<String> HTTP_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(StorageProperties.FS_HTTP_SUPPORT)
             .build();
 
@@ -42,7 +41,7 @@ public class HttpProperties extends StorageProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        if(url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+        if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
             throw new UserException("Invalid http url: " + url);
         }
         return url;
@@ -73,9 +72,9 @@ public class HttpProperties extends StorageProperties {
         // not used
         hadoopStorageConfig = null;
     }
-   
-     @Override
-     protected Set<String> schemas() {
+
+    @Override
+    protected Set<String> schemas() {
         return ImmutableSet.of("http");
     }
 }
