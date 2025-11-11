@@ -969,6 +969,8 @@ public class TypeCoercionUtils {
                 return Optional.of(DateTimeV2Type.SYSTEM_DEFAULT);
             } else if (rightType instanceof DateType) {
                 return Optional.of(DateV2Type.INSTANCE);
+            } else if (rightType instanceof TimeStampTzType) {
+                return Optional.of(DateTimeV2Type.of(((TimeStampTzType) rightType).getScale()));
             } else {
                 return Optional.of(rightType);
             }
@@ -1004,6 +1006,9 @@ public class TypeCoercionUtils {
             if (rightType instanceof DateTimeV2Type) {
                 DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) rightType;
                 return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), dateTimeV2Type.getScale())));
+            } else if (rightType instanceof TimeStampTzType) {
+                TimeStampTzType timeStampTzType = (TimeStampTzType) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), timeStampTzType.getScale())));
             } else {
                 return Optional.of(leftType);
             }
@@ -2013,6 +2018,14 @@ public class TypeCoercionUtils {
             if (t2.isDateTimeV2Type()) {
                 return Optional.of(t2);
             }
+            if (t1.isTimeStampTzType()) {
+                TimeStampTzType timeStampTzType = (TimeStampTzType) t1;
+                return Optional.of(DateTimeV2Type.of(timeStampTzType.getScale()));
+            }
+            if (t2.isTimeStampTzType()) {
+                TimeStampTzType timeStampTzType = (TimeStampTzType) t2;
+                return Optional.of(DateTimeV2Type.of(timeStampTzType.getScale()));
+            }
             if (t1.isDateV2Type() || t2.isDateV2Type()) {
                 // datev2 vs datetime
                 if (t1.isDateTimeType() || t2.isDateTimeType()) {
@@ -2036,7 +2049,7 @@ public class TypeCoercionUtils {
                     return Optional.of(otherType);
                 }
             }
-            if (dateType.isDateTimeType() || dateType.isDateTimeV2Type()) {
+            if (dateType.isDateTimeType() || dateType.isDateTimeV2Type() || dateType.isTimeStampTzType()) {
                 if (otherType.isLargeIntType() || otherType.isDoubleType()) {
                     return Optional.of(otherType);
                 }

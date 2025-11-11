@@ -100,9 +100,9 @@ public enum PrimitiveType {
         builder.add(DECIMAL128);
         builder.add(DECIMAL256);
         builder.add(DATETIMEV2);
+        builder.add(TIMESTAMPTZ);
         typeWithPrecision = builder.build();
     }
-
 
     private static final ArrayList<PrimitiveType> integerTypes;
     private static final ArrayList<PrimitiveType> supportedTypes;
@@ -136,6 +136,7 @@ public enum PrimitiveType {
         supportedTypes.add(DATEV2);
         supportedTypes.add(DATETIMEV2);
         supportedTypes.add(TIMEV2);
+        supportedTypes.add(TIMESTAMPTZ);
         supportedTypes.add(IPV4);
         supportedTypes.add(IPV6);
         supportedTypes.add(DECIMALV2);
@@ -326,11 +327,11 @@ public enum PrimitiveType {
         return this == NULL_TYPE;
     }
 
-    public boolean isDateType() {
+    public boolean isDateLikeType() {
         return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
     }
 
-    public boolean isDateV2Type() {
+    public boolean isDateV2LikeType() {
         return (this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
     }
 

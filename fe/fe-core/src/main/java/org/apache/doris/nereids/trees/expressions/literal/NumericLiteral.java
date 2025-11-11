@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -170,6 +171,9 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
         }
         if (targetType instanceof DateTimeV2Type) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, s);
+        }
+        if (targetType instanceof TimeStampTzType) {
+            return new TimestampTzLiteral((TimeStampTzType) targetType, s);
         }
         throw new AnalysisException(String.format("%s is not a DateLikeType.", targetType));
     }

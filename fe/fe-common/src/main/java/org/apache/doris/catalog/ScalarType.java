@@ -864,6 +864,11 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public boolean isWildcardTimeStampTz() {
+        return type == PrimitiveType.TIMESTAMPTZ && scale == -1;
+    }
+
+    @Override
     public boolean isWildcardDecimal() {
         return (type.isDecimalV2Type() || type.isDecimalV3Type())
                 && precision == -1 && scale == -1;
@@ -933,6 +938,10 @@ public class ScalarType extends Type {
         }
         if (isDatetimeV2() && scalarType.isWildcardDatetimeV2()) {
             Preconditions.checkState(!isWildcardDatetimeV2());
+            return true;
+        }
+        if (isTimeStampTz() && scalarType.isWildcardTimeStampTz()) {
+            Preconditions.checkState(!isWildcardTimeStampTz());
             return true;
         }
         if (isTimeV2() && scalarType.isWildcardTimeV2()) {

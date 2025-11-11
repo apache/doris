@@ -509,6 +509,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TIMEV2);
     }
 
+    public boolean isTimeStampTz() {
+        return isScalarType(PrimitiveType.TIMESTAMPTZ);
+    }
+
     public boolean isWildcardTimeV2() {
         return false;
     }
@@ -517,8 +521,8 @@ public abstract class Type {
         return false;
     }
 
-    public boolean isTimeStampTz() {
-        return isScalarType(PrimitiveType.TIMESTAMPTZ);
+    public boolean isWildcardTimeStampTz() {
+        return false;
     }
 
     public boolean isWildcardDecimal() {

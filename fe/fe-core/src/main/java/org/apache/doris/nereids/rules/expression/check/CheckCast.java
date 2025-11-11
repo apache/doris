@@ -149,6 +149,12 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
 
+        // timestamp tz
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampTzType.class);
+        strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
+
         // Time
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(TinyIntType.class);
@@ -164,13 +170,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(TimeV2Type.class, allowedTypes);
-
-        // Timestamp with time zone
-        allowedTypes = Sets.newHashSet();
-        allowedTypes.add(DateTimeV2Type.class);
-        allowedTypes.add(TimeStampTzType.class);
-        allowToStringLikeType(allowedTypes);
-        strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
 
         // Char, Varchar, String
         allowedTypes = Sets.newHashSet();
