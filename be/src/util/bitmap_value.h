@@ -2146,7 +2146,7 @@ public:
         return *std::max_element(_set.begin(), _set.end());
     }
 
-    bool empty() const { 
+    bool empty() const {
         //equal cardinality()==0
         switch (_type) {
         case EMPTY:
