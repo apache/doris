@@ -430,7 +430,7 @@ void SegmentIterator::_initialize_predicate_results() {
     // Initialize from _col_predicates
     for (auto* pred : _col_predicates) {
         int cid = pred->column_id();
-        _column_predicate_inverted_index_status[cid][pred] = false;
+        _column_predicate_index_exec_status[cid][pred] = false;
     }
 
     _calculate_expr_in_remaining_conjunct_root();
@@ -1215,7 +1215,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             return Status::OK();
         }
         if (!pred->is_runtime_filter()) {
-            _column_predicate_inverted_index_status[pred->column_id()][pred] = true;
+            _column_predicate_index_exec_status[pred->column_id()][pred] = true;
         }
     }
     return Status::OK();
@@ -1320,8 +1320,8 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_common_expr_pushdown) {
         return false;
     }
-    auto pred_it = _column_predicate_inverted_index_status.find(cid);
-    if (pred_it != _column_predicate_inverted_index_status.end()) {
+    auto pred_it = _column_predicate_index_exec_status.find(cid);
+    if (pred_it != _column_predicate_index_exec_status.end()) {
         const auto& pred_map = pred_it->second;
         bool pred_passed = std::all_of(pred_map.begin(), pred_map.end(),
                                        [](const auto& pred_entry) { return pred_entry.second; });
@@ -1332,8 +1332,8 @@ bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(Col
         }
     }
 
-    auto expr_it = _common_expr_inverted_index_status.find(cid);
-    if (expr_it != _common_expr_inverted_index_status.end()) {
+    auto expr_it = _common_expr_index_exec_status.find(cid);
+    if (expr_it != _common_expr_index_exec_status.end()) {
         const auto& expr_map = expr_it->second;
         return std::all_of(expr_map.begin(), expr_map.end(),
                            [](const auto& expr_entry) { return expr_entry.second; });
@@ -2893,7 +2893,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_inverted_index_status, _score_runtime);
+            _common_expr_index_exec_status, _score_runtime);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         // _ann_range_search_runtime will do deep copy.
@@ -2940,7 +2940,7 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                                 if (vir_child->is_slot_ref()) {
                                     auto* inner_slot_ref =
                                             assert_cast<vectorized::VSlotRef*>(vir_child.get());
-                                    _common_expr_inverted_index_status[_schema->column_id(
+                                    _common_expr_index_exec_status[_schema->column_id(
                                             inner_slot_ref->column_id())][expr.get()] = false;
                                     _common_expr_to_slotref_map[root_expr_ctx.get()]
                                                                [inner_slot_ref->column_id()] =
@@ -2964,7 +2964,7 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
                 }
                 if (child->is_slot_ref()) {
                     auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
-                    _common_expr_inverted_index_status[_schema->column_id(
+                    _common_expr_index_exec_status[_schema->column_id(
                             column_slot_ref->column_id())][expr.get()] = false;
                     _common_expr_to_slotref_map[root_expr_ctx.get()][column_slot_ref->column_id()] =
                             expr.get();
