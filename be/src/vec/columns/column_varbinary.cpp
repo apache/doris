@@ -211,5 +211,16 @@ void ColumnVarbinary::get_permutation(bool reverse, size_t limit, int /*nan_dire
     }
 }
 
+void ColumnVarbinary::insert_many_strings(const StringRef* strings, size_t num) {
+    for (size_t i = 0; i < num; i++) {
+        insert_data(strings[i].data, strings[i].size);
+    }
+}
+
+void ColumnVarbinary::insert_many_strings_overflow(const StringRef* strings, size_t num,
+                                                   size_t max_length) {
+    insert_many_strings(strings, num);
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -241,7 +241,10 @@ std::pair<DataTypePtr, bool> FieldDescriptor::get_doris_type(
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, nullable);
             break;
         case tparquet::Type::BYTE_ARRAY:
-            [[fallthrough]];
+            // if physical_schema not set logicalType and converted_type,
+            // we treat BYTE_ARRAY as VARBINARY by default, so that we can read all data correctly.
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable);
+            break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
             break;

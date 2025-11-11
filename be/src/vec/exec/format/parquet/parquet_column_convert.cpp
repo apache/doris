@@ -251,6 +251,8 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
             physical_converter =
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
+    } else if (src_logical_primitive == TYPE_VARBINARY) {
+        physical_converter = std::make_unique<ConsistentPhysicalConverter>();
     } else {
         physical_converter =
                 std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);

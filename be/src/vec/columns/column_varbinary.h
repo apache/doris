@@ -180,6 +180,11 @@ public:
         return _data[row].size() + sizeof(uint32_t);
     }
 
+    void insert_many_strings(const StringRef* strings, size_t num) override;
+
+    void insert_many_strings_overflow(const StringRef* strings, size_t num,
+                                      size_t max_length) override;
+
 private:
     Container _data;
     Arena _arena;
