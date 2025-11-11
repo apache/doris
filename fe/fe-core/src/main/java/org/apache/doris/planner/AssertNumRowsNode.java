@@ -60,11 +60,7 @@ public class AssertNumRowsNode extends PlanNode {
         if (tupleDescriptor != null) {
             this.tupleIds.add(tupleDescriptor.getId());
         } else {
-            if (input.getOutputTupleDesc() != null) {
-                this.tupleIds.add(input.getOutputTupleDesc().getId());
-            } else {
-                this.tupleIds.addAll(input.getTupleIds());
-            }
+            this.tupleIds.addAll(input.getOutputTupleIds());
         }
 
         this.tblRefIds.addAll(input.getTblRefIds());

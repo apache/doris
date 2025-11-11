@@ -52,7 +52,7 @@ public class JoinCostEvaluation {
         PlanNode rhsTree = rightChildFragment.getPlanRoot();
         rhsTreeCardinality = rhsTree.getCardinality();
         rhsTreeAvgRowSize = rhsTree.getAvgRowSize();
-        rhsTreeTupleIdNum = rhsTree.getTupleIds().size();
+        rhsTreeTupleIdNum = rhsTree.getOutputTupleIds().size();
         PlanNode lhsTree = leftChildFragment.getPlanRoot();
         lhsTreeCardinality = lhsTree.getCardinality();
         lhsTreeAvgRowSize = lhsTree.getAvgRowSize();

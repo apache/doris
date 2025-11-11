@@ -60,7 +60,7 @@ public class TableFunctionNode extends PlanNode {
             if (childOutputTupleIds != null && !childOutputTupleIds.isEmpty()) {
                 tupleIds.addAll(childOutputTupleIds);
             } else {
-                tupleIds.addAll(inputNode.getTupleIds());
+                tupleIds.addAll(inputNode.getOutputTupleIds());
             }
         }
         tupleIds.add(lateralViewTupleId);

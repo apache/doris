@@ -188,12 +188,12 @@ public class HashJoinNode extends JoinNodeBase {
 
         if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                 || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-            tupleIds.addAll(outer.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         } else {
-            tupleIds.addAll(outer.getTupleIds());
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         }
 
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
@@ -212,12 +212,12 @@ public class HashJoinNode extends JoinNodeBase {
         nullableTupleIds.addAll(inner.getNullableTupleIds());
         nullableTupleIds.addAll(outer.getNullableTupleIds());
         if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getTupleIds());
-            nullableTupleIds.addAll(inner.getTupleIds());
+            nullableTupleIds.addAll(outer.getOutputTupleIds());
+            nullableTupleIds.addAll(inner.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(inner.getTupleIds());
+            nullableTupleIds.addAll(inner.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getTupleIds());
+            nullableTupleIds.addAll(outer.getOutputTupleIds());
         }
         vIntermediateTupleDescList = Lists.newArrayList(intermediateTuple);
         this.outputTupleDesc = outputTuple;
