@@ -114,7 +114,7 @@ suite("test_array_index2") {
         exception "is not supported in"
     }
 
-    // Test creating index on array of float - should fail
+    // Test creating index on array of float - should success
     test {
         sql """ ALTER TABLE ${tableName2} ADD INDEX idx_float_arr (float_arr) USING INVERTED; """
     }
