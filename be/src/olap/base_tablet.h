@@ -210,7 +210,8 @@ public:
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
-    static const signed char* get_delete_sign_column_data(const vectorized::Block& block,
+    static const signed char* get_delete_sign_column_data(int32_t delete_sign_idx,
+                                                          const vectorized::Block& block,
                                                           size_t rows_at_least = 0);
 
     static Status generate_default_value_block(const TabletSchema& schema,

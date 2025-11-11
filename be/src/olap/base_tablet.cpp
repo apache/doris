@@ -939,16 +939,18 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
     return Status::OK();
 }
 
-const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
+const signed char* BaseTablet::get_delete_sign_column_data(int32_t delete_sign_idx,
+                                                           const vectorized::Block& block,
                                                            size_t rows_at_least) {
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
-        const auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        if (delete_sign_col.size() >= rows_at_least) {
-            return delete_sign_col.get_data().data();
-        }
+    if (delete_sign_idx == -1) {
+        return nullptr;
+    }
+    const vectorized::ColumnWithTypeAndName& delete_sign_column =
+            block.safe_get_by_position(delete_sign_idx);
+    const auto& delete_sign_col =
+            reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
+    if (delete_sign_col.size() >= rows_at_least) {
+        return delete_sign_col.get_data().data();
     }
     return nullptr;
 };
@@ -1016,7 +1018,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
     const auto* __restrict new_block_delete_signs =
             rowset_schema->has_sequence_col()
                     ? nullptr
-                    : get_delete_sign_column_data(update_block, update_rows);
+                    : get_delete_sign_column_data(rowset_schema->delete_sign_idx(), update_block,
+                                                  update_rows);
 
     // rowid in the final block(start from 0, increase, may not continuous becasue we skip to read some rows) -> rowid to read in old_block
     std::map<uint32_t, uint32_t> read_index_old;
@@ -1025,7 +1028,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                                                        new_block_delete_signs));
     size_t old_rows = read_index_old.size();
     const auto* __restrict old_block_delete_signs =
-            get_delete_sign_column_data(old_block, old_rows);
+            get_delete_sign_column_data(rowset_schema->delete_sign_idx(), old_block, old_rows);
     DCHECK(old_block_delete_signs != nullptr);
     // build default value block
     auto default_value_block = old_block.clone_empty();
@@ -1134,7 +1137,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     size_t old_rows = read_index_old.size();
     DCHECK(update_rows == old_rows);
     const auto* __restrict old_block_delete_signs =
-            get_delete_sign_column_data(old_block, old_rows);
+            get_delete_sign_column_data(rowset_schema->delete_sign_idx(), old_block, old_rows);
     DCHECK(old_block_delete_signs != nullptr);
 
     // 3. build default value block
