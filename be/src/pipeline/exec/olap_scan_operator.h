@@ -100,6 +100,9 @@ private:
 
     Status _build_key_ranges_and_filters();
 
+    // Prefetch segment footers in parallel to warm up file cache
+    Status _prefetch_segment_footers();
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
@@ -268,6 +271,8 @@ private:
     RuntimeProfile::Counter* _parse_footer_total_bytes_counter = nullptr;
     RuntimeProfile::Counter* _parse_footer_read_fixed_timer = nullptr;
     RuntimeProfile::Counter* _parse_footer_read_footer_timer = nullptr;
+
+    RuntimeProfile::Counter* _prefetch_segment_footer_timer = nullptr;
 
     std::mutex _profile_mtx;
     std::vector<TabletWithVersion> _tablets;
