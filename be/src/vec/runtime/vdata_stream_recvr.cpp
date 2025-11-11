@@ -55,17 +55,10 @@ VDataStreamRecvr::SenderQueue::SenderQueue(
 }
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
-    // Check pending closures, if it is not empty, should clear it here. but it should not happen.
-    // closure will delete itself during run method. If it is not called, brpc will memory leak.
-    DCHECK(_pending_closures.empty());
-    for (auto closure_pair : _pending_closures) {
-        closure_pair.first->Run();
-        int64_t elapse_time = closure_pair.second.elapsed_time();
-        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
-            _recvr->_max_wait_to_process_time->set(elapse_time);
-        }
+    for (auto& block_item : _block_queue) {
+        block_item.call_done(_recvr);
     }
-    _pending_closures.clear();
+    _block_queue.clear();
 }
 
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
@@ -116,18 +109,8 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         }
     }
 
-    if (!_pending_closures.empty()) {
-        auto closure_pair = _pending_closures.front();
-        closure_pair.first->Run();
-        int64_t elapse_time = closure_pair.second.elapsed_time();
-        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
-            _recvr->_max_wait_to_process_time->set(elapse_time);
-        }
-        _pending_closures.pop_front();
+    block_item.call_done(_recvr);
 
-        closure_pair.second.stop();
-        _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
-    }
     DCHECK(block->empty());
     block->swap(*next_block);
     *eos = false;
@@ -211,10 +194,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
 
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
-        MonotonicStopWatch monotonicStopWatch;
-        monotonicStopWatch.start();
-        DCHECK(*done != nullptr);
-        _pending_closures.emplace_back(*done, monotonicStopWatch);
+        _block_queue.back().set_done(*done);
         *done = nullptr;
     }
     _recvr->_memory_used_counter->update(block_byte_size);
@@ -281,10 +261,7 @@ Status VDataStreamRecvr::SenderQueue::add_blocks(const PTransmitDataParams* requ
 
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(total_block_byte_size)) {
-        MonotonicStopWatch monotonicStopWatch;
-        monotonicStopWatch.start();
-        DCHECK(*done != nullptr);
-        _pending_closures.emplace_back(*done, monotonicStopWatch);
+        _block_queue.back().set_done(*done);
         *done = nullptr;
     }
     _recvr->_memory_used_counter->update(total_block_byte_size);
@@ -365,14 +342,10 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
     }
     {
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
-        for (auto closure_pair : _pending_closures) {
-            closure_pair.first->Run();
-            int64_t elapse_time = closure_pair.second.elapsed_time();
-            if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
-                _recvr->_max_wait_to_process_time->set(elapse_time);
-            }
+        for (auto& block_item : _block_queue) {
+            block_item.call_done(_recvr);
         }
-        _pending_closures.clear();
+        _block_queue.clear();
     }
 }
 
@@ -384,14 +357,9 @@ void VDataStreamRecvr::SenderQueue::close() {
     _is_cancelled = true;
     set_source_ready(l);
 
-    for (auto closure_pair : _pending_closures) {
-        closure_pair.first->Run();
-        int64_t elapse_time = closure_pair.second.elapsed_time();
-        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
-            _recvr->_max_wait_to_process_time->set(elapse_time);
-        }
+    for (auto& block_item : _block_queue) {
+        block_item.call_done(_recvr);
     }
-    _pending_closures.clear();
     // Delete any batches queued in _block_queue
     _block_queue.clear();
 }

@@ -253,6 +253,25 @@ protected:
         BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size)
                 : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
 
+        void set_done(google::protobuf::Closure* done) {
+            // The done callback is only set when the queue memory limit is exceeded.
+            _done_cb = done;
+            _wait_timer.start();
+        }
+
+        void call_done(VDataStreamRecvr* recvr) {
+            if (_done_cb != nullptr) {
+                _done_cb->Run();
+                _done_cb = nullptr;
+                _wait_timer.stop();
+                int64_t elapse_time = _wait_timer.elapsed_time();
+                if (recvr->_max_wait_to_process_time->value() < elapse_time) {
+                    recvr->_max_wait_to_process_time->set(elapse_time);
+                }
+                recvr->_buffer_full_total_timer->update(elapse_time);
+            }
+        }
+
     private:
         BlockUPtr _block;
         std::unique_ptr<PBlock> _pblock;
@@ -260,6 +279,9 @@ protected:
         int64_t _deserialize_time = 0;
         int64_t _decompress_time = 0;
         size_t _decompress_bytes = 0;
+
+        google::protobuf::Closure* _done_cb = nullptr;
+        MonotonicStopWatch _wait_timer;
     };
 
     std::list<BlockItem> _block_queue;
@@ -268,7 +290,6 @@ protected:
     std::unordered_set<int> _sender_eos_set;
     // be_number => packet_seq
     std::unordered_map<int, int64_t> _packet_seq_map;
-    std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
 
     std::shared_ptr<pipeline::Dependency> _source_dependency;
     std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
