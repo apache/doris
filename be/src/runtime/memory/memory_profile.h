@@ -91,6 +91,9 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _jemalloc_cache_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _jemalloc_metadata_usage_counter;
 
+    // JVM memory counter
+    RuntimeProfile::HighWaterMarkCounter* _jvm_memory_usage_counter;
+
     // global/metadata/cache memory counter
     RuntimeProfile::HighWaterMarkCounter* _global_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _metadata_usage_counter;
