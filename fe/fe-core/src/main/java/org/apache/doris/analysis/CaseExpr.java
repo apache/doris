@@ -74,12 +74,11 @@ public class CaseExpr extends Expr {
         // use for serde only
     }
 
-    public CaseExpr(Expr caseExpr, List<CaseWhenClause> whenClauses, Expr elseExpr) {
+    /**
+     * use for Nereids ONLY
+     */
+    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr) {
         super();
-        if (caseExpr != null) {
-            children.add(caseExpr);
-            hasCaseExpr = true;
-        }
         for (CaseWhenClause whenClause : whenClauses) {
             Preconditions.checkNotNull(whenClause.getWhenExpr());
             children.add(whenClause.getWhenExpr());
@@ -90,13 +89,6 @@ public class CaseExpr extends Expr {
             children.add(elseExpr);
             hasElseExpr = true;
         }
-    }
-
-    /**
-     * use for Nereids ONLY
-     */
-    public CaseExpr(List<CaseWhenClause> whenClauses, Expr elseExpr) {
-        this(null, whenClauses, elseExpr);
         // nereids do not have CaseExpr, and nereids will unify the types,
         // so just use the first then type
         type = children.get(1).getType();
@@ -166,24 +158,6 @@ public class CaseExpr extends Expr {
         }
         output.append(" END");
         return output.toString();
-    }
-
-    @Override
-    public String toDigestImpl() {
-        StringBuilder sb = new StringBuilder("CASE");
-        int childIdx = 0;
-        if (hasCaseExpr) {
-            sb.append(" ").append(children.get(childIdx++).toDigest());
-        }
-        while (childIdx + 2 <= children.size()) {
-            sb.append(" WHEN ").append(children.get(childIdx++).toDigest());
-            sb.append(" THEN ").append(children.get(childIdx++).toDigest());
-        }
-        if (hasElseExpr) {
-            sb.append(" ELSE ").append(children.get(children.size() - 1).toDigest());
-        }
-        sb.append(" END");
-        return sb.toString();
     }
 
     @Override

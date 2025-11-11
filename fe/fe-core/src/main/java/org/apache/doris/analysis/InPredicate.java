@@ -43,8 +43,6 @@ import java.util.List;
  */
 public class InPredicate extends Predicate {
 
-    private static final String IN_SET_LOOKUP = "in_set_lookup";
-    private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
     private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     @SerializedName("ini")
@@ -102,14 +100,6 @@ public class InPredicate extends Predicate {
         this.isNotIn = isNotIn;
     }
 
-    /**
-     * Negates an InPredicate.
-     */
-    @Override
-    public Expr negate() {
-        return new InPredicate(getChild(0), children.subList(1, children.size()), !isNotIn);
-    }
-
     public List<Expr> getListChildren() {
         return children.subList(1, children.size());
     }
@@ -156,19 +146,6 @@ public class InPredicate extends Predicate {
                 getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "IN (");
         for (int i = 1; i < children.size(); ++i) {
             strBuilder.append(getChild(i).toSql(disableTableName, needExternalSql, tableType, table));
-            strBuilder.append((i + 1 != children.size()) ? ", " : "");
-        }
-        strBuilder.append(")");
-        return strBuilder.toString();
-    }
-
-    @Override
-    public String toDigestImpl() {
-        StringBuilder strBuilder = new StringBuilder();
-        String notStr = (isNotIn) ? "NOT " : "";
-        strBuilder.append(getChild(0).toDigest() + " " + notStr + "IN (");
-        for (int i = 1; i < children.size(); ++i) {
-            strBuilder.append(getChild(i).toDigest());
             strBuilder.append((i + 1 != children.size()) ? ", " : "");
         }
         strBuilder.append(")");

@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner.normalize;
 
-import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.Expr;
@@ -66,10 +65,6 @@ public class PredicateToRange {
                     return false;
             }
             return conjunct.getChild(0) instanceof SlotRef && conjunct.getChild(1) instanceof LiteralExpr;
-        } else if (conjunct instanceof BetweenPredicate) {
-            return conjunct.getChild(0) instanceof SlotRef
-                    && conjunct.getChild(1) instanceof LiteralExpr
-                    && conjunct.getChild(2) instanceof LiteralExpr;
         } else if (conjunct instanceof InPredicate) {
             if (!(conjunct.getChild(0) instanceof SlotRef)) {
                 return false;
@@ -89,8 +84,6 @@ public class PredicateToRange {
     public RangeSet<PartitionKey> exprToRange(Expr predicate) {
         if (predicate instanceof BinaryPredicate) {
             return compareToRangeSet((BinaryPredicate) predicate);
-        } else if (predicate instanceof BetweenPredicate) {
-            return betweenToRange((BetweenPredicate) predicate);
         } else if (predicate instanceof InPredicate) {
             return inToRange((InPredicate) predicate);
         } else {
@@ -125,19 +118,6 @@ public class PredicateToRange {
                 rangeSet.add(Range.closedOpen(rightPartitionKey, maxKey));
                 break;
             default:
-        }
-        return rangeSet;
-    }
-
-    private RangeSet<PartitionKey> betweenToRange(BetweenPredicate predicate) {
-        PartitionKey lowerBound = toPartitionKey(predicate.getChild(0));
-        PartitionKey upperBound = toPartitionKey(predicate.getChild(1));
-        TreeRangeSet<PartitionKey> rangeSet = TreeRangeSet.create();
-        if (predicate.isNotBetween()) {
-            rangeSet.add(Range.open(minKey, lowerBound));
-            rangeSet.add(Range.open(upperBound, maxKey));
-        } else {
-            rangeSet.add(Range.closed(lowerBound, upperBound));
         }
         return rangeSet;
     }

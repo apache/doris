@@ -24,7 +24,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -98,19 +97,6 @@ public class CastExpr extends Expr {
         }
         return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
                 + type.toSql() + ")";
-    }
-
-    @Override
-    public String toDigestImpl() {
-        boolean isVerbose = ConnectContext.get() != null
-                && ConnectContext.get().getExecutor() != null
-                && ConnectContext.get().getExecutor().getParsedStmt() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
-        if (isImplicit && !isVerbose) {
-            return getChild(0).toDigest();
-        }
-        return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
     }
 
     @Override
