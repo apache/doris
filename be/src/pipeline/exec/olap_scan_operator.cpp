@@ -431,6 +431,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                                                p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
+        int original_max_scanners_count = max_scanners_count;
 
         // If the `max_scanners_count` was not set,
         // use `config::doris_scanner_thread_pool_thread_num` as the default value.
@@ -439,8 +440,27 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.
+        auto original_min_rows_per_scanner = state()->parallel_scan_min_rows_per_scanner();
         auto min_rows_per_scanner =
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
+
+        // Log parameters for max_scanners_count initialization
+        LOG(INFO) << "[verbose] OlapScanLocalState::_init_scanners max_scanners_count parameters: "
+                  << "original_max_scanners_count=" << original_max_scanners_count
+                  << ", final_max_scanners_count=" << max_scanners_count
+                  << ", doris_scanner_thread_pool_thread_num="
+                  << config::doris_scanner_thread_pool_thread_num
+                  << ", original_min_rows_per_scanner=" << original_min_rows_per_scanner
+                  << ", final_min_rows_per_scanner=" << min_rows_per_scanner
+                  << ", enable_parallel_scan=" << enable_parallel_scan
+                  << ", should_run_serial=" << p._should_run_serial
+                  << ", has_cpu_limit=" << has_cpu_limit
+                  << ", push_down_agg_type=" << p._push_down_agg_type
+                  << ", is_preaggregation=" << p._olap_scan_node.is_preaggregation
+                  << ", storage_no_merge=" << _storage_no_merge()
+                  << ", tablets_count=" << _tablets.size()
+                  << ", key_ranges_count=" << key_ranges.size() << ", limit=" << p._limit;
+
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
 
