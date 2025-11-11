@@ -494,7 +494,7 @@ emailAddress            = optional
 
 
         // Step 3: Connect cluster and do some operator
-        logger.info("=== Restarting all nodes with TLS enabled ===")
+        logger.info("=== Connecting to cluster with TLS enabled ===")
         def firstFe = frontends[0]
         logger.info("Using FE[${firstFe.index}] at ${firstFe.host}:${firstFe.queryPort} for mTLS connection")
 
@@ -564,6 +564,8 @@ emailAddress            = optional
                 // stream load
                 // approximately 24s
                 streamLoad {
+                    feHttpAddress firstFe.host, firstFe.httpPort
+
                     table "${tableName}"
 
                     // Set TLS configuration dynamically

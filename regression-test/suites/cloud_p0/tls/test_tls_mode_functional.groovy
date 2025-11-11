@@ -350,10 +350,8 @@ ${sanEntries}
 
             def protocol = useTls ? "https" : "http"
 
-            def sslErrors = ["ssl certificate problem", "bad certificate", "alert bad certificate", "tlsv13 alert",
-                             "ssl connect error", "unable to get local issuer certificate", "self signed certificate",
-                             "certificate has expired", "ssl: certificate subject name", "tlsv1 alert", "sslv3 alert",
-                             "failed", "wrong version number", "failure", "ssl_error", "unable to set"]
+            def sslErrors = ["ssl certificate problem", "bad certificate", "alert", "unable", "self signed certificate",
+                             "err", "certificate has expired", "ssl: certificate subject name", "failed", "wrong version number", "failure"]
 
             def checkSuccess = { String output, String host, int port ->
                 // If checkProtocolMismatch is enabled, compare responses from both protocols

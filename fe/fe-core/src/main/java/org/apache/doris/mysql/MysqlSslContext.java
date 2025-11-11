@@ -115,7 +115,8 @@ public class MysqlSslContext {
                             new TrustManager[]{ trustManager },
                             null);
         } catch (IOException | GeneralSecurityException e) {
-            LOG.fatal("Failed to initialize SSL because", e);
+            LOG.error("Failed to initialize MySQL SSL context", e);
+            throw new RuntimeException("Failed to initialize MySQL SSL context: " + e.getMessage(), e);
         }
     }
 
@@ -143,7 +144,8 @@ public class MysqlSslContext {
             sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
         } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException | IOException
                  | CertificateException | UnrecoverableKeyException e) {
-            LOG.fatal("Failed to initialize SSL because", e);
+            LOG.error("Failed to initialize MySQL SSL context", e);
+            throw new RuntimeException("Failed to initialize MySQL SSL context: " + e.getMessage(), e);
         }
     }
 

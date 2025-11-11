@@ -38,27 +38,38 @@ ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port)
         auto ssl_factory = std::make_unique<apache::thrift::transport::TSSLSocketFactory>(
                 apache::thrift::transport::SSLProtocol::TLSv1_2);
         ssl_factory->ciphers("ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
-        ssl_factory->loadCertificate(config::tls_certificate_path.c_str());
-        if (!config::tls_private_key_password.empty()) {
-            std::string key = CertificateManager::load_key_string(config::tls_private_key_path,
-                                                                  config::tls_private_key_password);
-            if (key.empty()) {
-                LOG(ERROR) << "Fail to load private key with password";
-                return;
+
+        try {
+            ssl_factory->loadCertificate(config::tls_certificate_path.c_str());
+            if (!config::tls_private_key_password.empty()) {
+                std::string key = CertificateManager::load_key_string(
+                        config::tls_private_key_path, config::tls_private_key_password);
+                if (key.empty()) {
+                    LOG(ERROR) << "Fail to load private key with password";
+                    return;
+                }
+                ssl_factory->loadPrivateKeyFromBuffer(key.c_str());
+            } else {
+                ssl_factory->loadPrivateKey(config::tls_private_key_path.c_str());
             }
-            ssl_factory->loadPrivateKeyFromBuffer(key.c_str());
-        } else {
-            ssl_factory->loadPrivateKey(config::tls_private_key_path.c_str());
+            ssl_factory->loadTrustedCertificates(config::tls_ca_certificate_path.c_str());
+            ssl_factory->server(false);
+            _socket = ssl_factory->createSocket(ipaddress, port);
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Failed to initialize Socket for " << ipaddress << ":" << port << " - "
+                       << e.what();
+            _socket = nullptr;
         }
-        ssl_factory->loadTrustedCertificates(config::tls_ca_certificate_path.c_str());
-        ssl_factory->server(false);
-        _socket = ssl_factory->createSocket(ipaddress, port);
     } else {
         _socket = std::make_shared<apache::thrift::transport::TSocket>(ipaddress, port);
     }
 }
 
 Status ThriftClientImpl::open() {
+    if (!_socket) {
+        return Status::RpcError("socket not created");
+    }
+
     try {
         if (!_transport->isOpen()) {
             _transport->open();

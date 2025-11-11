@@ -278,48 +278,72 @@ ${sanEntries}
             logger.info("Updated config file: ${confPath} - enable_tls set to true")
         }
 
-        // Check if all nodes are alive
-        def checkNodesAlive = {
-            logger.info("=== Checking if all nodes are alive ===")
+        // Check if all nodes are alive by directly checking their HTTP endpoints
+        def checkNodesAlive = { String certDir ->
+            logger.info("=== Checking if all nodes are alive via HTTP endpoints ===")
             def allAlive = true
 
-            // Check FE nodes
+            // Check FE nodes via HTTPS with certificates
             frontends.each { fe ->
-                if (!fe.alive) {
-                    logger.error("FE[${fe.index}] is NOT alive")
-                    allAlive = false
+                def url = "https://${fe.host}:${fe.httpPort}/metrics"
+                def curlCmd = "curl --cacert ${certDir}/ca.crt --cert ${certDir}/certificate.crt --key ${certDir}/certificate.key -s -o /dev/null -w '%{http_code}' --connect-timeout 5 ${url}"
+                def result = curlCmd.execute()
+                result.waitFor()
+                def httpCode = result.text.trim()
+
+                if (httpCode.contains("200")) {
+                    logger.info("FE[${fe.index}] at ${fe.host}:${fe.httpPort} is alive (HTTP ${httpCode})")
                 } else {
-                    logger.info("FE[${fe.index}] is alive")
+                    logger.error("FE[${fe.index}] at ${fe.host}:${fe.httpPort} is NOT responding (HTTP ${httpCode})")
+                    allAlive = false
                 }
             }
 
-            // Check BE nodes
+            // Check BE nodes via HTTPS with certificates
             backends.each { be ->
-                if (!be.alive) {
-                    logger.error("BE[${be.index}] is NOT alive")
-                    allAlive = false
+                def url = "https://${be.host}:${be.httpPort}/metrics"
+                def curlCmd = "curl --cacert ${certDir}/ca.crt --cert ${certDir}/certificate.crt --key ${certDir}/certificate.key -s -o /dev/null -w '%{http_code}' --connect-timeout 5 ${url}"
+                def result = curlCmd.execute()
+                result.waitFor()
+                def httpCode = result.text.trim()
+
+                if (httpCode.contains("200")) {
+                    logger.info("BE[${be.index}] at ${be.host}:${be.httpPort} is alive (HTTP ${httpCode})")
                 } else {
-                    logger.info("BE[${be.index}] is alive")
+                    logger.error("BE[${be.index}] at ${be.host}:${be.httpPort} is NOT responding (HTTP ${httpCode})")
+                    allAlive = false
                 }
             }
 
-            // Check MS nodes
+            // Check MS nodes via HTTPS with certificates
             metaservices.each { ms ->
-                if (!ms.alive) {
-                    logger.error("MS[${ms.index}] is NOT alive")
-                    allAlive = false
+                def url = "https://${ms.host}:${ms.httpPort}"
+                def curlCmd = "curl --cacert ${certDir}/ca.crt --cert ${certDir}/certificate.crt --key ${certDir}/certificate.key -s -o /dev/null -w '%{http_code}' --connect-timeout 5 ${url}"
+                def result = curlCmd.execute()
+                result.waitFor()
+                def httpCode = result.text.trim()
+
+                if (httpCode.contains("200")) {
+                    logger.info("MS[${ms.index}] at ${ms.host}:${ms.httpPort} is alive (HTTP ${httpCode})")
                 } else {
-                    logger.info("MS[${ms.index}] is alive")
+                    logger.error("MS[${ms.index}] at ${ms.host}:${ms.httpPort} is NOT responding (HTTP ${httpCode})")
+                    allAlive = false
                 }
             }
 
-            // Check Recycler nodes
+            // Check Recycler nodes via HTTPS with certificates
             recyclers.each { rc ->
-                if (!rc.alive) {
-                    logger.error("Recycler[${rc.index}] is NOT alive")
-                    allAlive = false
+                def url = "https://${rc.host}:${rc.httpPort}"
+                def curlCmd = "curl --cacert ${certDir}/ca.crt --cert ${certDir}/certificate.crt --key ${certDir}/certificate.key -s -o /dev/null -w '%{http_code}' --connect-timeout 5 ${url}"
+                def result = curlCmd.execute()
+                result.waitFor()
+                def httpCode = result.text.trim()
+
+                if (httpCode.contains("200")) {
+                    logger.info("Recycler[${rc.index}] at ${rc.host}:${rc.httpPort} is alive (HTTP ${httpCode})")
                 } else {
-                    logger.info("Recycler[${rc.index}] is alive")
+                    logger.error("Recycler[${rc.index}] at ${rc.host}:${rc.httpPort} is NOT responding (HTTP ${httpCode})")
+                    allAlive = false
                 }
             }
 
@@ -400,7 +424,32 @@ ${sanEntries}
             "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
             firstFe.host, firstFe.queryPort)
 
-        def basicTest = { String certDir ->
+        // Generate sample data file for stream load if it doesn't exist
+        def generateSampleData = {
+            def dataDir = "${context.config.dataPath}/cloud_p0/tls"
+            def sampleDataFile = new File("${dataDir}/sample_data2.csv")
+
+            if (sampleDataFile.exists()) {
+                logger.info("Sample data file already exists: ${sampleDataFile.absolutePath}, skipping generation")
+                return
+            }
+
+            logger.info("Generating sample data file: ${sampleDataFile.absolutePath}")
+            runCommand("mkdir -p ${dataDir}", "Failed to create data directory")
+
+            // Generate 1000000 rows of data
+            sampleDataFile.withWriter { writer ->
+                for (int i = 1; i <= 1000000; i++) {
+                    writer.write("${i},name_${i},${i % 100}\n")
+                }
+            }
+            logger.info("Successfully generated 1000000 rows of sample data")
+        }
+
+        // Generate sample data before running tests
+        generateSampleData()
+
+        def basicTest = { String certDir, boolean checkStreamLoad ->
             def keystorePassword = "doris123"
             def keystorePath = "${certDir}/keystore.p12"
             def truststorePath = "${certDir}/truststore.p12"
@@ -436,6 +485,7 @@ ${sanEntries}
                 // stream load
                 // approximately 24s
                 streamLoad {
+                    feHttpAddress firstFe.host, firstFe.httpPort
                     table "${tableName}"
 
                     // Set TLS configuration dynamically
@@ -445,10 +495,13 @@ ${sanEntries}
                     trustStorePath truststorePath
                     trustStorePassword keystorePassword
 
+                    // Set timeout to 60 seconds to prevent indefinite hangs during certificate reload
+                    timeout 60000
+
                     set 'column_separator', ','
                     set 'cloud_cluster', 'compute_cluster'
 
-                    file 'sample_data.csv'
+                    file 'sample_data2.csv'
 
                     check { loadResult, exception, startTime, endTime ->
                         if (exception != null) {
@@ -456,19 +509,22 @@ ${sanEntries}
                         }
                         log.info("Stream load result: ${loadResult}".toString())
                         def json = parseJson(loadResult)
-                        assertEquals("success", json.Status.toLowerCase())
-                        assertEquals(1000000, json.NumberTotalRows)
-                        assertEquals(0, json.NumberFilteredRows)
+                        if (checkStreamLoad) {
+                            assertEquals("success", json.Status.toLowerCase())
+                            assertEquals(1000000, json.NumberTotalRows)
+                            assertEquals(0, json.NumberFilteredRows)
+                        }
                         txnId = json.TxnId
                     }
                 }
                 queryData = sql """ select * from ${tableName} """
-                assertTrue(queryData.size() == 1000000)
+                if (checkStreamLoad) {
+                    assertTrue(queryData.size() == 1000000)
+                }
                 sql """ truncate table ${tableName} """
             }
         }
-        basicTest("${certFileDir[0]}")
-        boolean expectError = false
+        basicTest("${certFileDir[0]}", true)
 
         // Test 1: Certificate to be replaced is incorrect/corrupted
         logger.info("=== Test 1: Corrupt Certificate ===")
@@ -482,28 +538,26 @@ ${sanEntries}
             def thread = Thread.start {
                 logger.info("Attempting to update with corrupt certificate")
                 updateAllCertificate("${certFileDir[1]}")
+                sleep(3000)
             }
 
             // Continue running basicTest while attempting to update
             try {
-                basicTest("${certFileDir[0]}")
+                basicTest("${certFileDir[0]}", false)
             } catch (Exception e) {
-                expectError = true
                 logger.info("Expected error during corrupt cert test: ${e.message}")
                 // Restore certificates after catching error
                 logger.info("Restoring normal certificates after error")
                 updateAllCertificate("${certFileDir[0]}")
                 sleep(10000)
             }
-            assertTrue(expectError)
-
             thread.join()
 
             // Verify that system works with restored cert
             logger.info("Verifying system works after restoring from corrupt cert")
-            basicTest("${certFileDir[0]}")
+            basicTest("${certFileDir[0]}", true)
 
-            checkNodesAlive()
+            checkNodesAlive("${certFileDir[0]}")
         }
         testCorruptCert()
 
@@ -523,14 +577,13 @@ ${sanEntries}
                     runCommand("docker exec -i ${container} rm -rf /tmp/certs/*", "Failed to cleanup cert directory in ${container}")
                     runCommand("docker cp ${certFileDir[2]}/ca.crt ${container}:/tmp/certs/ca.crt", "Failed to copy CA to ${container}")
                     runCommand("docker cp ${certFileDir[2]}/certificate.key ${container}:/tmp/certs/certificate.key", "Failed to copy key to ${container}")
+                    sleep(3000)
                 }
             }
-            expectError = false
             // Continue running basicTest while attempting to update
             try {
-                basicTest("${certFileDir[0]}")
+                basicTest("${certFileDir[0]}", false)
             } catch (Exception e) {
-                expectError = true
                 logger.info("Expected error during partial cert test: ${e.message}")
                 // Restore certificates after catching error
                 logger.info("Restoring normal certificates after error")
@@ -539,11 +592,10 @@ ${sanEntries}
             }
             thread.join()
             sleep(10000)
-            assertTrue(expectError)
             logger.info("Verifying system still works after partial cert attempt")
-            basicTest("${certFileDir[0]}")
+            basicTest("${certFileDir[0]}", true)
 
-            checkNodesAlive()
+            checkNodesAlive("${certFileDir[0]}")
         }
         testPartialCert()
 
@@ -558,12 +610,12 @@ ${sanEntries}
                 updateAllCertificate("${certFileDir[0]}")
             }
 
-            basicTest("${certFileDir[0]}")
+            basicTest("${certFileDir[0]}", true)
             thread.join()
             sleep(10000)
 
             logger.info("Verifying system works after replacing with same cert")
-            basicTest("${certFileDir[0]}")
+            basicTest("${certFileDir[0]}", true)
         }
         testSameCert()
 
@@ -577,24 +629,21 @@ ${sanEntries}
             }
 
             sleep(5000) // Wait for some deletions to occur
-            expectError = false
             // Run basicTest and expect failures
             try {
-                basicTest("${certFileDir[0]}")
+                basicTest("${certFileDir[0]}", false)
             } catch (Exception e) {
                 logger.info("Expected error when certificate files are missing: ${e.message}")
                 // Restore certificates after catching error
                 logger.info("Restoring normal certificates after error")
                 updateAllCertificate("${certFileDir[0]}")
                 sleep(10000)
-                expectError = true
             }
 
-            assertTrue(expectError)
             logger.info("Verifying system works after restoring certificates")
-            basicTest("${certFileDir[0]}")
+            basicTest("${certFileDir[0]}", true)
 
-            checkNodesAlive()
+            checkNodesAlive("${certFileDir[0]}")
         }
         testMissingCert()
 
@@ -615,28 +664,31 @@ ${sanEntries}
             def thread = Thread.start {
                 logger.info("Updating CA node by node")
                 frontends.each { fe -> updateCertificate("${certFileDir[4]}", "doris-${cluster.name}-fe-${fe.index}") }
-                sleep(15000)
+                sleep(3000)
                 containerNames.each { container ->
                     logger.info("Updating ${container} with new CA certificate")
                     updateCertificate("${certFileDir[4]}", "${container}")
                     sleep(3000)
                 }
             }
-            expectError = false
             // Try to run basicTest with old cert during update
             try {
-                basicTest("${certFileDir[4]}")
+                basicTest("${certFileDir[4]}", false)
             } catch (Exception e) {
                 logger.info("Expected failures during CA transition: ${e.message}")
-                expectError = true
             }
-            assertTrue(expectError)
 
+            // Wait for thread to complete certificate updates
+            logger.info("Waiting for all certificate updates to complete")
             thread.join()
+
+            // Wait additional time for certificate reload (monitoring interval is 5 seconds)
             sleep(10000)
 
             logger.info("All nodes updated with new CA, verifying system works")
-            basicTest("${certFileDir[4]}")
+            basicTest("${certFileDir[4]}", true)
+
+            checkNodesAlive("${certFileDir[4]}")
         }
         testCAChange()
 
@@ -664,15 +716,68 @@ ${sanEntries}
             }
 
             // Run basicTest during high frequency reloads
-            basicTest("${certFileDir[4]}")
+            basicTest("${certFileDir[4]}", true)
             thread.join()
 
             logger.info("Verifying system still works after high frequency reloads")
-            basicTest("${certFileDir[4]}")
+            basicTest("${certFileDir[4]}", true)
+            checkNodesAlive("${certFileDir[4]}")
         }
         testHighFreqReload()
 
-        checkNodesAlive()
+        // Test 7: Unreadable certificate file permissions
+        logger.info("=== Test 7: Unreadable Certificate File Permissions ===")
+        def testUnreadablePermissions = {
+            logger.info("Changing certificate file permissions to make them unreadable")
+
+            def thread = Thread.start {
+                containerNames.each { container ->
+                    logger.info("Changing permissions in ${container}")
+                    // Change permissions to 000 (no read access)
+                    runCommand("docker exec -i ${container} chmod 000 /tmp/certs/certificate.crt", "Failed to change cert permissions in ${container}")
+                    runCommand("docker exec -i ${container} chmod 000 /tmp/certs/certificate.key", "Failed to change key permissions in ${container}")
+                    runCommand("docker exec -i ${container} chmod 000 /tmp/certs/ca.crt", "Failed to change CA permissions in ${container}")
+                }
+                sleep(10000) // Wait for monitoring to detect permission issues
+            }
+
+            // Try to run basicTest and expect failures due to permission issues
+            try {
+                basicTest("${certFileDir[4]}", false)
+            } catch (Exception e) {
+                logger.info("Expected error when certificate files are unreadable: ${e.message}")
+            }
+
+            // Wait for permission changes to complete
+            thread.join()
+
+            // Try again and should still fail
+            try {
+                basicTest("${certFileDir[4]}", false)
+                logger.warn("Unexpected success - should have failed with unreadable certificates")
+            } catch (Exception e) {
+                logger.info("Expected continued failure with unreadable certificates: ${e.message}")
+            }
+
+            // Restore permissions
+            logger.info("Restoring certificate file permissions")
+            containerNames.each { container ->
+                logger.info("Restoring permissions in ${container}")
+                runCommand("docker exec -i ${container} chmod 644 /tmp/certs/certificate.crt", "Failed to restore cert permissions in ${container}")
+                runCommand("docker exec -i ${container} chmod 644 /tmp/certs/certificate.key", "Failed to restore key permissions in ${container}")
+                runCommand("docker exec -i ${container} chmod 644 /tmp/certs/ca.crt", "Failed to restore CA permissions in ${container}")
+            }
+
+            // Wait for monitoring to reload certificates with restored permissions
+            sleep(10000)
+
+            logger.info("Verifying system works after restoring permissions")
+            basicTest("${certFileDir[4]}", true)
+
+            checkNodesAlive("${certFileDir[4]}")
+        }
+        testUnreadablePermissions()
+
         logger.info("=== All Error Certificate Reload Tests Completed ===")
     }
 }

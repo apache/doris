@@ -70,6 +70,11 @@ class StreamLoadAction implements SuiteAction {
     boolean sslHostnameVerify = false
     String tlsVerifyMode = "strict"
 
+    // HTTP client timeout settings (in milliseconds)
+    int connectTimeout = 0     // 0 means use default (no explicit timeout)
+    int socketTimeout = 0      // 0 means use default (no explicit timeout)
+    int connectionRequestTimeout = 0  // 0 means use default (no explicit timeout)
+
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
@@ -114,6 +119,11 @@ class StreamLoadAction implements SuiteAction {
     void directToBe(String beHost, int beHttpPort) {
         this.address = new InetSocketAddress(beHost, beHttpPort)
         this.directToBe = true
+    }
+
+    void feHttpAddress(String feHost, int feHttpPort) {
+        this.address = new InetSocketAddress(feHost, feHttpPort)
+        this.directToBe = false
     }
 
     void inputStream(InputStream inputStream) {
@@ -238,6 +248,24 @@ class StreamLoadAction implements SuiteAction {
         this.sslHostnameVerify = verify
     }
 
+    void connectTimeout(int timeout) {
+        this.connectTimeout = timeout
+    }
+
+    void socketTimeout(int timeout) {
+        this.socketTimeout = timeout
+    }
+
+    void connectionRequestTimeout(int timeout) {
+        this.connectionRequestTimeout = timeout
+    }
+
+    void timeout(int timeout) {
+        this.connectTimeout = timeout
+        this.socketTimeout = timeout
+        this.connectionRequestTimeout = timeout
+    }
+
     @Override
     void run() {
         String responseText = null
@@ -272,6 +300,71 @@ class StreamLoadAction implements SuiteAction {
         log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
                 " response: ${responseText}" + ex.toString())
         checkResult(responseText, ex, startTime, endTime)
+    }
+
+    private CloseableHttpClient buildHttpClient() {
+        // Build request config if any timeout is configured
+        def requestConfig = null
+        if (connectTimeout > 0 || socketTimeout > 0 || connectionRequestTimeout > 0) {
+            def builder = org.apache.http.client.config.RequestConfig.custom()
+            if (connectTimeout > 0) {
+                builder.setConnectTimeout(connectTimeout)
+            }
+            if (socketTimeout > 0) {
+                builder.setSocketTimeout(socketTimeout)
+            }
+            if (connectionRequestTimeout > 0) {
+                builder.setConnectionRequestTimeout(connectionRequestTimeout)
+            }
+            requestConfig = builder.build()
+        }
+
+        if (!enableTLS) {
+            if (requestConfig != null) {
+                return HttpClients.custom()
+                        .setDefaultRequestConfig(requestConfig)
+                        .build()
+            }
+            return HttpClients.createDefault()
+        }
+
+        KeyStore ts = null
+        KeyStore ks = null
+        if (tlsVerifyMode == 'none') {
+            ts = [ [ checkClientTrusted: { c, a -> },
+                    checkServerTrusted: { c, a -> },
+                    getAcceptedIssuers: { [] as X509Certificate[] } ] as X509TrustManager ] as TrustManager[]
+        } else {
+            // 载入客户端 keystore（含私钥+客户端证书链）
+            ts = KeyStore.getInstance(trustStoreType)
+            ts.load(new FileInputStream(trustStorePath), trustStorePassword?.toCharArray())
+            if (tlsVerifyMode == 'strict') {
+                // 载入 truststore（含 CA/中间证书，用于校验服务端证书链）
+                ks = KeyStore.getInstance(keyStoreType)
+                ks.load(new FileInputStream(keyStorePath), keyStorePassword?.toCharArray())
+            }
+        }
+
+        SSLContext sslContext = SSLContexts.custom()
+                .loadKeyMaterial(ks, keyStorePassword?.toCharArray())
+                .loadTrustMaterial(ts, null)
+                .build()
+
+        HostnameVerifier verifier = sslHostnameVerify ? SSLConnectionSocketFactory.getDefaultHostnameVerifier()
+                                                      : NoopHostnameVerifier.INSTANCE
+
+        SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
+                sslContext,
+                new String[] {"TLSv1.2", "TLSv1.3"},
+                null,
+                verifier
+        )
+
+        def clientBuilder = HttpClients.custom().setSSLSocketFactory(sslsf)
+        if (requestConfig != null) {
+            clientBuilder.setDefaultRequestConfig(requestConfig)
+        }
+        return clientBuilder.build()
     }
 
     private String httpGetString(CloseableHttpClient client, String url) {

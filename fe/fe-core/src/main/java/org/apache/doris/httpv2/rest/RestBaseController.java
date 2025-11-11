@@ -94,7 +94,7 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("Redirect url: {}", Config.enable_tls ? "https://" : "http://" + addr.getHostname() + ":"
+        LOG.info("Redirect url: {}", (Config.enable_tls ? "https://" : "http://") + addr.getHostname() + ":"
                     + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");

@@ -44,7 +44,7 @@ std::string read_file_to_string(const std::filesystem::path& path, const char* l
 
     int retry_count {}, max_retry_num {30};
     std::error_code ec;
-    if (!std::filesystem::exists(path, ec)) {
+    while (!std::filesystem::exists(path, ec)) {
         if (ec) {
             LOG(WARNING) << "Failed to check " << label << " existence: " << path
                          << ", error: " << ec.message();

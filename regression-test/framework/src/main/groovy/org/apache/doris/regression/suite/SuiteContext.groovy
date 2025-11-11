@@ -327,6 +327,9 @@ class SuiteContext implements Closeable {
     InetSocketAddress getFeHttpAddress() {
         if (cluster.isRunning()) {
             def fe = cluster.getMasterFe()
+            if (fe == null) {
+                return null
+            }
             return new InetSocketAddress(fe.host, fe.httpPort)
         } else {
             return config.feHttpInetSocketAddress
