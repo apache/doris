@@ -22,15 +22,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.AggStateType;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarFunction;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -41,12 +36,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -70,7 +63,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Root of the expr node hierarchy.
@@ -586,21 +578,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         void visit(Expr expr, TExprNode exprNode);
     }
 
-    public static Type getAssignmentCompatibleType(List<Expr> children) {
-        Type assignmentCompatibleType = Type.INVALID;
-        for (int i = 0; i < children.size()
-                && (assignmentCompatibleType.isDecimalV3() || assignmentCompatibleType.isDatetimeV2()
-                || assignmentCompatibleType.isInvalid()); i++) {
-            if (children.get(i) instanceof NullLiteral) {
-                continue;
-            }
-            assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
-                    : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
-                    true, SessionVariable.getEnableDecimal256());
-        }
-        return assignmentCompatibleType;
-    }
-
     // Convert this expr into msg (excluding children), which requires setting
     // msg.op as well as the expr-specific field.
     protected abstract void toThrift(TExprNode msg);
@@ -858,150 +835,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return true;
     }
 
-    /**
-     * Checks validity of cast, and
-     * calls uncheckedCastTo() to
-     * create a cast expression that casts
-     * this to a specific type.
-     *
-     * @param targetType type to be cast to
-     * @return cast expression, or converted literal,
-     * should never return null
-     * @throws AnalysisException when an invalid cast is asked for, for example,
-     *                           failure to convert a string literal to a date literal
-     */
-    public final Expr castTo(Type targetType) throws AnalysisException {
-        if (this instanceof PlaceHolderExpr && this.type.isUnsupported()) {
-            return this;
-        }
-        // If the targetType is NULL_TYPE then ignore the cast because NULL_TYPE
-        // is compatible with all types and no cast is necessary.
-        if (targetType.isNull()) {
-            return this;
-        }
-
-        if (this.type.isAggStateType()) {
-            List<Type> subTypes = ((AggStateType) targetType).getSubTypes();
-            List<Boolean> subNullables = ((AggStateType) targetType).getSubTypeNullables();
-
-            if (this instanceof FunctionCallExpr) {
-                if (subTypes.size() != getChildren().size()) {
-                    throw new AnalysisException("AggState's subTypes size not euqal to children number");
-                }
-                for (int i = 0; i < subTypes.size(); i++) {
-                    setChild(i, getChild(i).castTo(subTypes.get(i)));
-                    if (getChild(i).isNullable() && !subNullables.get(i)) {
-                        FunctionCallExpr newChild = new FunctionCallExpr("non_nullable",
-                                Lists.newArrayList(getChild(i)));
-                        newChild.analyzeImplForDefaultValue(subTypes.get(i));
-                        setChild(i, newChild);
-                    } else if (!getChild(i).isNullable() && subNullables.get(i)) {
-                        FunctionCallExpr newChild = new FunctionCallExpr("nullable", Lists.newArrayList(getChild(i)));
-                        newChild.analyzeImplForDefaultValue(subTypes.get(i));
-                        setChild(i, newChild);
-                    }
-                }
-                type = targetType;
-            } else {
-                List<Type> selfSubTypes = ((AggStateType) type).getSubTypes();
-                if (subTypes.size() != selfSubTypes.size()) {
-                    throw new AnalysisException("AggState's subTypes size did not match");
-                }
-                for (int i = 0; i < subTypes.size(); i++) {
-                    if (subTypes.get(i) != selfSubTypes.get(i)) {
-                        throw new AnalysisException("AggState's subType did not match");
-                    }
-                }
-            }
-        } else {
-            if (this.type.equals(targetType)) {
-                return this;
-            }
-        }
-
-        if (targetType.getPrimitiveType() == PrimitiveType.DECIMALV2
-                && this.type.getPrimitiveType() == PrimitiveType.DECIMALV2) {
-            this.type = targetType;
-            return this;
-        }
-
-        if (this.type.isStringType() && targetType.isStringType()) {
-            return this;
-        }
-
-        // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
-        // "cast %s to %s", this.type, targetType);
-        // TODO(zc): use implicit cast
-        if (!Type.canCastTo(this.type, targetType)) {
-            throw new AnalysisException("can not cast from origin type " + this.type
-                    + " to target type=" + targetType);
-
-        }
-        return uncheckedCastTo(targetType);
-    }
-
-    /**
-     * Create an expression equivalent to 'this' but returning targetType;
-     * possibly by inserting an implicit cast,
-     * or by returning an altogether new expression
-     *
-     * @param targetType type to be cast to
-     * @return cast expression, or converted literal,
-     * should never return null
-     * @throws AnalysisException when an invalid cast is asked for, for example,
-     *                           failure to convert a string literal to a date literal
-     */
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        return new CastExpr(targetType, this);
-    }
-
-    /**
-     * Add a cast expression above child.
-     * If child is a literal expression, we attempt to
-     * convert the value of the child directly, and not insert a cast node.
-     *
-     * @param targetType type to be cast to
-     * @param childIndex index of child to be cast
-     */
-    public void castChild(Type targetType, int childIndex) throws AnalysisException {
-        Expr child = getChild(childIndex);
-        Expr newChild = child.castTo(targetType);
-        setChild(childIndex, newChild);
-    }
-
-    /**
-     * Assuming it can cast to the targetType, use for convert literal value to
-     * target type without a cast node.
-     */
-    public static Expr convertLiteral(Expr expr, Type targetType) throws AnalysisException {
-        if (!(expr instanceof LiteralExpr)) {
-            return expr;
-        }
-        Expr newExpr = expr.uncheckedCastTo(targetType);
-        if (newExpr instanceof CastExpr) {
-            return ((LiteralExpr) newExpr.getChild(0)).convertTo(targetType);
-        }
-        return newExpr;
-    }
-
-    /**
-     * Add a cast expression above child.
-     * If child is a literal expression, we attempt to
-     * convert the value of the child directly, and not insert a cast node.
-     *
-     * @param targetType type to be cast to
-     * @param childIndex index of child to be cast
-     */
-    public void uncheckedCastChild(Type targetType, int childIndex)
-            throws AnalysisException {
-        Expr child = getChild(childIndex);
-        //avoid to generate Expr like cast (cast(... as date) as date)
-        if (!child.getType().equals(targetType)) {
-            Expr newChild = child.uncheckedCastTo(targetType);
-            setChild(childIndex, newChild);
-        }
-    }
-
     @Override
     public String toString() {
         return MoreObjects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
@@ -1123,85 +956,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
             }
         }
         return null;
-    }
-
-    /**
-     * Looks up in the catalog the builtin for 'name' and 'argTypes'.
-     * Returns null if the function is not found.
-     */
-    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
-            throws AnalysisException {
-        FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
-                true);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
-        if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
-            if (this.children.size() == 1 && !(this.children.get(0) instanceof LiteralExpr)) {
-                throw new AnalysisException("The param of rand function must be literal");
-            }
-        }
-        if (f != null) {
-            return f;
-        }
-
-        boolean isUnion = name.toLowerCase().endsWith(AGG_UNION_SUFFIX);
-        boolean isMerge = name.toLowerCase().endsWith(AGG_MERGE_SUFFIX);
-        boolean isState = name.toLowerCase().endsWith(AGG_STATE_SUFFIX);
-        if (isUnion || isMerge || isState) {
-            if (isUnion) {
-                name = name.substring(0, name.length() - AGG_UNION_SUFFIX.length());
-            }
-            if (isMerge) {
-                name = name.substring(0, name.length() - AGG_MERGE_SUFFIX.length());
-            }
-            if (isState) {
-                name = name.substring(0, name.length() - AGG_STATE_SUFFIX.length());
-            }
-
-            List<Type> argList = Arrays.asList(getActualArgTypes(argTypes));
-            List<Type> nestedArgList;
-            if (isState) {
-                nestedArgList = argList;
-            } else {
-                if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
-                    throw new AnalysisException("merge/union function must input one agg_state");
-                }
-                AggStateType aggState = (AggStateType) argList.get(0);
-                nestedArgList = aggState.getSubTypes();
-            }
-
-            searchDesc = new Function(new FunctionName(name), nestedArgList, Type.INVALID, false, true);
-
-            f = Env.getCurrentEnv().getFunction(searchDesc, mode);
-            if (f == null || !(f instanceof AggregateFunction)) {
-                return null;
-            }
-
-            if (isState) {
-                f = new ScalarFunction(new FunctionName(name + AGG_STATE_SUFFIX), Arrays.asList(f.getArgs()),
-                        Expr.createAggStateType(name, nestedArgList,
-                                nestedArgList.stream().map(e -> true).collect(Collectors.toList())),
-                        f.hasVarArgs(), f.isUserVisible());
-                f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-            } else {
-                Function original = f;
-                f = f.clone();
-                f.setArgs(argList);
-                if (isUnion) {
-                    f.setName(new FunctionName(name + AGG_UNION_SUFFIX));
-                    f.setReturnType(argList.get(0));
-                    f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-                }
-                if (isMerge) {
-                    f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
-                    f.setNullableMode(NullableMode.CUSTOM);
-                    f.setNestedFunction(original);
-                }
-            }
-            f.setBinaryType(TFunctionBinaryType.AGG_STATE);
-        }
-
-        return f;
     }
 
     /**
@@ -1386,19 +1140,9 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return true;
     }
 
-    public static Boolean getResultIsNullable(String name, List<Type> typeList, List<Boolean> nullableList) {
-        if (name == null || typeList == null || nullableList == null) {
-            return false;
-        }
-        FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, typeList, Type.INVALID, false, true);
-        List<Expr> mockedExprs = getMockedExprs(typeList, nullableList);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        return isNullable(f, mockedExprs);
-    }
-
-    public static AggStateType createAggStateType(String name, List<Type> typeList, List<Boolean> nullableList) {
-        return new AggStateType(name, Expr.getResultIsNullable(name, typeList, nullableList), typeList, nullableList);
+    public static AggStateType createAggStateType(String name, List<Type> typeList,
+            List<Boolean> nullableList, boolean resultNullable) {
+        return new AggStateType(name, resultNullable, typeList, nullableList);
     }
 
     public static List<Expr> getMockedExprs(List<Type> typeList, List<Boolean> nullableList) {
@@ -1510,10 +1254,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     public void setOriginCastNullable(boolean nullable) {
         originCastNullable = Optional.of(nullable);
-    }
-
-    public void clearNullableFromNereids() {
-        nullableFromNereids = Optional.empty();
     }
 
     public Set<SlotRef> getInputSlotRef() {

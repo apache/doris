@@ -185,6 +185,7 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         }
 
         private void linkResult(Plan result) {
+            rewriteJobContext.tmpPlan = result;
             if (parentJob != null) {
                 parentJob.childrenResult[rewriteJobContext.childIndexInParentContext] = result;
             } else {

@@ -42,6 +42,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/cache/peer_file_cache_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
@@ -204,7 +205,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
         LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
                                   << ", host=" << host << ", port=" << port
                                   << ", file_path=" << file_path;
-        return Status::InternalError("host or port is empty");
+        return Status::InternalError<false>("host or port is empty");
     }
     SCOPED_RAW_TIMER(&stats.peer_read_timer);
     peer_read_counter << 1;
@@ -373,6 +374,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             s_align_size(offset + already_read, bytes_req - already_read, size());
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
+    auto tablet_id = get_tablet_id(path().string());
+    cache_context.tablet_id = tablet_id.value_or(0);
     MonotonicStopWatch sw;
     sw.start();
     FileBlocksHolder holder =

@@ -100,6 +100,7 @@ struct FileBlockCell {
 
     size_t size() const { return file_block->_block_range.size(); }
 
+    FileBlockCell() = default;
     FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
     FileBlockCell(FileBlockCell&& other) noexcept
             : file_block(std::move(other.file_block)),
@@ -520,6 +521,8 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_read_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_hit_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
@@ -553,6 +556,7 @@ private:
     std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _meta_store_write_queue_size_metrics;
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;

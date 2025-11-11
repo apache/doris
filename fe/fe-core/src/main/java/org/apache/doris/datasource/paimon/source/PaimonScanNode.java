@@ -38,7 +38,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -146,7 +145,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
                           SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "PAIMON_SCAN_NODE", needCheckColumnPriv, sv);
     }
 
     @Override
