@@ -18,9 +18,12 @@
 package org.apache.doris.datasource.doris;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -28,6 +31,7 @@ import org.apache.doris.thrift.TRemoteDorisTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,9 +40,13 @@ import java.util.Optional;
 
 public class RemoteDorisExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalTable.class);
+    private volatile List<Partition> partitions = Lists.newArrayList();
+    private volatile long tableId = -1;
+    private volatile boolean isSyncOlapTable = false;
+    private volatile RemoteOlapTable remoteOlapTable = null;
 
     public RemoteDorisExternalTable(long id, String name, String remoteName,
-                                    RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
+            RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.DORIS_EXTERNAL_TABLE);
     }
 
@@ -48,6 +56,57 @@ public class RemoteDorisExternalTable extends ExternalTable {
         if (!objectCreated) {
             objectCreated = true;
         }
+    }
+
+    private RemoteOlapTable getDorisOlapTable() {
+        if (!isSyncOlapTable) {
+            synchronized (this) {
+                if (!isSyncOlapTable) {
+                    try {
+                        isSyncOlapTable = true;
+                        remoteOlapTable = null;
+                        List<Partition> cachedPartitions = Lists.newArrayList(partitions);
+                        RemoteOlapTable olapTable = ((RemoteDorisExternalCatalog) catalog).getFeServiceClient()
+                                .getOlapTable(dbName, remoteName, tableId, cachedPartitions);
+                        olapTable.setCatalog((RemoteDorisExternalCatalog) catalog);
+                        olapTable.setDatabase((RemoteDorisExternalDatabase) db);
+                        synchronized (this) {
+                            tableId = olapTable.getId();
+                            partitions = Lists.newArrayList(olapTable.getPartitions());
+                        }
+                        olapTable.setId(id); // change id in case of possible conflicts
+                        olapTable.invalidateBackendsIfNeed();
+                        remoteOlapTable = olapTable;
+                    } finally {
+                        isSyncOlapTable = false;
+                        this.notifyAll();
+                    }
+                    return remoteOlapTable;
+                }
+            }
+        }
+        synchronized (this) {
+            while (isSyncOlapTable) {
+                try {
+                    this.wait();
+                } catch (InterruptedException e) {
+                    throw new AnalysisException("interrupted while getting doris olap table");
+                }
+            }
+            if (remoteOlapTable == null) {
+                throw new AnalysisException("failed to get remote doris olap table");
+            }
+            return remoteOlapTable;
+        }
+    }
+
+    public OlapTable getOlapTable() {
+        makeSureInitialized();
+        return getDorisOlapTable();
+    }
+
+    public boolean useArrowFlight() {
+        return ((RemoteDorisExternalCatalog) catalog).useArrowFlight();
     }
 
     @Override
