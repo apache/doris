@@ -525,14 +525,6 @@ struct SafeCastDecimalString {
     }
 };
 
-template <>
-struct SafeCastString<TYPE_VARBINARY> {
-    static bool safe_cast_string(const StringRef& str_ref, MutableColumnPtr& to_col) {
-        assert_cast<ColumnVarbinary*>(to_col.get())->insert_data(str_ref.data, str_ref.size);
-        return true;
-    }
-};
-
 template <PrimitiveType DstPrimitiveType, FileFormat fileFormat>
 class CastStringConverter : public ColumnTypeConverter {
 private:
@@ -569,10 +561,7 @@ public:
 
         size_t rows = string_col->size();
         size_t start_idx = to_col->size();
-        // varbinary need special handle memory in column, so not resize here
-        if constexpr (DstPrimitiveType != TYPE_VARBINARY) {
-            to_col->resize(start_idx + rows);
-        }
+        to_col->resize(start_idx + rows);
         auto& data = assert_cast<DstColumnType*>(to_col.get())->get_data();
         for (int i = 0; i < rows; ++i) {
             bool can_cast = false;
@@ -587,9 +576,6 @@ public:
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
                 can_cast = SafeCastString<TYPE_BOOLEAN, ORC>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i]);
-            } else if constexpr (DstPrimitiveType == TYPE_VARBINARY) {
-                can_cast = SafeCastString<TYPE_VARBINARY>::safe_cast_string(
-                        string_col->get_data_at(i), to_col);
             } else {
                 can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i]);

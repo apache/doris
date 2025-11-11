@@ -67,8 +67,7 @@ namespace doris::vectorized::converter {
     M(TYPE_DATETIME)             \
     M(TYPE_DATE)                 \
     M(TYPE_DATETIMEV2)           \
-    M(TYPE_DATEV2)               \
-    M(TYPE_VARBINARY)
+    M(TYPE_DATEV2)
 
 static bool _is_numeric_type(PrimitiveType type) {
     switch (type) {
@@ -368,6 +367,10 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
     //todo:  type to varchar/char.
     if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
+        return std::make_unique<ConsistentConverter>();
+    }
+
+    if (is_varbinary(src_primitive_type) && is_varbinary(dst_primitive_type)) {
         return std::make_unique<ConsistentConverter>();
     }
 
