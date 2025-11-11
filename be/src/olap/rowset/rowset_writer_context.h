@@ -183,6 +183,7 @@ struct RowsetWriterContext {
             io::MergeFileAppendInfo append_info;
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
+            append_info.txn_id = txn_id;
             fs = std::make_shared<io::MergeFileSystem>(fs, index_map, append_info);
         }
 

@@ -46,12 +46,14 @@ struct MergeFileSegmentIndex {
     int64_t tablet_id = 0;
     std::string rowset_id;
     std::string resource_id;
+    int64_t txn_id = 0;
 };
 
 struct MergeFileAppendInfo {
     std::string resource_id;
     int64_t tablet_id = 0;
     std::string rowset_id;
+    int64_t txn_id = 0;
 };
 
 // Global object that manages merging small files into large files for S3 optimization
@@ -152,7 +154,7 @@ private:
 
     // Current active merge file
     std::unordered_map<std::string, std::unique_ptr<MergeFileState>> _current_merge_files;
-    std::mutex _current_merge_file_mutex;
+    std::timed_mutex _current_merge_file_mutex;
 
     // Merge files ready for upload or being processed
     std::unordered_map<std::string, std::shared_ptr<MergeFileState>> _uploading_merge_files;

@@ -181,6 +181,11 @@ Status MergeFileWriter::_send_to_merge_manager() {
         return Status::InternalError("Missing resource id for merge file append");
     }
 
+    if (_append_info.txn_id <= 0) {
+        return Status::InvalidArgument("Missing valid txn id for merge file append: " +
+                                       _file_path);
+    }
+
     Slice data_slice(_buffer.data(), _buffer.size());
     RETURN_IF_ERROR(_merge_file_manager->append(_file_path, data_slice, _append_info));
     _buffer.clear();

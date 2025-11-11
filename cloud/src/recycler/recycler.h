@@ -424,8 +424,11 @@ private:
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
     // return 0 for success otherwise error
-    int process_merged_file_segment_index(const doris::RowsetMetaCloudPB& rs_meta_pb,
-                                          std::vector<std::string>* merged_files_to_delete);
+    int process_merged_file_segment_index(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
+    int delete_merged_file_and_kv(const std::string& merged_file_path,
+                                  const std::string& merged_key,
+                                  const cloud::MergedFileInfoPB& merge_info);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
@@ -483,6 +486,8 @@ private:
     // @param stats optional recycle statistics collector.
     int check_rowset_exists(int64_t tablet_id, const std::string& rowset_id, bool* exists,
                             MergedFileRecycleStats* stats = nullptr);
+    int check_recycle_and_tmp_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
+                                            int64_t txn_id, bool* recycle_exists, bool* tmp_exists);
     /**
      * Resolve which storage accessor should be used for a merged file.
      *

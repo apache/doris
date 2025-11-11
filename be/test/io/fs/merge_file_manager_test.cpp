@@ -202,6 +202,7 @@ protected:
         info.resource_id = _resource_id;
         info.tablet_id = _tablet_id;
         info.rowset_id = _rowset_id;
+        info.txn_id = _txn_id;
         return info;
     }
 
@@ -217,6 +218,7 @@ private:
     std::string _resource_id = "test_resource";
     int64_t _tablet_id = 12345;
     std::string _rowset_id = "rowset_1";
+    int64_t _txn_id = 6789;
 };
 
 TEST_F(MergeFileManagerTest, CreateNewMergeFileStateFailure) {
@@ -247,6 +249,18 @@ TEST_F(MergeFileManagerTest, AppendSmallFileSuccess) {
     EXPECT_EQ(it->second.tablet_id, info.tablet_id);
     EXPECT_EQ(it->second.rowset_id, info.rowset_id);
     EXPECT_EQ(it->second.resource_id, info.resource_id);
+    EXPECT_EQ(it->second.txn_id, info.txn_id);
+}
+
+TEST_F(MergeFileManagerTest, AppendFailsWithoutTxnId) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    info.txn_id = 0;
+
+    Status st = manager->append("missing_txn", slice, info);
+    EXPECT_EQ(st.code(), doris::ErrorCode::INVALID_ARGUMENT);
+    EXPECT_EQ(manager->_global_index_map.count("missing_txn"), 0);
 }
 
 TEST_F(MergeFileManagerTest, AppendLargeFileSkipped) {
@@ -307,10 +321,9 @@ TEST_F(MergeFileManagerTest, MarkCurrentMergeFileForUploadMovesState) {
 }
 
 TEST_F(MergeFileManagerTest, GetMergeFileIndexForUnknownPathReturnsNotFound) {
-    std::vector<MergeFileSegmentIndex> indices;
-    auto status = manager->get_merge_file_index("missing", &indices);
-    EXPECT_TRUE(status.is<doris::ErrorCode::NOT_FOUND>());
-    EXPECT_TRUE(indices.empty());
+    MergeFileSegmentIndex index;
+    auto status = manager->get_merge_file_index("missing", &index);
+    EXPECT_EQ(status.code(), doris::ErrorCode::NOT_FOUND);
 }
 
 TEST_F(MergeFileManagerTest, GetMergeFileIndexReturnsStoredValue) {
@@ -318,14 +331,13 @@ TEST_F(MergeFileManagerTest, GetMergeFileIndexReturnsStoredValue) {
     Slice slice(payload);
     auto info = default_append_info();
     EXPECT_TRUE(manager->append("stored", slice, info).ok());
-    std::vector<MergeFileSegmentIndex> indices;
-    EXPECT_TRUE(manager->get_merge_file_index("stored", &indices).ok());
-    ASSERT_EQ(indices.size(), 1);
-    EXPECT_EQ(indices[0].size, payload.size());
-    EXPECT_EQ(indices[0].offset, 0);
+    MergeFileSegmentIndex index;
+    EXPECT_TRUE(manager->get_merge_file_index("stored", &index).ok());
+    EXPECT_EQ(index.size, payload.size());
+    EXPECT_EQ(index.offset, 0);
     auto* current_state = manager->_current_merge_files[_resource_id].get();
     ASSERT_NE(current_state, nullptr);
-    EXPECT_EQ(indices[0].merge_file_path, current_state->merge_file_path);
+    EXPECT_EQ(index.merge_file_path, current_state->merge_file_path);
 }
 
 TEST_F(MergeFileManagerTest, WaitWriteDoneReturnsOkWhenAlreadyUploaded) {

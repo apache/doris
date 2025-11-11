@@ -178,6 +178,7 @@ DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 DECLARE_mBool(enable_merge_file);
 DECLARE_mInt64(merge_file_size_threshold_bytes);
 DECLARE_mInt64(merge_file_time_threshold_ms);
+DECLARE_mInt64(merge_file_try_lock_timeout_ms);
 DECLARE_mInt64(small_file_threshold_bytes);
 DECLARE_mInt64(uploaded_file_retention_seconds);
 DECLARE_mInt64(index_retention_seconds);

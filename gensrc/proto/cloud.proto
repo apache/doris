@@ -2129,6 +2129,8 @@ message MergedSmallFilePB {
     optional bool deleted = 4;
     optional int64 tablet_id = 5;
     optional string rowset_id = 6;
+    optional int64 txn_id = 7;
+    optional bool corrected = 8;
 }
 
 message MergedFileInfoPB {

@@ -152,6 +152,7 @@ io::FileSystemSPtr RowsetMeta::fs() {
             io::MergeFileAppendInfo append_info;
             append_info.tablet_id = tablet_id();
             append_info.rowset_id = _rowset_id.to_string();
+            append_info.txn_id = txn_id();
             wrapped = std::make_shared<io::MergeFileSystem>(wrapped, index_map, append_info);
         }
     }
