@@ -117,6 +117,7 @@ public abstract class TableValuedFunction extends BoundFunction
     }
 
     public PhysicalProperties getPhysicalProperties() {
+        // always need shuffle when exists union all
         return PhysicalProperties.STORAGE_ANY;
     }
 

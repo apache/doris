@@ -96,14 +96,6 @@ public class Numbers extends TableValuedFunction {
     }
 
     @Override
-    public PhysicalProperties getPhysicalProperties() {
-        if (SessionVariable.canUseNereidsDistributePlanner()) {
-            return PhysicalProperties.ANY;
-        }
-        return super.getPhysicalProperties();
-    }
-
-    @Override
     public Numbers withChildren(List<Expression> children) {
         Preconditions.checkArgument(children().size() == 1
                 && children().get(0) instanceof Properties);
