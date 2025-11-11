@@ -130,6 +130,8 @@ curl "http://${ES_7_HOST}:9200/test2_20220808" -H "Content-Type:application/json
 curl "http://${ES_7_HOST}:9200/test2_20220809" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es7_test2.json'
 # create index test3_20231005
 curl "http://${ES_7_HOST}:9200/test3_20231005" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es7_test3.json'
+# create index test_object for object type testing (empty table)
+curl "http://${ES_7_HOST}:9200/test_object" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es7_test_object.json'
 # put data for tese1
 curl "http://${ES_7_HOST}:9200/test1/_doc/1" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data1.json'
 curl "http://${ES_7_HOST}:9200/test1/_doc/2" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/data2.json'
