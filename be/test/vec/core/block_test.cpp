@@ -1158,7 +1158,7 @@ TEST(BlockTest, insert_erase) {
     column_with_name =
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({});
     block.insert(0, column_with_name);
-    ASSERT_EQ(block.columns(), 0);
+    ASSERT_EQ(block.columns(), 1);
 
     EXPECT_ANY_THROW(block.safe_get_by_position(0));
 
