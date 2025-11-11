@@ -130,6 +130,24 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     opts.sanity_check();
     opts.stats->total_pages_num++;
 
+    // Count pages by type
+    switch (opts.type) {
+    case DATA_PAGE:
+        opts.stats->data_pages_num++;
+        break;
+    case INDEX_PAGE:
+        opts.stats->index_pages_num++;
+        break;
+    case DICTIONARY_PAGE:
+        opts.stats->dict_pages_num++;
+        break;
+    case SHORT_KEY_PAGE:
+        opts.stats->short_key_pages_num++;
+        break;
+    default:
+        break;
+    }
+
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),

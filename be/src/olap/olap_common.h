@@ -362,6 +362,11 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
+    int64_t data_pages_num = 0;
+    int64_t index_pages_num = 0;
+    int64_t dict_pages_num = 0;
+    int64_t short_key_pages_num = 0;
+
     int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
 
