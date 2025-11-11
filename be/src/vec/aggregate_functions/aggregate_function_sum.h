@@ -25,6 +25,7 @@
 #include <memory>
 #include <vector>
 
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
@@ -284,6 +285,7 @@ private:
     UInt32 scale;
 };
 
+// TODO: use result type from FE plan
 template <PrimitiveType T>
 struct SumSimple {
     static_assert(!is_decimalv3(T));
@@ -297,6 +299,7 @@ struct SumSimple {
 template <PrimitiveType T>
 using AggregateFunctionSumSimple = typename SumSimple<T>::Function;
 
+// use result type got from FE plan
 template <PrimitiveType InputType, PrimitiveType ResultType>
 struct SumDecimalV3 {
     static_assert(is_decimalv3(InputType) && is_decimalv3(ResultType));

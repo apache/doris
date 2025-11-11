@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "runtime/decimalv2_value.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -112,7 +113,7 @@ template <PrimitiveType T, PrimitiveType TResult>
 constexpr static bool is_valid_avg_types =
         (is_same_or_wider_decimalv3(T, TResult) || (is_decimalv2(T) && is_decimalv2(TResult)) ||
          (is_float_or_double(T) && is_float_or_double(TResult)) ||
-         (is_int_or_bool(T) && (is_float_or_double(TResult) || is_int(TResult))));
+         (is_int_or_bool(T) && (is_double(TResult) || is_int(TResult))));
 /// Calculates arithmetic mean of numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
     requires(is_valid_avg_types<T, TResult>)

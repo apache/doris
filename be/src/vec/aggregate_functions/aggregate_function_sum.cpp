@@ -20,7 +20,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_sum.h"
 
-#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 
@@ -33,12 +32,13 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
         if (is_decimalv3(types[0]->get_primitive_type())) {
-            // use types of fe
+            // for decimalv3, use result type from FE plan
             return creator_with_type_list<TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
                                           TYPE_DECIMAL256>::
                     creator_with_result_type<AggregateFunctionSumDecimalV3>(
                             name, types, result_type, result_is_nullable, attr);
         } else {
+            // TODO: for other types, also use result type from FE plan
             return creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMALV2>::
                     creator<AggregateFunctionSumSimple>(name, types, result_type,
