@@ -34,7 +34,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.HashMap;
@@ -389,10 +388,9 @@ public class IndexDefinition {
 
     public List<String> getColumnNames() {
         if (!caseSensitivityCols.isEmpty()) {
-            return ImmutableList.copyOf(caseSensitivityCols);
-        } else {
-            return ImmutableList.copyOf(cols);
+            return caseSensitivityCols;
         }
+        return cols;
     }
 
     public String getIndexName() {
