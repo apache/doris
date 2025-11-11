@@ -26,7 +26,6 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -37,7 +36,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -578,21 +576,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     public interface ExprVisitor {
         void visit(Expr expr, TExprNode exprNode);
-    }
-
-    public static Type getAssignmentCompatibleType(List<Expr> children) {
-        Type assignmentCompatibleType = Type.INVALID;
-        for (int i = 0; i < children.size()
-                && (assignmentCompatibleType.isDecimalV3() || assignmentCompatibleType.isDatetimeV2()
-                || assignmentCompatibleType.isInvalid()); i++) {
-            if (children.get(i) instanceof NullLiteral) {
-                continue;
-            }
-            assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
-                    : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
-                    true, SessionVariable.getEnableDecimal256());
-        }
-        return assignmentCompatibleType;
     }
 
     // Convert this expr into msg (excluding children), which requires setting
@@ -1271,10 +1254,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     public void setOriginCastNullable(boolean nullable) {
         originCastNullable = Optional.of(nullable);
-    }
-
-    public void clearNullableFromNereids() {
-        nullableFromNereids = Optional.empty();
     }
 
     public Set<SlotRef> getInputSlotRef() {

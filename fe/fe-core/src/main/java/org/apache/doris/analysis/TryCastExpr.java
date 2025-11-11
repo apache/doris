@@ -51,12 +51,7 @@ public class TryCastExpr extends CastExpr {
 
     @Override
     public String toSqlImpl() {
-        if (isAnalyzed) {
-            return "TRYCAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
-        } else {
-            return "TRYCAST(" + getChild(0).toSql() + " AS "
-                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
-        }
+        return "TRY_CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
     }
 
     @Override
@@ -64,13 +59,8 @@ public class TryCastExpr extends CastExpr {
         if (needExternalSql) {
             return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
         }
-        if (isAnalyzed) {
-            return "TRYCAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                    + type.toSql() + ")";
-        } else {
-            return "TRYCAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
-        }
+        return "TRY_CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
+                + type.toSql() + ")";
     }
 
     @Override
@@ -83,11 +73,7 @@ public class TryCastExpr extends CastExpr {
         if (isImplicit && !isVerbose) {
             return getChild(0).toDigest();
         }
-        if (isAnalyzed) {
-            return "TRYCAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
-        } else {
-            return "TRYCAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
-        }
+        return "TRY_CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
     }
 
     @Override

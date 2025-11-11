@@ -30,7 +30,6 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -100,8 +99,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
     public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             SessionVariable sv) {
-        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE, needCheckColumnPriv,
-                sv);
+        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", needCheckColumnPriv, sv);
     }
 
     @Override

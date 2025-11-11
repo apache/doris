@@ -28,7 +28,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -100,30 +99,6 @@ public class StructType extends Type {
                 leftPadding, Joiner.on(",\n").join(fieldsSql), leftPadding);
     }
 
-    public static Type getAssignmentCompatibleType(
-            StructType t1, StructType t2, boolean strict, boolean enableDecimal256) {
-        ArrayList<StructField> fieldsLeft = t1.getFields();
-        ArrayList<StructField> fieldsRight = t2.getFields();
-        ArrayList<StructField> fieldsRes = new ArrayList<>();
-
-        for (int i = 0; i < t1.getFields().size(); ++i) {
-            StructField leftField = fieldsLeft.get(i);
-            StructField rightField = fieldsRight.get(i);
-            Type itemCompatibleType = Type.getAssignmentCompatibleType(leftField.getType(), rightField.getType(),
-                    strict, enableDecimal256);
-            if (itemCompatibleType.isInvalid()) {
-                return ScalarType.INVALID;
-            }
-            fieldsRes.add(new StructField(StringUtils.isEmpty(leftField.getName()) ? rightField.getName()
-                    : leftField.getName(),
-                    itemCompatibleType, StringUtils.isEmpty(leftField.getComment()) ? rightField.getComment()
-                    : leftField.getComment(), leftField.getContainsNull() || rightField.getContainsNull()));
-
-        }
-
-        return new StructType(fieldsRes);
-    }
-
     @Override
     public boolean isSupported() {
         for (StructField f : fields) {
@@ -156,11 +131,6 @@ public class StructType extends Type {
 
     public StructField getField(String fieldName) {
         return fieldMap.get(fieldName.toLowerCase());
-    }
-
-    public void clearFields() {
-        fields.clear();
-        fieldMap.clear();
     }
 
     @Override
@@ -197,15 +167,6 @@ public class StructType extends Type {
             }
         }
         return true;
-    }
-
-    public StructType replaceFieldsWithNames(List<String> names) {
-        Preconditions.checkState(names.size() == fields.size());
-        ArrayList<StructField> newFields = Lists.newArrayList();
-        for (int i = 0; i < names.size(); i++) {
-            newFields.add(new StructField(names.get(i), fields.get(i).type));
-        }
-        return new StructType(newFields);
     }
 
     @Override

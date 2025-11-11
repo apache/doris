@@ -121,12 +121,12 @@ public class LoadManager implements Writable {
             }
         }
 
-        Database database = checkDb(command.getLabel().getDbName());
+        Database database = checkDb(command.getLabel().getDb());
         long dbId = database.getId();
         LoadJob loadJob;
         writeLock();
         try {
-            checkLabelUsed(dbId, command.getLabel().getLabelName());
+            checkLabelUsed(dbId, command.getLabel().getLabel());
             if (command.getBrokerDesc() == null && command.getResourceDesc() == null) {
                 throw new DdlException("LoadManager only support the broker and spark load.");
             }

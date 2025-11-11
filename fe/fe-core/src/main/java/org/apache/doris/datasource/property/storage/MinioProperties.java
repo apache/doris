@@ -41,6 +41,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "s3.access_key"},
             required = false,
+            sensitive = true,
             description = "The access key of Minio.")
     protected String accessKey = "";
 

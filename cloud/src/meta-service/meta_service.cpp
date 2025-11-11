@@ -681,6 +681,9 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         }
         txn->put(rs_key, rs_val);
         if (is_versioned_write) {
+            std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, tablet_id, first_rowset->rowset_id_v2()});
+            txn->atomic_add(rowset_ref_count_key, 1);
             std::string versioned_rs_key = versioned::meta_rowset_load_key(
                     {instance_id, tablet_id, first_rowset->end_version()});
             if (!versioned::document_put(txn.get(), versioned_rs_key, std::move(*first_rowset))) {
@@ -691,7 +694,8 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
             }
             LOG(INFO) << "put first versioned rowset meta, tablet_id=" << tablet_id
                       << " end_version=" << first_rowset->end_version()
-                      << " key=" << hex(versioned_rs_key);
+                      << " key=" << hex(versioned_rs_key)
+                      << " rowset_ref_count_key=" << hex(rowset_ref_count_key);
         }
 
         tablet_meta.clear_rs_metas(); // Strip off rowset meta
@@ -1993,7 +1997,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                 versioned::meta_tablet_key({instance_id, tablet_meta->tablet_id()});
         TabletMetaCloudPB meta;
         meta.CopyFrom(*tablet_meta);
-        if (!versioned::document_put(txn.get(), versioned_tablet_key, std::move(meta))) {
+        if (!versioned::document_put(txn0.get(), versioned_tablet_key, std::move(meta))) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             msg = fmt::format("failed to serialize versioned tablet meta, key={}",
                               hex(versioned_tablet_key));
@@ -2032,7 +2036,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                 .tag("tablet_id", tablet_meta->tablet_id())
                 .tag("value_size", tablet_load_stats_val.size())
                 .tag("instance_id", instance_id);
-        versioned_put(txn.get(), tablet_load_stats_version_key, tablet_load_stats_val);
+        versioned_put(txn0.get(), tablet_load_stats_version_key, tablet_load_stats_val);
 
         TabletStatsPB tablet_compact_stats;
         tablet_compact_stats.CopyFrom(stats_pb);
@@ -2044,7 +2048,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                 .tag("tablet_id", tablet_meta->tablet_id())
                 .tag("value_size", tablet_compact_stats_val.size())
                 .tag("instance_id", instance_id);
-        versioned_put(txn.get(), tablet_compact_stats_version_key, tablet_compact_stats_val);
+        versioned_put(txn0.get(), tablet_compact_stats_version_key, tablet_compact_stats_val);
     }
     update_tablet_stats(stat_info, tablet_stat, txn0, code, msg);
     if (code != MetaServiceCode::OK) {

@@ -19,7 +19,6 @@ package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -3157,7 +3156,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        LabelName label = new LabelName(request.getDb(), request.getLabelName());
+        LabelNameInfo label = new LabelNameInfo(request.getDb(), request.getLabelName());
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
 
@@ -3230,7 +3229,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         //instantiate RestoreCommand
-        LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
+        LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDb(), label.getLabel());
         List<TableRefInfo> tableRefInfos = restoreTableRefClause == null
                 ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);

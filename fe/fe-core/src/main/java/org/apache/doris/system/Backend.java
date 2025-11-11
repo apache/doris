@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,6 +38,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -49,6 +51,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -152,10 +155,6 @@ public class Backend implements Writable {
     // And once it back to alive, reset this counter.
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
-
-    // Not need serialize this field. If fe restart the state is reset to false. Maybe fe will
-    // send some queries to this BE, it is not an important problem.
-    private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
     private long nextForceEditlogHeartbeatTime = System.currentTimeMillis() + (new SecureRandom()).nextInt(60 * 1000);
 
@@ -293,20 +292,38 @@ public class Backend implements Writable {
         this.backendStatus.lastStreamLoadTime = lastStreamLoadTime;
     }
 
+    // ATTN: This method only return the value of "isQueryDisabled",
+    // it does not determine the backend IS queryable or not, use isQueryAvailable instead.
     public boolean isQueryDisabled() {
         return backendStatus.isQueryDisabled;
     }
 
-    public void setQueryDisabled(boolean isQueryDisabled) {
-        this.backendStatus.isQueryDisabled = isQueryDisabled;
+    // return true if be status is changed
+    public boolean setQueryDisabled(boolean isQueryDisabled) {
+        if (this.backendStatus.isQueryDisabled != isQueryDisabled) {
+            this.backendStatus.isQueryDisabled = isQueryDisabled;
+            return true;
+        }
+        return false;
     }
 
+    // ATTN: This method only return the value of "isLoadDisabled",
+    // it does not determine the backend IS loadable or not, use isLoadAvailable instead.
     public boolean isLoadDisabled() {
         return backendStatus.isLoadDisabled;
     }
 
-    public void setLoadDisabled(boolean isLoadDisabled) {
-        this.backendStatus.isLoadDisabled = isLoadDisabled;
+    // return true if be status is changed
+    public boolean setLoadDisabled(boolean isLoadDisabled) {
+        if (this.backendStatus.isLoadDisabled != isLoadDisabled) {
+            this.backendStatus.isLoadDisabled = isLoadDisabled;
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isShutDown() {
+        return backendStatus.isShutdown;
     }
 
     public void setActive(boolean isActive) {
@@ -524,15 +541,21 @@ public class Backend implements Writable {
     }
 
     public boolean isQueryAvailable() {
-        return isAlive() && !isQueryDisabled() && !isShutDown.get();
+        String debugDeadBeIds = DebugPointUtil.getDebugParamOrDefault(
+                "Backend.isQueryAvailable", "unavailableBeIds", "");
+        if (!Strings.isNullOrEmpty(debugDeadBeIds)
+                && Arrays.stream(debugDeadBeIds.split(",")).anyMatch(id -> Long.parseLong(id) == this.id)) {
+            return false;
+        }
+        return isAlive() && !isQueryDisabled() && !isShutDown();
     }
 
     public boolean isScheduleAvailable() {
-        return isAlive() && !isDecommissioned();
+        return isAlive() && !isDecommissioned() && !isShutDown();
     }
 
     public boolean isLoadAvailable() {
-        return isAlive() && !isLoadDisabled();
+        return isAlive() && !isLoadDisabled() && !isShutDown();
     }
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
@@ -872,10 +895,10 @@ public class Backend implements Writable {
                 this.arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
             }
 
-            if (this.isShutDown.get() != hbResponse.isShutDown()) {
+            if (this.backendStatus.isShutdown != hbResponse.isShutDown()) {
                 isChanged = true;
                 LOG.info("{} shutdown state is changed", this.toString());
-                this.isShutDown.set(hbResponse.isShutDown());
+                this.backendStatus.isShutdown = hbResponse.isShutDown();
             }
 
             if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(
@@ -990,6 +1013,8 @@ public class Backend implements Writable {
         public volatile boolean isLoadDisabled = false;
         @SerializedName("isActive")
         public volatile boolean isActive = true;
+        @SerializedName("isShutdown")
+        public volatile boolean isShutdown = false;
 
         // cloud mode, cloud control just query master, so not need SerializedName
         public volatile long currentFragmentNum = 0;
@@ -1101,3 +1126,4 @@ public class Backend implements Writable {
     }
 
 }
+

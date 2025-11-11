@@ -20,13 +20,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 
@@ -34,13 +30,11 @@ import java.util.ArrayList;
  * Node that applies conjuncts and a limit clause. Has exactly one child.
  */
 public class SelectNode extends PlanNode {
-    private static final Logger LOG = LogManager.getLogger(SelectNode.class);
-
     /**
      * Used by nereids only.
      */
     public SelectNode(PlanNodeId id, PlanNode child) {
-        super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT", StatisticalType.SELECT_NODE);
+        super(id, new ArrayList<>(child.getOutputTupleIds()), "SELECT");
         addChild(child);
         this.nullableTupleIds = child.nullableTupleIds;
     }

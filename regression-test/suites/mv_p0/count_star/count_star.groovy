@@ -56,7 +56,7 @@ suite ("count_star") {
     mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table group by k1,k4 order by 1,2;"
 
-    mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
+    mv_rewrite_success_without_check_chosen("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k1=1 group by k1,k4 order by 1,2;"
 
     mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")

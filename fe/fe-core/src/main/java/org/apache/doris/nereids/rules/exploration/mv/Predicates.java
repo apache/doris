@@ -37,9 +37,11 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -57,23 +59,30 @@ public class Predicates {
 
     // Predicates that can be pulled up
     private final Set<Expression> pulledUpPredicates;
+    // Predicates that can not be pulled up, should be equals between query and view
+    private final Set<Expression> couldNotPulledUpPredicates;
 
-    public Predicates(Set<Expression> pulledUpPredicates) {
+    public Predicates(Set<Expression> pulledUpPredicates, Set<Expression> couldNotPulledUpPredicates) {
         this.pulledUpPredicates = pulledUpPredicates;
+        this.couldNotPulledUpPredicates = couldNotPulledUpPredicates;
     }
 
-    public static Predicates of(Set<Expression> pulledUpPredicates) {
-        return new Predicates(pulledUpPredicates);
+    public static Predicates of(Set<Expression> pulledUpPredicates, Set<Expression> predicatesUnderBreaker) {
+        return new Predicates(pulledUpPredicates, predicatesUnderBreaker);
     }
 
     public Set<Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
     }
 
-    public Predicates merge(Collection<Expression> predicates) {
+    public Set<Expression> getCouldNotPulledUpPredicates() {
+        return couldNotPulledUpPredicates;
+    }
+
+    public Predicates mergePulledUpPredicates(Collection<Expression> predicates) {
         Set<Expression> mergedPredicates = new HashSet<>(predicates);
         mergedPredicates.addAll(this.pulledUpPredicates);
-        return new Predicates(mergedPredicates);
+        return new Predicates(mergedPredicates, this.couldNotPulledUpPredicates);
     }
 
     /**
@@ -82,6 +91,41 @@ public class Predicates {
     public static SplitPredicate splitPredicates(Expression expression) {
         PredicatesSplitter predicatesSplit = new PredicatesSplitter(expression);
         return predicatesSplit.getSplitPredicate();
+    }
+
+    /**
+     * try to compensate could not pull up predicates
+     */
+    public static Map<Expression, ExpressionInfo> compensateCouldNotPullUpPredicates(
+            StructInfo queryStructInfo, StructInfo viewStructInfo,
+            SlotMapping viewToQuerySlotMapping, ComparisonResult comparisonResult) {
+
+        Predicates queryStructInfoPredicates = queryStructInfo.getPredicates();
+        Predicates viewStructInfoPredicates = viewStructInfo.getPredicates();
+        if (queryStructInfoPredicates.getCouldNotPulledUpPredicates().isEmpty()
+                && viewStructInfoPredicates.getCouldNotPulledUpPredicates().isEmpty()) {
+            return ImmutableMap.of();
+        }
+        if (queryStructInfoPredicates.getCouldNotPulledUpPredicates().isEmpty()
+                && !viewStructInfoPredicates.getCouldNotPulledUpPredicates().isEmpty()) {
+            return null;
+        }
+        if (!queryStructInfoPredicates.getCouldNotPulledUpPredicates().isEmpty()
+                && viewStructInfoPredicates.getCouldNotPulledUpPredicates().isEmpty()) {
+            return null;
+        }
+
+        List<? extends Expression> viewPredicatesShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                Lists.newArrayList(viewStructInfoPredicates.getCouldNotPulledUpPredicates()),
+                viewStructInfo.getTopPlan(), new BitSet());
+        List<Expression> viewPredicatesQueryBased = ExpressionUtils.replace((List<Expression>) viewPredicatesShuttled,
+                viewToQuerySlotMapping.toSlotReferenceMap());
+        // could not be pulled up predicates in query and view should be same
+        if (queryStructInfoPredicates.getCouldNotPulledUpPredicates().equals(
+                Sets.newHashSet(viewPredicatesQueryBased))) {
+            return ImmutableMap.of();
+        }
+        return null;
     }
 
     /**
@@ -250,7 +294,8 @@ public class Predicates {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("Predicates", "pulledUpPredicates", pulledUpPredicates);
+        return Utils.toSqlString("Predicates", "pulledUpPredicates", pulledUpPredicates,
+                "predicatesUnderBreaker", couldNotPulledUpPredicates);
     }
 
     /**
