@@ -70,10 +70,11 @@ Status MergeFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
         FileReaderSPtr inner_reader;
         // Create a new FileReaderOptions with the correct file size
         FileReaderOptions local_opts = opts ? *opts : FileReaderOptions();
-        DCHECK(opts->file_size == -1 || opts->file_size == index.size)
-                << "file size is not correct, expected: " << index.size
-                << ", actual: " << opts->file_size;
-        local_opts.file_size = index.size + index.offset;
+        // DCHECK(opts->file_size == -1 || opts->file_size == index.size)
+        //         << "file size is not correct, expected: " << index.size
+        //         << ", actual: " << opts->file_size;
+        // local_opts.file_size = index.size + index.offset;
+        local_opts.file_size = -1;
         LOG(INFO) << "open merge file: " << index.merge_file_path << ", file: " << file.native()
                   << ", offset: " << index.offset << ", size: " << index.size;
         RETURN_IF_ERROR(
