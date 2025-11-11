@@ -54,7 +54,6 @@ public interface ExplicitlyCastableSignature extends ComputeSignature {
             return false;
         }
         try {
-            // TODO: copy canCastTo method to DataType
             return TypeCoercionUtils.canCastTo(realType, signatureType);
         } catch (Throwable t) {
             // the signatureType maybe DataType and can not cast to catalog data type.
