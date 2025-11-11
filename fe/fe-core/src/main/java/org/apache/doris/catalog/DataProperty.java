@@ -45,6 +45,8 @@ public class DataProperty implements Writable, GsonPostProcessable {
     private TStorageMedium storageMedium;
     @SerializedName(value = "cooldownTimeMs")
     private long cooldownTimeMs;
+    @SerializedName(value = "remoteDataSize")
+    private long remoteDataSize;
     @SerializedName(value = "storagePolicy")
     private String storagePolicy;
     @SerializedName(value = "isMutable")
@@ -59,6 +61,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
+        this.remoteDataSize = 0;
     }
 
     public DataProperty(DataProperty other) {
@@ -66,6 +69,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.cooldownTimeMs = other.cooldownTimeMs;
         this.storagePolicy = other.storagePolicy;
         this.isMutable = other.isMutable;
+        this.remoteDataSize = 0;
     }
 
     /**
@@ -84,6 +88,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.cooldownTimeMs = cooldown;
         this.storagePolicy = storagePolicy;
         this.isMutable = isMutable;
+        this.remoteDataSize = 0;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -100,6 +105,14 @@ public class DataProperty implements Writable, GsonPostProcessable {
 
     public void setStoragePolicy(String storagePolicy) {
         this.storagePolicy = storagePolicy;
+    }
+
+    public long getRemoteDataSize() {
+        return remoteDataSize;
+    }
+
+    public void setRemoteDataSize(long remoteDataSize) {
+        this.remoteDataSize = remoteDataSize;
     }
 
     public boolean isStorageMediumSpecified() {
