@@ -147,10 +147,20 @@ bool PinyinFilter::readTerm(Token* token) {
     // Preserve original text if configured or if no candidates were generated
     // This ensures Unicode symbols (emoji, etc.) are preserved even without keep_original setting
     // matching Elasticsearch behavior
+    // NOTE: Must be AFTER processCurrentToken() but BEFORE first_letters to maintain correct order
     if (!processed_original_ && has_current_token_) {
+        bool should_add_original = config_->keepOriginal;
+
+        // For emoji/symbol fallback: check if ANY content was generated (candidates OR pending letters)
+        // If nothing was generated, this is likely an emoji/symbol that should be preserved
+        if (!should_add_original && candidate_.empty() && first_letters_.empty() &&
+            full_pinyin_letters_.empty()) {
+            // No candidates and no pending letters, this is emoji/symbol
+            should_add_original = true;
+        }
+
         processed_original_ = true;
-        // Keep original if explicitly configured or if no candidates generated (fallback for emoji, symbols)
-        if (config_->keepOriginal || candidate_.empty()) {
+        if (should_add_original) {
             addCandidate(
                     TermItem(current_source_, 0, static_cast<int>(current_source_.length()), 1));
         }
