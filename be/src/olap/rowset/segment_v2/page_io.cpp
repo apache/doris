@@ -169,6 +169,23 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
         // If read from cache, then should also recorded in uncompressed bytes read counter.
         opts.stats->uncompressed_bytes_read += body->size;
+        // Count uncompressed bytes by page type
+        switch (opts.type) {
+        case DATA_PAGE:
+            opts.stats->data_page_uncompressed_bytes_read += body->size;
+            break;
+        case INDEX_PAGE:
+            opts.stats->index_page_uncompressed_bytes_read += body->size;
+            break;
+        case DICTIONARY_PAGE:
+            opts.stats->dict_page_uncompressed_bytes_read += body->size;
+            break;
+        case SHORT_KEY_PAGE:
+            opts.stats->short_key_page_uncompressed_bytes_read += body->size;
+            break;
+        default:
+            break;
+        }
         return Status::OK();
     }
 
@@ -190,6 +207,23 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                                   &opts.io_ctx));
         DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
+        // Count compressed bytes by page type
+        switch (opts.type) {
+        case DATA_PAGE:
+            opts.stats->data_page_compressed_bytes_read += page_size;
+            break;
+        case INDEX_PAGE:
+            opts.stats->index_page_compressed_bytes_read += page_size;
+            break;
+        case DICTIONARY_PAGE:
+            opts.stats->dict_page_compressed_bytes_read += page_size;
+            break;
+        case SHORT_KEY_PAGE:
+            opts.stats->short_key_page_compressed_bytes_read += page_size;
+            break;
+        default:
+            break;
+        }
     }
 
     if (opts.verify_checksum) {
@@ -258,6 +292,23 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     // uncompressed or decoded. So that should update the uncompressed_bytes_read counter
     // just before add it to pagecache, it will be consistency with reading data from page cache.
     opts.stats->uncompressed_bytes_read += body->size;
+    // Count uncompressed bytes by page type
+    switch (opts.type) {
+    case DATA_PAGE:
+        opts.stats->data_page_uncompressed_bytes_read += body->size;
+        break;
+    case INDEX_PAGE:
+        opts.stats->index_page_uncompressed_bytes_read += body->size;
+        break;
+    case DICTIONARY_PAGE:
+        opts.stats->dict_page_uncompressed_bytes_read += body->size;
+        break;
+    case SHORT_KEY_PAGE:
+        opts.stats->short_key_page_uncompressed_bytes_read += body->size;
+        break;
+    default:
+        break;
+    }
     if (opts.use_page_cache && cache) {
         // insert this page into cache and return the cache handle
         cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);
