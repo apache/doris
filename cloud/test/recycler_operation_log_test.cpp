@@ -2257,6 +2257,16 @@ TEST(OperationLogRecycleCheckerTest, InitAndBasicCheck) {
         ASSERT_TRUE(checker.can_recycle(old_version, 1)) << old_version.version();
     }
 
+    {
+        // Even a log has no min_timestamp, it can be recycled.
+        InstanceInfoPB instance_info;
+        OperationLogRecycleChecker checker(test_instance_id, txn_kv.get(), instance_info);
+        ASSERT_EQ(checker.init(), 0);
+
+        OperationLogPB op_log;
+        ASSERT_TRUE(checker.can_recycle(old_version, op_log.min_timestamp()));
+    }
+
     auto write_snapshot = [&]() {
         // Write snapshot
         SnapshotPB snapshot;

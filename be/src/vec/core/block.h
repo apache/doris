@@ -120,6 +120,10 @@ public:
         std::swap(data, new_data);
     }
 
+    // Use this method only when you are certain index_by_name will not be used
+    // This is a temporary compromise; index_by_name may be removed in the future
+    void simple_insert(const ColumnWithTypeAndName& elem) { data.emplace_back(elem); }
+
     void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.

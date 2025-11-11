@@ -36,6 +36,32 @@ using namespace doris::vector_search_utils;
 
 namespace doris::segment_v2 {
 
+class MockVectorIndex : public VectorIndex {
+public:
+    MockVectorIndex() { _dimension = 4; } // Set dimension for test
+    MOCK_METHOD(doris::Status, train, (vectorized::Int64 n, const float* vec), (override));
+    MOCK_METHOD(doris::Status, add, (vectorized::Int64 n, const float* vec), (override));
+    MOCK_METHOD(doris::Status, ann_topn_search,
+                (const float* query_vec, int k, const segment_v2::IndexSearchParameters& params,
+                 segment_v2::IndexSearchResult& result),
+                (override));
+    MOCK_METHOD(doris::Status, range_search,
+                (const float* query_vec, const float& radius,
+                 const segment_v2::IndexSearchParameters& params,
+                 segment_v2::IndexSearchResult& result),
+                (override));
+    MOCK_METHOD(doris::Status, save, (lucene::store::Directory * dir), (override));
+    MOCK_METHOD(doris::Status, load, (lucene::store::Directory * dir), (override));
+};
+
+class TestAnnIndexColumnWriter : public AnnIndexColumnWriter {
+public:
+    TestAnnIndexColumnWriter(IndexFileWriter* index_file_writer, const TabletIndex* index_meta)
+            : AnnIndexColumnWriter(index_file_writer, index_meta) {}
+
+    void set_vector_index(std::shared_ptr<VectorIndex> index) { _vector_index = index; }
+};
+
 class AnnIndexWriterTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -382,6 +408,69 @@ TEST_F(AnnIndexWriterTest, TestInvalidMetricType) {
 
     // This should throw an exception due to invalid metric type
     EXPECT_THROW(writer->init(), doris::Exception);
+}
+
+TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    EXPECT_CALL(*mock_index, train(10, testing::_))
+            .Times(1)
+            .WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(10, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, train(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    // CHUNK_SIZE = 10
+    const size_t dim = 4;
+
+    {
+        const size_t num_rows = 6;
+        std::vector<float> vectors = {
+                1.0f,  2.0f,  3.0f,  4.0f,  // Row 0
+                5.0f,  6.0f,  7.0f,  8.0f,  // Row 1
+                9.0f,  10.0f, 11.0f, 12.0f, // Row 2
+                13.0f, 14.0f, 15.0f, 16.0f, // Row 3
+                17.0f, 18.0f, 19.0f, 20.0f, // Row 4
+                21.0f, 22.0f, 23.0f, 24.0f  // Row 5
+        };
+        std::vector<size_t> offsets = {0, 4, 8, 12, 16, 20, 24};
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    {
+        const size_t num_rows = 6;
+        std::vector<float> vectors = {
+                25.0f, 26.0f, 27.0f, 28.0f, // Row 6
+                29.0f, 30.0f, 31.0f, 32.0f, // Row 7
+                33.0f, 34.0f, 35.0f, 36.0f, // Row 8
+                37.0f, 38.0f, 39.0f, 40.0f, // Row 9
+                41.0f, 42.0f, 43.0f, 44.0f, // Row 10
+                45.0f, 46.0f, 47.0f, 48.0f  // Row 11
+        };
+        std::vector<size_t> offsets = {0, 4, 8, 12, 16, 20, 24};
+
+        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
+                                                 num_rows);
+        EXPECT_TRUE(status.ok());
+    }
+
+    Status status = writer->finish();
+    EXPECT_TRUE(status.ok());
 }
 
 } // namespace doris::segment_v2
