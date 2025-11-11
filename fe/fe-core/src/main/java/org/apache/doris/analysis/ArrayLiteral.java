@@ -86,14 +86,6 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toDigestImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toDigestImpl()));
-
-        return "[" + StringUtils.join(list, ", ") + "]";
-    }
-
-    @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.getStringValue()));

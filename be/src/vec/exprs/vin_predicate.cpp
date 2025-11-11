@@ -141,7 +141,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     block->insert({nullptr, _data_type, _expr_name});
 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows(), false));
+                                       num_columns_without_result, block->rows()));
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }

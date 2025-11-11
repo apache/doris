@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TMatchPredicate;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
@@ -89,17 +88,27 @@ public class MatchPredicate extends Predicate {
         invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
     }
 
-    public MatchPredicate(Operator op, Expr e1, Expr e2) {
+    /**
+     * use for Nereids ONLY
+     */
+    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
+            NullableMode nullableMode, Index invertedIndex) {
         super();
         this.op = op;
-        Preconditions.checkNotNull(e1);
         children.add(e1);
-        Preconditions.checkNotNull(e2);
         children.add(e2);
-        // TODO: Calculate selectivity
-        selectivity = Expr.DEFAULT_SELECTIVITY;
         invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        if (invertedIndex != null) {
+            this.invertedIndexParser = invertedIndex.getInvertedIndexParser();
+            this.invertedIndexParserMode = invertedIndex.getInvertedIndexParserMode();
+            this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
+            this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
+            this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
+            this.invertedIndexCustomAnalyzer = invertedIndex.getInvertedIndexCustomAnalyzer();
+        }
+        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
+                false, true, nullableMode);
     }
 
     protected MatchPredicate(MatchPredicate other) {
@@ -111,24 +120,6 @@ public class MatchPredicate extends Predicate {
         invertedIndexParserLowercase = other.invertedIndexParserLowercase;
         invertedIndexParserStopwords = other.invertedIndexParserStopwords;
         invertedIndexCustomAnalyzer = other.invertedIndexCustomAnalyzer;
-    }
-
-    /**
-     * use for Nereids ONLY
-     */
-    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
-            NullableMode nullableMode, Index invertedIndex) {
-        this(op, e1, e2);
-        if (invertedIndex != null) {
-            this.invertedIndexParser = invertedIndex.getInvertedIndexParser();
-            this.invertedIndexParserMode = invertedIndex.getInvertedIndexParserMode();
-            this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
-            this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
-            this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
-            this.invertedIndexCustomAnalyzer = invertedIndex.getInvertedIndexCustomAnalyzer();
-        }
-        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
-                false, true, nullableMode);
     }
 
     @Override
