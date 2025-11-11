@@ -165,7 +165,6 @@ Status VMergeIteratorContext::copy_rows(BlockWithSameBit* block_with_same_bit, b
     block_with_same_bit->same_bit.insert(block_with_same_bit->same_bit.end(),
                                          tmp_pre_ctx_same_bit.begin(),
                                          tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
-    
     return copy_rows(block_with_same_bit->block, advanced);
 }
 
