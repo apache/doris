@@ -613,6 +613,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                          const ColumnIteratorOptions& iter_opts) {
+    SCOPED_RAW_TIMER(&iter_opts.stats->load_ordinal_index_timer_ns);
     return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
 }
 
