@@ -38,6 +38,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -470,6 +471,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
+                    if (table.getType() == TableIf.TableType.DORIS_EXTERNAL_TABLE && Config.isNotCloudMode()) {
+                        OlapTable olapTable = ((RemoteDorisExternalTable) table).getOlapTable();
+                        return makeOlapScan(olapTable, unboundRelation, qualifierWithoutTableName, cascadesContext);
+                    }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),

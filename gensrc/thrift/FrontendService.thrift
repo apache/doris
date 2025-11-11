@@ -1678,6 +1678,19 @@ struct TGetTableTDEInfoResult {
     2: optional AgentService.TEncryptionAlgorithm algorithm
 }
 
+struct TGetOlapTableMetaRequest {
+    1: required string user
+    2: required string passwd
+    3: required string db
+    4: required string table
+    5: optional i32 version
+}
+
+struct TGetOlapTableMetaResult {
+    1: required Status.TStatus status
+    2: optional binary meta
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1784,4 +1797,6 @@ service FrontendService {
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
+
+    TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
 }
