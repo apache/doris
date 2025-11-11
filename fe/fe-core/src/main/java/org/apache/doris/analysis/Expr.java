@@ -2271,9 +2271,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    public boolean hasAggregateSlot() {
+    public boolean hasAggregateSlot(KeysType keysType) {
         for (Expr expr : children) {
-            if (expr.hasAggregateSlot()) {
+            if (expr.hasAggregateSlot(keysType)) {
                 return true;
             }
         }

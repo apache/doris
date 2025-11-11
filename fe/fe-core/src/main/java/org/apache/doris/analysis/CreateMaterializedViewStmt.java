@@ -225,7 +225,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             mvKeysType = KeysType.AGG_KEYS;
         }
         if (selectStmt.getWhereClause() != null) {
-            if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
+            if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot(getMVKeysType())) {
                 throw new AnalysisException(
                         "The where clause contained aggregate column is not supported, expr:"
                                 + selectStmt.getWhereClause().toSql());
@@ -585,7 +585,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
         }
 
-        if (!isReplay && defineExpr.hasAggregateSlot()) {
+        if (!isReplay && defineExpr.hasAggregateSlot(getMVKeysType())) {
             SlotRef slot = null;
             if (defineExpr instanceof SlotRef) {
                 slot = (SlotRef) defineExpr;
