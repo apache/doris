@@ -259,6 +259,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     COUNTER_SET(_jemalloc_memory_usage_counter,
                 _jemalloc_cache_usage_counter->current_value() +
                         _jemalloc_metadata_usage_counter->current_value());
+    DorisMetrics::instance()->jvm_metrics()->update();
     int64_t jvm_memory_usage_counter =
             DorisMetrics::instance()->jvm_metrics()->jvm_heap_size_bytes_committed->value() +
             DorisMetrics::instance()->jvm_metrics()->jvm_non_heap_size_bytes_committed->value();
