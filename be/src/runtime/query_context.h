@@ -58,6 +58,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
+    std::string load_error_url;
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
 };
@@ -330,6 +331,9 @@ public:
         fragment_instance_ids.push_back(ins_id);
     }
 
+    void set_load_error_url(std::string error_url);
+    std::string get_load_error_url();
+
 private:
     std::mutex _ins_lock;
     TUniqueId _query_id;
@@ -391,6 +395,9 @@ private:
 
     std::mutex _brpc_stubs_mutex;
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>> _using_brpc_stubs;
+
+    std::mutex _error_url_lock;
+    std::string _load_error_url;
 
 public:
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }

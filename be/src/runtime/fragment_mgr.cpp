@@ -534,16 +534,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
 
-        if (!req.runtime_state->get_error_log_file_path().empty()) {
-            params.__set_tracking_url(
-                    to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->get_error_log_file_path().empty()) {
-                    params.__set_tracking_url(
-                            to_load_error_http_path(rs->get_error_log_file_path()));
-                }
-            }
+        if (!req.load_error_url.empty()) {
+            params.__set_tracking_url(req.load_error_url);
         }
         if (!req.runtime_state->export_output_files().empty()) {
             params.__isset.export_files = true;

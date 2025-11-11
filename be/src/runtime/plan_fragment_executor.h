@@ -146,6 +146,8 @@ public:
 
     Status update_status(Status status);
 
+    std::string get_load_error_url();
+
 private:
     ExecEnv* _exec_env = nullptr; // not owned
     ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()

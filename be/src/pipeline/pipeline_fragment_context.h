@@ -141,6 +141,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    std::string get_load_error_url();
+
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
