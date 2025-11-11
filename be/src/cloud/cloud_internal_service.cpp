@@ -221,7 +221,7 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     if (cache == nullptr) {
         g_file_cache_get_by_peer_failed_num << 1;
         set_error_response(response, "can't get file cache instance");
-        return Status::InternalError("can't get file cache instance");
+        return Status::InternalError<false>("can't get file cache instance");
     }
 
     io::CacheContext ctx {};
@@ -238,7 +238,7 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
                 g_file_cache_get_by_peer_failed_num << 1;
                 LOG(WARNING) << "read cache block failed, state=" << fb->state();
                 set_error_response(response, "read cache file error");
-                return Status::InternalError("cache block not downloaded");
+                return Status::InternalError<false>("cache block not downloaded");
             }
 
             g_file_cache_get_by_peer_blocks_num << 1;
