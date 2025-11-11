@@ -171,6 +171,31 @@ Status OlapScanLocalState::_init_profile() {
     _short_key_pages_num_counter =
             ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPagesNum", TUnit::UNIT, "TotalPagesNum");
 
+    _data_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _data_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _index_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _index_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _dict_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _dict_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _short_key_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _short_key_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+
     _bitmap_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
