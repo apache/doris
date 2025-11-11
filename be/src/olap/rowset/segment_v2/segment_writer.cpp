@@ -557,8 +557,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(num_rows);
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(
-            _tablet_schema->delete_sign_idx(), full_block, row_pos + num_rows);
+    const auto* delete_signs =
+            BaseTablet::get_delete_sign_column_data(full_block, row_pos + num_rows);
 
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());

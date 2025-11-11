@@ -381,8 +381,7 @@ Status FixedReadPlan::fill_missing_columns(
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
                                          old_value_block, &read_index, true, nullptr));
 
-    const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(
-            tablet_schema.delete_sign_idx(), old_value_block);
+    const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
     DCHECK(old_delete_signs != nullptr);
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
@@ -577,8 +576,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
             read_columns_by_plan(tablet_schema, rsid_to_rowset, old_value_block, &read_index));
     // !!!ATTENTION!!!: columns in old_value_block may have different size because every row has different columns to update
 
-    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(
-            tablet_schema.delete_sign_idx(), old_value_block);
+    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
@@ -690,8 +688,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, non_sort_key_cids, rsid_to_rowset,
                                          old_value_block, &read_index));
 
-    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(
-            tablet_schema.delete_sign_idx(), old_value_block);
+    const auto* delete_sign_column_data = BaseTablet::get_delete_sign_column_data(old_value_block);
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
@@ -952,8 +949,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
                               .column->assume_mutable()
                               .get())
                       ->get_data());
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(
-            _tablet_schema.delete_sign_idx(), *block, num_rows);
+    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filtered_block = _tablet_schema.create_block();
     vectorized::MutableBlock output_block =
@@ -1029,8 +1025,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
                               .column->assume_mutable()
                               .get())
                       ->get_data());
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(
-            _tablet_schema.delete_sign_idx(), *block, num_rows);
+    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filter_column = vectorized::ColumnUInt8::create(num_rows, 1);
     auto* __restrict filter_map = filter_column->get_data().data();

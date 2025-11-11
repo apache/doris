@@ -542,8 +542,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(data.num_rows);
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(
-            _tablet_schema->delete_sign_idx(), full_block, data.row_pos + data.num_rows);
+    const auto* delete_signs =
+            BaseTablet::get_delete_sign_column_data(full_block, data.row_pos + data.num_rows);
 
     DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
                     { sleep(60); })
@@ -708,8 +708,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
             assert_cast<vectorized::ColumnBitmap*>(
                     data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
                     ->get_data());
-    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(
-            _tablet_schema->delete_sign_idx(), *data.block, data.row_pos + data.num_rows);
+    const auto* delete_signs =
+            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
 
     for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
