@@ -30,6 +30,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -946,9 +947,12 @@ const signed char* BaseTablet::get_delete_sign_column_data(int32_t delete_sign_i
         return nullptr;
     }
     const vectorized::ColumnWithTypeAndName& delete_sign_column =
-            block.safe_get_by_position(delete_sign_idx);
+            block.safe_get_by_position(block.columns() - 1);
+    if (delete_sign_column.name != DELETE_SIGN) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "The last column is not delete sign column");
+    }
     const auto& delete_sign_col =
-            reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
+            assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
     if (delete_sign_col.size() >= rows_at_least) {
         return delete_sign_col.get_data().data();
     }
@@ -1029,7 +1033,9 @@ Status BaseTablet::generate_new_block_for_partial_update(
     size_t old_rows = read_index_old.size();
     const auto* __restrict old_block_delete_signs =
             get_delete_sign_column_data(rowset_schema->delete_sign_idx(), old_block, old_rows);
-    DCHECK(old_block_delete_signs != nullptr);
+    if (old_block_delete_signs == nullptr) {
+        return Status::InternalError("old_block_delete_signs is nullptr");
+    }
     // build default value block
     auto default_value_block = old_block.clone_empty();
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(*rowset_schema, missing_cids,
