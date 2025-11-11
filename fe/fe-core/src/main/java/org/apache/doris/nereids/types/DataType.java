@@ -151,6 +151,8 @@ public abstract class DataType {
             return DateV2Type.INSTANCE;
         } else if (dataType instanceof DateTimeType) {
             return DateTimeV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof TimeStampTzType) {
+            return DateTimeV2Type.of(((TimeStampTzType) dataType).getScale());
         } else if (dataType instanceof DecimalV2Type) {
             return DecimalV3Type.SYSTEM_DEFAULT;
         }
@@ -611,7 +613,7 @@ public abstract class DataType {
     }
 
     public boolean isDateLikeType() {
-        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
+        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type() || isTimeStampTzType();
     }
 
     public boolean isTimeType() {

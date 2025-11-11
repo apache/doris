@@ -20,7 +20,9 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
 import com.google.common.base.Preconditions;
 
@@ -29,7 +31,7 @@ import java.util.Objects;
 /**
  * TimeStampTz type in Nereids.
  */
-public class TimeStampTzType extends PrimitiveType {
+public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final TimeStampTzType SYSTEM_DEFAULT = new TimeStampTzType(0);
     public static final TimeStampTzType MAX = new TimeStampTzType(MAX_SCALE);
@@ -63,6 +65,22 @@ public class TimeStampTzType extends PrimitiveType {
 
     public int getScale() {
         return scale;
+    }
+
+    @Override
+    public ScaleTimeType forTypeFromString(StringLikeLiteral s) {
+        return forTypeFromString(s.getValue());
+    }
+
+    public static TimeStampTzType forTypeFromString(String s) {
+        DateTimeV2Type dateTimeV2Type = DateTimeV2Type.forTypeFromString(s);
+        return TimeStampTzType.of(dateTimeV2Type.getScale());
+    }
+
+    @Override
+    public ScaleTimeType scaleTypeForType(DataType dataType) {
+        DateTimeV2Type dateTimeV2Type = DateTimeV2Type.forType(dataType);
+        return TimeStampTzType.of(dateTimeV2Type.getScale());
     }
 
     @Override

@@ -24,50 +24,50 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
- * date time v2 literal for nereids
+ * timstamptz literal for nereids
  */
-public class DateTimeV2Literal extends DateTimeLiteral {
+public class TimestampTzLiteral extends DateTimeLiteral {
 
-    public static final DateTimeV2Literal USE_IN_FLOOR_CEIL
-            = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+    public static final TimestampTzLiteral USE_IN_FLOOR_CEIL
+            = new TimestampTzLiteral(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
 
-    public DateTimeV2Literal(String s) {
-        this(DateTimeV2Type.forTypeFromString(s), s);
+    public TimestampTzLiteral(String s) {
+        this(TimeStampTzType.forTypeFromString(s), s);
     }
 
-    public DateTimeV2Literal(DateTimeV2Type dateType, String s) {
+    public TimestampTzLiteral(TimeStampTzType dateType, String s) {
         super(dateType, s);
         roundMicroSecond(dateType.getScale());
     }
 
-    public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second) {
-        super(DateTimeV2Type.SYSTEM_DEFAULT, year, month, day, hour, minute, second, 0);
+    public TimestampTzLiteral(long year, long month, long day, long hour, long minute, long second) {
+        super(TimeStampTzType.SYSTEM_DEFAULT, year, month, day, hour, minute, second, 0);
     }
 
-    public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second, long microSecond) {
-        super(DateTimeV2Type.SYSTEM_DEFAULT, year, month, day, hour, minute, second, microSecond);
+    public TimestampTzLiteral(long year, long month, long day, long hour, long minute, long second, long microSecond) {
+        super(TimeStampTzType.SYSTEM_DEFAULT, year, month, day, hour, minute, second, microSecond);
     }
 
-    public DateTimeV2Literal(DateTimeV2Type dateType,
+    public TimestampTzLiteral(TimeStampTzType dateType,
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
         super(dateType, year, month, day, hour, minute, second, microSecond);
         roundMicroSecond(dateType.getScale());
     }
 
     @Override
-    public DateTimeV2Type getDataType() throws UnboundException {
-        return (DateTimeV2Type) super.getDataType();
+    public TimeStampTzType getDataType() throws UnboundException {
+        return (TimeStampTzType) super.getDataType();
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitDateTimeV2Literal(this, context);
+        return visitor.visitTimestampTzLiteral(this, context);
     }
 
     @Override
@@ -142,7 +142,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             }
 
             offset = 19 + scale;
-            long microSecond = (int) (this.microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale));
+            long microSecond = (int) (this.microSecond / Math.pow(10, TimeStampTzType.MAX_SCALE - scale));
             while (microSecond > 0) {
                 format[offset--] = (char) ('0' + (microSecond % 10));
                 microSecond /= 10;
@@ -153,7 +153,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return String.format("%04d-%02d-%02d %02d:%02d:%02d"
                         + (scale > 0 ? ".%0" + scale + "d" : ""),
                 year, month, day, hour, minute, second,
-                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
+                (int) (microSecond / Math.pow(10, TimeStampTzType.MAX_SCALE - scale)));
     }
 
     @Override
@@ -246,44 +246,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
-    /**
-     * plusDaySecond
-     */
-    public Expression plusDayHour(VarcharLiteral dayHour) {
-        String stringValue = dayHour.getStringValue().trim();
-
-        if (!stringValue.matches("[0-9\\-\\s]+")) {
-            return new NullLiteral(dataType);
-        }
-
-        String[] split = stringValue.split("\\s+");
-        if (split.length != 2) {
-            return new NullLiteral(dataType);
-        }
-
-        String day = split[0];
-        String hour = split[1];
-
-        try {
-            long days = Long.parseLong(day);
-            boolean dayPositive = days >= 0;
-
-            long hours = Long.parseLong(hour);
-
-            if (dayPositive) {
-                hours = Math.abs(hours);
-            } else {
-                hours = -Math.abs(hours);
-            }
-
-            return fromJavaDateType(toJavaDateType()
-                .plusDays(days)
-                .plusHours(hours), getDataType().getScale());
-        } catch (NumberFormatException e) {
-            return new NullLiteral(dataType);
-        }
-    }
-
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public Expression plusMicroSeconds(long microSeconds) {
@@ -295,17 +257,17 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public int getScale() {
-        return ((DateTimeV2Type) dataType).getScale();
+        return ((TimeStampTzType) dataType).getScale();
     }
 
-    public int commonScale(DateTimeV2Literal other) {
+    public int commonScale(TimestampTzLiteral other) {
         return (int) Math.max(getScale(), other.getScale());
     }
 
     /**
      * roundCeiling
      */
-    public DateTimeV2Literal roundCeiling(int newScale) {
+    public TimestampTzLiteral roundCeiling(int newScale) {
         long remain = Double.valueOf(microSecond % (Math.pow(10, 6 - newScale))).longValue();
         long newMicroSecond = microSecond;
         long newSecond = second;
@@ -327,7 +289,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 throw new AnalysisException("round ceil datetime literal (" + toString() + ", "
                         + newScale + ") is out of range");
             }
-            DateTimeV2Literal result = (DateTimeV2Literal) plus1Second;
+            TimestampTzLiteral result = (TimestampTzLiteral) plus1Second;
             newSecond = result.second;
             newMinute = result.minute;
             newHour = result.hour;
@@ -335,12 +297,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             newMonth = result.month;
             newYear = result.year;
         }
-        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), newYear, newMonth, newDay,
+        return new TimestampTzLiteral(TimeStampTzType.of(newScale), newYear, newMonth, newDay,
                 newHour, newMinute, newSecond, newMicroSecond);
     }
 
-    public DateTimeV2Literal roundFloor(int newScale) {
-        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second,
+    public TimestampTzLiteral roundFloor(int newScale) {
+        return new TimestampTzLiteral(TimeStampTzType.of(newScale), year, month, day, hour, minute, second,
                 microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
     }
 
@@ -349,14 +311,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     /**
-     * convert java LocalDateTime object to DateTimeV2Literal object.
+     * convert java LocalDateTime object to TimeStampTzTypeLiteral object.
      */
     public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
-        long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
+        long value = (long) Math.pow(10, TimeStampTzType.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());
         }
-        return new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
+        return new TimestampTzLiteral(TimeStampTzType.of(precision), dateTime.getYear(),
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);
@@ -373,7 +335,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         if (!super.equals(o)) {
             return false;
         }
-        DateTimeV2Literal literal = (DateTimeV2Literal) o;
+        TimestampTzLiteral literal = (TimestampTzLiteral) o;
         return Objects.equals(dataType, literal.dataType) && Objects.equals(microSecond, literal.microSecond);
     }
 }

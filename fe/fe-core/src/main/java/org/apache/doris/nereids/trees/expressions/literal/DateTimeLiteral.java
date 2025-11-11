@@ -29,7 +29,9 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.nereids.util.StandardDateFormat;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -195,6 +197,30 @@ public class DateTimeLiteral extends DateLiteral {
             return Result.ok(new DateTimeV2Literal(type, year, month, day, hour, minute, second, microSecond));
         } else {
             return Result.ok(new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second));
+        }
+    }
+
+    protected void roundMicroSecond(int scale) {
+        Preconditions.checkArgument(scale >= 0 && scale <= DateTimeV2Type.MAX_SCALE,
+                "invalid datetime v2 scale: %s", scale);
+        double factor = Math.pow(10, 6 - scale);
+
+        this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
+
+        if (this.microSecond >= 1000000) {
+            LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
+                    getStringValue()).plusSeconds(1);
+            this.year = localDateTime.getYear();
+            this.month = localDateTime.getMonthValue();
+            this.day = localDateTime.getDayOfMonth();
+            this.hour = localDateTime.getHour();
+            this.minute = localDateTime.getMinute();
+            this.second = localDateTime.getSecond();
+            this.microSecond -= 1000000;
+        }
+        if (checkRange() || checkDate(year, month, day)) {
+            // may fallback to legacy planner. make sure the behaviour of rounding is same.
+            throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
         }
     }
 

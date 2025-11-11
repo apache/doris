@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
@@ -134,8 +135,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static Literal getDateTimeLiteral(String value, Type type) throws AnalysisException {
         if (type.isDatetime()) {
             return new DateTimeLiteral(value);
-        } else if (type.isDatetimeV2() || type.isTimeStampTz()) {
+        } else if (type.isDatetimeV2()) {
             return new DateTimeV2Literal(value);
+        } else if (type.isTimeStampTz()) {
+            return new TimestampTzLiteral(value);
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");
@@ -542,7 +545,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 if (type != PrimitiveType.DATETIMEV2) {
                     key.setType(Type.fromPrimitiveType(type));
                 }
-                if (type.isDateV2Type()) {
+                if (type.isDateV2LikeType()) {
                     try {
                         key.checkValueValid();
                     } catch (AnalysisException e) {

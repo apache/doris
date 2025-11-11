@@ -2214,6 +2214,7 @@ nonReserved
     | THAN
     | TIME
     | TIMESTAMP
+    | TIMESTAMPTZ
     | TRANSACTION
     | TREE
     | TRIGGERS
