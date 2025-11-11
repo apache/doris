@@ -35,4 +35,37 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/) {
     return _inner_iterator->init(_read_options);
 }
 
+Status LazyInitSegmentIterator::_ensure_initialized() {
+    if (UNLIKELY(_need_lazy_init)) {
+        RETURN_IF_ERROR(init(_read_options));
+    }
+    if (UNLIKELY(!_inner_iterator)) {
+        return Status::InternalError("LazyInitSegmentIterator inner iterator not initialized");
+    }
+    return Status::OK();
+}
+
+Status LazyInitSegmentIterator::prepare_prefetch_batch(
+        std::set<std::pair<uint64_t, uint32_t>>* pages_to_prefetch, bool* has_more) {
+    RETURN_IF_ERROR(_ensure_initialized());
+    auto* planner = dynamic_cast<PrefetchPlanner*>(_inner_iterator.get());
+    if (planner == nullptr) {
+        if (has_more != nullptr) {
+            *has_more = false;
+        }
+        return Status::OK();
+    }
+    return planner->prepare_prefetch_batch(pages_to_prefetch, has_more);
+}
+
+Status LazyInitSegmentIterator::submit_prefetch_batch(
+        const std::set<std::pair<uint64_t, uint32_t>>& pages_to_prefetch) {
+    RETURN_IF_ERROR(_ensure_initialized());
+    auto* planner = dynamic_cast<PrefetchPlanner*>(_inner_iterator.get());
+    if (planner == nullptr) {
+        return Status::OK();
+    }
+    return planner->submit_prefetch_batch(pages_to_prefetch);
+}
+
 } // namespace doris::segment_v2

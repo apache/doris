@@ -162,6 +162,40 @@ Status OlapScanLocalState::_init_profile() {
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
+    _data_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _index_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _dict_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPagesNum", TUnit::UNIT, "TotalPagesNum");
+    _short_key_pages_num_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPagesNum", TUnit::UNIT, "TotalPagesNum");
+
+    _data_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _data_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DataPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _index_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _index_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "IndexPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _dict_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _dict_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "DictPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+    _short_key_page_compressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPageCompressedBytesRead", TUnit::BYTES,
+                              "CompressedBytesRead");
+    _short_key_page_uncompressed_bytes_read_counter =
+            ADD_CHILD_COUNTER(_segment_profile, "ShortKeyPageUncompressedBytesRead", TUnit::BYTES,
+                              "UncompressedBytesRead");
+
     _bitmap_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
@@ -242,6 +276,16 @@ Status OlapScanLocalState::_init_profile() {
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
     _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
+    _load_ordinal_index_timer = ADD_TIMER(_scanner_profile, "LoadOrdinalIndexTimer");
+    _load_zone_map_index_timer = ADD_TIMER(_scanner_profile, "LoadZoneMapIndexTimer");
+
+    _parse_footer_count_counter = ADD_COUNTER(_scanner_profile, "ParseFooterCount", TUnit::UNIT);
+    _parse_footer_total_bytes_counter =
+            ADD_COUNTER(_scanner_profile, "ParseFooterTotalBytes", TUnit::BYTES);
+    _parse_footer_read_fixed_timer =
+            ADD_TIMER(_scanner_profile, "ParseFooterReadFixedTimer");
+    _parse_footer_read_footer_timer =
+            ADD_TIMER(_scanner_profile, "ParseFooterReadFooterTimer");
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);

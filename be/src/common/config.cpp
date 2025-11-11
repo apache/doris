@@ -312,6 +312,14 @@ DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
+// doris_remote_scanner_prefetch_depth
+DEFINE_Bool(enable_segment_iterator_prefetch, "true");
+DEFINE_Int32(segment_iterator_prefetch_lookahead, "3");
+DEFINE_Validator(segment_iterator_prefetch_lookahead,
+                 [](const int config) -> bool { return config >= 0; });
+DEFINE_mInt64(segment_iterator_prefetch_max_bytes, "33554432");
+DEFINE_Validator(segment_iterator_prefetch_max_bytes,
+                 [](const int64_t config) -> bool { return config >= 0; });
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 
@@ -1574,6 +1582,11 @@ DEFINE_mBool(enable_wal_tde, "false");
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 
+DEFINE_mBool(enable_async_write_back_file_cache, "false");
+DEFINE_mInt32(file_cache_async_write_back_threshold_factor, "1");
+DEFINE_Validator(file_cache_async_write_back_threshold_factor,
+                 [](const int32_t config) -> bool { return config >= 1; });
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -1910,12 +1923,12 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
-    if (config::is_cloud_mode()) {
-        auto st = config::set_config("enable_file_cache", "true", true, true);
-        LOG(INFO) << "set config enable_file_cache "
-                  << "true"
-                  << " " << st;
-    }
+    // if (config::is_cloud_mode()) {
+    //     auto st = config::set_config("enable_file_cache", "true", true, true);
+    //     LOG(INFO) << "set config enable_file_cache "
+    //               << "true"
+    //               << " " << st;
+    // }
 
     return true;
 }

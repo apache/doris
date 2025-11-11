@@ -422,12 +422,6 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (!config::enable_file_cache) {
-        if (config::is_cloud_mode()) {
-            LOG(FATAL) << "Cloud mode requires to enable file cache, plz set "
-                          "config::enable_file_cache "
-                          "= true";
-            exit(-1);
-        }
         return;
     }
     if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
