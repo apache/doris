@@ -657,6 +657,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_key_range_filtered_counter, stats.rows_key_range_filtered);          \
     COUNTER_UPDATE(Parent->_total_pages_num_counter, stats.total_pages_num);                     \
     COUNTER_UPDATE(Parent->_cached_pages_num_counter, stats.cached_pages_num);                   \
+    COUNTER_UPDATE(Parent->_data_pages_num_counter, stats.data_pages_num);                       \
+    COUNTER_UPDATE(Parent->_index_pages_num_counter, stats.index_pages_num);                     \
+    COUNTER_UPDATE(Parent->_dict_pages_num_counter, stats.dict_pages_num);                       \
+    COUNTER_UPDATE(Parent->_short_key_pages_num_counter, stats.short_key_pages_num);             \
     COUNTER_UPDATE(Parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);      \
     COUNTER_UPDATE(Parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);         \
     COUNTER_UPDATE(Parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);  \
