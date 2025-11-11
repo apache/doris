@@ -98,15 +98,25 @@ suite("test_view") {
 
     // agg
     multi_sql """set enable_decimal256=true;
-    drop view if EXISTS v_test_agg;
-    create view v_test_agg as select f1, sum(f2) col_sum from test_decimal_mul_overflow1 group by f1;"""
+    drop view if EXISTS v_test_sum;
+    create view v_test_sum as select f1, sum(f2) col_sum from test_decimal_mul_overflow1 group by f1;
+    drop view if EXISTS v_test_avg;
+    create view v_test_avg as select f1, avg(f2) col_avg from test_decimal_mul_overflow1 group by f1;"""
+    qt_sum1 "select col_sum from v_test_sum;"
+    qt_avg1 "select col_avg from v_test_avg;"
     sql "set enable_decimal256=false;"
-    qt_agg "select col_sum from v_test_agg;"
+    qt_sum2 "select col_sum from v_test_sum;"
+    qt_avg2 "select col_avg from v_test_avg;"
 
     multi_sql """set enable_decimal256=true;
-    drop view if EXISTS v_test_agg2;
-    create view v_test_agg2 as select f1, sum(f1*f2) col_sum from test_decimal_mul_overflow1 group by f1;"""
+    drop view if EXISTS v_test_sum_expr;
+    create view v_test_sum_expr as select f1, sum(f1*f2) col_sum from test_decimal_mul_overflow1 group by f1;
+    drop view if EXISTS v_test_avg_expr;
+    create view v_test_avg_expr as select f1, avg(f1*f2) col_avg from test_decimal_mul_overflow1 group by f1;"""
+    qt_agg_expr_sum1 "select col_sum from v_test_sum_expr;"
+    qt_agg_expr_avg1 "select col_avg from v_test_avg_expr;"
     sql "set enable_decimal256=false;"
+<<<<<<< HEAD
     qt_agg_expr "select col_sum from v_test_agg2;"
 
     multi_sql """
@@ -191,4 +201,9 @@ suite("test_view") {
         set enable_decimal256=false;
     """
     qt_if_condition_func "select * from v_test_if_condition;"
+=======
+    sql "explain verbose select col_sum from v_test_sum_expr;"
+    qt_agg_expr_sum2 "select col_sum from v_test_sum_expr;"
+    qt_agg_expr_avg2 "select col_avg from v_test_avg_expr;"
+>>>>>>> 103db5d8db4 (add test case)
 }
