@@ -73,9 +73,8 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "_is_cancelled: {}, _block_queue_empty: {}, "
-                               "_num_remaining_senders: {}, _debug_string_info: {}",
-                               _is_cancelled, _block_queue.empty(), _num_remaining_senders,
-                               _debug_string_info());
+                               "_num_remaining_senders: {}",
+                               _is_cancelled, _block_queue.empty(), _num_remaining_senders);
     }
 #endif
     BlockItem block_item;
@@ -111,7 +110,6 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     _recvr->_memory_used_counter->update(-(int64_t)block_byte_size);
     INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
     sub_blocks_memory_usage(block_byte_size);
-    _record_debug_info();
     if (_block_queue.empty() && _source_dependency) {
         if (!_is_cancelled && _num_remaining_senders > 0) {
             _source_dependency->block();
@@ -187,7 +185,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
 
         DCHECK(_num_remaining_senders >= 0);
         if (_num_remaining_senders == 0) {
-            DCHECK(_sender_eos_set.end() != _sender_eos_set.find(be_number));
+            DCHECK(_sender_eos_set.contains(be_number));
             return Status::OK();
         }
     }
@@ -209,7 +207,6 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
 
     _block_queue.emplace_back(std::move(pblock), block_byte_size);
     COUNTER_UPDATE(_recvr->_remote_bytes_received_counter, block_byte_size);
-    _record_debug_info();
     set_source_ready(l);
 
     // if done is nullptr, this function can't delay this response
@@ -222,6 +219,76 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
     }
     _recvr->_memory_used_counter->update(block_byte_size);
     add_blocks_memory_usage(block_byte_size);
+    return Status::OK();
+}
+
+Status VDataStreamRecvr::SenderQueue::add_blocks(const PTransmitDataParams* request,
+                                                 ::google::protobuf::Closure** done,
+                                                 const int64_t wait_for_worker,
+                                                 const uint64_t time_to_find_recvr) {
+    {
+        INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
+        if (_is_cancelled) {
+            return Status::OK();
+        }
+        const int be_number = request->be_number();
+        const int64_t packet_seq = request->packet_seq();
+        auto iter = _packet_seq_map.find(be_number);
+        if (iter != _packet_seq_map.end()) {
+            if (iter->second >= packet_seq) {
+                return Status::InternalError(
+                        "packet already exist [cur_packet_id= {} receive_packet_id={}]",
+                        iter->second, packet_seq);
+            }
+            iter->second = packet_seq;
+        } else {
+            _packet_seq_map.emplace(be_number, packet_seq);
+        }
+
+        DCHECK(_num_remaining_senders >= 0);
+        if (_num_remaining_senders == 0) {
+            DCHECK(_sender_eos_set.end() != _sender_eos_set.find(be_number));
+            return Status::OK();
+        }
+    }
+
+    INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(_lock));
+    if (_is_cancelled) {
+        return Status::OK();
+    }
+
+    int64_t total_block_byte_size = 0;
+    for (int i = 0; i < request->blocks_size(); i++) {
+        std::unique_ptr<PBlock> pblock = std::make_unique<PBlock>();
+        pblock->CopyFrom(request->blocks(i));
+
+        const auto block_byte_size = pblock->ByteSizeLong();
+        COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
+        if (_recvr->_max_wait_worker_time->value() < wait_for_worker) {
+            _recvr->_max_wait_worker_time->set(wait_for_worker);
+        }
+
+        if (_recvr->_max_find_recvr_time->value() < time_to_find_recvr) {
+            _recvr->_max_find_recvr_time->set((int64_t)time_to_find_recvr);
+        }
+
+        _block_queue.emplace_back(std::move(pblock), block_byte_size);
+        COUNTER_UPDATE(_recvr->_remote_bytes_received_counter, block_byte_size);
+        total_block_byte_size += block_byte_size;
+    }
+
+    set_source_ready(l);
+
+    // if done is nullptr, this function can't delay this response
+    if (done != nullptr && _recvr->exceeds_limit(total_block_byte_size)) {
+        MonotonicStopWatch monotonicStopWatch;
+        monotonicStopWatch.start();
+        DCHECK(*done != nullptr);
+        _pending_closures.emplace_back(*done, monotonicStopWatch);
+        *done = nullptr;
+    }
+    _recvr->_memory_used_counter->update(total_block_byte_size);
+    add_blocks_memory_usage(total_block_byte_size);
     return Status::OK();
 }
 
@@ -260,7 +327,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
             return;
         }
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
-        _record_debug_info();
         set_source_ready(l);
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->_memory_used_counter->update(block_mem_size);
@@ -276,7 +342,6 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
-    _record_debug_info();
     VLOG_FILE << "decremented senders: fragment_instance_id="
               << print_id(_recvr->fragment_instance_id()) << " node_id=" << _recvr->dest_node_id()
               << " #senders=" << _num_remaining_senders;
@@ -421,6 +486,19 @@ Status VDataStreamRecvr::add_block(std::unique_ptr<PBlock> pblock, int sender_id
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(std::move(pblock), be_number, packet_seq, done,
                                                     wait_for_worker, time_to_find_recvr);
+}
+
+Status VDataStreamRecvr::add_blocks(const PTransmitDataParams* request,
+                                    ::google::protobuf::Closure** done,
+                                    const int64_t wait_for_worker,
+                                    const uint64_t time_to_find_recvr) {
+    SCOPED_ATTACH_TASK(_resource_ctx);
+    if (_query_context->low_memory_mode()) {
+        set_low_memory_mode();
+    }
+    int use_sender_id = _is_merging ? request->sender_id() : 0;
+    return _sender_queues[use_sender_id]->add_blocks(request, done, wait_for_worker,
+                                                     time_to_find_recvr);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
