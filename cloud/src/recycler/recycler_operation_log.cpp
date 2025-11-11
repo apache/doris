@@ -595,10 +595,9 @@ static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, in
 int InstanceRecycler::recycle_operation_logs() {
     if (!instance_info_.has_multi_version_status() ||
         (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_ENABLED &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY)) {
-        LOG_INFO("instance {} is not multi-version enabled, skip recycling operation logs",
-                 instance_id_);
+         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE)) {
+        VLOG_DEBUG << "instance " << instance_id_
+                   << " is not multi-version enabled, skip recycling operation logs.";
         return 0;
     }
 
@@ -644,17 +643,6 @@ int InstanceRecycler::recycle_operation_logs() {
             LOG_WARNING("failed to parse OperationLogPB from operation log key")
                     .tag("key", hex(key));
             return -1;
-        }
-
-        // Recycle operation log directly if multi_version_status is WRITE_ONLY.
-        if (!operation_log.has_min_timestamp() &&
-            instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY) {
-            LOG_WARNING("operation log has not set the min_timestamp")
-                    .tag("key", hex(key))
-                    .tag("version", log_versionstamp.version())
-                    .tag("order", log_versionstamp.order())
-                    .tag("log", operation_log.ShortDebugString());
-            return 0;
         }
 
         if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp())) {

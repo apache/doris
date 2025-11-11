@@ -350,6 +350,7 @@ int InstanceDataMigrator::enable_instance_snapshot_switch() {
     }
 
     instance_info.set_snapshot_switch_status(SnapshotSwitchStatus::SNAPSHOT_SWITCH_OFF);
+    instance_info.clear_migrated_key_sets();
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, instance_info.SerializeAsString());
     err = txn->commit();
