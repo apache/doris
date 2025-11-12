@@ -539,6 +539,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
 
+    public static final String ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER = "enable_parquet_filter_by_bloom_filter";
+
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
@@ -2242,6 +2244,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableParquetFilterByMinMax = true;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER,
+            fuzzy = true,
+            description = {"控制 parquet reader 是否启用 bloom filter 过滤。默认为 true。",
+                    "Controls whether to filter by bloom filter in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetFilterByBloomFilter = true;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_ORC_FILTER_BY_MIN_MAX,
             description = {"控制 orc reader 是否启用 min-max 值过滤。默认为 true。",
                     "Controls whether to filter by min-max values in orc reader. "
@@ -3290,6 +3301,7 @@ public class SessionVariable implements Serializable, Writable {
         }
         // parquet
         this.enableParquetFilterByMinMax = random.nextBoolean();
+        this.enableParquetFilterByBloomFilter = random.nextBoolean();
         this.enableParquetLazyMat = random.nextBoolean();
 
         // orc
@@ -4820,6 +4832,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 

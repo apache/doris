@@ -47,6 +47,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/column_type_convert.h"
+#include "vec/exec/format/parquet/parquet_block_split_bloom_filter.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
@@ -98,7 +99,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max) {
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_bloom_filter(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -116,7 +120,10 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max) {
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_bloom_filter(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -141,6 +148,10 @@ void ParquetReader::_init_profile() {
 
         _parquet_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredGroups", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredGroupsByMinMax", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredGroupsByBloomFilter", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "ReadGroups", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -201,6 +212,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
         _parquet_profile.dict_filter_rewrite_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
+        _parquet_profile.bloom_filter_read_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "BloomFilterReadTime", parquet_profile, 1);
     }
 }
 
@@ -1050,12 +1063,20 @@ Status ParquetReader::_process_min_max_bloom_filter(
         }
     } else {
         bool filter_this_row_group = false;
-        RETURN_IF_ERROR(
-                _process_column_stat_filter(row_group, push_down_pred, &filter_this_row_group));
-        _init_chunk_dicts();
-        RETURN_IF_ERROR(_process_dict_filter(&filter_this_row_group));
-        _init_bloom_filter();
-        RETURN_IF_ERROR(_process_bloom_filter(&filter_this_row_group));
+        bool filtered_by_min_max = false;
+        bool filtered_by_bloom_filter = false;
+        RETURN_IF_ERROR(_process_column_stat_filter(row_group, push_down_pred,
+                                                    &filter_this_row_group, &filtered_by_min_max,
+                                                    &filtered_by_bloom_filter));
+        // Update statistics based on filter type
+        if (filter_this_row_group) {
+            if (filtered_by_min_max) {
+                _statistics.filtered_row_groups_by_min_max++;
+            }
+            if (filtered_by_bloom_filter) {
+                _statistics.filtered_row_groups_by_bloom_filter++;
+            }
+        }
 
         if (!filter_this_row_group) {
             RETURN_IF_ERROR(_process_page_index_filter(row_group, row_group_index, push_down_pred,
@@ -1069,14 +1090,28 @@ Status ParquetReader::_process_min_max_bloom_filter(
 Status ParquetReader::_process_column_stat_filter(
         const tparquet::RowGroup& row_group,
         const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
-        bool* filter_group) {
-    if (!_enable_filter_by_min_max) {
+        bool* filter_group, bool* filtered_by_min_max, bool* filtered_by_bloom_filter) {
+    // If both filters are disabled, skip filtering
+    if (!_enable_filter_by_min_max && !_enable_filter_by_bloom_filter) {
         return Status::OK();
     }
 
-    for (const auto& predicate : push_down_pred) {
+    // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
+    // when there are multiple predicates on the same column
+    std::unordered_map<int, std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter>>
+            bloom_filter_cache;
+
+    // Initialize output parameters
+    *filtered_by_min_max = false;
+    *filtered_by_bloom_filter = false;
+
+    for (const auto& predicate : _push_down_predicates) {
         std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
                 [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    // Check if min-max filter is enabled
+                    if (!_enable_filter_by_min_max) {
+                        return false;
+                    }
                     auto* slot = _tuple_descriptor->slots()[cid];
                     if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
                         return false;
@@ -1093,28 +1128,97 @@ Status ParquetReader::_process_column_stat_filter(
                                                                _t_metadata->created_by, stat)
                             .ok();
                 };
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    auto* slot = _tuple_descriptor->slots()[cid];
+                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        return false;
+                    }
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
+                    if (!meta_data.__isset.bloom_filter_offset) {
+                        return false;
+                    }
+                    auto primitive_type =
+                            remove_nullable(col_schema->data_type)->get_primitive_type();
+                    if (!ParquetPredicate::bloom_filter_supported(primitive_type)) {
+                        return false;
+                    }
+
+                    // Check if bloom filter is enabled
+                    if (!_enable_filter_by_bloom_filter) {
+                        return false;
+                    }
+
+                    // Check cache first
+                    auto cache_iter = bloom_filter_cache.find(parquet_col_id);
+                    if (cache_iter != bloom_filter_cache.end()) {
+                        // Bloom filter already loaded for this column, reuse it
+                        stat->bloom_filter = std::move(cache_iter->second);
+                        bloom_filter_cache.erase(cache_iter);
+                        return stat->bloom_filter != nullptr;
+                    }
+
+                    if (!stat->bloom_filter) {
+                        SCOPED_RAW_TIMER(&_statistics.bloom_filter_read_time);
+                        auto st = ParquetPredicate::read_bloom_filter(
+                                meta_data, _tracing_file_reader, _io_ctx, stat);
+                        if (!st.ok()) {
+                            LOG(WARNING) << "Failed to read bloom filter for column "
+                                         << col_schema->name << " in file " << _scan_range.path
+                                         << ", status: " << st.to_string();
+                            stat->bloom_filter.reset();
+                            return false;
+                        }
+                    }
+                    return stat->bloom_filter != nullptr;
+                };
         ParquetPredicate::ColumnStat stat;
         stat.ctz = _ctz;
         stat.get_stat_func = &get_stat_func;
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
 
         if (!predicate->evaluate_and(&stat)) {
             *filter_group = true;
+
+            // Track which filter was used for filtering
+            // If bloom filter was loaded, it means bloom filter was used
+            if (stat.bloom_filter) {
+                *filtered_by_bloom_filter = true;
+            }
+            // If col_schema was set but no bloom filter, it means min-max stats were used
+            if (stat.col_schema && !stat.bloom_filter) {
+                *filtered_by_min_max = true;
+            }
+
             return Status::OK();
+        }
+
+        // After evaluating, if the bloom filter was used, cache it for subsequent predicates
+        if (stat.bloom_filter) {
+            // Find the column id for caching
+            for (auto* slot : _tuple_descriptor->slots()) {
+                if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    if (stat.col_schema == col_schema) {
+                        bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
+                        break;
+                    }
+                }
+            }
         }
     }
 
-    return Status::OK();
-}
-
-void ParquetReader::_init_chunk_dicts() {}
-
-Status ParquetReader::_process_dict_filter(bool* filter_group) {
-    return Status::OK();
-}
-
-void ParquetReader::_init_bloom_filter() {}
-
-Status ParquetReader::_process_bloom_filter(bool* filter_group) {
+    // Update filter statistics if this row group was not filtered
+    // The statistics will be updated in _init_row_groups when filter_group is true
     return Status::OK();
 }
 
@@ -1131,6 +1235,10 @@ void ParquetReader::_collect_profile() {
         _current_group_reader->collect_profile_before_close();
     }
     COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_min_max,
+                   _statistics.filtered_row_groups_by_min_max);
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_bloom_filter,
+                   _statistics.filtered_row_groups_by_bloom_filter);
     COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _statistics.read_row_groups);
     COUNTER_UPDATE(_parquet_profile.filtered_group_rows, _statistics.filtered_group_rows);
     COUNTER_UPDATE(_parquet_profile.filtered_page_rows, _statistics.filtered_page_rows);
@@ -1155,6 +1263,7 @@ void ParquetReader::_collect_profile() {
                    _column_statistics.parse_page_header_num);
     COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time, _statistics.dict_filter_rewrite_time);
+    COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time, _statistics.bloom_filter_read_time);
     COUNTER_UPDATE(_parquet_profile.page_index_read_calls,
                    _column_statistics.page_index_read_calls);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
