@@ -106,38 +106,40 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
     _file_size = content_length;
     _size_known = true;
 
-    // Step 2: Detect Range support by sending a small test request
-    VLOG(1) << "Detecting Range support for URL: " << _url;
-    RETURN_IF_ERROR(detect_range_support());
+    // Step 2: Check if Range request is disabled by configuration
+    if (!_enable_range_request) {
+        // User explicitly disabled Range requests, use non-Range mode directly
+        _range_supported = false;
+        LOG(INFO) << "Range requests disabled by configuration for " << _url
+                  << ", using non-Range mode. File size: " << _file_size << " bytes";
 
-    // Step 3: Validate configuration and file size
-    if (!_range_supported) {
-        LOG(WARNING) << "HTTP server does not support Range requests for " << _url
-                     << ", file size: " << _file_size << " bytes";
-
-        // Check if Range request is required (default behavior)
-        if (_enable_range_request) {
-            return Status::NotSupported(
-                    "HTTP server does not support Range requests (RFC 7233), which is required "
-                    "for reading files. File size: {} bytes, URL: {}. "
-                    "To allow reading without Range support, set 'enable.range.request'='false' "
-                    "in properties (note: this may cause high memory usage for large files).",
-                    _file_size, _url);
-        }
-
-        // Non-Range mode is allowed, check if file size exceeds limit
+        // Check if file size exceeds limit for non-Range mode
         if (_file_size > _max_request_size_bytes) {
             return Status::InternalError(
-                    "HTTP server does not support Range requests and file size ({} bytes) exceeds "
-                    "maximum allowed size ({} bytes, configured by max.request.size.bytes). URL: "
-                    "{}",
+                    "Non-Range mode: file size ({} bytes) exceeds maximum allowed size ({} bytes, "
+                    "configured by http.max.request.size.bytes). URL: {}",
                     _file_size, _max_request_size_bytes, _url);
         }
 
-        LOG(INFO) << "Non-Range mode enabled for " << _url << ", file size: " << _file_size
-                  << " bytes"
-                  << ", max allowed: " << _max_request_size_bytes << " bytes";
+        LOG(INFO) << "Non-Range mode validated for " << _url << ", file size: " << _file_size
+                  << " bytes, max allowed: " << _max_request_size_bytes << " bytes";
     } else {
+        // Step 3: Range request is enabled (default), detect Range support
+        VLOG(1) << "Detecting Range support for URL: " << _url;
+        RETURN_IF_ERROR(detect_range_support());
+
+        // Step 4: Validate Range support detection result
+        if (!_range_supported) {
+            // Server does not support Range and Range is required
+            return Status::NotSupported(
+                    "HTTP server does not support Range requests (RFC 7233), which is required "
+                    "for reading files. File size: {} bytes, URL: {}. "
+                    "To allow reading without Range support, set 'http.enable.range.request'='false' "
+                    "in properties and configure 'http.max.request.size.bytes' appropriately "
+                    "(note: this may cause high memory usage for large files).",
+                    _file_size, _url);
+        }
+
         LOG(INFO) << "HTTP server supports Range requests for " << _url;
     }
 
@@ -222,9 +224,8 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     auto cb = [&](const void* data, size_t len) {
         total_received += len;
 
-        // If using non-Range mode and file is too large, stop receiving to prevent OOM
-        // Only check size limit when Range is not supported AND non-Range mode is allowed
-        if (!with_range && !_enable_range_request && total_received > _max_request_size_bytes) {
+        // If using non-Range mode, enforce size limit to prevent OOM
+        if (!_range_supported && total_received > _max_request_size_bytes) {
             size_limit_exceeded = true;
             VLOG(1) << "Stopping download: received " << total_received << " bytes, exceeds limit "
                     << _max_request_size_bytes;
@@ -256,42 +257,24 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
-    // Check if server unexpectedly ignored the Range request
-    // This is a fallback check - normally we detect Range support in open()
-    // 206 = Partial Content (Range supported), 200 = OK (Range ignored)
-    bool range_ignored = false;
-    if (with_range && offset > 0) {
-        range_ignored = (http_status == 200);
-    }
-
-    if (range_ignored) {
-        // This should rarely happen since we detect Range support in open()
-        // But keep this as a defensive check
+    // Defensive check: if we sent Range but server returned 200 instead of 206
+    // This should rarely happen since we detect Range support in open()
+    if (with_range && offset > 0 && http_status == 200) {
         LOG(ERROR) << "HTTP server unexpectedly does not support Range requests for " << _url
                    << " (this should have been detected in open()). HTTP status: " << http_status
-                   << ", received: " << buf.size() << " bytes";
+                   << ", received: " << buf.size() << " bytes. This indicates a server behavior change.";
+        
+        return Status::InternalError(
+                "HTTP server does not support Range requests but this was not detected during "
+                "file open. This may indicate the server behavior has changed. "
+                "HTTP status: {}, received: {} bytes. URL: {}",
+                http_status, buf.size(), _url);
+    }
 
-        _range_supported = false;
-
-        // If Range is required, this is an error
-        if (_enable_range_request) {
-            return Status::InternalError(
-                    "HTTP server does not support Range requests but this was not detected during "
-                    "file open. HTTP status: {}, received: {} bytes. URL: {}",
-                    http_status, buf.size(), _url);
-        }
-
-        // Non-Range mode is allowed, check file size limit
-        if (buf.size() > _max_request_size_bytes) {
-            return Status::InternalError(
-                    "HTTP response size ({} bytes) exceeds maximum allowed size ({} bytes). URL: "
-                    "{}",
-                    buf.size(), _max_request_size_bytes, _url);
-        }
-
-        _size_known = true;
-        _file_size = buf.size();
-
+    // Handle non-Range mode: when _range_supported is false, we download full file
+    if (!_range_supported && offset > 0) {
+        // We're in non-Range mode and need data from middle of file
+        // The full file should have been downloaded
         if (offset >= buf.size()) {
             *bytes_read = buffer_offset;
             return Status::OK();
