@@ -246,6 +246,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
@@ -342,6 +343,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsA
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicrosecondFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsSub;
@@ -349,6 +351,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
@@ -424,6 +427,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
@@ -1438,6 +1442,22 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitHourFloor(HourFloor hourFloor, C context) {
         return visitScalarFunction(hourFloor, context);
+    }
+
+    default R visitHourFromUnixtime(HourFromUnixtime hourFromUnixtime, C context) {
+        return visitScalarFunction(hourFromUnixtime, context);
+    }
+
+    default R visitMinuteFromUnixtime(MinuteFromUnixtime minuteFromUnixtime, C context) {
+        return visitScalarFunction(minuteFromUnixtime, context);
+    }
+
+    default R visitSecondFromUnixtime(SecondFromUnixtime secondFromUnixtime, C context) {
+        return visitScalarFunction(secondFromUnixtime, context);
+    }
+
+    default R visitMicrosecondFromUnixtime(MicrosecondFromUnixtime microsecondFromUnixtime, C context) {
+        return visitScalarFunction(microsecondFromUnixtime, context);
     }
 
     default R visitHoursDiff(HoursDiff hoursDiff, C context) {

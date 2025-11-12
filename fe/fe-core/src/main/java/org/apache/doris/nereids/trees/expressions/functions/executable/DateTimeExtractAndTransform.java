@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
@@ -101,6 +102,9 @@ public class DateTimeExtractAndTransform {
         DAY_OF_WEEK.put("SUN", 7);
         DAY_OF_WEEK.put("SUNDAY", 7);
     }
+
+    // Maximum valid timestamp value (UTC 9999-12-31 23:59:59 - 24 * 3600 for all timezones)
+    private static final long TIMESTAMP_VALID_MAX = 253402243199L;
 
     /**
      * datetime arithmetic function date-v2
@@ -1333,5 +1337,95 @@ public class DateTimeExtractAndTransform {
             year += (year >= 70) ? 1900 : 2000;
         }
         return year * 100 + month % 12 + 1;
+    }
+
+    /**
+     * date extract function hour_from_unixtime
+     */
+    @ExecFunction(name = "hour_from_unixtime")
+    public static Expression hourFromUnixtime(BigIntLiteral unixTime) {
+        long localTime = unixTime.getValue();
+
+        long remainder;
+        if (localTime >= 0) {
+            remainder = localTime - (localTime / 86400) * 86400;
+        } else {
+            remainder = localTime % 86400;
+            if (remainder < 0) {
+                remainder += 86400;
+            }
+        }
+        int hour = (int) (remainder / 3600);
+        return new IntegerLiteral(hour);
+    }
+
+    /**
+     * date extract function minute_from_unixtime
+     */
+    @ExecFunction(name = "minute_from_unixtime")
+    public static Expression minuteFromUnixtime(BigIntLiteral unixTime) {
+        long localTime = unixTime.getValue();
+
+        if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
+            return new NullLiteral(IntegerType.INSTANCE);
+        }
+
+        long remainder;
+        if (localTime >= 0) {
+            remainder = localTime - (localTime / 3600) * 3600;
+        } else {
+            remainder = localTime % 3600;
+            if (remainder < 0) {
+                remainder += 3600;
+            }
+        }
+        int minute = (int) (remainder / 60);
+        return new IntegerLiteral(minute);
+    }
+
+    /**
+     * date extract function second_from_unixtime
+     */
+    @ExecFunction(name = "second_from_unixtime")
+    public static Expression secondFromUnixtime(BigIntLiteral unixTime) {
+        long localTime = unixTime.getValue();
+        if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
+            return new NullLiteral(IntegerType.INSTANCE);
+        }
+
+        long remainder;
+        if (localTime >= 0) {
+            remainder = localTime % 60;
+        } else {
+            remainder = localTime % 60;
+            if (remainder < 0) {
+                remainder += 60;
+            }
+        }
+        return new IntegerLiteral((int) remainder);
+    }
+
+    /**
+     * date extract function microsecond_from_unixtime
+     */
+    @ExecFunction(name = "microsecond_from_unixtime")
+    public static Expression microsecondFromUnixtime(DecimalV3Literal unixTime) {
+        BigDecimal value = unixTime.getValue();
+
+        long seconds = value.longValue();
+        if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
+            return new NullLiteral(IntegerType.INSTANCE);
+        }
+
+        DecimalV3Type dataType = (DecimalV3Type) unixTime.getDataType();
+        int scale = dataType.getScale();
+
+        BigDecimal fractional = value.remainder(BigDecimal.ONE);
+        long fraction = fractional.movePointRight(scale).longValue();
+
+        if (scale < 6) {
+            fraction *= (long) Math.pow(10, 6 - scale);
+        }
+        return new IntegerLiteral((int) fraction);
     }
 }

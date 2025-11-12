@@ -20,13 +20,17 @@
 
 #pragma once
 
+#include <libdivide.h>
+
 #include <cmath>
 #include <cstdint>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -424,6 +428,151 @@ struct FromUnixTimeDecimalImpl {
             offset += len;
         }
         return false;
+    }
+};
+
+// Base template for optimized time field(HOUR, MINUTE, SECOND, MS) extraction from Unix timestamp
+// Uses lookup_offset to avoid expensive civil_second construction
+template <typename Impl>
+class FunctionTimeFieldFromUnixtime : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionTimeFieldFromUnixtime<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt32>());
+    }
+
+    // It's really hard to define max unix timestamp because of timezone.
+    // so this value is 253402329599(UTC 9999-12-31 23:59:59) - 24 * 3600(for all timezones)
+    static const int64_t TIMESTAMP_VALID_MAX = 253402243199L;
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        using ArgColType = PrimitiveTypeTraits<Impl::ArgType>::ColumnType;
+        auto res = ColumnInt32::create();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_data = null_map->get_data();
+
+        const auto* ts_col =
+                assert_cast<const ArgColType*>(block.get_by_position(arguments[0]).column.get());
+        if constexpr (Impl::ArgType == PrimitiveType::TYPE_DECIMAL64) {
+            // microsecond_from_unixtime only
+            const auto scale = static_cast<int32_t>(ts_col->get_scale());
+
+            for (int i = 0; i < input_rows_count; ++i) {
+                const auto seconds = ts_col->get_intergral_part(i);
+                const auto fraction = ts_col->get_fractional_part(i);
+
+                if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
+                    res->insert_default();
+                    null_data[i] = 1;
+                    continue;
+                }
+
+                int32_t value = Impl::extract_field(fraction, scale);
+                res->insert_value(value);
+            }
+        } else {
+            auto ctz = context->state()->timezone_obj();
+            for (int i = 0; i < input_rows_count; ++i) {
+                auto date = ts_col->get_element(i);
+
+                if (date < 0 || date > TIMESTAMP_VALID_MAX) {
+                    res->insert_default();
+                    null_data[i] = 1;
+                    continue;
+                }
+
+                int32_t value = Impl::extract_field(date, ctz);
+                res->insert_value(value);
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct HourFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
+    static constexpr auto name = "hour_from_unixtime";
+
+    static int32_t extract_field(int64_t local_time, const cctz::time_zone& ctz) {
+        static const auto epoch = std::chrono::time_point_cast<cctz::sys_seconds>(
+                std::chrono::system_clock::from_time_t(0));
+        cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(local_time);
+        int offset = ctz.lookup_offset(t).offset;
+        local_time += offset;
+
+        static const libdivide::divider<int64_t> fast_div_3600(3600);
+        static const libdivide::divider<int64_t> fast_div_86400(86400);
+
+        int64_t remainder;
+        if (LIKELY(local_time >= 0)) {
+            remainder = local_time - local_time / fast_div_86400 * 86400;
+        } else {
+            remainder = local_time % 86400;
+            if (remainder < 0) {
+                remainder += 86400;
+            }
+        }
+        return static_cast<int32_t>(remainder / fast_div_3600);
+    }
+};
+
+struct MinuteFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
+    static constexpr auto name = "minute_from_unixtime";
+
+    static int32_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
+        static const libdivide::divider<int64_t> fast_div_60(60);
+        static const libdivide::divider<int64_t> fast_div_3600(3600);
+
+        int64_t remainder;
+        if (LIKELY(local_time >= 0)) {
+            remainder = local_time - local_time / fast_div_3600 * 3600;
+        } else {
+            remainder = local_time % 3600;
+            if (remainder < 0) {
+                remainder += 3600;
+            }
+        }
+        return static_cast<int32_t>(remainder / fast_div_60);
+    }
+};
+
+struct SecondFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
+    static constexpr auto name = "second_from_unixtime";
+
+    static int32_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
+        int64_t remainder;
+        if (LIKELY(local_time >= 0)) {
+            remainder = local_time % 60;
+        } else {
+            remainder = local_time % 60;
+            if (remainder < 0) {
+                remainder += 60;
+            }
+        }
+        return static_cast<int32_t>(remainder);
+    }
+};
+
+struct MicrosecondFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_DECIMAL64;
+    static constexpr auto name = "microsecond_from_unixtime";
+
+    static int32_t extract_field(int64_t fraction, int scale) {
+        if (scale < 6) {
+            fraction *= common::exp10_i64(6 - scale);
+        }
+        return static_cast<int32_t>(fraction);
     }
 };
 
