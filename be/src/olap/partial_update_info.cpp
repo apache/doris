@@ -311,7 +311,7 @@ Status FixedReadPlan::read_columns_by_plan(
         const signed char* __restrict cur_delete_signs) const {
     if (force_read_old_delete_signs) {
         // always read delete sign column from historical data
-        if (block.get_position_by_name(DELETE_SIGN) != -1) {
+        if (block.get_position_by_name(DELETE_SIGN) == -1) {
             auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
             cids_to_read.emplace_back(del_col_cid);
             block.swap(tablet_schema.create_block_by_cids(cids_to_read));
@@ -421,20 +421,20 @@ Status FixedReadPlan::fill_missing_columns(
             }
 
             if (should_use_default) {
-                // clang-format off
                 if (tablet_column.has_default_value()) {
                     missing_col->insert_from(*mutable_default_value_columns[i], 0);
                 } else if (tablet_column.is_nullable()) {
-                    auto* nullable_column = assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
+                    auto* nullable_column =
+                            assert_cast<vectorized::ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
-                    const auto& column = *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
+                    const auto& column =
+                            *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
                             assert_cast<vectorized::ColumnInt64*>(missing_col.get());
-                    // assume auto inc column is last column in input block
                     auto_inc_column->insert_from(
-                            *block->get_by_position(block->columns()-1).column.get(),
+                            *block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get(),
                             idx);
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
@@ -442,7 +442,6 @@ Status FixedReadPlan::fill_missing_columns(
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
                     missing_col->insert(tablet_column.get_vec_type()->get_default());
                 }
-                // clang-format on
             } else {
                 missing_col->insert_from(*old_value_block.get_by_position(i).column,
                                          pos_in_old_block);

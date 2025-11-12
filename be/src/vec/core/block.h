@@ -73,7 +73,6 @@ class Block {
 
 private:
     using Container = ColumnsWithTypeAndName;
-    using IndexByName = phmap::flat_hash_map<String, size_t>;
     Container data;
 
 public:
