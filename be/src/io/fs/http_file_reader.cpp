@@ -64,7 +64,7 @@ HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url)
     }
 
     // Parse configuration for non-Range request handling
-    auto enable_range_iter = _extend_kv.find("enable.range.request");
+    auto enable_range_iter = _extend_kv.find("http.enable.range.request");
     if (enable_range_iter != _extend_kv.end()) {
         // Convert to lowercase for case-insensitive comparison
         std::string value = enable_range_iter->second;
@@ -72,12 +72,12 @@ HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url)
         _enable_range_request = (value != "false" && value != "0");
     }
 
-    auto max_size_iter = _extend_kv.find("max.request.size.bytes");
+    auto max_size_iter = _extend_kv.find("http.max.request.size.bytes");
     if (max_size_iter != _extend_kv.end()) {
         try {
             _max_request_size_bytes = std::stoull(max_size_iter->second);
         } catch (const std::exception& _) {
-            LOG(WARNING) << "Invalid max.request.size.bytes value: " << max_size_iter->second
+            LOG(WARNING) << "Invalid http.max.request.size.bytes value: " << max_size_iter->second
                          << ", using default: " << DEFAULT_MAX_REQUEST_SIZE;
             _max_request_size_bytes = DEFAULT_MAX_REQUEST_SIZE;
         }
