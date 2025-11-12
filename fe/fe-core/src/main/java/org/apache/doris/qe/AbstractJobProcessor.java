@@ -35,11 +35,13 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** AbstractJobProcessor */
 public abstract class AbstractJobProcessor implements JobProcessor {
     private final Logger logger = LogManager.getLogger(getClass());
 
+    protected final AtomicBoolean finished = new AtomicBoolean(false);
     protected final CoordinatorContext coordinatorContext;
     protected volatile Optional<PipelineExecutionTask> executionTask;
     protected volatile Optional<Map<BackendFragmentId, SingleFragmentPipelineTask>> backendFragmentTasks;
@@ -66,6 +68,17 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     }
 
     protected void afterSetPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {}
+
+    @Override
+    public void tryFinishSchedule() {
+        if (finished.compareAndSet(false, true)) {
+            this.executionTask.ifPresent(sqlPipelineTask -> {
+                for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {
+                    fragmentsTask.cancelExecute(Status.FINISHED);
+                }
+            });
+        }
+    }
 
     @Override
     public final void updateFragmentExecStatus(TReportExecStatusParams params) {
