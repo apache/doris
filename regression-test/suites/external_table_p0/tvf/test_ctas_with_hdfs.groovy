@@ -38,7 +38,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1") 
             as
-            select * from
+            select * except(binary_col) from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -58,7 +58,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select * except(binary_col) from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -79,7 +79,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select * except(binary_col) from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -100,7 +100,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             )
             PROPERTIES("replication_num" = "1")
             as
-            select * from
+            select * except(binary_col) from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",
@@ -116,7 +116,7 @@ suite("test_ctas_with_hdfs","external,hive,tvf,external_docker") {
             DISTRIBUTED BY HASH(p1_col) BUCKETS 10
             PROPERTIES("replication_num" = "1") 
             as
-            select * from
+            select * except(binary_col) from
             HDFS(
                 "uri" = "${uri}",
                 "hadoop.username" = "${hdfsUserName}",

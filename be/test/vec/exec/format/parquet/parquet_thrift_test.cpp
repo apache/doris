@@ -347,8 +347,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
             {"string_col", TYPE_STRING, sizeof(StringRef), true},
-            // binary is not supported, use string instead
-            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
+            {"binary_col", TYPE_VARBINARY, sizeof(StringView), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 0, 6},
             {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
