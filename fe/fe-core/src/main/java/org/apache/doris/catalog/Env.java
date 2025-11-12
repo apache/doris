@@ -745,7 +745,6 @@ public class Env {
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
-        this.functionSet.init();
 
         this.functionRegistry = new FunctionRegistry();
 
@@ -3685,6 +3684,12 @@ public class Env {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
         }
 
+        // partition retention count
+        if (olapTable.getPartitionRetentionCount() > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT).append("\" = \"");
+            sb.append(olapTable.getPartitionRetentionCount()).append("\"");
+        }
+
         // only display z-order sort info
         if (olapTable.isZOrderSort()) {
             sb.append(olapTable.getDataSortInfo().toSql());
@@ -5746,7 +5751,8 @@ public class Env {
             // check if have materialized view on rename column
             // and check whether colName is referenced by generated columns
             for (Column column : entry.getValue().getSchema()) {
-                if (column.getName().equals(colName) && !column.getGeneratedColumnsThatReferToThis().isEmpty()) {
+                if (column.getName().equals(colName)
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis())) {
                     throw new DdlException(
                             "Cannot rename column, because column '" + colName
                                     + "' has a generated column dependency on :"
@@ -6046,7 +6052,8 @@ public class Env {
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
-                .buildAutoAnalyzeProperty();
+                .buildAutoAnalyzeProperty()
+                .buildPartitionRetentionCount();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -6321,38 +6328,12 @@ public class Env {
         return functionRegistry;
     }
 
-    /**
-     * Returns the function that best matches 'desc' that is registered with the
-     * catalog using 'mode' to check for matching. If desc matches multiple
-     * functions in the catalog, it will return the function with the strictest
-     * matching mode. If multiple functions match at the same matching mode,
-     * ties are broken by comparing argument types in lexical order. Argument
-     * types are ordered by argument precision (e.g. double is preferred over
-     * float) and then by alphabetical order of argument type name, to guarantee
-     * deterministic results.
-     */
-    public Function getFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode);
-    }
-
-    public List<Function> getBuiltinFunctions() {
-        return functionSet.getBulitinFunctions();
-    }
-
-    public Function getTableFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode, true);
-    }
-
     public boolean isNondeterministicFunction(String funcName) {
         return functionSet.isNondeterministicFunction(funcName);
     }
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
-    }
-
-    public boolean isAggFunctionName(String name) {
-        return functionSet.isAggFunctionName(name);
     }
 
     @Deprecated

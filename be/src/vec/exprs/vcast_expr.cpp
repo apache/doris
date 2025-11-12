@@ -72,7 +72,8 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
             {.enable_decimal256 = state->enable_decimal256()});
 
     if (_function == nullptr) {
-        return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
+        return Status::NotSupported("Cast from {} to {} is not implemented",
+                                    child->data_type()->get_name(), _target_data_type_name);
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("({} {}({}) TO {})", cast_name(), child_name,
@@ -105,7 +106,7 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 }
 
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
-                                 int* result_column_id) {
+                                 int* result_column_id) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
@@ -135,7 +136,7 @@ bool cast_error_code(Status& st) {
     }
 }
 
-DataTypePtr TryCastExpr::original_cast_return_type() {
+DataTypePtr TryCastExpr::original_cast_return_type() const {
     if (_original_cast_return_is_nullable) {
         return _data_type;
     } else {
@@ -143,7 +144,7 @@ DataTypePtr TryCastExpr::original_cast_return_type() {
     }
 }
 
-Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
@@ -203,7 +204,7 @@ Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_col
 template <bool original_cast_reutrn_is_nullable>
 Status TryCastExpr::single_row_execute(VExprContext* context,
                                        const ColumnWithTypeAndName& input_info,
-                                       ColumnPtr& return_column) {
+                                       ColumnPtr& return_column) const {
     auto input_column = input_info.column;
     const auto& input_type = input_info.type;
     const auto& input_name = input_info.name;

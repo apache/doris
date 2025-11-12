@@ -861,10 +861,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
-        return FunctionUtil.getFunction(desc, mode, name2Function);
-    }
-
     public synchronized Function getFunction(FunctionSearchDesc function) throws AnalysisException {
         return FunctionUtil.getFunction(function, name2Function);
     }

@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -174,22 +173,6 @@ public class SlotDescriptor {
         this.isAutoInc = isAutoInc;
     }
 
-    public void materializeSrcExpr() {
-        if (sourceExprs == null) {
-            return;
-        }
-        for (Expr expr : sourceExprs) {
-            if (!(expr instanceof SlotRef)) {
-                expr.materializeSrcExpr();
-                continue;
-            }
-            SlotRef slotRef = (SlotRef) expr;
-            SlotDescriptor slotDesc = slotRef.getDesc();
-            slotDesc.setIsMaterialized(true);
-            slotDesc.materializeSrcExpr();
-        }
-    }
-
     public boolean getIsNullable() {
         return isNullable;
     }
@@ -228,11 +211,7 @@ public class SlotDescriptor {
 
     public ColumnStats getStats() {
         if (stats == null) {
-            if (column != null) {
-                stats = column.getStats();
-            } else {
-                stats = new ColumnStats();
-            }
+            stats = new ColumnStats();
         }
         // FIXME(dhc): mock ndv
         stats.setNumDistinctValues((long) parent.getCardinality());
@@ -280,19 +259,6 @@ public class SlotDescriptor {
 
     public void setVirtualColumn(Expr virtualColumn) {
         this.virtualColumn = virtualColumn;
-    }
-
-    /**
-     * Initializes a slot by setting its source expression information
-     */
-    public void initFromExpr(Expr expr) {
-        setIsNullable(expr.isNullable());
-        setLabel(expr.toSql());
-        Preconditions.checkState(sourceExprs.isEmpty());
-        setSourceExpr(expr);
-        setStats(ColumnStats.fromExpr(expr));
-        Preconditions.checkState(expr.getType().isValid());
-        setType(expr.getType());
     }
 
     /**

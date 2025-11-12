@@ -21,7 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -36,10 +36,10 @@ import java.util.List;
  * ScalarFunction 'hours_sub'.
  */
 public class HoursSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
+        PropagateNullable, DateAddSubMonotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(FunctionSignature
-            .ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE));
+            .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE));
 
     public HoursSub(Expression arg0, Expression arg1) {
         super("hours_sub", arg0, arg1);

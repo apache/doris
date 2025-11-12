@@ -65,7 +65,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     };
 
     private static final String[] REGION_NAMES_FOR_GUESSING = {
-            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "client.region"
     };
 
     @Setter
@@ -79,7 +79,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region"},
+            "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
@@ -89,6 +89,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
             "s3.access-key-id"},
             required = false,
+            sensitive = true,
             description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 

@@ -392,6 +392,8 @@ Status FunctionLikeBase::constant_regex_fn_scalar(const LikeSearchState* state,
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
+    } else if (state->boost_regex) { // use boost::regex for advanced features
+        *result = boost::regex_search(val.data, val.data + val.size, *state->boost_regex);
     } else { // fallback to re2
         *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), *state->regex);
     }
@@ -428,6 +430,12 @@ Status FunctionLikeBase::constant_regex_fn(const LikeSearchState* state, const C
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }
+        }
+    } else if (state->boost_regex) { // use boost::regex for advanced features
+        for (size_t i = 0; i < sz; i++) {
+            const auto& str_ref = val.get_data_at(i);
+            *(result.data() + i) = boost::regex_search(str_ref.data, str_ref.data + str_ref.size,
+                                                       *state->boost_regex);
         }
     } else { // fallback to re2
         for (size_t i = 0; i < sz; i++) {
@@ -1009,7 +1017,23 @@ Status FunctionRegexpLike::open(FunctionContext* context,
                 opts.set_dot_nl(true);
                 state->search_state.regex = std::make_unique<RE2>(pattern_str, opts);
                 if (!state->search_state.regex->ok()) {
-                    return Status::InternalError("Invalid regex expression: {}", pattern_str);
+                    if (!context->state()->enable_extended_regex()) {
+                        return Status::InternalError(
+                                "Invalid regex expression: {}. Error: {}. If you need advanced "
+                                "regex features, try setting enable_extended_regex=true",
+                                pattern_str, state->search_state.regex->error());
+                    }
+
+                    // RE2 failed, fallback to Boost.Regex
+                    // This handles advanced regex features like zero-width assertions
+                    state->search_state.regex.reset();
+                    try {
+                        state->search_state.boost_regex =
+                                std::make_unique<boost::regex>(pattern_str);
+                    } catch (const boost::regex_error& e) {
+                        return Status::InternalError("Invalid regex expression: {}. Error: {}",
+                                                     pattern_str, e.what());
+                    }
                 }
             }
             state->function = constant_regex_fn;

@@ -75,7 +75,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
                 + " \"s3.region\" = \"ap-beijing\","
                 + " \"s3.secret_key\" = \"*XXX\","
-                + " \"s3.access_key\" = \"abc\""
+                        + " \"s3.access_key\" = \"*XXX\""
                 + ")";
         parseAndCheck(sql, res);
 
@@ -96,7 +96,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\","
                 + " \"s3.region\" = \"ap-beijing\","
                 + " \"s3.secret_key\" = \"*XXX\","
-                + " \"s3.access_key\" = \"abc\""
+                + " \"s3.access_key\" = \"*XXX\""
                 + ")";
         parseAndCheck(sql, res);
 
@@ -139,7 +139,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"iceberg.catalog.type\" = \"hadoop\","
                 + " \"warehouse\" = \"s3://bucket/dir/key\","
                 + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
-                + " \"s3.access_key\" = \"abc\","
+                + " \"s3.access_key\" = \"*XXX\","
                 + " \"s3.secret_key\" = \"*XXX\""
                 + ")";
         parseAndCheck(sql, res);
@@ -230,7 +230,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"provider\" = \"OSS\","
                 + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
                 + " \"s3.region\" = \"oss-cn-hangzhou\","
-                + " \"s3.access_key\" = \"abc\","
+                + " \"s3.access_key\" = \"*XXX\","
                 + " \"s3.secret_key\" = \"*XXX\","
                 + " \"column_separator\" = \",\","
                 + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
@@ -255,11 +255,12 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"provider\" = \"OSS\","
                 + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
                 + " \"s3.region\" = \"oss-cn-hangzhou\","
-                + " \"s3.access_key\" = \"abc\","
+                + " \"s3.access_key\" = \"*XXX\","
                 + " \"s3.secret_key\" = \"*XXX\","
                 + " \"column_separator\" = \",\","
                 + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
                 + ")";
+
         parseAndCheck(sql, res);
 
         sql = "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')";
@@ -297,7 +298,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"column_separator\" = \",\","
                 + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
                 + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
+                + " \"s3.access_key\" = \"*XXX\","
                 + " \"s3.secret_key\" = \"*XXX\""
                 + " );";
         parseAndCheck(sql, res);
@@ -325,7 +326,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + " \"column_separator\" = \",\","
                 + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
                 + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
+                + " \"s3.access_key\" = \"*XXX\","
                 + " \"s3.secret_key\" = \"*XXX\""
                 + " );";
         parseAndCheck(sql, res);
