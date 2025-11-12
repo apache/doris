@@ -911,7 +911,18 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
                                        BufferWritable& bw) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    value_to_string<T>(data[row_num], bw, get_scale());
+    if constexpr (is_date_type(T) || is_time_type(T) || is_ip(T)) {
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+        value_to_string<T>(data[row_num], bw, get_scale());
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+
+    } else {
+        value_to_string<T>(data[row_num], bw, get_scale());
+    }
 }
 
 template <PrimitiveType T>

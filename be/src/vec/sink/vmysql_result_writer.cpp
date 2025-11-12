@@ -233,19 +233,46 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
             }
         }
 
-        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
-            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
-                        *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const, _options));
-            }
+        const auto& serde_dialect = state->query_options().serde_dialect;
 
-            // copy MysqlRowBuffer to Thrift
-            result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
-            bytes_sent += row_buffer.length();
-            row_buffer.reset();
-            if constexpr (is_binary_format) {
-                row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+        auto mysql_output_tmp_col = ColumnString::create();
+        BufferWriter write_buffer(*mysql_output_tmp_col);
+        size_t write_buffer_index = 0;
+        if (serde_dialect == TSerdeDialect::DORIS && !is_binary_format) {
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    const auto col_index = index_check_const(row_idx, arguments[col_idx].is_const);
+                    const auto* column = arguments[col_idx].column;
+                    if (arguments[col_idx].serde->write_column_to_mysql_text(*column, write_buffer,
+                                                                             col_index)) {
+                        write_buffer.commit();
+                        auto str = mysql_output_tmp_col->get_data_at(write_buffer_index);
+                        row_buffer.push_string(str.data, str.size);
+                        write_buffer_index++;
+                    } else {
+                        row_buffer.push_null();
+                    }
+                }
+                // copy MysqlRowBuffer to Thrift
+                result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
+                bytes_sent += row_buffer.length();
+                row_buffer.reset();
+            }
+        } else {
+            for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
+                for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                    RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
+                            *(arguments[col_idx].column), row_buffer, row_idx,
+                            arguments[col_idx].is_const, _options));
+                }
+
+                // copy MysqlRowBuffer to Thrift
+                result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
+                bytes_sent += row_buffer.length();
+                row_buffer.reset();
+                if constexpr (is_binary_format) {
+                    row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+                }
             }
         }
     }
