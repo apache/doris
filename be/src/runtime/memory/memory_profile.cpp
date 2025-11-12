@@ -261,11 +261,16 @@ void MemoryProfile::refresh_memory_overview_profile() {
     COUNTER_SET(_jemalloc_memory_usage_counter,
                 _jemalloc_cache_usage_counter->current_value() +
                         _jemalloc_metadata_usage_counter->current_value());
-    DorisMetrics::instance()->jvm_metrics()->update();
-    int64_t jvm_heap_bytes =
-            DorisMetrics::instance()->jvm_metrics()->jvm_heap_size_bytes_committed->value();
-    int64_t jvm_non_heap_bytes =
-            DorisMetrics::instance()->jvm_metrics()->jvm_non_heap_size_bytes_committed->value();
+    int64_t jvm_heap_bytes = 0;
+    int64_t jvm_non_heap_bytes = 0;
+    // JvmMetrics only inited when enable_java_support == true, or it is nullptr
+    if (DorisMetrics::instance()->jvm_metrics() != nullptr) {
+        DorisMetrics::instance()->jvm_metrics()->update();
+        jvm_heap_bytes =
+                DorisMetrics::instance()->jvm_metrics()->jvm_heap_size_bytes_committed->value();
+        jvm_non_heap_bytes =
+                DorisMetrics::instance()->jvm_metrics()->jvm_non_heap_size_bytes_committed->value();
+    }
 
     all_tracked_mem_sum += jvm_heap_bytes + jvm_non_heap_bytes;
     COUNTER_SET(_jvm_heap_memory_usage_counter, jvm_heap_bytes);
