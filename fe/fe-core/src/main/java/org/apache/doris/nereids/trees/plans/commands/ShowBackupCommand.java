@@ -60,7 +60,7 @@ public class ShowBackupCommand extends ShowCommand {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
             .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
+            .add("Progress").add("UploadBytes").add("TaskErrMsg").add("Status").add("Timeout")
             .build();
 
     private String dbName;
