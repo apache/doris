@@ -803,7 +803,7 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
                 (local_state._recovered_build_block ? local_state._recovered_build_block->rows()
                                                     : 0) +
                 state->batch_size();
-        size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+        size_t bucket_size = hash_join_table_calc_bucket_size(rows);
 
         size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
         size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
