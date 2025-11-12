@@ -54,6 +54,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -119,7 +120,7 @@ public class OlapTableSink extends DataSink {
 
     private boolean isStrictMode = false;
     private long txnId = -1;
-    private TUniqueId loadId = -1;
+    private TUniqueId loadId;
 
     private List<Expr> partitionExprs;
     private Map<Long, Expr> syncMvWhereClauses;
