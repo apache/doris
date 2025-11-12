@@ -8429,8 +8429,7 @@ TEST_F(BlockFileCacheTest, test_normal_queue_2qlru_cold_time) {
         blocks.clear();
     }
 
-    std::this_thread::sleep_for(
-        std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 30);
