@@ -536,11 +536,21 @@ public:
             : _return_type(std::move(return_type)) {}
 
     template <template <PrimitiveType> class FunctionTemplate>
-    static FunctionBuilderPtr create(DataTypePtr return_type) {
-        auto builder = std::make_shared<DefaultFunctionBuilder>(std::move(return_type));
+    static FunctionBuilderPtr create_array_agg_function_decimalv3(DataTypePtr return_type) {
+        auto builder = std::make_shared<DefaultFunctionBuilder>(return_type);
+        DataTypePtr real_return_type;
+        // for array_cum_sum, the return type is array,
+        // so here should check nested type
+        if (PrimitiveType::TYPE_ARRAY == return_type->get_primitive_type()) {
+            const DataTypeArray* data_type_array =
+                    static_cast<const DataTypeArray*>(remove_nullable(return_type).get());
+            real_return_type = data_type_array->get_nested_type();
+        } else {
+            real_return_type = return_type;
+        }
         builder->function =
                 simple_function_creator_with_result_type0<TYPE_DECIMAL128I, TYPE_DECIMAL256>::
-                        creator_with_result_type<FunctionTemplate>(builder->_return_type);
+                        creator_with_result_type<FunctionTemplate>(real_return_type);
         return builder;
     }
 

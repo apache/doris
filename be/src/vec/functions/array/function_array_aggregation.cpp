@@ -477,15 +477,12 @@ struct ArrayAggregateImpl2<operation, ResultType> {
     }
 };
 
-// template <PrimitiveType InputType, PrimitiveType ResultType>
 template <typename Impl, typename Name>
-class FunctionArrayAgg : public IFunction {
+class FunctionArrayAggDecimalV3 : public IFunction {
 public:
     static constexpr auto name = Name::name;
-    explicit FunctionArrayAgg(DataTypePtr result_type) : _result_type(std::move(result_type)) {}
-    // static FunctionPtr create(const DataTypePtr& result_type) {
-    //     return std::make_shared<FunctionArrayAgg>(result_type);
-    // }
+    explicit FunctionArrayAggDecimalV3(DataTypePtr result_type)
+            : _result_type(std::move(result_type)) {}
 
     String get_name() const override { return name; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -522,8 +519,8 @@ template <PrimitiveType ResultType>
 struct ArraySumDecimalV3Attributes {
     static_assert(is_decimalv3(ResultType));
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = FunctionArrayAgg<ArrayAggregateImpl2<AggregateOperation::SUM, ResultType>,
-                                      NameArraySum>;
+    using Function = FunctionArrayAggDecimalV3<
+            ArrayAggregateImplDecimalV3<AggregateOperation::SUM, ResultType>, NameArraySum>;
 };
 template <PrimitiveType ResultType>
 using ArraySumDecimalV3 = typename ArraySumDecimalV3Attributes<ResultType>::Function;
@@ -532,8 +529,8 @@ template <PrimitiveType ResultType>
 struct ArrayAvgDecimalV3Attributes {
     static_assert(is_decimalv3(ResultType));
     using AggregateDataType = AggregateFunctionAvgData<ResultType>;
-    using Function = FunctionArrayAgg<ArrayAggregateImpl2<AggregateOperation::AVERAGE, ResultType>,
-                                      NameArrayAverage>;
+    using Function = FunctionArrayAggDecimalV3<
+            ArrayAggregateImplDecimalV3<AggregateOperation::AVERAGE, ResultType>, NameArrayAverage>;
 };
 template <PrimitiveType ResultType>
 using ArrayAvgDecimalV3 = typename ArrayAvgDecimalV3Attributes<ResultType>::Function;
@@ -550,40 +547,43 @@ using ArrayProductDecimalV3 = typename ArrayProductDecimalV3Attributes<ResultTyp
 
 void register_array_reduce_agg_functions(SimpleFunctionFactory& factory) {
     {
-        SimpleFunctionCreator creator = [&](const DataTypePtr& result_type) {
+        ArrayAggFunctionCreator creator = [&](const DataTypePtr& result_type) {
             if (is_decimalv3(result_type->get_primitive_type())) {
-                return DefaultFunctionBuilder::create<ArraySumDecimalV3>(result_type);
+                return DefaultFunctionBuilder::create_array_agg_function_decimalv3<
+                        ArraySumDecimalV3>(result_type);
             } else {
                 FunctionBuilderPtr func =
                         std::make_shared<DefaultFunctionBuilder>(FunctionArraySum::create());
                 return func;
             }
         };
-        factory.register_function2(NameArraySum::name, creator);
+        factory.register_array_agg_function(NameArraySum::name, creator);
     }
     {
-        SimpleFunctionCreator creator = [&](const DataTypePtr& result_type) {
+        ArrayAggFunctionCreator creator = [&](const DataTypePtr& result_type) {
             if (is_decimalv3(result_type->get_primitive_type())) {
-                return DefaultFunctionBuilder::create<ArrayAvgDecimalV3>(result_type);
+                return DefaultFunctionBuilder::create_array_agg_function_decimalv3<
+                        ArrayAvgDecimalV3>(result_type);
             } else {
                 FunctionBuilderPtr func =
                         std::make_shared<DefaultFunctionBuilder>(FunctionArrayAverage::create());
                 return func;
             }
         };
-        factory.register_function2(NameArrayAverage::name, creator);
+        factory.register_array_agg_function(NameArrayAverage::name, creator);
     }
     {
-        SimpleFunctionCreator creator = [&](const DataTypePtr& result_type) {
+        ArrayAggFunctionCreator creator = [&](const DataTypePtr& result_type) {
             if (is_decimalv3(result_type->get_primitive_type())) {
-                return DefaultFunctionBuilder::create<ArrayProductDecimalV3>(result_type);
+                return DefaultFunctionBuilder::create_array_agg_function_decimalv3<
+                        ArrayProductDecimalV3>(result_type);
             } else {
                 FunctionBuilderPtr func =
                         std::make_shared<DefaultFunctionBuilder>(FunctionArrayProduct::create());
                 return func;
             }
         };
-        factory.register_function2(NameArrayProduct::name, creator);
+        factory.register_array_agg_function(NameArrayProduct::name, creator);
     }
 }
 

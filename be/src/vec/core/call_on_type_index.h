@@ -280,6 +280,16 @@ bool dispatch_switch_scalar(PrimitiveType number, F&& f) {
 }
 
 template <typename F>
+bool dispatch_switch_float(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::FLOAT>(number, std::forward<F>(f));
+}
+
+template <typename F>
+bool dispatch_switch_int(PrimitiveType number, F&& f) {
+    return dispatch_type_base<F, DispatchDataTypeMask::INT>(number, std::forward<F>(f));
+}
+
+template <typename F>
 bool dispatch_switch_number(PrimitiveType number, F&& f) {
     return dispatch_type_base<F, DispatchDataTypeMask::NUMBER>(number, std::forward<F>(f));
 }
