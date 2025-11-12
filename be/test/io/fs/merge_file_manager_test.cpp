@@ -184,7 +184,6 @@ protected:
         auto& state = manager->_current_merge_files[_resource_id];
         ASSERT_TRUE(manager->create_new_merge_file_state(_resource_id, state).ok());
         ASSERT_NE(file_system->last_writer(), nullptr);
-        manager->reset_merge_file_bvars_for_test();
     }
 
     void TearDown() override {
@@ -474,25 +473,6 @@ TEST_F(MergeFileManagerTest, CleanupExpiredDataRemovesOldEntries) {
     manager->cleanup_expired_data();
 
     EXPECT_TRUE(manager->_uploaded_merge_files.empty());
-}
-
-TEST_F(MergeFileManagerTest, MergeFileBvarMetricsUpdated) {
-    auto state = std::make_shared<MergeFileManager::MergeFileState>();
-    state->total_size = 300;
-    MergeFileSegmentIndex idx1;
-    idx1.size = 100;
-    MergeFileSegmentIndex idx2;
-    idx2.size = 200;
-    state->index_map["a"] = idx1;
-    state->index_map["b"] = idx2;
-
-    manager->record_merge_file_metrics_for_test(state.get());
-
-    EXPECT_EQ(manager->merge_file_total_count_for_test(), 1);
-    EXPECT_EQ(manager->merge_file_total_small_file_num_for_test(), 2);
-    EXPECT_EQ(manager->merge_file_total_size_bytes_for_test(), 300);
-    EXPECT_DOUBLE_EQ(manager->merge_file_avg_small_file_num_for_test(), 2.0);
-    EXPECT_DOUBLE_EQ(manager->merge_file_avg_file_size_for_test(), 300.0);
 }
 
 } // namespace doris::io

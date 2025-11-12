@@ -80,7 +80,6 @@ Status MergeFileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status MergeFileWriter::close(bool non_block) {
-    LOG(INFO) << "merge file writer close, rowset id " << _append_info.rowset_id;
     if (_state == State::CLOSED) {
         return Status::OK();
     }
