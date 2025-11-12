@@ -90,6 +90,7 @@ public class AzureProperties extends StorageProperties {
 
     @ConnectorProperty(names = {"azure.oauth2_client_secret"},
             required = false,
+            sensitive = true,
             description = "The client secret of Azure AD application.")
     private String clientSecret;
 
