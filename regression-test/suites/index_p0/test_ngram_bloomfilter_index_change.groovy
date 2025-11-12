@@ -153,7 +153,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test without NGRAM Bloom Filter index
     def token1 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token1}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token1}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile1 = getProfileWithToken(token1)
     def filtered1 = extractRowsBloomFilterFiltered(profile1)
     logger.info("sql_select_like_without_ngram_index_light_mode: RowsBloomFilterFiltered = ${filtered1}")
@@ -174,7 +174,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test with more data (should still filter correctly)
     def token2 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token2}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token2}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile2 = getProfileWithToken(token2)
     def filtered2 = extractRowsBloomFilterFiltered(profile2)
     logger.info("sql_select_like_with_ngram_index_light_mode_more_data: RowsBloomFilterFiltered = ${filtered2}")
@@ -187,7 +187,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test after dropping index
     def token3 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token3}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token3}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile3 = getProfileWithToken(token3)
     def filtered3 = extractRowsBloomFilterFiltered(profile3)
     logger.info("sql_select_like_with_ngram_index_light_mode_dropped: RowsBloomFilterFiltered = ${filtered3}")
@@ -229,7 +229,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test without NGRAM Bloom Filter index
     def token4 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token4}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token4}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile4 = getProfileWithToken(token4)
     def filtered4 = extractRowsBloomFilterFiltered(profile4)
     logger.info("sql_select_like_without_ngram_index_schema_change_mode: RowsBloomFilterFiltered = ${filtered4}")
@@ -242,7 +242,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test after adding NGRAM Bloom Filter index (should filter existing data)
     def token5 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token5}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token5}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile5 = getProfileWithToken(token5)
     def filtered5 = extractRowsBloomFilterFiltered(profile5)
     logger.info("sql_select_like_with_ngram_index_schema_change_mode_added: RowsBloomFilterFiltered = ${filtered5}")
@@ -255,7 +255,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test with more data (should filter all data)
     def token6 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token6}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token6}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile6 = getProfileWithToken(token6)
     def filtered6 = extractRowsBloomFilterFiltered(profile6)
     logger.info("sql_select_like_with_ngram_index_schema_change_mode_more_data: RowsBloomFilterFiltered = ${filtered6}")
@@ -268,7 +268,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test after dropping index
     def token7 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token7}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token7}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile7 = getProfileWithToken(token7)
     def filtered7 = extractRowsBloomFilterFiltered(profile7)
     logger.info("sql_select_like_with_ngram_index_schema_change_mode_dropped: RowsBloomFilterFiltered = ${filtered7}")
@@ -316,7 +316,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test filtering with index added before data insertion
     def token8 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token8}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token8}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile8 = getProfileWithToken(token8)
     def filtered8 = extractRowsBloomFilterFiltered(profile8)
     logger.info("sql_select_like_with_ngram_index_lifecycle_test: RowsBloomFilterFiltered = ${filtered8}")
@@ -329,7 +329,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test filtering with more data
     def token9 = UUID.randomUUID().toString()
-    sql "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/ '${token9}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    sql "SELECT /*+SET_VAR(enable_function_pushdown = true)*/ '${token9}', * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
     def profile9 = getProfileWithToken(token9)
     def filtered9 = extractRowsBloomFilterFiltered(profile9)
     logger.info("sql_select_like_with_ngram_index_lifecycle_final: RowsBloomFilterFiltered = ${filtered9}")
