@@ -265,7 +265,7 @@ private:
     // Limited cache for column readers
     std::unique_ptr<ColumnReaderCache> _column_reader_cache;
 
-    // map column unique id ---> it's footer ordinal
+    // map column unique id ---> col_id (footer ordinal in legacy mode, or external CMO column id)
     std::unordered_map<int32_t, size_t> _column_uid_to_footer_ordinal;
 
     // Init from ColumnMetaPB in SegmentFooterPB

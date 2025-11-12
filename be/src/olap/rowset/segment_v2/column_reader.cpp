@@ -45,6 +45,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
@@ -65,6 +66,7 @@
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
+#include "util/coding.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -248,12 +250,31 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const SegmentFooter
                             uint32_t column_id, uint64_t num_rows,
                             const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
-    // create normal column reader or variant subcolumn reader with extracted columns info in footer
-    if ((FieldType)footer.columns(column_id).type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        return ColumnReader::create(opts, footer.columns(column_id), num_rows, file_reader, reader);
+    // Prefer external ColumnMetaPB via CMO [pos,size] addressing if available (on-demand meta)
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    if (ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
+        column_id < ptrs.num_columns) {
+        ColumnMetaPB meta;
+        RETURN_IF_ERROR(
+                ExternalColMetaUtil::read_col_meta_from_cmo(file_reader, ptrs, column_id, &meta));
+        // return ColumnReader::create(opts, meta, num_rows, file_reader, reader);
+        if ((FieldType)meta.type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
+            return ColumnReader::create(opts, meta, num_rows, file_reader, reader);
+        }
+        // create variant column reader with extracted columns info in footer with hierarchical data info
+        return create_variant(opts, footer, column_id, num_rows, file_reader, reader);
     }
-    // create variant column reader with extracted columns info in footer with hierarchical data info
-    return create_variant(opts, footer, column_id, num_rows, file_reader, reader);
+    // Fallback: inline footer.columns if present
+    if (footer.columns_size() > 0 && column_id < static_cast<uint32_t>(footer.columns_size())) {
+        if ((FieldType)footer.columns(column_id).type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
+            return ColumnReader::create(opts, footer.columns(column_id), num_rows, file_reader,
+                                        reader);
+        }
+        // create variant column reader with extracted columns info in footer with hierarchical data info
+        return create_variant(opts, footer, column_id, num_rows, file_reader, reader);
+    }
+    return Status::Corruption("no column meta available for column_id={} (inline/external missing)",
+                              column_id);
 }
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,

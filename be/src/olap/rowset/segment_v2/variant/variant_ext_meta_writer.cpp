@@ -94,12 +94,20 @@ Status VariantExtMetaWriter::flush_to_footer(SegmentFooterPB* footer) {
 }
 
 Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer) {
-    // Collect variant subcolumns first, then write in sorted order to keep stability.
+    // Variant meta pre-processing:
+    // - Collect non-sparse subcolumns per root and externalize them as KV (path→ColumnMetaPB bytes)
+    //   in sorted path order to keep stability;
+    // - Collect sparse subcolumns (including buckets) per root and embed them into the corresponding
+    //   root variant's ColumnMetaPB.children_columns;
+    // - Keep only top-level columns (including variant roots) in footer.columns().
     std::vector<ColumnMetaPB> kept;
     kept.reserve(footer->columns_size());
     std::unordered_map<int32_t, std::vector<std::pair<std::string, std::string>>>
             pending; // uid -> [(path, meta_bytes)]
     pending.reserve(8);
+    // Collect sparse subcolumns to be embedded into root's children_columns
+    std::unordered_map<int32_t, std::vector<ColumnMetaPB>> pending_sparse; // uid -> [sparse meta]
+    pending_sparse.reserve(8);
     size_t kept_count = 0;
     size_t externalized_count = 0;
 
@@ -123,8 +131,8 @@ Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer) {
         // Check if this is a sparse column or sub column
         // Treat both single sparse column and bucketized sparse columns (.b{i}) as sparse
         if (rel_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
-            kept.emplace_back(col);
-            kept_count++;
+            int32_t root_uid = col.column_path_info().parrent_column_unique_id();
+            pending_sparse[root_uid].emplace_back(col);
             continue;
         }
         int32_t root_uid = col.column_path_info().parrent_column_unique_id();
@@ -144,11 +152,30 @@ Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer) {
     }
     RETURN_IF_ERROR(flush_to_footer(footer));
 
-    // Replace columns with kept ones (prune externalized subcolumns)
+    // Replace columns with kept ones (prune externalized subcolumns) and
+    // embed sparse subcolumns into variant root's children_columns
     footer->clear_columns();
     for (const auto& c : kept) {
         auto* dst = footer->add_columns();
         dst->CopyFrom(c);
+        // Append collected sparse subcolumns to root variant only
+        bool is_root_variant = false;
+        if (dst->has_column_path_info()) {
+            vectorized::PathInData full_path;
+            full_path.from_protobuf(dst->column_path_info());
+            is_root_variant = full_path.copy_pop_front().empty();
+        }
+        if (!is_root_variant) {
+            continue;
+        }
+        const auto sparse_it = pending_sparse.find(dst->unique_id());
+        if (sparse_it == pending_sparse.end()) {
+            continue;
+        }
+        for (const auto& sparse_meta : sparse_it->second) {
+            auto* child = dst->add_children_columns();
+            child->CopyFrom(sparse_meta);
+        }
     }
     VLOG_DEBUG << "VariantExtMetaWriter::externalize_from_footer, externalized subcolumns: "
                << externalized_count << ", kept columns: " << kept_count

@@ -45,6 +45,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -691,15 +692,34 @@ Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
 }
 
 Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
-    // unique_id -> idx in footer.columns()
-    uint32_t ordinal = 0;
-    for (const auto& column_meta : footer.columns()) {
-        // no need to create column reader for variant's subcolumn
-        if (column_meta.unique_id() == -1) {
-            ordinal++;
-            continue;
+    // Build uid -> col_id mapping used to locate per-column meta.
+    // Priority:
+    // 1) uid2colid blob in footer.file_meta_datas (external meta mode, raw uid array)
+    // 2) fallback: scan footer.columns() (old or mixed format)
+    // 3) both missing -> treat as no columns resolvable in this segment (return NOT_FOUND on lookup)
+    _column_uid_to_footer_ordinal.clear();
+    // 1) Prefer uid->col_id blob (external meta mode). If corrupted or missing, fall back.
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    bool loaded = ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
+                  ExternalColMetaUtil::parse_uid_to_colid_map(footer, ptrs,
+                                                              &_column_uid_to_footer_ordinal);
+    // 2) Fallback: inline footer columns (old or mixed format)
+    if (!loaded && footer.columns_size() > 0) {
+        uint32_t ordinal = 0;
+        for (const auto& column_meta : footer.columns()) {
+            if (column_meta.unique_id() == -1) {
+                ordinal++;
+                continue;
+            }
+            _column_uid_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
         }
-        _column_uid_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
+        loaded = true;
+    }
+    // 3) If still not loaded, warn once to aid troubleshooting (damaged mapping and empty inline columns).
+    if (!loaded) {
+        LOG(WARNING) << "segment external meta mapping missing or corrupted and no inline columns; "
+                        "uid->col_id cannot be resolved. path="
+                     << (_file_reader ? _file_reader->path().native() : std::string("<unknown>"));
     }
     _column_reader_cache = std::make_unique<ColumnReaderCache>(this);
     return Status::OK();
@@ -804,10 +824,56 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, nullptr));
-    for (const auto& column : footer_pb_shared->columns()) {
-        visitor(column);
+    // Prefer externalized meta path when available: reduce syscalls by prefetching the whole region.
+    ExternalColMetaUtil::ExternalMetaPointers ptrs;
+    if (ExternalColMetaUtil::parse_external_meta_pointers(*footer_pb_shared, &ptrs) &&
+        ptrs.num_columns > 0) {
+        const uint64_t region_size =
+                (ptrs.cmo_offset > ptrs.region_start) ? (ptrs.cmo_offset - ptrs.region_start) : 0;
+        if (region_size == 0) {
+            return Status::Corruption("invalid external meta region size");
+        }
+        // Read entire meta region once to reduce random IO
+        std::string region_buf;
+        region_buf.resize(static_cast<size_t>(region_size));
+        size_t br = 0;
+        io::IOContext io_ctx {.is_index_data = true};
+        RETURN_IF_ERROR(_file_reader->read_at(ptrs.region_start, Slice(region_buf), &br, &io_ctx));
+        if (br != region_size) {
+            return Status::Corruption("short read on meta region");
+        }
+        // Walk CMO entries and parse metas
+        for (uint32_t i = 0; i < ptrs.num_columns; ++i) {
+            uint8_t entry[16];
+            size_t er = 0;
+            const uint64_t entry_off = ptrs.cmo_offset + static_cast<uint64_t>(i) * 16ULL;
+            RETURN_IF_ERROR(
+                    _file_reader->read_at(entry_off, Slice(entry, sizeof(entry)), &er, &io_ctx));
+            if (er != sizeof(entry)) {
+                return Status::Corruption("short read CMO entry");
+            }
+            const uint64_t pos = decode_fixed64_le(entry);
+            const uint64_t sz = decode_fixed64_le(entry + 8);
+            if (!ExternalColMetaUtil::is_valid_meta_slice(pos, sz, ptrs)) {
+                return Status::Corruption("CMO entry out of region bounds");
+            }
+            const uint64_t rel = pos - ptrs.region_start;
+            ColumnMetaPB meta;
+            if (!meta.ParseFromArray(region_buf.data() + rel, static_cast<int>(sz))) {
+                return Status::Corruption("failed parse ColumnMetaPB from region");
+            }
+            visitor(meta);
+        }
+        return Status::OK();
     }
-    return Status::OK();
+    // Fallback: Inline footer columns
+    if (footer_pb_shared->columns_size() > 0) {
+        for (const auto& column : footer_pb_shared->columns()) {
+            visitor(column);
+        }
+        return Status::OK();
+    }
+    return Status::Corruption("no column meta found in footer");
 }
 
 Status Segment::get_column_reader(const TabletColumn& col,

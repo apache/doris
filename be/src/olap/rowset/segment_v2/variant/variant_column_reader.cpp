@@ -28,6 +28,7 @@
 #include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -673,7 +674,32 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     // init sub columns
     _subcolumns_meta_info = std::make_unique<SubcolumnColumnMetaInfo>();
     _statistics = std::make_unique<VariantStatistics>();
-    const ColumnMetaPB& self_column_pb = footer.columns(column_id);
+    // Prefer external root ColumnMetaPB via CMO if available (on-demand meta)
+    ColumnMetaPB self_column_pb;
+    {
+        ExternalColMetaUtil::ExternalMetaPointers ptrs;
+        if (ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
+            column_id < ptrs.num_columns) {
+            RETURN_IF_ERROR(ExternalColMetaUtil::read_col_meta_from_cmo(
+                    file_reader, ptrs, column_id, &self_column_pb));
+        } else {
+            // fallback
+            self_column_pb = footer.columns(column_id);
+        }
+
+        // root column
+        // root subcolumn is ColumnVariant::MostCommonType which is jsonb
+        vectorized::DataTypePtr root_type =
+                self_column_pb.is_nullable()
+                        ? make_nullable(
+                                  std::make_unique<vectorized::ColumnVariant::MostCommonType>())
+                        : std::make_unique<vectorized::ColumnVariant::MostCommonType>();
+        _subcolumns_meta_info->create_root(SubcolumnMeta {
+                .file_column_type = root_type, .footer_ordinal = static_cast<int32_t>(column_id)});
+        RETURN_IF_ERROR(ColumnReader::create(opts, self_column_pb, num_rows, file_reader,
+                                             &_root_column_reader));
+    }
+
     _data_type = vectorized::DataTypeFactory::instance().create_data_type(self_column_pb);
     _root_unique_id = self_column_pb.unique_id();
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
@@ -686,6 +712,59 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     std::map<int, std::shared_ptr<ColumnReader>> tmp_bucket_readers;
     std::map<std::string, int64_t> aggregated_bucket_stats;
 
+    // helper to handle sparse meta (single or bucket) from a ColumnMetaPB
+    auto handle_sparse_meta = [&](const ColumnMetaPB& col, bool* handled) -> Status {
+        *handled = false;
+        if (!col.has_column_path_info()) {
+            return Status::OK();
+        }
+        vectorized::PathInData path;
+        path.from_protobuf(col.column_path_info());
+        auto relative = path.copy_pop_front();
+        if (relative.empty()) {
+            return Status::OK();
+        }
+        std::string rel_str = relative.get_path();
+        if (rel_str == SPARSE_COLUMN_PATH) {
+            DCHECK(col.has_variant_statistics()) << col.DebugString();
+            const auto& variant_stats = col.variant_statistics();
+            for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
+                _statistics->sparse_column_non_null_size.emplace(subpath, size);
+            }
+            std::shared_ptr<ColumnReader> single_reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, col, footer.num_rows(), file_reader,
+                                                 &single_reader));
+            _sparse_reader.set_single(std::move(single_reader));
+            *handled = true;
+            return Status::OK();
+        }
+        std::string bucket_prefix = std::string(SPARSE_COLUMN_PATH) + ".b";
+        if (rel_str.starts_with(bucket_prefix)) {
+            int idx = atoi(rel_str.substr(bucket_prefix.size()).c_str());
+            DCHECK(col.has_variant_statistics()) << col.DebugString();
+            const auto& variant_stats = col.variant_statistics();
+            for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
+                aggregated_bucket_stats[subpath] += size;
+            }
+            std::shared_ptr<ColumnReader> reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &reader));
+            tmp_bucket_readers[idx] = reader;
+            *handled = true;
+            return Status::OK();
+        }
+        return Status::OK();
+    };
+
+    // First try initialize sparse from root's embedded children_columns (new segments)
+    if (self_column_pb.children_columns_size() > 0) {
+        for (int i = 0; i < self_column_pb.children_columns_size(); ++i) {
+            const ColumnMetaPB& child_pb = self_column_pb.children_columns(i);
+            bool handled = false;
+            RETURN_IF_ERROR(handle_sparse_meta(child_pb, &handled));
+        }
+    }
+
+    // init from inline columns meta
     for (int32_t ordinal = 0; ordinal < footer.columns_size(); ++ordinal) {
         const ColumnMetaPB& column_pb = footer.columns(ordinal);
         // Find all columns belonging to the current variant column
@@ -712,78 +791,30 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
         // init sparse column readers
         auto relative_sparse = path.copy_pop_front();
         auto rel_str = relative_sparse.get_path();
-        if (rel_str == SPARSE_COLUMN_PATH) {
-            DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
-            const auto& variant_stats = column_pb.variant_statistics();
-            for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
-                _statistics->sparse_column_non_null_size.emplace(subpath, size);
-            }
-            std::shared_ptr<ColumnReader> single_reader;
-            RETURN_IF_ERROR(ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader,
-                                                 &single_reader));
-            _sparse_reader.set_single(std::move(single_reader));
-            continue;
-        } else {
-            // detect bucket: __DORIS_VARIANT_SPARSE__.b{idx}
-            std::string bucket_prefix = std::string(SPARSE_COLUMN_PATH) + ".b";
-            if (rel_str.rfind(bucket_prefix, 0) == 0) {
-                int idx = atoi(rel_str.substr(bucket_prefix.size()).c_str());
-                DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
-                const auto& variant_stats = column_pb.variant_statistics();
-                for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
-                    aggregated_bucket_stats[subpath] += size;
-                }
-                std::shared_ptr<ColumnReader> reader;
-                RETURN_IF_ERROR(
-                        ColumnReader::create(opts, column_pb, num_rows, file_reader, &reader));
-                tmp_bucket_readers[idx] = reader;
+        {
+            bool handled = false;
+            RETURN_IF_ERROR(handle_sparse_meta(column_pb, &handled));
+            if (handled) {
                 continue;
             }
         }
 
         // init subcolumns
         auto relative_path = path.copy_pop_front();
-        auto get_data_type_fn = [&]() {
-            // root subcolumn is ColumnVariant::MostCommonType which is jsonb
-            if (relative_path.empty()) {
-                return self_column_pb.is_nullable()
-                               ? make_nullable(std::make_unique<
-                                               vectorized::ColumnVariant::MostCommonType>())
-                               : std::make_unique<vectorized::ColumnVariant::MostCommonType>();
-            }
-            return vectorized::DataTypeFactory::instance().create_data_type(column_pb);
-        };
-        // init subcolumns
-        if (_subcolumns_meta_info->get_root() == nullptr) {
-            _subcolumns_meta_info->create_root(SubcolumnMeta {});
-        }
         if (relative_path.empty()) {
-            // root column
-            _subcolumns_meta_info->get_mutable_root()->modify_to_scalar(
-                    SubcolumnMeta {get_data_type_fn(), ordinal});
-            RETURN_IF_ERROR(ColumnReader::create(opts, column_pb, num_rows, file_reader,
-                                                 &_root_column_reader));
-        } else {
-            // check the root is already a leaf node
-            if (column_pb.has_none_null_size()) {
-                _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
-                                                              column_pb.none_null_size());
-            }
-            _subcolumns_meta_info->add(relative_path, SubcolumnMeta {get_data_type_fn(), ordinal});
-            // TabletSchema::SubColumnInfo sub_column_info;
-            // // if subcolumn has index, add index to _variant_subcolumns_indexes
-            // if (vectorized::schema_util::generate_sub_column_info(
-            //             *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
-            //             &sub_column_info) &&
-            //     !sub_column_info.indexes.empty()) {
-            //     _variant_subcolumns_indexes[path.get_path()] = std::move(sub_column_info.indexes);
-            // }
-            // // if parent column has index, add index to _variant_subcolumns_indexes
-            // else if (!parent_index.empty()) {
-            //     vectorized::schema_util::inherit_index(
-            //             parent_index, _variant_subcolumns_indexes[path.get_path()], column_pb);
-            // }
+            continue;
         }
+        // check the root is already a leaf node
+        if (column_pb.has_none_null_size()) {
+            _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
+                                                          column_pb.none_null_size());
+        }
+        _subcolumns_meta_info->add(
+                relative_path,
+                SubcolumnMeta {
+                        .file_column_type =
+                                vectorized::DataTypeFactory::instance().create_data_type(column_pb),
+                        .footer_ordinal = ordinal});
     }
 
     // finalize bucket readers if any

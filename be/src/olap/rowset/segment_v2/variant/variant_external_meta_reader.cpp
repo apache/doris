@@ -162,6 +162,12 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
                 out_stats->subcolumns_non_null_size.emplace(relative_path.get_path(),
                                                             meta.none_null_size());
             }
+            // if (meta.has_variant_statistics()) {
+            //     const auto& variant_stats = meta.variant_statistics();
+            //     for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
+            //         out_stats->sparse_column_non_null_size[subpath] += size;
+            //     }
+            // }
             auto file_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
             out_meta_tree->add(relative_path,
                                SubcolumnMeta {.file_column_type = file_type, .footer_ordinal = -1});

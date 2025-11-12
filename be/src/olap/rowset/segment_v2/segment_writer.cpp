@@ -46,6 +46,7 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/external_col_meta_util.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -1144,12 +1145,11 @@ Status SegmentWriter::_write_primary_key_index() {
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
 
-    if (config::enable_variant_external_meta) {
-        // Externalize variant subcolumns into ext meta and prune them from footer.columns.
-        auto variant_ext_meta_agg =
-                std::make_unique<VariantExtMetaWriter>(_file_writer, _opts.compression_type);
-        RETURN_IF_ERROR(variant_ext_meta_agg->externalize_from_footer(&_footer));
-    }
+    // External ColumnMetaPB writing (optional, controlled by enable_segment_external_col_meta)
+    RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+            config::enable_segment_external_col_meta, _file_writer, &_footer,
+            _opts.compression_type,
+            [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;

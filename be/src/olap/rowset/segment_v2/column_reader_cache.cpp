@@ -138,16 +138,13 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
         RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
     }
-    // lazy create column reader from footer
-    const auto& col_footer_pb = footer_pb_shared->columns(static_cast<int>(it->second));
+    // Create reader via ColumnReader::create (external meta preferred, inline fallback).
     ColumnReaderOptions opts {
             .kept_in_memory = _segment->tablet_schema()->is_in_memory(),
             .be_exec_version = _be_exec_version,
             .tablet_schema = _segment->tablet_schema(),
     };
-    VLOG_DEBUG << "insert cache: " << col_uid << " "
-               << ""
-               << ", type: " << (int)col_footer_pb.type() << ", footer_ordinal: " << it->second;
+    VLOG_DEBUG << "insert cache: uid=" << col_uid << " col_id=" << it->second;
     return _insert({col_uid, {}}, opts, *footer_pb_shared, static_cast<int>(it->second),
                    _segment->_file_reader, _segment->num_rows(), column_reader);
 }
