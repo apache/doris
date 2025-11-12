@@ -44,6 +44,7 @@ MergeFileSystem::MergeFileSystem(FileSystemSPtr inner_fs,
     if (_append_info.resource_id.empty() && _inner_fs != nullptr) {
         _append_info.resource_id = _inner_fs->id();
     }
+    _index_map_initialized = true;
 }
 
 Status MergeFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
@@ -86,5 +87,17 @@ Status MergeFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
         RETURN_IF_ERROR(_inner_fs->open_file(file, reader, opts));
     }
     return Status::OK();
+}
+
+Status MergeFileSystem::exists_impl(const Path& path, bool* res) const {
+    LOG(INFO) << "merge file system exist, rowset id " << _append_info.rowset_id;
+    if (!_index_map_initialized) {
+        return Status::InternalError("MergeFileSystem index map is not initialized");
+    }
+    const auto it = _index_map.find(path.native());
+    if (it != _index_map.end()) {
+        return _inner_fs->exists(Path(it->second.merge_file_path), res);
+    }
+    return _inner_fs->exists(path, res);
 }
 } // namespace doris::io

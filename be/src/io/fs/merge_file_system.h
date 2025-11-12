@@ -68,9 +68,7 @@ protected:
         return Status::InternalError("MergeFileSystem does not support delete_directory");
     }
 
-    Status exists_impl(const Path& path, bool* res) const override {
-        return Status::InternalError("MergeFileSystem does not support exists");
-    }
+    Status exists_impl(const Path& path, bool* res) const override;
 
     Status file_size_impl(const Path& file, int64_t* file_size) const override {
         return Status::InternalError("MergeFileSystem does not support file_size");
@@ -94,6 +92,7 @@ private:
     FileSystemSPtr _inner_fs;
     // Map from small file path to merge file segment index
     std::unordered_map<std::string, MergeFileSegmentIndex> _index_map;
+    bool _index_map_initialized = false;
     MergeFileAppendInfo _append_info;
 };
 

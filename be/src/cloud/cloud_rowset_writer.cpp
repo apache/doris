@@ -68,12 +68,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
 
 Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
     // Call base class implementation
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num));
-
-    // Collect merge file segment index information (only for cloud rowset writer)
-    RETURN_IF_ERROR(_collect_all_merge_file_indices(rowset_meta));
-
-    return Status::OK();
+    return BaseBetaRowsetWriter::_build_rowset_meta(rowset_meta, check_segment_num);
 }
 
 Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
@@ -82,6 +77,8 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // TODO(plat1ko): check_segment_footer
 
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get()));
+    // At this point all writers have been closed, so collecting merge file indices is safe.
+    RETURN_IF_ERROR(_collect_all_merge_file_indices(_rowset_meta.get()));
     // If the current load is a partial update, new segments may be appended to the tmp rowset after the tmp rowset
     // has been committed if conflicts occur due to concurrent partial updates. However, when the recycler do recycling,
     // it will generate the paths for the segments to be recycled on the object storage based on the number of segments
@@ -148,7 +145,10 @@ Status CloudRowsetWriter::_collect_all_merge_file_indices(RowsetMeta* rowset_met
     // Collect segment file merge indices
     const auto& file_writers = _seg_files.get_file_writers();
     for (const auto& [seg_id, writer_ptr] : file_writers) {
-        auto segment_path = _context.segment_path(seg_id);
+        if (writer_ptr == nullptr) {
+            continue;
+        }
+        auto segment_path = writer_ptr->path().string();
         RETURN_IF_ERROR(_collect_merge_file_index(writer_ptr.get(), segment_path, rowset_meta));
     }
 
@@ -156,13 +156,9 @@ Status CloudRowsetWriter::_collect_all_merge_file_indices(RowsetMeta* rowset_met
     const auto& idx_file_writers = _idx_files.get_file_writers();
     for (const auto& [seg_id, idx_writer_ptr] : idx_file_writers) {
         if (idx_writer_ptr != nullptr && idx_writer_ptr->get_file_writer() != nullptr) {
-            auto segment_path = _context.segment_path(seg_id);
-            auto index_prefix_view =
-                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
-            std::string index_path =
-                    InvertedIndexDescriptor::get_index_file_path_v2(std::string(index_prefix_view));
-            RETURN_IF_ERROR(_collect_merge_file_index(idx_writer_ptr->get_file_writer(), index_path,
-                                                      rowset_meta));
+            auto* file_writer = idx_writer_ptr->get_file_writer();
+            auto index_path = file_writer->path().string();
+            RETURN_IF_ERROR(_collect_merge_file_index(file_writer, index_path, rowset_meta));
         }
     }
 

@@ -17,6 +17,9 @@
 
 #include "io/fs/merge_file_manager.h"
 
+#include <bvar/bvar.h>
+#include <bvar/passive_status.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -37,6 +40,35 @@
 #include "util/uid_util.h"
 
 namespace doris::io {
+
+namespace {
+
+bvar::Adder<int64_t> g_merge_file_total_count("merge_file", "total_count");
+bvar::Adder<int64_t> g_merge_file_total_small_file_count("merge_file", "total_small_file_num");
+bvar::Adder<int64_t> g_merge_file_total_size_bytes("merge_file", "total_size_bytes");
+
+double merge_file_avg_small_file_num(void*) {
+    auto total = g_merge_file_total_count.get_value();
+    if (total == 0) {
+        return 0.0;
+    }
+    return static_cast<double>(g_merge_file_total_small_file_count.get_value()) / total;
+}
+
+double merge_file_avg_file_size(void*) {
+    auto total = g_merge_file_total_count.get_value();
+    if (total == 0) {
+        return 0.0;
+    }
+    return static_cast<double>(g_merge_file_total_size_bytes.get_value()) / total;
+}
+
+bvar::PassiveStatus<double> g_merge_file_avg_small_file_num("merge_file_avg_small_file_num",
+                                                            merge_file_avg_small_file_num, nullptr);
+bvar::PassiveStatus<double> g_merge_file_avg_file_size_bytes("merge_file_avg_file_size_bytes",
+                                                             merge_file_avg_file_size, nullptr);
+
+} // namespace
 
 MergeFileManager* MergeFileManager::instance() {
     static MergeFileManager instance;
@@ -355,6 +387,12 @@ Status MergeFileManager::mark_current_merge_file_for_upload(const std::string& r
     return mark_current_merge_file_for_upload_locked(resource_id);
 }
 
+void MergeFileManager::record_merge_file_metrics(const MergeFileState& merge_file) {
+    g_merge_file_total_count << 1;
+    g_merge_file_total_small_file_count << static_cast<int64_t>(merge_file.index_map.size());
+    g_merge_file_total_size_bytes << merge_file.total_size;
+}
+
 void MergeFileManager::background_manager() {
     auto last_cleanup_time = std::chrono::steady_clock::now();
 
@@ -475,7 +513,28 @@ void MergeFileManager::process_uploading_files() {
             continue;
         }
 
+        // Record stats once the merge file metadata is persisted.
+        record_merge_file_metrics(*merge_file);
+
         // Now upload the file
+        if (!merge_file->index_map.empty()) {
+            std::ostringstream oss;
+            oss << "Uploading merge file " << merge_file_path << " with "
+                << merge_file->index_map.size() << " small files: ";
+            bool first = true;
+            for (const auto& [small_file_path, index] : merge_file->index_map) {
+                if (!first) {
+                    oss << ", ";
+                }
+                first = false;
+                oss << "[" << small_file_path << ", offset=" << index.offset
+                    << ", size=" << index.size << "]";
+            }
+            LOG(INFO) << oss.str();
+        } else {
+            LOG(INFO) << "Uploading merge file " << merge_file_path << " with no small files";
+        }
+
         Status upload_status =
                 upload_merge_file(merge_file->merge_file_path, merge_file->writer.get());
 
@@ -595,5 +654,48 @@ void MergeFileManager::cleanup_expired_data() {
         }
     }
 }
+
+#ifdef BE_TEST
+namespace {
+void reset_adder(bvar::Adder<int64_t>& adder) {
+    auto current = adder.get_value();
+    if (current != 0) {
+        adder << (-current);
+    }
+}
+} // namespace
+
+void MergeFileManager::reset_merge_file_bvars_for_test() const {
+    reset_adder(g_merge_file_total_count);
+    reset_adder(g_merge_file_total_small_file_count);
+    reset_adder(g_merge_file_total_size_bytes);
+}
+
+int64_t MergeFileManager::merge_file_total_count_for_test() const {
+    return g_merge_file_total_count.get_value();
+}
+
+int64_t MergeFileManager::merge_file_total_small_file_num_for_test() const {
+    return g_merge_file_total_small_file_count.get_value();
+}
+
+int64_t MergeFileManager::merge_file_total_size_bytes_for_test() const {
+    return g_merge_file_total_size_bytes.get_value();
+}
+
+double MergeFileManager::merge_file_avg_small_file_num_for_test() const {
+    return g_merge_file_avg_small_file_num.get_value();
+}
+
+double MergeFileManager::merge_file_avg_file_size_for_test() const {
+    return g_merge_file_avg_file_size_bytes.get_value();
+}
+
+void MergeFileManager::record_merge_file_metrics_for_test(
+        const MergeFileManager::MergeFileState* merge_file) {
+    DCHECK(merge_file != nullptr);
+    record_merge_file_metrics(*merge_file);
+}
+#endif
 
 } // namespace doris::io
