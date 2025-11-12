@@ -382,7 +382,10 @@ Status FixedReadPlan::fill_missing_columns(
                                          old_value_block, &read_index, true, nullptr));
 
     const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
-    DCHECK(old_delete_signs != nullptr);
+    if (old_delete_signs == nullptr) {
+        return Status::InternalError("old delete signs column not found, block: {}",
+                                     old_value_block.dump_structure());
+    }
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(

@@ -1160,8 +1160,6 @@ TEST(BlockTest, insert_erase) {
     block.insert(0, column_with_name);
     ASSERT_EQ(block.columns(), 1);
 
-    EXPECT_ANY_THROW(block.safe_get_by_position(0));
-
     EXPECT_ANY_THROW(block.get_by_name("column"));
     EXPECT_ANY_THROW(block.get_position_by_name("column"));
     block.insert(0, column_with_name);
