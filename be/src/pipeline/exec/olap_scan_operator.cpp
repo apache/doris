@@ -661,7 +661,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
     }
 
     // Prefetch segment footers in parallel to warm up file cache
-    if (config::prefetch_segment_footer) {
+    if (config::prefetch_segment_footer && config::is_cloud_mode()) {
         SCOPED_TIMER(_prefetch_segment_footer_timer);
         RETURN_IF_ERROR(_prefetch_segment_footers());
     }
