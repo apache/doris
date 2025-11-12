@@ -21,6 +21,7 @@
 #include "common/status.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/time_value.h"
@@ -83,10 +84,19 @@ struct SecondImpl {
     static inline auto execute(const TimeValue::TimeType& t) { return TimeValue::second(t); }
 };
 
+using FunctionHourFromUnixtime = FunctionTimeFieldFromUnixtime<HourFromUnixtimeImpl>;
+using FunctionMinuteFromUnixtime = FunctionTimeFieldFromUnixtime<MinuteFromUnixtimeImpl>;
+using FunctionSecondFromUnixtime = FunctionTimeFieldFromUnixtime<SecondFromUnixtimeImpl>;
+using FunctionMicrosecondFromUnixtime = FunctionTimeFieldFromUnixtime<MicrosecondFromUnixtimeImpl>;
+
 void register_function_time_value_field(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeValueToField<DataTypeInt32, HourImpl>>();
     factory.register_function<FunctionTimeValueToField<DataTypeInt8, MintuImpl>>();
     factory.register_function<FunctionTimeValueToField<DataTypeInt8, SecondImpl>>();
+    factory.register_function<FunctionHourFromUnixtime>();
+    factory.register_function<FunctionMinuteFromUnixtime>();
+    factory.register_function<FunctionSecondFromUnixtime>();
+    factory.register_function<FunctionMicrosecondFromUnixtime>();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
