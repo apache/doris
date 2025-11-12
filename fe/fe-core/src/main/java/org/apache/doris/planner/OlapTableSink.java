@@ -384,17 +384,27 @@ public class OlapTableSink extends DataSink {
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
         schemaParam.setIsStrictMode(isStrictMode);
 
+        LOG.info("createSchema START - table: {}, state: {}, tupleDescriptor slots: {}, loadId: {}",
+                table.getName(), table.getState(), tupleDescriptor.getSlots().size(), loadId);
+        for (SlotDescriptor slot : tupleDescriptor.getSlots()) {
+            LOG.info("  TupleDescriptor slot: id={}, name={}, type={}, nullable={}",
+                    slot.getId(), slot.getColumn() != null ? slot.getColumn().getName() : "null",
+                    slot.getType(), slot.getIsNullable());
+        }
         schemaParam.tuple_desc = tupleDescriptor.toThrift();
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
             schemaParam.addToSlotDescs(slotDesc.toThrift());
         }
 
+        LOG.info("createSchema - table.getIndexIdToMeta() has {} indexes", table.getIndexIdToMeta().size());
         for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
             MaterializedIndexMeta indexMeta = pair.getValue();
             List<String> columns = Lists.newArrayList();
             List<TColumn> columnsDesc = Lists.newArrayList();
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
+            LOG.info("  Index {} has {} columns: {}", pair.getKey(), indexMeta.getSchema().size(),
+                    indexMeta.getSchema().stream().map(Column::getName).collect(Collectors.joining(", ")));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
                 // When schema change is doing, some modified column has prefix in name. Columns here
@@ -454,6 +464,9 @@ public class OlapTableSink extends DataSink {
             schemaParam.setSequenceMapColUniqueId(seqMapCol.getUniqueId());
         }
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            // DEBUG: Log partial update columns
+            LOG.info("setPartialUpdateInfo - partialUpdateInputColumns size: {}, columns: {}",
+                    partialUpdateInputColumns.size(), String.join(", ", partialUpdateInputColumns));
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }
