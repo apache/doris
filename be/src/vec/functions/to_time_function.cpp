@@ -66,9 +66,9 @@ using FunctionDateTimeV2Date =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATETIMEV2>>;
 using FunctionTimeStampV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<TYPE_DATETIMEV2>>;
-using FunctionCenturyV2 = 
+using FunctionCenturyV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATEV2>>;
-using FunctionDateTimeV2Century = 
+using FunctionDateTimeV2Century =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATETIMEV2>>;
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeStampV2>();
