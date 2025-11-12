@@ -27,14 +27,11 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
@@ -2217,50 +2214,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.checkQuota();
     }
 
-    // below are private functions used by createOlapTable
-
-    private Type getChildTypeByName(String name, CreateTableInfo createTableInfo)
-            throws AnalysisException {
-        List<Column> columns = createTableInfo.getColumns();
-        for (Column col : columns) {
-            if (col.nameEquals(name, false)) {
-                return col.getType();
-            }
-        }
-        throw new AnalysisException("Cannot find column `" + name + "` in table's columns");
-    }
-
-    private void checkLegalityofPartitionExprs(CreateTableInfo createTableInfo, PartitionDesc partitionDesc)
-            throws AnalysisException {
-        for (Expr expr : partitionDesc.getPartitionExprs()) {
-            if (expr instanceof FunctionCallExpr) { // test them
-                if (!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE) {
-                    throw new AnalysisException("only Auto Range Partition support FunctionCallExpr");
-                }
-
-                FunctionCallExpr func = (FunctionCallExpr) expr;
-                ArrayList<Expr> children = func.getChildren();
-                Type[] childTypes = new Type[children.size()];
-                for (int i = 0; i < children.size(); i++) {
-                    if (children.get(i) instanceof LiteralExpr) {
-                        childTypes[i] = children.get(i).getType();
-                    } else if (children.get(i) instanceof SlotRef) {
-                        childTypes[i] = getChildTypeByName(children.get(i).getExprName(), createTableInfo);
-                    } else {
-                        throw new AnalysisException(String.format(
-                            "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
-                    }
-                }
-            } else if (expr instanceof SlotRef) {
-                if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {
-                    throw new AnalysisException("Auto Range Partition need FunctionCallExpr");
-                }
-            } else {
-                throw new AnalysisException("partition expr " + expr.getExprName() + " is illegal!");
-            }
-        }
-    }
-
     // Create olap table and related base index synchronously.
     private boolean createOlapTable(Database db, CreateTableInfo createTableInfo) throws UserException {
         String tableName = createTableInfo.getTableName();
@@ -2316,18 +2269,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         ConnectContext ctx = ConnectContext.get();
         Env env = Env.getCurrentEnv();
-
-        // check legality of partiton exprs.
-        if (ctx != null && env != null && partitionDesc != null && partitionDesc.getPartitionExprs() != null) {
-            checkLegalityofPartitionExprs(createTableInfo, partitionDesc);
-        }
-
         PartitionInfo partitionInfo = null;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             for (SinglePartitionDesc desc : partitionDesc.getSinglePartitionDescs()) {
-                // check legality of nullity of partition items.
-                createTableInfo.checkPartitionNullity(baseSchema, partitionDesc, desc);
                 long partitionId = idGeneratorBuffer.getNextId();
                 partitionNameToId.put(desc.getPartitionName(), partitionId);
             }
