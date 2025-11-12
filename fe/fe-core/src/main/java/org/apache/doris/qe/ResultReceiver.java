@@ -210,6 +210,9 @@ public class ResultReceiver {
     }
 
     public synchronized void cancel(Status reason) {
+        if (reason.isFinished()) {
+            return;
+        }
         if (!runStatus.ok()) {
             LOG.info("ResultReceiver of query {} cancel failed, because its status not ok, "
                     + "maybe cancelled already. current run status is {}, new status is {}.",
