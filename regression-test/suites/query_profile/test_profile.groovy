@@ -96,6 +96,17 @@ suite('test_profile') {
         }
     }
 
+    profile("test_profile_load") {
+        run {
+            sql "/* test_profile_load */ insert into test_profile select id1, name from test_profile"
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("Task  Type:  LOAD"))
+        }
+    }
+
     sql """ SET enable_profile = false """
     sql """ DROP TABLE IF EXISTS test_profile """
 }
