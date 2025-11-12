@@ -26,7 +26,6 @@ suite("test_ifnull_array") {
     String tableName = "${suiteName}_table"
 
     sql """drop table if exists `${tableName}`"""
-    sql """drop materialized view if exists ${mvName};"""
 
     sql """
         CREATE TABLE ${tableName}
