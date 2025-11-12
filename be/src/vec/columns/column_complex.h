@@ -69,14 +69,20 @@ public:
             return;
         }
 
+        bool result;
         if constexpr (T == TYPE_BITMAP) {
-            pvalue->deserialize(pos);
+            result = pvalue->deserialize(pos);
         } else if constexpr (T == TYPE_HLL) {
-            pvalue->deserialize(Slice(pos, length));
+            result = pvalue->deserialize(Slice(pos, length));
         } else if constexpr (T == TYPE_QUANTILE_STATE) {
-            pvalue->deserialize(Slice(pos, length));
+            result = pvalue->deserialize(Slice(pos, length));
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unexpected type in column complex");
+        }
+        if (!result) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Deserialize column complex type failed");
+            __builtin_unreachable();
         }
     }
 
