@@ -2806,6 +2806,21 @@ public class InternalCatalog implements CatalogIf<Database> {
         Long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
         olapTable.setTTLSeconds(ttlSeconds);
 
+        int retentionCount = -1;
+        try {
+            retentionCount = PropertyAnalyzer.analyzePartitionRetentionCount(properties);
+            if ((partitionDesc == null || !partitionDesc.isAutoCreatePartitions()
+                    || partitionDesc.getType() != PartitionType.RANGE) && retentionCount > 0) {
+                throw new DdlException("Only AUTO RANGE PARTITION table could set "
+                        + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (retentionCount > 0) {
+            olapTable.setPartitionRetentionCount(retentionCount);
+        }
+
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
@@ -3085,6 +3100,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                         // check same interval. fail will leading to AnalysisException
                         DynamicPartitionUtil.partitionIntervalCompatible(dynamicUnit, autoExprs);
                     }
+                    // only support one in the same time
+                    if (dynamicProperty.isExist() && dynamicProperty.getEnable()
+                            && olapTable.getPartitionRetentionCount() > 0) {
+                        throw new DdlException(
+                                "Please remove dynamic_partition properties when partition.retention_count enabled");
+                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
@@ -3159,7 +3180,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
 
-            if (result.second) {
+            if (result.second) { // table already exists
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                     // if this is a colocate table, its table id is already added to colocate group
                     // so we should remove the tableId here
