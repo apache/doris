@@ -48,15 +48,6 @@ PinyinFilter::PinyinFilter(const TokenStreamPtr& in, std::shared_ptr<PinyinConfi
     if (!config_) {
         config_ = std::make_shared<PinyinConfig>();
     }
-
-    // Validate configuration
-    if (!(config_->keepFirstLetter || config_->keepSeparateFirstLetter || config_->keepFullPinyin ||
-          config_->keepJoinedFullPinyin || config_->keepSeparateChinese)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "pinyin config error, at least one output format must be enabled "
-                        "(keep_first_letter, keep_separate_first_letter, keep_full_pinyin, "
-                        "keep_joined_full_pinyin, or keep_separate_chinese).");
-    }
 }
 
 void PinyinFilter::initialize() {
