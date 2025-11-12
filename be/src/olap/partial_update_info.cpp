@@ -311,7 +311,7 @@ Status FixedReadPlan::read_columns_by_plan(
         const signed char* __restrict cur_delete_signs) const {
     if (force_read_old_delete_signs) {
         // always read delete sign column from historical data
-        if (block.get_position_of_column(DELETE_SIGN) != -1) {
+        if (block.get_position_by_name(DELETE_SIGN) != -1) {
             auto del_col_cid = tablet_schema.field_index(DELETE_SIGN);
             cids_to_read.emplace_back(del_col_cid);
             block.swap(tablet_schema.create_block_by_cids(cids_to_read));
