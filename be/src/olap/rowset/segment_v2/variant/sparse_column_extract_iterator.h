@@ -29,7 +29,6 @@
 #include "io/io_common.h"
 #include "olap/field.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"

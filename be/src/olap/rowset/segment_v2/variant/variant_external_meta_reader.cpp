@@ -24,6 +24,7 @@
 #include <string_view>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_factory.hpp"

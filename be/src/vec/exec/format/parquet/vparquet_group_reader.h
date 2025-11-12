@@ -49,6 +49,9 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
+namespace segment_v2 {
+class RowIdColumnIteratorV2;
+}
 namespace vectorized {
 class Block;
 class FieldDescriptor;

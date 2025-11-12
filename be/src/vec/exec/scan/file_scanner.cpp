@@ -40,6 +40,7 @@
 #include "exec/rowid_fetcher.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/fs/tracing_file_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"

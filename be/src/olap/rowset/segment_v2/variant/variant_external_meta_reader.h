@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/segment_v2.pb.h>
-
-#include <memory>
 #include <string>
 
 #include "common/status.h"
@@ -30,6 +27,7 @@
 #include "util/once.h"
 
 namespace doris::segment_v2 {
+class SegmentFooterPB;
 
 #include "common/compile_check_begin.h"
 

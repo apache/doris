@@ -25,6 +25,7 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
 #include "runtime/define_primitive_type.h"
 #include "util/date_func.h"

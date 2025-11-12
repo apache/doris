@@ -368,8 +368,12 @@ public:
 
     virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                                     const TColumnAccessPaths& predicate_access_paths) {
+        if (!all_access_paths.empty()) {
+            add_reading_flag(READING_FLAG_LAZY);
+        }
+
         if (!predicate_access_paths.empty()) {
-            _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+            add_reading_flag(READING_FLAG_PREDICATE);
         }
         return Status::OK();
     }
@@ -396,23 +400,68 @@ public:
         NEED_TO_READ,
         READING_FOR_PREDICATE
     };
-    void set_reading_flag(ReadingFlag flag) {
-        if (static_cast<int>(flag) > static_cast<int>(_reading_flag)) {
-            _reading_flag = flag;
+
+    constexpr static int READING_FLAG_LAZY = 1 << 1;
+    constexpr static int READING_FLAG_PREDICATE = 1 << 2;
+
+    enum class ReadingMode : int {
+        NORMAL, // reading all columns are not `ReadingFlag::SKIP_READING`
+        LAZY, // only read columns which are `ReadingFlag::NEED_TO_READ` or `ReadingFlag::NORMAL_READING`
+        PREDICATE // only read columns which are `ReadingFlag::READING_FOR_PREDICATE`
+    };
+
+    bool need_to_read_for_predicate() const {
+        return (_reading_flag & READING_FLAG_PREDICATE) != 0;
+    }
+
+    virtual bool need_to_read_for_lazy() const {
+        return (_reading_flag & READING_FLAG_LAZY) != 0 && !need_to_read_for_predicate();
+    }
+
+    bool need_to_read() const {
+        switch (_reading_mode) {
+        case ReadingMode::NORMAL:
+            return true;
+        case ReadingMode::LAZY:
+            return need_to_read_for_lazy();
+        case ReadingMode::PREDICATE:
+            return need_to_read_for_predicate();
         }
     }
 
-    ReadingFlag reading_flag() const { return _reading_flag; }
-
-    virtual void set_need_to_read() { set_reading_flag(ReadingFlag::NEED_TO_READ); }
-
+    void set_reading_mode(ReadingMode mode) { _reading_mode = mode; }
     virtual void remove_pruned_sub_iterators() {};
 
+    int reading_flag() const { return _reading_flag; }
+    void add_reading_flag(int flag) { _reading_flag |= flag; }
+    virtual void add_reading_flag_recursive(int flag) { _reading_flag |= flag; }
+
+    void convert_to_place_holder_column(vectorized::MutableColumnPtr& dst, size_t count) {
+        if (auto* const_col =
+                    vectorized::check_and_get_column<vectorized::ColumnConst>(dst.get())) {
+            const_col->resize(count + const_col->size());
+        } else {
+            DCHECK_EQ(dst->size(), 0);
+            dst->insert_default();
+            dst = vectorized::ColumnConst::create(std::move(dst), count);
+        }
+    }
+
+    void recovery_from_place_holder_column(vectorized::MutableColumnPtr& dst) {
+        if (auto* const_col =
+                    vectorized::check_and_get_column<vectorized::ColumnConst>(dst.get())) {
+            dst = const_col->get_data_column_ptr()->assume_mutable();
+            dst->clear();
+        }
+    }
+
 protected:
-    Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
+    Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths,
+                                                     bool& match_all_sub_columns) const;
     ColumnIteratorOptions _opts;
 
-    ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    int _reading_flag {0};
+    ReadingMode _reading_mode {ReadingMode::NORMAL};
     std::string _column_name;
 };
 
@@ -561,9 +610,11 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
 
-    void set_need_to_read() override;
-
     void remove_pruned_sub_iterators() override;
+
+    void add_reading_flag_recursive(int flag) override;
+
+    bool need_to_read_for_lazy() const override { return (_reading_flag & READING_FLAG_LAZY) != 0; }
 
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
@@ -597,9 +648,11 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
 
-    void set_need_to_read() override;
-
     void remove_pruned_sub_iterators() override;
+
+    void add_reading_flag_recursive(int flag) override;
+
+    bool need_to_read_for_lazy() const override { return (_reading_flag & READING_FLAG_LAZY) != 0; }
 
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
@@ -631,9 +684,12 @@ public:
 
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
-    void set_need_to_read() override;
 
     void remove_pruned_sub_iterators() override;
+
+    void add_reading_flag_recursive(int flag) override;
+
+    bool need_to_read_for_lazy() const override { return (_reading_flag & READING_FLAG_LAZY) != 0; }
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

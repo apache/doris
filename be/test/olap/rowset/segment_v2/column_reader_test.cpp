@@ -69,7 +69,8 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     auto st = iterator->set_access_paths(TColumnAccessPaths {}, TColumnAccessPaths {});
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NORMAL_READING);
+    ASSERT_EQ(iterator->_reading_flag, 0);
+    ASSERT_TRUE(iterator->need_to_read());
 
     TColumnAccessPaths all_access_paths;
     all_access_paths.emplace_back();
@@ -95,12 +96,23 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     // now column name is "self", should be ok
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+
+    iterator->set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
+
+    ASSERT_TRUE(iterator->need_to_read());
+    ASSERT_EQ(iterator->_reading_flag,
+              ColumnIterator::READING_FLAG_PREDICATE | ColumnIterator::READING_FLAG_LAZY);
 
     ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::SKIP_READING);
+              ColumnIterator::READING_FLAG_PREDICATE | ColumnIterator::READING_FLAG_LAZY);
+    ASSERT_TRUE(iterator->_sub_column_iterators[0]->need_to_read());
+
+    iterator->_sub_column_iterators[0]->set_reading_mode(ColumnIterator::ReadingMode::LAZY);
+    ASSERT_FALSE(iterator->_sub_column_iterators[0]->need_to_read());
+
+    iterator->_sub_column_iterators[1]->set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
+    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag, 0);
+    ASSERT_FALSE(iterator->_sub_column_iterators[1]->need_to_read());
 
     // Reading all sub columns
     all_access_paths[0].data_access_path.path = {"self"};
@@ -109,12 +121,12 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    ASSERT_EQ(iterator->_reading_flag,
+              ColumnIterator::READING_FLAG_PREDICATE | ColumnIterator::READING_FLAG_LAZY);
 
     ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NEED_TO_READ);
+              ColumnIterator::READING_FLAG_PREDICATE | ColumnIterator::READING_FLAG_LAZY);
+    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag, ColumnIterator::READING_FLAG_LAZY);
 }
 
 TEST_F(ColumnReaderTest, MultiAccessPaths) {
@@ -202,20 +214,18 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     auto st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::READING_FLAG_LAZY);
 
-    ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::SKIP_READING);
-    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag, 0);
+    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag, ColumnIterator::READING_FLAG_LAZY);
 
     auto* array_iter =
             static_cast<ArrayFileColumnIterator*>(iterator->_sub_column_iterators[1].get());
-    ASSERT_EQ(array_iter->_item_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(array_iter->_item_iterator->_reading_flag, ColumnIterator::READING_FLAG_LAZY);
 
     auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-    ASSERT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
-    ASSERT_EQ(map_iter->_val_iterator->_reading_flag, ColumnIterator::ReadingFlag::SKIP_READING);
+    ASSERT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::READING_FLAG_LAZY);
+    ASSERT_EQ(map_iter->_val_iterator->_reading_flag, 0);
 }
 
 TEST_F(ColumnReaderTest, OffsetPeekUsesPageSentinelWhenNoRemaining) {
@@ -285,7 +295,7 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     MapFileColumnIterator map_iter(map_reader, std::move(null_iter), std::move(offsets_iter),
                                    std::move(key_iter), std::move(val_iter));
     map_iter.set_column_name("map_col");
-    map_iter.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
+    map_iter.add_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
 
     // prepare an empty ColumnMap as destination
     auto keys = vectorized::ColumnInt32::create();

@@ -27,23 +27,15 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "olap/base_tablet.h"
-#include "olap/binlog_config.h"
-#include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "olap/version_graph.h"
-#include "util/metrics.h"
-#include "util/once.h"
 #include "util/slice.h"
 
 namespace doris {
+
+using namespace segment_v2;
 
 class MergeIndexDeleteBitmapCalculatorContext {
 public:
@@ -93,7 +85,7 @@ class MergeIndexDeleteBitmapCalculator {
 public:
     MergeIndexDeleteBitmapCalculator() = default;
 
-    Status init(RowsetId rowset_id, std::vector<SegmentSharedPtr> const& segments,
+    Status init(RowsetId rowset_id, std::vector<segment_v2::SegmentSharedPtr> const& segments,
                 size_t seq_col_length = 0, size_t rowid_length = 0, size_t max_batch_size = 1024);
 
     Status calculate_one(RowLocation& loc);

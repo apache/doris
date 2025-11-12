@@ -421,6 +421,7 @@ struct TQueryOptions {
 
 
   182: optional i32 ivf_nprobe = 1;
+  183: optional bool enable_prune_nested_column = false;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
