@@ -17,7 +17,6 @@
 
 #include "pipeline/exec/olap_scan_operator.h"
 
-#include <bthread/mutex.h>
 #include <fmt/format.h>
 
 #include <future>
@@ -38,9 +37,7 @@
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
-#include "runtime/exec_env.h"
 #include "service/backend_options.h"
-#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/new_olap_scanner.h"
