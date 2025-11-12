@@ -28,7 +28,7 @@ suite("test_ifnull_array") {
     sql """drop table if exists `${tableName}`"""
 
     sql """
-        CREATE TABLE ${tableName}
+        CREATE TABLE ${tableName} (
           `class_code` varchar(50) NULL,
           `student_code` varchar(50) NULL,
           `adviser_code` varchar(50) NULL
