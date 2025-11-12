@@ -19,6 +19,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <variant>
 
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
@@ -87,8 +88,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
 
-    // Hash Table Init
-    RETURN_IF_ERROR(_hash_table_init(state));
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
             _should_build_hash_table, p._is_broadcast_join);
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
@@ -137,7 +136,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
 
     if (eos) {
         const size_t rows = build_block_rows + state->batch_size();
-        const auto bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+        const auto bucket_size = hash_join_table_calc_bucket_size(rows);
 
         size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
         size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
@@ -184,10 +183,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 throw Exception(st);
             }
 
-            std::visit(vectorized::Overload {[&](std::monostate& arg) {
-                                                 LOG(FATAL) << "FATAL: uninited hash table";
-                                                 __builtin_unreachable();
-                                             },
+            std::visit(vectorized::Overload {[&](std::monostate& arg) {},
                                              [&](auto&& hash_map_context) {
                                                  size_to_reserve += hash_map_context.estimated_size(
                                                          raw_ptrs, (uint32_t)block.rows(), true,
@@ -400,6 +396,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     // Get the key column that needs to be built
     RETURN_IF_ERROR(_extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids));
 
+    RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
+
     Status st = std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg, auto join_op,
@@ -448,7 +446,8 @@ void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
     }
 }
 
-Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
+Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
+                                                     const vectorized::ColumnRawPtrs& raw_ptrs) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     std::vector<vectorized::DataTypePtr> data_types;
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
@@ -465,10 +464,21 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
     if (_build_expr_ctxs.size() == 1) {
         p._should_keep_hash_key_column = true;
     }
-    return init_hash_method<JoinDataVariants>(
-            _shared_state->hash_table_variant_vector[p._use_shared_hash_table ? _task_idx : 0]
-                    .get(),
-            data_types, true);
+
+    std::shared_ptr<JoinDataVariants>& variant_ptr =
+            _shared_state->hash_table_variant_vector[p._use_shared_hash_table ? _task_idx : 0];
+
+    RETURN_IF_ERROR(init_hash_method<JoinDataVariants>(variant_ptr.get(), data_types, true));
+
+    std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                         throw Exception(
+                                                 Status::FatalError("FATAL: uninited hash table"));
+                                     },
+                                     [&](auto&& arg) {
+                                         try_convert_to_direct_mapping(&arg, raw_ptrs, variant_ptr);
+                                     }},
+               variant_ptr->method_variant);
+    return Status::OK();
 }
 
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,

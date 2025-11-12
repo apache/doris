@@ -791,6 +791,10 @@ struct ExtractType<T(U)> {
     template struct ProcessHashTableProbe<JoinOpType>;                             \
                                                                                    \
     INSTANTIATION(JoinOpType, (SerializedHashTableContext));                       \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt8>));   \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt16>));  \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt32>));  \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt64>));  \
     INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt8>));   \
     INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt16>));  \
     INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt32>));  \
