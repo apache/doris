@@ -1641,6 +1641,7 @@ DECLARE_mBool(prefetch_segment_footer);
 
 #ifdef BE_TEST
 // test s3
+DECLARE_String(test_s3_resource);
 DECLARE_String(test_s3_ak);
 DECLARE_String(test_s3_sk);
 DECLARE_String(test_s3_endpoint);

@@ -157,7 +157,8 @@ struct FileCacheProfileReporter {
         COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
         COUNTER_UPDATE(get_timer, statistics->get_timer);
         COUNTER_UPDATE(set_timer, statistics->set_timer);
-        COUNTER_UPDATE(cache_block_download_wait_timer, statistics->cache_block_download_wait_timer);
+        COUNTER_UPDATE(cache_block_download_wait_timer,
+                       statistics->cache_block_download_wait_timer);
 
         COUNTER_UPDATE(inverted_index_num_local_io_total,
                        statistics->inverted_index_num_local_io_total);
