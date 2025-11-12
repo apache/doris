@@ -119,6 +119,7 @@ public class OlapTableSink extends DataSink {
 
     private boolean isStrictMode = false;
     private long txnId = -1;
+    private long loadId = -1;
 
     private List<Expr> partitionExprs;
     private Map<Long, Expr> syncMvWhereClauses;
@@ -160,6 +161,7 @@ public class OlapTableSink extends DataSink {
                 : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
+        this.loadId = loadId;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
