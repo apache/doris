@@ -64,6 +64,8 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -104,7 +106,10 @@ public class IcebergScanNode extends FileQueryScanNode {
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private long targetSplitSize;
     // This is used to avoid repeatedly calculating partition info map for the same partition data.
-    private Map<PartitionData, Map<String, String>> partitionMapInfos;
+    // Key structure: Map<specId, Map<PartitionData, Map<String, String>>>
+    // This ensures that partition data from different specIds are cached separately,
+    // which is important for partition evolution support.
+    private Map<Integer, Map<PartitionData, Map<String, String>>> partitionMapInfos;
     private boolean isPartitionedTable;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
@@ -232,6 +237,30 @@ public class IcebergScanNode extends FileQueryScanNode {
             rangeDesc.setColumnsFromPathKeys(fromPathKeys);
             rangeDesc.setColumnsFromPath(fromPathValues);
             rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
+            
+            // Set partition field mapping information for BE side Runtime Filter partition pruning
+            // This is needed for partition evolution support and non-identity transforms
+            Integer specId = icebergSplit.getSpecId();
+            if (specId != null && isPartitionedTable) {
+                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+                if (partitionSpec != null) {
+                    Map<String, String> partitionFieldToSourceColumnMap = new HashMap<>();
+                    Map<String, String> partitionFieldTransforms = new HashMap<>();
+                    
+                    for (PartitionField partitionField : partitionSpec.fields()) {
+                        String partitionFieldName = partitionField.name();
+                        String sourceColumnName = icebergTable.schema().findColumnName(partitionField.sourceId());
+                        String transform = partitionField.transform().toString();
+                        
+                        partitionFieldToSourceColumnMap.put(partitionFieldName, sourceColumnName);
+                        partitionFieldTransforms.put(partitionFieldName, transform);
+                    }
+                    
+                    rangeDesc.setPartitionFieldToSourceColumnMap(partitionFieldToSourceColumnMap);
+                    rangeDesc.setPartitionFieldTransforms(partitionFieldTransforms);
+                    rangeDesc.setPartitionSpecId(specId);
+                }
+            }
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -382,16 +411,34 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setTargetSplitSize(targetSplitSize);
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
+            // Get specId from the file to support partition evolution
+            int specId = fileScanTask.file().specId();
+            // Set specId to split for BE side processing
+            split.setSpecId(specId);
+            
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
+                // Get the corresponding partition spec for this specId
+                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+                
+                // Use nested map structure: Map<specId, Map<PartitionData, Map<String, String>>>
+                // This ensures that partition data from different specIds are cached separately
+                Map<PartitionData, Map<String, String>> specPartitionMap = partitionMapInfos.computeIfAbsent(
+                        specId, k -> new HashMap<>());
+                
                 // If the partition data is not in the map, we need to calculate the partition
-                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k -> {
-                    return IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone());
+                Map<String, String> partitionInfoMap = specPartitionMap.computeIfAbsent(partitionData, k -> {
+                    // Pass partitionSpec to getPartitionInfoMap to support partition evolution
+                    return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec, 
+                            sessionVariable.getTimeZone());
                 });
                 if (partitionInfoMap != null) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {
-                partitionMapInfos.put(partitionData, null);
+                // Even if runtime filter is disabled, we still need to maintain the cache structure
+                Map<PartitionData, Map<String, String>> specPartitionMap = partitionMapInfos.computeIfAbsent(
+                        specId, k -> new HashMap<>());
+                specPartitionMap.put(partitionData, null);
             }
         }
         return split;
@@ -407,7 +454,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (FileScanTask task : customFileScanTasks) {
                 splits.add(createIcebergSplit(task));
             }
-            selectedPartitionNum = partitionMapInfos.size();
+            // Calculate total number of unique partitions across all specIds
+            selectedPartitionNum = partitionMapInfos.values().stream()
+                    .mapToInt(Map::size)
+                    .sum();
             return splits;
         }
 
@@ -434,7 +484,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        selectedPartitionNum = partitionMapInfos.size();
+        // Calculate total number of unique partitions across all specIds
+        selectedPartitionNum = partitionMapInfos.values().stream()
+                .mapToInt(Map::size)
+                .sum();
         return splits;
     }
 
@@ -618,7 +671,11 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public int numApproximateSplits() {
-        return NUM_SPLITS_PER_PARTITION * partitionMapInfos.size() > 0 ? partitionMapInfos.size() : 1;
+        // Calculate total number of unique partitions across all specIds
+        int totalPartitions = partitionMapInfos.values().stream()
+                .mapToInt(Map::size)
+                .sum();
+        return NUM_SPLITS_PER_PARTITION * totalPartitions > 0 ? totalPartitions : 1;
     }
 
     private Optional<NotSupportedException> checkNotSupportedException(Exception e) {

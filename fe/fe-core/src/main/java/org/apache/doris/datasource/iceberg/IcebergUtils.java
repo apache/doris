@@ -610,18 +610,56 @@ public class IcebergUtils {
     }
 
     public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, String timeZone) {
+        return getPartitionInfoMap(partitionData, null, timeZone);
+    }
+
+    /**
+     * Get partition info map from PartitionData, considering partition evolution.
+     * 
+     * @param partitionData the partition data
+     * @param partitionSpec the partition spec (optional, used for partition evolution support)
+     * @param timeZone the time zone for timestamp serialization
+     * @return map of partition field names to serialized partition values
+     */
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, 
+                                                           PartitionSpec partitionSpec, 
+                                                           String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
-        for (int i = 0; i < fields.size(); i++) {
-            NestedField field = fields.get(i);
-            Object value = partitionData.get(i);
-            try {
-                String partitionString = serializePartitionValue(field.type(), value, timeZone);
-                partitionInfoMap.put(field.name(), partitionString);
-            } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
-                        e.getMessage());
-                return null;
+        
+        // If partitionSpec is provided, use it to get the correct field names and transforms
+        // This is important for partition evolution, as different specIds may have different
+        // partition field names even if the partition type is the same
+        if (partitionSpec != null && partitionSpec.fields().size() == fields.size()) {
+            // Use partition spec to get field names, which may differ across specIds
+            for (int i = 0; i < fields.size(); i++) {
+                PartitionField partitionField = partitionSpec.fields().get(i);
+                NestedField field = fields.get(i);
+                Object value = partitionData.get(i);
+                try {
+                    String partitionString = serializePartitionValue(field.type(), value, timeZone);
+                    // Use the partition field name from the spec, which is the correct name
+                    // for this specId
+                    partitionInfoMap.put(partitionField.name(), partitionString);
+                } catch (UnsupportedOperationException e) {
+                    LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", 
+                            partitionField.name(), e.getMessage());
+                    return null;
+                }
+            }
+        } else {
+            // Fallback to original implementation if partitionSpec is not provided
+            for (int i = 0; i < fields.size(); i++) {
+                NestedField field = fields.get(i);
+                Object value = partitionData.get(i);
+                try {
+                    String partitionString = serializePartitionValue(field.type(), value, timeZone);
+                    partitionInfoMap.put(field.name(), partitionString);
+                } catch (UnsupportedOperationException e) {
+                    LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", 
+                            field.name(), e.getMessage());
+                    return null;
+                }
             }
         }
         return partitionInfoMap;

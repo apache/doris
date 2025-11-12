@@ -43,6 +43,8 @@ public class IcebergSplit extends FileSplit {
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
     private Map<String, String> icebergPartitionValues = null;
+    // Partition spec ID for partition evolution support
+    private Integer specId = null;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
