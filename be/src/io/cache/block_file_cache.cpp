@@ -2608,8 +2608,13 @@ void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& c
     // keep this order coz may be duplicated in different queue, we use the first appearence
     _lru_dumper->restore_queue(_ttl_queue, "ttl", cache_lock);
     _lru_dumper->restore_queue(_index_queue, "index", cache_lock);
+    // LRU queue mode compatibility:
+    // - Single queue dump → Dual queue load: All data enters NORMAL queue
+    // - Dual queue dump → Single queue load:
+    //     * COLD_NORMAL data merges into NORMAL queue in LRU order
+    //     * Restore order: cold_normal first (older), normal last (newer)
+    _lru_dumper->restore_queue(_normal_queue, "cold_normal", cache_lock);
     _lru_dumper->restore_queue(_normal_queue, "normal", cache_lock);
-    _lru_dumper->restore_queue(_cold_normal_queue, "cold_normal", cache_lock);
     _lru_dumper->restore_queue(_disposable_queue, "disposable", cache_lock);
 }
 

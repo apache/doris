@@ -482,7 +482,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
             } else if (queue_name == "disposable") {
                 ctx.cache_type = FileCacheType::DISPOSABLE;
             } else if (queue_name == "cold_normal") {
-                ctx.cache_type = FileCacheType::COLD_NORMAL;
+                ctx.cache_type = config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL : FileCacheType::NORMAL;
             } else {
                 LOG_WARNING("unknown queue type for lru restore, skip");
                 DCHECK(false);

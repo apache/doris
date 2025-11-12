@@ -8222,7 +8222,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
-TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
+TEST_F(BlockFileCacheTest, test_normal_queue_2qlru) {
     config::enable_file_cache_normal_queue_2qlru = true;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -8330,7 +8330,7 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
     config::enable_file_cache_normal_queue_2qlru = false;
 }
 
-TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation_cold_time) {
+TEST_F(BlockFileCacheTest, test_normal_queue_2qlru_cold_time) {
     config::enable_evict_file_cache_in_advance = false;
     config::enable_file_cache_normal_queue_2qlru = true;
     config::file_cache_2qlru_cold_blocks_promotion_ms = 10000;
@@ -8429,6 +8429,8 @@ TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation_cold_time) {
         blocks.clear();
     }
 
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(1000));
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 30);
