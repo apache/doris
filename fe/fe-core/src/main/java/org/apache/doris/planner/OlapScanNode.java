@@ -699,12 +699,6 @@ public class OlapScanNode extends ScanNode {
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
-
-        if (tablets.isEmpty()) {
-            desc.setCardinality(0);
-        } else {
-            desc.setCardinality(cardinality);
-        }
     }
 
     private String fastToString(long version) {
@@ -758,7 +752,6 @@ public class OlapScanNode extends ScanNode {
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
         if (selectedPartitionIds.isEmpty()) {
-            desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);

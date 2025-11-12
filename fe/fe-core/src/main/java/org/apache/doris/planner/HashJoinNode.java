@@ -24,12 +24,9 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -182,79 +179,6 @@ public class HashJoinNode extends JoinNodeBase {
 
     public Set<SlotId> getHashOutputSlotIds() {
         return hashOutputSlotIds;
-    }
-
-    /**
-     * Holds the source scan slots of a <SlotRef> = <SlotRef> join predicate.
-     * The underlying table and column on both sides have stats.
-     */
-    public static final class EqJoinConjunctScanSlots {
-        private final Expr eqJoinConjunct;
-        private final SlotDescriptor lhs;
-        private final SlotDescriptor rhs;
-
-        private EqJoinConjunctScanSlots(Expr eqJoinConjunct, SlotDescriptor lhs, SlotDescriptor rhs) {
-            this.eqJoinConjunct = eqJoinConjunct;
-            this.lhs = lhs;
-            this.rhs = rhs;
-        }
-
-        // Convenience functions. They return double to avoid excessive casts in callers.
-        public double lhsNdv() {
-            // return the estimated number of rows in this partition (-1 if unknown)
-            return Math.min(lhs.getStats().getNumDistinctValues(), lhsNumRows());
-        }
-
-        public double rhsNdv() {
-            return Math.min(rhs.getStats().getNumDistinctValues(), rhsNumRows());
-        }
-
-        public double lhsNumRows() {
-            TableIf table = lhs.getParent().getTable();
-            Preconditions.checkState(table instanceof OlapTable);
-            return table.getRowCount();
-        }
-
-        public double rhsNumRows() {
-            TableIf table = rhs.getParent().getTable();
-            Preconditions.checkState(table instanceof OlapTable);
-            return table.getRowCount();
-        }
-
-        /**
-         * Returns a new EqJoinConjunctScanSlots for the given equi-join conjunct or null if
-         * the given conjunct is not of the form <SlotRef> = <SlotRef> or if the underlying
-         * table/column of at least one side is missing stats.
-         */
-        public static EqJoinConjunctScanSlots create(Expr eqJoinConjunct) {
-            if (!Expr.IS_EQ_BINARY_PREDICATE.apply(eqJoinConjunct)) {
-                return null;
-            }
-            SlotDescriptor lhsScanSlot = eqJoinConjunct.getChild(0).findSrcScanSlot();
-            if (lhsScanSlot == null || !hasNumRowsAndNdvStats(lhsScanSlot)) {
-                return null;
-            }
-            SlotDescriptor rhsScanSlot = eqJoinConjunct.getChild(1).findSrcScanSlot();
-            if (rhsScanSlot == null || !hasNumRowsAndNdvStats(rhsScanSlot)) {
-                return null;
-            }
-            return new EqJoinConjunctScanSlots(eqJoinConjunct, lhsScanSlot, rhsScanSlot);
-        }
-
-        private static boolean hasNumRowsAndNdvStats(SlotDescriptor slotDesc) {
-            if (slotDesc.getColumn() == null) {
-                return false;
-            }
-            if (!slotDesc.getStats().hasNumDistinctValues()) {
-                return false;
-            }
-            return true;
-        }
-
-        @Override
-        public String toString() {
-            return eqJoinConjunct.toSql();
-        }
     }
 
     @Override

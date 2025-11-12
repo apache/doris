@@ -42,7 +42,6 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -102,8 +101,7 @@ public class JdbcScanNode extends ExternalScanNode {
     public void init() throws UserException {
         super.init();
         numNodes = numNodes <= 0 ? 1 : numNodes;
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
+        cardinality = -1;
     }
 
     private void createJdbcFilters() {
@@ -156,9 +154,6 @@ public class JdbcScanNode extends ExternalScanNode {
     private void createJdbcColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add(tbl.getProperRemoteColumnName(jdbcType, col.getName()));
         }

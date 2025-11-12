@@ -526,7 +526,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                     TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     for (Column column : fullSchema) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                        destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 

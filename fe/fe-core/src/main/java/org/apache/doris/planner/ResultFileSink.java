@@ -156,17 +156,14 @@ public class ResultFileSink extends DataSink {
     public static TupleDescriptor constructFileStatusTupleDesc(DescriptorTable descriptorTable) {
         TupleDescriptor resultFileStatusTupleDesc =
                 descriptorTable.createTupleDescriptor("result_file_status");
-        resultFileStatusTupleDesc.setIsMaterialized(true);
         for (int i = 0; i < OutFileClause.RESULT_COL_NAMES.size(); ++i) {
             SlotDescriptor slotDescriptor = descriptorTable.addSlotDescriptor(resultFileStatusTupleDesc);
             slotDescriptor.setLabel(OutFileClause.RESULT_COL_NAMES.get(i));
             slotDescriptor.setType(OutFileClause.RESULT_COL_TYPES.get(i));
             slotDescriptor.setColumn(new Column(OutFileClause.RESULT_COL_NAMES.get(i),
                     OutFileClause.RESULT_COL_TYPES.get(i)));
-            slotDescriptor.setIsMaterialized(true);
             slotDescriptor.setIsNullable(false);
         }
-        resultFileStatusTupleDesc.computeStatAndMemLayout();
         return resultFileStatusTupleDesc;
     }
 }

@@ -290,15 +290,6 @@ public class TableRef implements ParseNode {
         return markTupleName;
     }
 
-    public void setMark(TupleDescriptor markTuple) {
-        this.isMark = markTuple != null;
-        if (isMark) {
-            this.markTupleName = markTuple.getAlias();
-        } else {
-            this.markTupleName = null;
-        }
-    }
-
     public Expr getOnClause() {
         return onClause;
     }
