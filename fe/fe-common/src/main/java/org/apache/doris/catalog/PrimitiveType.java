@@ -80,8 +80,7 @@ public enum PrimitiveType {
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT, false),
     TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE, false),
     // Unsupported scalar types.
-    BINARY("BINARY", -1, TPrimitiveType.BINARY, false),
-    ALL("ALL", -1, TPrimitiveType.INVALID_TYPE, false);
+    BINARY("BINARY", -1, TPrimitiveType.BINARY, false);
 
 
     private static final int DATE_INDEX_LEN = 3;
@@ -251,12 +250,11 @@ public enum PrimitiveType {
                 return MAP;
             case STRUCT:
                 return STRUCT;
-            case ALL:
-                return ALL;
             case VARIANT:
                 return VARIANT;
             case VARBINARY:
                 return VARBINARY;
+            case ALL:
             default:
                 return INVALID_TYPE;
         }
