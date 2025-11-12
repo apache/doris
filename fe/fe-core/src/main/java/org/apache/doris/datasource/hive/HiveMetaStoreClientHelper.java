@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -643,8 +644,9 @@ public class HiveMetaStoreClientHelper {
             case "double":
                 return Type.DOUBLE;
             case "string":
-            case "binary":
                 return ScalarType.createStringType();
+            case "binary":
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             default:
                 break;
         }

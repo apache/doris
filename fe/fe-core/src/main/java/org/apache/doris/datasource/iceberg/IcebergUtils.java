@@ -61,6 +61,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -564,12 +565,13 @@ public class IcebergUtils {
             case DOUBLE:
                 return Type.DOUBLE;
             case STRING:
-            case BINARY:
             case UUID:
                 return Type.STRING;
+            case BINARY:
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return ScalarType.createCharType(fixed.length());
+                return ScalarType.createVarbinaryType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
