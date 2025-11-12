@@ -30,11 +30,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Locale;
@@ -46,7 +43,6 @@ import java.util.Map;
  * They are executed as function call exprs in the BE.
  */
 public class TimestampArithmeticExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(TimestampArithmeticExpr.class);
     private static final Map<String, TimeUnit> TIME_UNITS_MAP = new HashMap<String, TimeUnit>();
 
     static {
@@ -79,20 +75,6 @@ public class TimestampArithmeticExpr extends Expr {
         this.funcName = funcName;
         this.timeUnitIdent = timeUnitIdent;
         this.intervalFirst = false;
-        children.add(e1);
-        children.add(e2);
-    }
-
-    // C'tor for non-function-call like arithmetic, e.g., 'a + interval b year'.
-    // e1 always refers to the timestamp to be added/subtracted from, and e2
-    // to the time value (even in the interval-first case).
-    public TimestampArithmeticExpr(ArithmeticExpr.Operator op, Expr e1, Expr e2,
-                                   String timeUnitIdent, boolean intervalFirst) {
-        Preconditions.checkState(op == Operator.ADD || op == Operator.SUBTRACT);
-        this.funcName = null;
-        this.op = op;
-        this.timeUnitIdent = timeUnitIdent;
-        this.intervalFirst = intervalFirst;
         children.add(e1);
         children.add(e2);
     }
@@ -283,44 +265,6 @@ public class TimestampArithmeticExpr extends Expr {
         return strBuilder.toString();
     }
 
-    @Override
-    public String toDigestImpl() {
-        StringBuilder strBuilder = new StringBuilder();
-        if (funcName != null) {
-            if (funcName.equalsIgnoreCase("TIMESTAMPDIFF") || funcName.equalsIgnoreCase("TIMESTAMPADD")) {
-                strBuilder.append(funcName).append("(");
-                strBuilder.append(timeUnitIdent).append(", ");
-                strBuilder.append(getChild(1).toDigest()).append(", ");
-                strBuilder.append(getChild(0).toDigest()).append(")");
-                return strBuilder.toString();
-            }
-            // Function-call like version.
-            strBuilder.append(funcName).append("(");
-            strBuilder.append(getChild(0).toDigest()).append(", ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toDigest());
-            strBuilder.append(" ").append(timeUnitIdent);
-            strBuilder.append(")");
-            return strBuilder.toString();
-        }
-        if (intervalFirst) {
-            // Non-function-call like version with interval as first operand.
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toDigest() + " ");
-            strBuilder.append(timeUnitIdent);
-            strBuilder.append(" ").append(op.toString()).append(" ");
-            strBuilder.append(getChild(0).toDigest());
-        } else {
-            // Non-function-call like version with interval as second operand.
-            strBuilder.append(getChild(0).toDigest());
-            strBuilder.append(" " + op.toString() + " ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toDigest() + " ");
-            strBuilder.append(timeUnitIdent);
-        }
-        return strBuilder.toString();
-    }
-
     // Time units supported in timestamp arithmetic.
     public enum TimeUnit {
         YEAR("YEAR"),                               // YEARS
@@ -347,13 +291,6 @@ public class TimestampArithmeticExpr extends Expr {
 
         TimeUnit(String description) {
             this.description = description;
-        }
-
-        public boolean isDateTime() {
-            if (this == HOUR || this == MINUTE || this == SECOND || this == MICROSECOND) {
-                return true;
-            }
-            return false;
         }
 
         @Override
