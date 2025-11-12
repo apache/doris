@@ -437,8 +437,16 @@ int main(int argc, char** argv) {
                 LOG(WARNING) << "ignore broken disk, path = " << it->path;
                 it = paths.erase(it);
             } else {
-                LOG(ERROR) << "a broken disk is found " << it->path;
-                exit(-1);
+                LOG(ERROR) << "a broken disk is found, check it " << it->path;
+                // if broken path can be read and write（IO ok）,remove the broken path at BE start.
+                if (doris::check_datapath_rw(it->path)) {
+                    LOG(INFO) << " broken path=" << it->path << " is IO Ok. remove it on broken path.";
+                    broken_paths.erase(it->path);
+                    continue;
+                } else {
+                    LOG(ERROR) << " broken path=" << it->path << " is IO Error,can't start.";
+                    exit(-1);
+                }
             }
         } else if (!doris::check_datapath_rw(it->path)) {
             if (doris::config::ignore_broken_disk) {
