@@ -79,14 +79,14 @@ struct ToCenturyImpl {
     static constexpr PrimitiveType OpArgType = PType;
     using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
     static constexpr auto name = "century";
-    
+
     static inline auto execute(const NativeType& t) {
         const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t);
         int year = date_time_value.year();
-        // caculate logical
+        // calculate logical century
         return (year - 1) / 100 + 1;
     }
-    
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
