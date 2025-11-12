@@ -1637,6 +1637,8 @@ DECLARE_mBool(enable_wal_tde);
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
+DECLARE_mBool(prefetch_segment_footer);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

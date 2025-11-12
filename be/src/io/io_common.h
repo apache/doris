@@ -57,6 +57,7 @@ struct FileCacheStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t cache_block_download_wait_timer = 0;
 
     int64_t inverted_index_num_local_io_total = 0;
     int64_t inverted_index_num_remote_io_total = 0;

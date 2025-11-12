@@ -749,7 +749,9 @@ class ScopedRawTimer {
 public:
     ScopedRawTimer(C* counter) : _counter(counter) { _sw.start(); }
     // Update counter when object is destroyed
-    ~ScopedRawTimer() { *_counter += _sw.elapsed_time(); }
+    ~ScopedRawTimer() {
+        if (_counter) *_counter += _sw.elapsed_time();
+    }
 
     // Disable copy constructor and assignment
     ScopedRawTimer(const ScopedRawTimer& timer) = delete;

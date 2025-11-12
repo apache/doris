@@ -72,6 +72,7 @@ struct ReadStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t cache_block_download_wait_timer = 0;
 };
 
 class BlockFileCache;
