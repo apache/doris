@@ -127,12 +127,12 @@ void register_function_soundex(SimpleFunctionFactory& factory);
 void register_function_throw_exception(SimpleFunctionFactory& factory);
 #endif
 
-using SimpleFunctionCreator = std::function<FunctionBuilderPtr(const DataTypePtr&)>;
+using ArrayAggFunctionCreator = std::function<FunctionBuilderPtr(const DataTypePtr&)>;
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
-    using FunctionCreators2 = phmap::flat_hash_map<std::string, SimpleFunctionCreator>;
+    using ArrayAggFunctionCreators = phmap::flat_hash_map<std::string, ArrayAggFunctionCreator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
     /// @TEMPORARY: for be_exec_version=5.
     /// whenever change this, please make sure old functions was all cleared. otherwise the version now-1 will think it should do replacement
@@ -159,8 +159,8 @@ public:
         function_creators[key_str] = ptr;
     }
 
-    void register_function2(const std::string& name, const SimpleFunctionCreator& ptr) {
-        function_creators2[name] = ptr;
+    void register_array_agg_function(const std::string& name, const ArrayAggFunctionCreator& ptr) {
+        array_function_creators[name] = ptr;
     }
 
     template <class Function>
@@ -216,12 +216,12 @@ public:
             }
         }
 
-        auto iter0 = function_creators2.find(key_str);
-        if (iter0 == function_creators2.end()) {
+        auto iter0 = array_function_creators.find(key_str);
+        if (iter0 == array_function_creators.end()) {
             // use original name as signature without variadic arguments
-            iter0 = function_creators2.find(name);
+            iter0 = array_function_creators.find(name);
         }
-        if (iter0 != function_creators2.end()) {
+        if (iter0 != array_function_creators.end()) {
             return iter0->second(return_type)->build(arguments, return_type);
         }
 
@@ -240,7 +240,7 @@ public:
 
 private:
     FunctionCreators function_creators;
-    FunctionCreators2 function_creators2;
+    ArrayAggFunctionCreators array_function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
     /// @TEMPORARY: for be_exec_version=8. replace function to old version.
