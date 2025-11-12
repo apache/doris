@@ -97,8 +97,6 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2Date>();
     factory.register_function<FunctionCenturyV2>();
     factory.register_function<FunctionDateTimeV2Century>();
-    factory.register_function<FunctionTimeStampV2>();
-    factory.register_function<FunctionSecondV2>();
     factory.register_alias("date", "datev2");
     factory.register_alias("to_date", "to_datev2");
 }
