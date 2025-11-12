@@ -263,6 +263,7 @@ import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -579,6 +580,8 @@ public class Env {
 
     private StatisticsMetricCollector statisticsMetricCollector;
 
+    private AgentTaskCleanupDaemon agentTaskCleanupDaemon;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -838,6 +841,9 @@ public class Env {
         this.dictionaryManager = new DictionaryManager();
         this.keyManagerStore = new KeyManagerStore();
         this.keyManager = KeyManagerFactory.getKeyManager();
+        if (Config.agent_task_health_check_intervals_ms > 0) {
+            this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
+        }
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -1956,6 +1962,7 @@ public class Env {
         if (keyManager != null) {
             keyManager.init();
         }
+        agentTaskCleanupDaemon.start();
     }
 
     // start threads that should run on all FE
