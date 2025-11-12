@@ -480,6 +480,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 job.setJobId(((MTMVJob) job).getMtmvId());
             }
             jobMap.putIfAbsent(job.getJobId(), (T) job);
+            if (job instanceof StreamingInsertJob && job.isJobRunning()) {
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback((StreamingInsertJob) job);
+            }
         }
     }
 
