@@ -3972,7 +3972,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
-    if (request->without_lock() && request->has_pre_rowset_agg_end_version() &&
+    bool without_lock = request->has_without_lock() ? request->without_lock() : false;
+    if (without_lock && request->has_pre_rowset_agg_end_version() &&
         request->pre_rowset_agg_end_version() > 0) {
         if (request->rowset_ids_size() != request->pre_rowset_versions_size()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3989,6 +3990,21 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
            << " not equal to delete_bitmap_storages size="
            << request->delete_bitmap_storages_size();
         msg = ss.str();
+        return;
+    }
+
+    auto store_version = request->has_store_version() ? request->store_version() : 1;
+    if (store_version != 1 && store_version != 2 && store_version != 3) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "delete bitmap store version must be 1, 2, 3";
+        return;
+    }
+
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (!without_lock && is_versioned_write && store_version == 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "instance enabled versioned write, please set delete_bitmap_store_write_version to 2 "
+              "or 3 in be.conf";
         return;
     }
 
@@ -4009,7 +4025,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     bool is_explicit_txn = (request->has_is_explicit_txn() && request->is_explicit_txn());
     bool is_first_sub_txn = (is_explicit_txn && request->txn_id() == request->lock_id());
-    bool without_lock = request->has_without_lock() ? request->without_lock() : false;
     std::string log = ", update delete bitmap for tablet " + std::to_string(tablet_id);
     if (!without_lock) {
         // 1. Check whether the lock expires
@@ -4266,6 +4281,14 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
            << " begin_version_size=" << begin_versions.size()
            << " end_version_size=" << end_versions.size();
         msg = ss.str();
+        return;
+    }
+
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    if (is_versioned_read && store_version == 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "instance enabled versioned read, please set delete_bitmap_store_read_version to 2 "
+              "or 3 in be.conf";
         return;
     }
 
