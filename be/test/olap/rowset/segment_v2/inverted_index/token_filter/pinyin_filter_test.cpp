@@ -406,4 +406,110 @@ TEST_F(PinyinFilterTest, TestTokenFilter_OnlyFullPinyin) {
     assertTokens(tokens, expected, "Only full pinyin test");
 }
 
+// Test emoji preservation without keep_original setting
+TEST_F(PinyinFilterTest, TestTokenFilter_EmojiPreservation) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "false"; // Emoji should still be preserved via fallback
+    config["keep_none_chinese"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("⭐白菜", "standard", config);
+
+    // Standard tokenizer outputs "⭐" and "白菜" as separate tokens
+    // "⭐" -> preserved via fallback (no pinyin candidates)
+    // "白菜" -> "bai", "b", "cai", "c", "bc"
+    std::vector<std::string> expected = {"⭐", "bai", "b", "cai", "c"};
+    assertTokens(tokens, expected, "StandardTokenizer + Emoji preservation");
+}
+
+// Test pure emoji input
+TEST_F(PinyinFilterTest, TestTokenFilter_PureEmoji) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "false";
+    config["keep_none_chinese"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("⭐", "standard", config);
+
+    std::vector<std::string> expected = {"⭐"};
+    assertTokens(tokens, expected, "Pure emoji should be preserved");
+}
+
+// Test multiple emojis
+TEST_F(PinyinFilterTest, TestTokenFilter_MultipleEmojis) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "false";
+    config["keep_none_chinese"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("🎉中国🚀", "standard", config);
+
+    std::vector<std::string> expected = {"🎉", "zhong", "z", "guo", "g", "🚀"};
+    assertTokens(tokens, expected, "Multiple emojis with Chinese");
+}
+
+// Test keepNoneChineseTogether = false with letters and digits
+TEST_F(PinyinFilterTest, TestTokenFilter_KeepNoneChineseTogetherFalse) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "true";
+    config["keep_none_chinese"] = "true";
+    config["keep_none_chinese_together"] = "false";
+    config["none_chinese_pinyin_tokenize"] = "true";
+    config["lowercase"] = "true";
+    config["remove_duplicated_term"] = "true";
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("刘德华ABC123", "keyword", config);
+
+    // Letters are split individually, digits are split individually too
+    std::vector<std::string> expected = {
+            "liu", "刘德华abc123", "ldhabc123", "de", "hua", "a", "b", "c", "1", "2", "3"};
+    assertTokens(tokens, expected, "KeepNoneChineseTogether=false with mixed content");
+}
+
+// Test keepNoneChineseTogether = false with pure letters
+TEST_F(PinyinFilterTest, TestTokenFilter_KeepNoneChineseTogetherFalse_PureLetters) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true"; // Need at least one output format enabled
+    config["keep_full_pinyin"] = "false";
+    config["keep_original"] = "false";
+    config["keep_none_chinese"] = "true";
+    config["keep_none_chinese_together"] = "false";
+    config["none_chinese_pinyin_tokenize"] = "true";
+    config["lowercase"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("DEL", "keyword", config);
+
+    // All letters should be split individually, plus the result from PinyinAlphabetTokenizer
+    // With keep_first_letter=true, we get the combined first letter too
+    std::vector<std::string> expected = {"D", "DEL", "E", "L"};
+    assertTokens(tokens, expected, "KeepNoneChineseTogether=false pure letters");
+}
+
+// Test Unicode symbols fallback when no candidates generated
+TEST_F(PinyinFilterTest, TestTokenFilter_UnicodeFallback) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "false"; // No keep_original but symbols should still be preserved
+    config["keep_none_chinese"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    // Use keyword tokenizer to ensure the input is passed as-is to the filter
+    auto tokens = tokenizeWithFilter("①②③", "keyword", config);
+
+    // Unicode symbols should be preserved even without keep_original via fallback
+    std::vector<std::string> expected = {"①②③"};
+    assertTokens(tokens, expected, "Unicode symbols preserved without keep_original");
+}
+
 } // namespace doris::segment_v2::inverted_index
