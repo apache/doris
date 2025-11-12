@@ -60,7 +60,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     logger.info("file_cache_2qlru_cold_blocks_promotion_ms configuration: " + enableFileCacheNormalQueue2qlruResult)
 
     if (enableFileCacheNormalQueue2qlruResult.size() == 0 || enableFileCacheNormalQueue2qlruResult[0][3] == null ||
-                    enableFileCacheNormalQueue2qlruResult[0][3].trim().isEmpty()) {
+                    !enableFileCacheResult[0][3].equalsIgnoreCase("true")) {
         logger.info(ENABLE_FILE_CACHE_NORMAL_QUEUE_2QLRU_CHECK_FAILED_MSG)
         return
     }

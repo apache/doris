@@ -49,19 +49,19 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     }
 
     // Check backend configuration prerequisites
-    // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
+    // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent 
     // to testing with multiple backends having identical configurations, but simpler in logic.
     def enableFileCacheResult = sql """show backend config like 'enable_file_cache';"""
     logger.info("enable_file_cache configuration: " + enableFileCacheResult)
-
+    
     if (enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true")) {
         logger.info(ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
         assertTrue(false, ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
     }
-
+    
     def fileCachePathResult = sql """show backend config like 'file_cache_path';"""
     logger.info("file_cache_path configuration: " + fileCachePathResult)
-
+    
     if (fileCachePathResult.size() == 0 || fileCachePathResult[0][3] == null || fileCachePathResult[0][3].trim().isEmpty()) {
         logger.info(FILE_CACHE_PATH_CHECK_FAILED_MSG)
         assertTrue(false, FILE_CACHE_PATH_CHECK_FAILED_MSG)
