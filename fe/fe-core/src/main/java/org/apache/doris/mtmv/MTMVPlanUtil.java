@@ -41,7 +41,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -77,12 +79,14 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -91,9 +95,30 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
+    private static final Logger LOG = LogManager.getLogger(MTMVPlanUtil.class);
 
-    public static ConnectContext createMTMVContext(MTMV mtmv) {
-        ConnectContext ctx = createBasicMvContext(null);
+    // The rules should be disabled when generate MTMV cache
+    // Because these rules may change the plan structure and cause the plan can not match the mv
+    // this is mainly for final CBO phase rewrite, pre RBO phase does not need to consider, because
+    // maintain tmp plan alone for rewrite when pre RBO rewrite
+    public static final List<RuleType> DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE = ImmutableList.of(
+            RuleType.COMPRESSED_MATERIALIZE_AGG,
+            RuleType.COMPRESSED_MATERIALIZE_SORT,
+            RuleType.ELIMINATE_CONST_JOIN_CONDITION,
+            RuleType.CONSTANT_PROPAGATION,
+            RuleType.ADD_DEFAULT_LIMIT,
+            RuleType.ELIMINATE_JOIN_BY_FK,
+            RuleType.ELIMINATE_JOIN_BY_UK,
+            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
+            RuleType.ELIMINATE_GROUP_BY,
+            RuleType.SALT_JOIN,
+            RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION
+    );
+    // The rules should be disabled when run MTMV task
+    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
+
+    public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
+        ConnectContext ctx = createBasicMvContext(null, disableRules);
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
@@ -105,7 +130,8 @@ public class MTMVPlanUtil {
         return ctx;
     }
 
-    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
+    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
+            List<RuleType> disableRules) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
@@ -119,16 +145,6 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().skipStorageEngineMerge = false;
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        // Rules disabled during materialized view plan generation. These rules can cause significant plan changes,
-        // which may affect transparent query rewriting by mv
-        List<RuleType> disableRules = Arrays.asList(
-                RuleType.COMPRESSED_MATERIALIZE_AGG,
-                RuleType.COMPRESSED_MATERIALIZE_SORT,
-                RuleType.ELIMINATE_CONST_JOIN_CONDITION,
-                RuleType.CONSTANT_PROPAGATION,
-                RuleType.ADD_DEFAULT_LIMIT,
-                RuleType.ELIMINATE_GROUP_BY
-        );
         ctx.getSessionVariable().setDisableNereidsRules(
                 disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
         ctx.setStartTime();
@@ -436,6 +452,12 @@ public class MTMVPlanUtil {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
                             + Util.getTempTableDisplayName(table.getName()) + ")");
                 }
+                if (table instanceof ExternalTable) {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    if (externalTable.isView()) {
+                        throw new AnalysisException("can not contain external VIEW");
+                    }
+                }
             }
             MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
@@ -540,10 +562,37 @@ public class MTMVPlanUtil {
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)
             throws JobException {
         MTMVPartitionInfo originalMvPartitionInfo = mtmv.getMvPartitionInfo();
-        if (!analyzedMvPartitionInfo.equals(originalMvPartitionInfo)) {
+        if (!checkMTMVPartitionInfoLike(originalMvPartitionInfo, analyzedMvPartitionInfo)) {
             throw new JobException("async materialized view partition info changed, analyzed: %s, original: %s",
                     analyzedMvPartitionInfo.toInfoString(), originalMvPartitionInfo.toInfoString());
         }
+    }
+
+    private static boolean checkMTMVPartitionInfoLike(MTMVPartitionInfo originalMvPartitionInfo,
+            MTMVPartitionInfo analyzedMvPartitionInfo) {
+        if (!originalMvPartitionInfo.getPartitionType().equals(analyzedMvPartitionInfo.getPartitionType())) {
+            return false;
+        }
+        if (originalMvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return true;
+        }
+        // because old version only support one pct table, so can not use equal
+        if (!analyzedMvPartitionInfo.getPctInfos().containsAll(originalMvPartitionInfo.getPctInfos())) {
+            return false;
+        }
+        if (originalMvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            try {
+                MTMVPartitionExprService originalExprService = MTMVPartitionExprFactory.getExprService(
+                        originalMvPartitionInfo.getExpr());
+                MTMVPartitionExprService analyzedExprService = MTMVPartitionExprFactory.getExprService(
+                        analyzedMvPartitionInfo.getExpr());
+                return originalExprService.equals(analyzedExprService);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                LOG.warn(e);
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void checkColumnIfChange(MTMV mtmv, List<ColumnDefinition> analyzedColumnDefinitions)

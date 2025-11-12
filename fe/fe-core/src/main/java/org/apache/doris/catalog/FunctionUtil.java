@@ -107,7 +107,7 @@ public class FunctionUtil {
         if (!isReplay) {
             if (existFuncs != null) {
                 for (Function existFunc : existFuncs) {
-                    if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
+                    if (function.isIdentical(existFunc)) {
                         if (ifNotExists) {
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("function already exists");
@@ -155,15 +155,6 @@ public class FunctionUtil {
             functions.addAll(entry.getValue());
         }
         return functions;
-    }
-
-    public static Function getFunction(Function desc, Function.CompareMode mode,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function) {
-        List<Function> fns = name2Function.get(desc.getFunctionName().getFunction());
-        if (fns == null) {
-            return null;
-        }
-        return Function.getFunction(fns, desc, mode);
     }
 
     /***

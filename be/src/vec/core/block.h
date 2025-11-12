@@ -76,12 +76,6 @@ private:
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     Container data;
     IndexByName index_by_name;
-    std::vector<bool> row_same_bit;
-
-    int64_t _decompress_time_ns = 0;
-    int64_t _decompressed_bytes = 0;
-
-    mutable int64_t _compress_time_ns = 0;
 
 public:
     Block() = default;
@@ -125,6 +119,10 @@ public:
         }
         std::swap(data, new_data);
     }
+
+    // Use this method only when you are certain index_by_name will not be used
+    // This is a temporary compromise; index_by_name may be removed in the future
+    void simple_insert(const ColumnWithTypeAndName& elem) { data.emplace_back(elem); }
 
     void initialize_index_by_name();
 
@@ -292,10 +290,11 @@ public:
 
     // serialize block to PBlock
     Status serialize(int be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
-                     size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
+                     size_t* compressed_bytes, int64_t* compress_time,
+                     segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
-    Status deserialize(const PBlock& pblock);
+    Status deserialize(const PBlock& pblock, size_t* uncompressed_bytes, int64_t* decompress_time);
 
     std::unique_ptr<Block> create_same_struct_block(size_t size, bool is_reserve = false) const;
 
@@ -362,26 +361,6 @@ public:
 
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
-
-    int64_t get_decompress_time() const { return _decompress_time_ns; }
-    int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
-    int64_t get_compress_time() const { return _compress_time_ns; }
-
-    void set_same_bit(std::vector<bool>::const_iterator begin,
-                      std::vector<bool>::const_iterator end) {
-        row_same_bit.insert(row_same_bit.end(), begin, end);
-
-        DCHECK_EQ(row_same_bit.size(), rows());
-    }
-
-    bool get_same_bit(size_t position) {
-        if (position >= row_same_bit.size()) {
-            return false;
-        }
-        return row_same_bit[position];
-    }
-
-    void clear_same_bit() { row_same_bit.clear(); }
 
     // remove tmp columns in block
     // in inverted index apply logic, in order to optimize query performance,

@@ -33,7 +33,7 @@ public:
 
     WeightPtr weight(bool enable_scoring) override {
         return std::make_shared<RegexpWeight>(std::move(_context), std::move(_field),
-                                              std::move(_pattern), enable_scoring);
+                                              std::move(_pattern), enable_scoring, _nullable);
     }
 
 private:
@@ -41,6 +41,7 @@ private:
 
     std::wstring _field;
     std::string _pattern;
+    bool _nullable = true;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

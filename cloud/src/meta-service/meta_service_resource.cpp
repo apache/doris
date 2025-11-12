@@ -1061,7 +1061,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
 
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
-              << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
+              << ", origin vault=" << encryt_sk(hide_ak(origin_vault_info))
+              << ", new vault=" << encryt_sk(hide_ak(new_vault_info));
 
     DCHECK_EQ(new_vault.id(), vault_id);
     response->set_storage_vault_id(new_vault.id());
@@ -2044,13 +2045,26 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
     }
 
     // Check if snapshot is not ready (UNSUPPORTED state)
-    if (instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
+    if (!instance->has_snapshot_switch_status() ||
+        instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                              "Snapshot not ready, instance_id: " + instance_id);
+                              "Snapshot is not ready, instance_id: " + instance_id);
     } else if (value == "false" && instance->snapshot_switch_status() == SNAPSHOT_SWITCH_OFF) {
         return std::make_pair(
                 MetaServiceCode::INVALID_ARGUMENT,
                 "Snapshot is already set to SNAPSHOT_SWITCH_OFF, instance_id: " + instance_id);
+    } else if (value == "true" && instance->multi_version_status() != MULTI_VERSION_READ_WRITE) {
+        // If the multi_version_status is not READ_WRITE, cannot enable snapshot because the
+        // operation logs will be recycled directly since min_versionstamp is not set when multi
+        // version status is WRITE_ONLY
+        std::string url =
+                "${MS_ENDPOINT}/MetaService/http/"
+                "set_multi_version_status?multi_version_status=MULTI_VERSION_READ_WRITE";
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              fmt::format("Cannot enable snapshot when multi_version_status is not "
+                                          "MULTI_VERSION_READ_WRITE. Consider enabling "
+                                          "MULTI_VERSION_READ_WRITE status by curl {}",
+                                          instance_id));
     } else if (value == "true") {
         instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
 
@@ -2838,7 +2852,7 @@ void handle_set_cluster_status(const std::string& instance_id, const ClusterInfo
             });
 }
 
-void handle_alter_vcluster_Info(const std::string& instance_id, const ClusterInfo& cluster,
+void handle_alter_vcluster_info(const std::string& instance_id, const ClusterInfo& cluster,
                                 std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
                                 MetaServiceCode& code) {
     msg = resource_mgr->update_cluster(
@@ -2922,6 +2936,26 @@ void handle_alter_vcluster_Info(const std::string& instance_id, const ClusterInf
                     return msg; // Return validation error
                 }
                 return msg; // Return success or empty message
+            });
+}
+
+void handle_alter_properties(const std::string& instance_id, const ClusterInfo& cluster,
+                             std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
+                             MetaServiceCode& code) {
+    msg = resource_mgr->update_cluster(
+            instance_id, cluster,
+            [&](const ClusterPB& i) { return i.cluster_id() == cluster.cluster.cluster_id(); },
+            [&](ClusterPB& c, std::vector<ClusterPB>&) {
+                std::string msg;
+                std::stringstream ss;
+                if (ClusterPB::COMPUTE != c.type()) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    ss << "just support set COMPUTE cluster status";
+                    msg = ss.str();
+                    return msg;
+                }
+                *c.mutable_properties() = cluster.cluster.properties();
+                return msg;
             });
 }
 
@@ -3009,7 +3043,10 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         handle_set_cluster_status(instance_id, cluster, resource_mgr(), msg, code);
         break;
     case AlterClusterRequest::ALTER_VCLUSTER_INFO:
-        handle_alter_vcluster_Info(instance_id, cluster, resource_mgr(), msg, code);
+        handle_alter_vcluster_info(instance_id, cluster, resource_mgr(), msg, code);
+        break;
+    case AlterClusterRequest::ALTER_PROPERTIES:
+        handle_alter_properties(instance_id, cluster, resource_mgr(), msg, code);
         break;
     default:
         code = MetaServiceCode::INVALID_ARGUMENT;

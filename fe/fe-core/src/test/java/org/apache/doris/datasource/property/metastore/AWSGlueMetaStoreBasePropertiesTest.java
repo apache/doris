@@ -96,7 +96,7 @@ public class AWSGlueMetaStoreBasePropertiesTest {
                 IllegalArgumentException.class,
                 () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("At least one of glue.endpoint or glue.region must be set"));
+        Assertions.assertTrue(ex.getMessage().contains("glue.endpoint must be set"));
     }
 
     @Test

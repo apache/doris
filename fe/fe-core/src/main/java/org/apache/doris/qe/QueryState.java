@@ -36,6 +36,7 @@ public class QueryState {
 
     public enum ErrType {
         ANALYSIS_ERR,
+        SYNTAX_PARSE_ERR,
         OTHER_ERR
     }
 
@@ -59,6 +60,7 @@ public class QueryState {
     public void reset() {
         stateType = MysqlStateType.OK;
         errorCode = null;
+        errType = ErrType.OTHER_ERR;
         infoMessage = null;
         errorMessage = "";
         serverStatus = 0;

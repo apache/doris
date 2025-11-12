@@ -251,8 +251,14 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
 template <PrimitiveType T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
-    col_meta->mutable_decimal_param()->set_precision(precision);
-    col_meta->mutable_decimal_param()->set_scale(scale);
+    if constexpr (T == TYPE_DECIMALV2) {
+        const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(this);
+        col_meta->mutable_decimal_param()->set_precision(real_type_t->get_original_precision());
+        col_meta->mutable_decimal_param()->set_scale(real_type_t->get_original_scale());
+    } else {
+        col_meta->mutable_decimal_param()->set_precision(precision);
+        col_meta->mutable_decimal_param()->set_scale(scale);
+    }
 }
 
 template <PrimitiveType T>

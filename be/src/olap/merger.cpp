@@ -477,7 +477,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
             tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
     {
         std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
-        tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
+        tablet->sample_infos.resize(column_groups.size());
     }
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {

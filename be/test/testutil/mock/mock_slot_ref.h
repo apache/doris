@@ -47,7 +47,7 @@ public:
         _data_type = data_type;
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         *result_column_id = _column_id;
         return Status::OK();
     }

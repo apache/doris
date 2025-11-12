@@ -574,6 +574,10 @@ public class SchemaTable extends Table {
                                     .column("DISTRIBUTE_TYPE", ScalarType.createStringType())
                                     .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("PARTITION_METHOD", ScalarType.createVarchar(13))
+                                    .column("PARTITION_EXPRESSION", ScalarType.createVarchar(2048))
+                                    .column("PARTITION_KEY", ScalarType.createStringType())
+                                    .column("RANGE", ScalarType.createStringType())
                                     .build()))
             .put("workload_group_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,

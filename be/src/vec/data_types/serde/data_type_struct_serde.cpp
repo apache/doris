@@ -492,17 +492,17 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                  bool col_const,
-                                                  const FormatOptions& options) const {
+Status DataTypeStructSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                         MysqlRowBinaryBuffer& row_buffer,
+                                                         int64_t row_idx, bool col_const,
+                                                         const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer,
-                                                  int64_t row_idx, bool col_const,
-                                                  const FormatOptions& options) const {
+Status DataTypeStructSerDe::write_column_to_mysql_text(const IColumn& column,
+                                                       MysqlRowTextBuffer& row_buffer,
+                                                       int64_t row_idx, bool col_const,
+                                                       const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
@@ -664,6 +664,8 @@ void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
         if (idx != 0) {
             bw.write(", ", 2);
         }
+        std::string col_name = "\"" + elem_names[idx] + "\":";
+        bw.write(col_name.c_str(), col_name.length());
         elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw);
     }
     bw.write("}", 1);

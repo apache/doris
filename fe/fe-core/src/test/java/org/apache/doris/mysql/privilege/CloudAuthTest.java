@@ -367,6 +367,8 @@ public class CloudAuthTest extends TestWithFeService {
         ComputeGroup vcg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.VIRTUAL);
         vcg.setSubComputeGroups(Lists.newArrayList("cg2", "cg1"));
         systemInfoService.addComputeGroup("vcg_id", vcg);
+        ComputeGroup cg  = new ComputeGroup("vcg_id", "vcg", ComputeGroup.ComputeTypeEnum.COMPUTE);
+        systemInfoService.addComputeGroup("cg", cg);
         ComputeGroup.Policy policy = new ComputeGroup.Policy();
         policy.setActiveComputeGroup("cg1");
         policy.setStandbyComputeGroup("cg2");
@@ -379,6 +381,8 @@ public class CloudAuthTest extends TestWithFeService {
         Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg1",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         Assert.assertTrue(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg2",
+                PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
+        Assert.assertFalse(accessManager.checkCloudPriv(new UserIdentity("testUser", "%"), "cg",
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
         ShowResultSet showResultSet = sg.doRun(connectContext, null);
