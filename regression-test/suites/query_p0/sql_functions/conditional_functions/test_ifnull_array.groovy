@@ -43,8 +43,6 @@ suite("test_ifnull_array") {
     sql """
             insert into ${tableName} values ('1','1','1');
         """
-    qt_select "select
-               (select array_distinct(array_agg(br.class_code)) from ${tableName} br where br.student_code = brv.student_code) as all_class_codes
-               from ${tableName} brv;"
+    qt_select "select (select array_distinct(array_agg(br.class_code)) from ${tableName} br where br.student_code = brv.student_code) as all_class_codes from ${tableName} brv;"
     sql """drop table if exists `${tableName}`"""
 }
