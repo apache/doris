@@ -134,7 +134,8 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
             return Status::NotSupported(
                     "HTTP server does not support Range requests (RFC 7233), which is required "
                     "for reading files. File size: {} bytes, URL: {}. "
-                    "To allow reading without Range support, set 'http.enable.range.request'='false' "
+                    "To allow reading without Range support, set "
+                    "'http.enable.range.request'='false' "
                     "in properties and configure 'http.max.request.size.bytes' appropriately "
                     "(note: this may cause high memory usage for large files).",
                     _file_size, _url);
@@ -262,8 +263,9 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     if (with_range && offset > 0 && http_status == 200) {
         LOG(ERROR) << "HTTP server unexpectedly does not support Range requests for " << _url
                    << " (this should have been detected in open()). HTTP status: " << http_status
-                   << ", received: " << buf.size() << " bytes. This indicates a server behavior change.";
-        
+                   << ", received: " << buf.size()
+                   << " bytes. This indicates a server behavior change.";
+
         return Status::InternalError(
                 "HTTP server does not support Range requests but this was not detected during "
                 "file open. This may indicate the server behavior has changed. "
