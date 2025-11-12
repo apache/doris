@@ -143,4 +143,38 @@ suite("test_http_tvf", "p2") {
             "format" = "orc"
         );
     """
+
+    // non range
+    test {
+        sql """
+            select * from
+            http(
+                "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/test_decimal.parquet",
+                "format" = "parquet",
+                "http.enable.range.request" = "false",
+                "http.max.request.size.bytes" = "1000"
+            );
+        """
+        exception """exceeds maximum allowed size (1000 bytes"""
+    }
+
+    qt_sql13 """
+        select * from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/test_decimal.parquet",
+            "format" = "parquet",
+            "http.enable.range.request" = "true",
+            "http.max.request.size.bytes" = "1000"
+        ) order by id;
+    """
+
+    qt_sql14 """
+        select * from
+        http(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/test_decimal.parquet",
+            "format" = "parquet",
+            "http.enable.range.request" = "true",
+            "http.max.request.size.bytes" = "2000"
+        ) order by id;
+    """
 }
