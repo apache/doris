@@ -1511,7 +1511,7 @@ public class TypeCoercionUtils {
      * find wider common type for two data type.
      */
     @Developing
-    private static Optional<DataType> findWiderTypeForTwoForCaseWhen(DataType left, DataType right) {
+    public static Optional<DataType> findWiderTypeForTwoForCaseWhen(DataType left, DataType right) {
         // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
         Optional<DataType> commonType = findCommonComplexTypeForCaseWhen(left, right);
         if (commonType.isPresent()) {

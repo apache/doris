@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -59,7 +58,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -563,12 +561,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     // if the top node of subquery is LogicalProject, we need replace the agg slot in
                     // project list by nvl(agg), and this project will be placed above LogicalApply node
                     Slot aggSlot = agg.toSlot();
-                    replaceMapForSubqueryProject.put(aggSlot,
-                            new Alias(new Cast(TypeCoercionUtils.processBoundFunction(new Nvl(aggSlot,
-                                    notNullableAggFunc.resultForEmptyInput())), aggSlot.getDataType())));
+                    replaceMapForSubqueryProject.put(aggSlot, new Alias(new Nvl(aggSlot,
+                            notNullableAggFunc.resultForEmptyInput())));
                 } else {
-                    replaceMapForCorrelatedOuterExpr.put(subqueryOutput, new Cast(new Nvl(subqueryOutput,
-                            notNullableAggFunc.resultForEmptyInput()), subqueryOutput.getDataType()));
+                    replaceMapForCorrelatedOuterExpr.put(subqueryOutput, new Nvl(subqueryOutput,
+                            notNullableAggFunc.resultForEmptyInput()));
                 }
             }
         }
