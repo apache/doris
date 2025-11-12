@@ -287,42 +287,6 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        if (!(*statistic->get_stat_func)(statistic, column_id())) {
-            return true;
-        }
-        vectorized::Field min_field;
-        vectorized::Field max_field;
-        if (!vectorized::ParquetPredicate::get_min_max_value(
-                     statistic->col_schema, statistic->encoded_min_value,
-                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                     .ok()) {
-            return true;
-        };
-        T min_value;
-        T max_value;
-        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
-            min_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-            max_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-        } else {
-            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-        }
-
-        if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_value, _max_value) &&
-                    Compare::greater_equal(max_value, _min_value)) ||
-                   (Compare::greater_equal(max_value, _min_value) &&
-                    Compare::less_equal(min_value, _max_value));
-        } else {
-            return true;
-        }
-    }
-
     bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
         for (size_t i = 0; i != count; ++i) {
             const auto found = _values->find(dict_words[i].data, dict_words[i].size) ^ _opposite;
@@ -410,6 +374,105 @@ public:
 
     double get_ignore_threshold() const override {
         return get_in_list_ignore_thredhold(_values->size());
+    }
+
+    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+        if constexpr (PT == PredicateType::IN_LIST) {
+            HybridSetBase::IteratorBase* iter = _values->begin();
+            while (iter->has_next()) {
+                const T* value = (const T*)(iter->get_value());
+
+                auto test_bytes = [&]<typename V>(const V& val) {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&val)),
+                                          sizeof(V));
+                };
+
+                // Small integers (TINYINT, SMALLINT, INTEGER) -> hash as int32
+                if constexpr (Type == PrimitiveType::TYPE_TINYINT ||
+                              Type == PrimitiveType::TYPE_SMALLINT ||
+                              Type == PrimitiveType::TYPE_INT) {
+                    int32_t int32_value = static_cast<int32_t>(*value);
+                    if (test_bytes(int32_value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                    // BIGINT -> hash as int64
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                    // DOUBLE -> hash as double
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                    // FLOAT -> hash as float
+                    if (test_bytes(*value)) {
+                        return true;
+                    }
+                } else if constexpr (std::is_same_v<T, StringRef>) {
+                    // VARCHAR/STRING -> hash bytes
+                    if (bf->test_bytes(value->data, value->size)) {
+                        return true;
+                    }
+                } else {
+                    // Unsupported types: return true (accept)
+                    return true;
+                }
+                iter->next();
+            }
+            return false;
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type.";
+            return true;
+        }
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        bool result = false;
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+        vectorized::Field min_field;
+        vectorized::Field max_field;
+        if (!vectorized::ParquetPredicate::get_min_max_value(
+                     statistic->col_schema, statistic->encoded_min_value,
+                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                     .ok()) {
+            result = true;
+        } else {
+            T min_value;
+            T max_value;
+            if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
+                min_value = (typename PrimitiveTypeTraits<Type>::CppType)min_field.template get<
+                        typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+                max_value = (typename PrimitiveTypeTraits<Type>::CppType)max_field.template get<
+                        typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+            } else {
+                min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+                max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            }
+
+            if constexpr (PT == PredicateType::IN_LIST) {
+                result = (Compare::less_equal(min_value, _max_value) &&
+                          Compare::greater_equal(max_value, _min_value)) ||
+                         (Compare::greater_equal(max_value, _min_value) &&
+                          Compare::less_equal(min_value, _max_value));
+            } else {
+                result = true;
+            }
+        }
+
+        if constexpr (PT == PredicateType::IN_LIST) {
+            if (result && statistic->get_bloom_filter_func != nullptr &&
+                (*statistic->get_bloom_filter_func)(statistic, column_id())) {
+                if (!statistic->bloom_filter) {
+                    return result;
+                }
+                return evaluate_and(statistic->bloom_filter.get());
+            }
+        }
+        return result;
     }
 
 private:

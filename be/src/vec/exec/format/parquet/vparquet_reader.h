@@ -221,10 +221,6 @@ private:
     Status _process_column_stat_filter(const tparquet::RowGroup& row_group, bool* filter_group);
     Status _process_row_group_filter(const RowGroupReader::RowGroupIndex& row_group_index,
                                      const tparquet::RowGroup& row_group, bool* filter_group);
-    void _init_chunk_dicts();
-    Status _process_dict_filter(bool* filter_group);
-    void _init_bloom_filter();
-    Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
