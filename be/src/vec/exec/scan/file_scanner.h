@@ -194,6 +194,11 @@ protected:
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, bool> _partition_value_is_null;
+    // For Iceberg partition evolution support:
+    // Maps partition field names to source column names
+    std::unordered_map<std::string, std::string> _partition_field_to_source_column_map;
+    // Maps partition field names to transform functions (e.g., "day", "year", "month", "hour")
+    std::unordered_map<std::string, std::string> _partition_field_transforms;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
@@ -252,6 +257,13 @@ private:
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
+    // Convert partition value to source column value range for time transforms (day/year/month/hour)
+    // Returns the lower bound value as string for the source column
+    Status _convert_partition_value_to_source_range(const std::string& partition_value,
+                                                    const std::string& transform,
+                                                    const DataTypePtr& source_data_type,
+                                                    std::string& lower_bound,
+                                                    std::string& upper_bound);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
