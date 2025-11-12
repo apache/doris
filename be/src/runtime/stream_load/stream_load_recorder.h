@@ -47,6 +47,8 @@ public:
 
     Status put(const std::string& key, const std::string& value);
 
+    Status get(const std::string& key, std::string* value);
+
     Status get_batch(const std::string& start, int batch_size,
                      std::map<std::string, std::string>* stream_load_records);
 
