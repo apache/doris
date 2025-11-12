@@ -116,7 +116,8 @@ public class RelatedTableInfo {
          */
         public BaseTableInfo getTableInfo() {
             if (!(partitionNamedExpression instanceof SlotReference)
-                    || !partitionNamedExpression.isColumnFromTable()) {
+                    || !partitionNamedExpression.isColumnFromTable()
+                    || !((SlotReference) partitionNamedExpression).getOriginalTable().isPresent()) {
                 return null;
             }
             return new BaseTableInfo(((SlotReference) partitionNamedExpression).getOriginalTable().get());
