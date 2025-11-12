@@ -116,8 +116,8 @@ suite("test_view") {
     qt_agg_expr_sum1 "select col_sum from v_test_sum_expr;"
     qt_agg_expr_avg1 "select col_avg from v_test_avg_expr;"
     sql "set enable_decimal256=false;"
-<<<<<<< HEAD
-    qt_agg_expr "select col_sum from v_test_agg2;"
+    qt_agg_expr_sum2 "select col_sum from v_test_sum_expr;"
+    qt_agg_expr_avg2 "select col_avg from v_test_avg_expr;"
 
     multi_sql """
         set enable_decimal256=true;
@@ -201,9 +201,4 @@ suite("test_view") {
         set enable_decimal256=false;
     """
     qt_if_condition_func "select * from v_test_if_condition;"
-=======
-    sql "explain verbose select col_sum from v_test_sum_expr;"
-    qt_agg_expr_sum2 "select col_sum from v_test_sum_expr;"
-    qt_agg_expr_avg2 "select col_avg from v_test_avg_expr;"
->>>>>>> 103db5d8db4 (add test case)
 }
