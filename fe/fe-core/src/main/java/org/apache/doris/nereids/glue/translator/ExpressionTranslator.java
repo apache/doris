@@ -441,6 +441,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // left child of cast is expression, right child of cast is target type
         CastExpr castExpr = new CastExpr(cast.getDataType().toCatalogDataType(),
                 cast.child().accept(this, context), null);
+        castExpr.setImplicit(!cast.isExplicitType());
         castExpr.setNullableFromNereids(cast.nullable());
         return castExpr;
     }
