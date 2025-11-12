@@ -135,18 +135,20 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
-        StringBuilder sb = new StringBuilder(t.getMessage());
+        String firstErrorMsgPart = "";
+        String urlPart = "";
         if (txnId != INVALID_TXN_ID) {
             LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
             if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
-                sb.append(". first_error_msg: ").append(
-                        StringUtils.abbreviate(coordinator.getFirstErrorMsg(), Config.first_error_msg_max_length));
+                firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
+                        Config.first_error_msg_max_length);
             }
             if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-                sb.append(". url: ").append(coordinator.getTrackingUrl());
+                urlPart = coordinator.getTrackingUrl();
             }
         }
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(t.getMessage(), firstErrorMsgPart, urlPart);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
 
         if (table instanceof ExternalTable) {
             try {
