@@ -119,7 +119,7 @@ public class OlapTableSink extends DataSink {
 
     private boolean isStrictMode = false;
     private long txnId = -1;
-    private long loadId = -1;
+    private TUniqueId loadId = -1;
 
     private List<Expr> partitionExprs;
     private Map<Long, Expr> syncMvWhereClauses;
@@ -387,7 +387,7 @@ public class OlapTableSink extends DataSink {
         schemaParam.setIsStrictMode(isStrictMode);
 
         LOG.info("createSchema START - table: {}, state: {}, tupleDescriptor slots: {}, loadId: {}",
-                table.getName(), table.getState(), tupleDescriptor.getSlots().size(), loadId);
+                table.getName(), table.getState(), tupleDescriptor.getSlots().size(), DebugUtil.printId(loadId));
         for (SlotDescriptor slot : tupleDescriptor.getSlots()) {
             LOG.info("  TupleDescriptor slot: id={}, name={}, type={}, nullable={}",
                     slot.getId(), slot.getColumn() != null ? slot.getColumn().getName() : "null",
