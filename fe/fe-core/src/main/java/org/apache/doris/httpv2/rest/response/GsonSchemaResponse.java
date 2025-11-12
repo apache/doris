@@ -14,19 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlannerContext.java
-// and modified by Doris
 
-package org.apache.doris.planner;
+package org.apache.doris.httpv2.rest.response;
 
-/**
- * Contains the analysis result of a query as well as planning-specific
- * parameters and state such as plan-node and plan-fragment id generators.
- */
-public class PlannerContext {
+import org.apache.doris.catalog.KeysType;
 
-    // Estimate of the overhead imposed by storing data in a hash tbl;
-    // used for determining whether a broadcast join is feasible.
-    public static final double HASH_TBL_SPACE_OVERHEAD = 1.1;
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+public class GsonSchemaResponse {
+    List<String> jsonColumns;
+    KeysType keysType;
 }

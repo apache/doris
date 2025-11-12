@@ -17,11 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotRef;
-
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -134,43 +130,5 @@ public class ColumnStats {
                 && (avgSerializedSize == stats.avgSerializedSize)
                 && (maxSize == stats.maxSize)
                 && (numNulls == stats.numNulls);
-    }
-
-    /**
-     * For fixed-length type (those which don't need additional storage besides
-     * the slot they occupy), sets avgSerializedSize and maxSize to their slot size.
-     */
-    public ColumnStats(PrimitiveType colType) {
-        avgSerializedSize = -1;
-        maxSize = -1;
-        numDistinctValues = -1;
-        numNulls = -1;
-        if (colType.isNumericType() || colType.isDateType()) {
-            avgSerializedSize = colType.getSlotSize();
-            maxSize = colType.getSlotSize();
-        }
-    }
-
-    /**
-     * Creates ColumnStats from the given expr. Sets numDistinctValues and if the expr
-     * is a SlotRef also numNulls.
-     */
-    public static ColumnStats fromExpr(Expr expr) {
-        Preconditions.checkNotNull(expr);
-        Preconditions.checkState(expr.getType().isValid());
-        ColumnStats stats = new ColumnStats(expr.getType().getPrimitiveType());
-        stats.setNumDistinctValues(expr.getNumDistinctValues());
-        SlotRef slotRef = expr.unwrapSlotRef();
-        if (slotRef == null) {
-            return stats;
-        }
-        ColumnStats slotStats = slotRef.getDesc().getStats();
-        if (slotStats == null) {
-            return stats;
-        }
-        stats.numNulls = slotStats.getNumNulls();
-        stats.avgSerializedSize = slotStats.getAvgSerializedSize();
-        stats.maxSize = slotStats.getMaxSize();
-        return stats;
     }
 }

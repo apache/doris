@@ -23,10 +23,16 @@
 #include <vector>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
+#include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
 namespace lucene::index {
 class IndexReader;
 }
+
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -97,6 +103,31 @@ protected:
         }
         if (!ctx.readers.empty()) {
             return ctx.readers.front();
+        }
+        return nullptr;
+    }
+
+    TermPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
+                                        const std::wstring& field, const std::string& term,
+                                        bool enable_scoring, const io::IOContext* io_ctx) const {
+        auto term_wstr = StringHelper::to_wstring(term);
+        auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
+        auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
+        if (iter) {
+            return std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
+        }
+        return nullptr;
+    }
+
+    PositionPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
+                                                const std::wstring& field, const std::string& term,
+                                                bool enable_scoring,
+                                                const io::IOContext* io_ctx) const {
+        auto term_wstr = StringHelper::to_wstring(term);
+        auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
+        auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
+        if (iter) {
+            return std::make_shared<SegmentPostings<TermPositionsPtr>>(std::move(iter));
         }
         return nullptr;
     }

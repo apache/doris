@@ -70,7 +70,6 @@ public class BoolLiteral extends LiteralExpr {
 
     private void setValue(boolean value) {
         this.value = value;
-        this.selectivity = value ? 1 : 0;
     }
 
     public boolean getValue() {

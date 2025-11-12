@@ -62,8 +62,6 @@ public class LikePredicate extends Predicate {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
-        // TODO: improve with histograms?
-        selectivity = 0.1;
     }
 
     protected LikePredicate(LikePredicate other) {
@@ -99,12 +97,6 @@ public class LikePredicate extends Predicate {
         return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
                 + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
     }
-
-    @Override
-    public String toDigestImpl() {
-        return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
-    }
-
 
     @Override
     protected void toThrift(TExprNode msg) {

@@ -67,7 +67,7 @@ struct CastFromVariant {
                 // Note: here we should return the nullable result column
                 col_to = wrap_in_nullable(
                         col_to, Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
-                        {0}, 1, input_rows_count);
+                        {0}, input_rows_count);
             }
         } else {
             if (variant.only_have_default_values()) {
