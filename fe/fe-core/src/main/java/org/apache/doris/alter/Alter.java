@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddColumnClause;
+import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
@@ -40,6 +41,7 @@ import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
+import org.apache.doris.analysis.DropPartitionFieldClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -415,6 +417,22 @@ public class Alter {
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
+            } else if (alterClause instanceof AddPartitionFieldClause) {
+                AddPartitionFieldClause addPartitionField = (AddPartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
+                            (IcebergExternalTable) table, addPartitionField);
+                } else {
+                    throw new UserException("ADD PARTITION FIELD is only supported for Iceberg tables");
+                }
+            } else if (alterClause instanceof DropPartitionFieldClause) {
+                DropPartitionFieldClause dropPartitionField = (DropPartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
+                            (IcebergExternalTable) table, dropPartitionField);
+                } else {
+                    throw new UserException("DROP PARTITION FIELD is only supported for Iceberg tables");
+                }
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
             }

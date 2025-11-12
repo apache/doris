@@ -882,6 +882,7 @@ import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
@@ -926,6 +927,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
@@ -5695,6 +5697,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
                 : Maps.newHashMap();
         return new ReorderColumnsOp(columnsByPos, rollupName, properties);
+    }
+
+    @Override
+    public AlterTableOp visitAddPartitionFieldClause(AddPartitionFieldClauseContext ctx) {
+        return visitPartitionTransform(ctx.partitionTransform(), true);
+    }
+
+    @Override
+    public AlterTableOp visitDropPartitionFieldClause(DropPartitionFieldClauseContext ctx) {
+        return visitPartitionTransform(ctx.partitionTransform(), false);
+    }
+
+    private AlterTableOp visitPartitionTransform(PartitionTransformContext ctx, boolean isAdd) {
+        String transformName = null;
+        Integer transformArg = null;
+        String columnName = null;
+
+        if (ctx instanceof PartitionTransformWithArgsContext) {
+            PartitionTransformWithArgsContext argsCtx = (PartitionTransformWithArgsContext) ctx;
+            transformName = argsCtx.identifier(0).getText();
+            transformArg = Integer.parseInt(argsCtx.INTEGER_VALUE().getText());
+            columnName = argsCtx.identifier(1).getText();
+        } else if (ctx instanceof PartitionTransformWithColumnContext) {
+            PartitionTransformWithColumnContext colCtx = (PartitionTransformWithColumnContext) ctx;
+            transformName = colCtx.identifier(0).getText();
+            columnName = colCtx.identifier(1).getText();
+        } else if (ctx instanceof PartitionTransformIdentityContext) {
+            PartitionTransformIdentityContext idCtx = (PartitionTransformIdentityContext) ctx;
+            columnName = idCtx.identifier().getText();
+        }
+
+        if (isAdd) {
+            return new AddPartitionFieldOp(transformName, transformArg, columnName);
+        } else {
+            return new DropPartitionFieldOp(transformName, transformArg, columnName);
+        }
     }
 
     @Override

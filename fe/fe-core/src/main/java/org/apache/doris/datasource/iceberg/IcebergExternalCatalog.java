@@ -144,4 +144,40 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
     }
+
+    /**
+     * Add partition field to Iceberg table for partition evolution
+     */
+    public void addPartitionField(IcebergExternalTable table,
+            org.apache.doris.analysis.AddPartitionFieldClause clause) throws org.apache.doris.common.UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Add partition field operation is not supported for catalog: " + getName());
+        }
+        try {
+            ((IcebergMetadataOps) metadataOps).addPartitionField(table, clause);
+            logRefreshExternalTable(table);
+        } catch (Exception e) {
+            throw new org.apache.doris.common.UserException("Failed to add partition field to table: "
+                    + table.getName() + ", error message is: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Drop partition field from Iceberg table for partition evolution
+     */
+    public void dropPartitionField(IcebergExternalTable table,
+            org.apache.doris.analysis.DropPartitionFieldClause clause) throws org.apache.doris.common.UserException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Drop partition field operation is not supported for catalog: " + getName());
+        }
+        try {
+            ((IcebergMetadataOps) metadataOps).dropPartitionField(table, clause);
+            logRefreshExternalTable(table);
+        } catch (Exception e) {
+            throw new org.apache.doris.common.UserException("Failed to drop partition field from table: "
+                    + table.getName() + ", error message is: " + e.getMessage(), e);
+        }
+    }
 }
