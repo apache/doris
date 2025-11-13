@@ -463,28 +463,16 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         boolean result = true;
         Table olapTable = (Table) table;
         olapTable.setQualifiedDbName(fullQualifiedName);
-        String tableName = olapTable.getName(); // stored (internal for temp)
-        String displayNameLower = null;
-        if (olapTable.isTemporary()) {
-            // derive display name (without session + #TEMP#) for reverse lookup
-            String display = Util.getTempTableDisplayName(tableName);
-            displayNameLower = display.toLowerCase();
-        }
-        String lookupName = tableName;
+        String tableName = olapTable.getName();
         if (Env.isStoredTableNamesLowerCase()) {
-            lookupName = lookupName.toLowerCase();
+            tableName = tableName.toLowerCase();
         }
-        if (isTableExist(lookupName)) {
+        if (isTableExist(tableName)) {
             result = false;
         } else {
             idToTable.put(olapTable.getId(), olapTable);
             nameToTable.put(olapTable.getName(), olapTable);
-            lowerCaseToTableName.put(lookupName.toLowerCase(), tableName);
-            // In stored-lowercase mode (1), user will query by display name.
-            // Add mapping from display lower-case name to internal temp name so getTableNullable(display) succeeds.
-            if (olapTable.isTemporary() && displayNameLower != null) {
-                lowerCaseToTableName.put(displayNameLower, tableName);
-            }
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             if (olapTable instanceof MTMV) {
                 Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) olapTable, id);
             }
