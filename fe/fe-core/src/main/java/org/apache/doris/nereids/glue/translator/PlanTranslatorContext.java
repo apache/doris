@@ -299,7 +299,6 @@ public class PlanTranslatorContext {
             slotDescriptor.setCaptionAndNormalize(slotReference.toString());
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-        slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
         if (slotReference instanceof VirtualSlotReference) {
             slotRef = new VirtualSlotRef(slotDescriptor);
