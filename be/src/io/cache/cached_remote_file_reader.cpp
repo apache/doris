@@ -139,8 +139,9 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
     // extend backwards to include a full block
     if (aligned_size < block_size && aligned_start > 0) {
         auto factor = config::file_cache_tail_read_extra_factor;
-        aligned_start -= block_size * factor;
-        aligned_size += block_size * factor;
+        auto extra = std::min(block_size * factor, aligned_start);
+        aligned_start -= extra;
+        aligned_size += extra;
     }
 
     return {aligned_start, aligned_size};
