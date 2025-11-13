@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -91,7 +92,7 @@ public class MTMVRewriteUtil {
             try {
                 if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
                         mtmvRelation.getBaseTablesOneLevel(),
-                        Sets.newHashSet())) {
+                        forceConsistent ? ImmutableSet.of() : mtmv.getQueryRewriteConsistencyRelaxedTables())) {
                     res.add(partition);
                 }
             } catch (AnalysisException e) {
