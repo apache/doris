@@ -33,6 +33,7 @@ from typing import Any, Callable, Optional, Tuple, get_origin, Dict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 import pyarrow as pa
@@ -48,7 +49,8 @@ class ServerState:
 
     @staticmethod
     def setup_logging():
-        """Setup logging configuration for the UDF server."""
+        """Setup logging configuration for the UDF server with rotation."""
+
         doris_home = os.getenv("DORIS_HOME")
         if not doris_home:
             # Fallback to current directory if DORIS_HOME is not set
@@ -56,17 +58,37 @@ class ServerState:
 
         log_dir = os.path.join(doris_home, "lib", "udf", "python")
         os.makedirs(log_dir, exist_ok=True)
+
+        # Use shared log file with process ID in each log line
         log_file = os.path.join(log_dir, "python_udf_output.log")
+        max_bytes = 128 * 1024 * 1024  # 128MB
+        backup_count = 5
+
+        # Use RotatingFileHandler to automatically manage log file size
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+        )
+
+        # Include process ID in log format
+        file_handler.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s] [PID:%(process)d] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s"
+            )
+        )
 
         logging.basicConfig(
             level=logging.INFO,
-            format="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
             handlers=[
-                logging.FileHandler(log_file, mode="a", encoding="utf-8"),
+                file_handler,
                 logging.StreamHandler(sys.stderr),  # Also log to stderr for debugging
             ],
         )
-        logging.info("Logging initialized. Log file: %s", log_file)
+        logging.info(
+            "Logging initialized. Log file: %s (max_size=%dMB, backups=%d)",
+            log_file,
+            max_bytes // (1024 * 1024),
+            backup_count,
+        )
 
     @staticmethod
     def extract_base_unix_socket_path(unix_socket_uri: str) -> str:
@@ -592,7 +614,6 @@ class InlineUDFLoader(UDFLoader):
             )
             raise ValueError(f"'{symbol}' is not a callable function.")
 
-        logging.info("Successfully loaded function '%s' from inline code", symbol)
         return AdaptivePythonUDF(self.python_udf_meta, func)
 
 
@@ -1018,6 +1039,459 @@ class UDAFClassLoader:
             )
 
 
+class UDTFClassLoader:
+    """
+    Utility class for loading UDTF classes from various sources.
+
+    This class is responsible for loading UDTF classes from:
+    - Inline code (embedded in SQL)
+    - Module files (imported from filesystem)
+    """
+
+    @staticmethod
+    def load_udtf_class(python_udf_meta: PythonUDFMeta) -> type:
+        """
+        Load the UDTF class from metadata.
+
+        Args:
+            python_udf_meta: UDTF metadata
+
+        Returns:
+            The UDTF class
+
+        Raises:
+            RuntimeError: If inline code execution fails
+            ValueError: If class is not found or invalid
+        """
+        loader = UDFLoaderFactory.get_loader(python_udf_meta)
+
+        # For UDTF, we need the class, not an instance
+        if isinstance(loader, InlineUDFLoader):
+            return UDTFClassLoader.load_from_inline(python_udf_meta)
+        elif isinstance(loader, ModuleUDFLoader):
+            return UDTFClassLoader.load_from_module(python_udf_meta, loader)
+        else:
+            raise ValueError(f"Unsupported loader type: {type(loader)}")
+
+    @staticmethod
+    def load_from_inline(python_udf_meta: PythonUDFMeta) -> type:
+        """
+        Load UDTF class from inline code.
+
+        Args:
+            python_udf_meta: UDTF metadata with inline code
+
+        Returns:
+            The UDTF class
+        """
+        symbol = python_udf_meta.symbol
+        inline_code = python_udf_meta.inline_code.decode("utf-8")
+        env: dict[str, Any] = {}
+
+        try:
+            exec(inline_code, env)  # nosec B102
+        except Exception as e:
+            raise RuntimeError(f"Failed to exec inline code: {e}") from e
+
+        udtf_class = env.get(symbol)
+        if udtf_class is None:
+            raise ValueError(f"UDTF class '{symbol}' not found in inline code")
+
+        if not inspect.isclass(udtf_class):
+            raise ValueError(f"'{symbol}' is not a class (type: {type(udtf_class)})")
+
+        UDTFClassLoader.validate_udtf_class(udtf_class)
+        return udtf_class
+
+    @staticmethod
+    def load_from_module(
+        python_udf_meta: PythonUDFMeta, loader: ModuleUDFLoader
+    ) -> type:
+        """
+        Load UDTF class from module file.
+
+        Args:
+            python_udf_meta: UDTF metadata with module location
+            loader: Module loader instance
+
+        Returns:
+            The UDTF class
+        """
+        symbol = python_udf_meta.symbol
+        location = python_udf_meta.location
+
+        package_name, module_name, class_name = loader.parse_symbol(symbol)
+        udtf_class = loader.load_udf_from_module(
+            location, package_name, module_name, class_name
+        )
+
+        if not inspect.isclass(udtf_class):
+            raise ValueError(f"'{symbol}' is not a class (type: {type(udtf_class)})")
+
+        UDTFClassLoader.validate_udtf_class(udtf_class)
+        return udtf_class
+
+    @staticmethod
+    def validate_udtf_class(udtf_class: type):
+        """
+        Validate that the UDTF class follows the required Snowflake pattern.
+
+        Args:
+            udtf_class: The class to validate
+
+        Raises:
+            ValueError: If class doesn't implement required methods
+        """
+        # process() method is required
+        if not hasattr(udtf_class, "process"):
+            raise ValueError(
+                f"UDTF class must implement 'process' method. "
+                f"Missing in {udtf_class.__name__}"
+            )
+
+        # __init__() and end_partition() are optional
+        # Validate that they are callable if they exist
+        for method_name in ["__init__", "process", "end_partition"]:
+            if hasattr(udtf_class, method_name):
+                method = getattr(udtf_class, method_name)
+                if not callable(method):
+                    raise ValueError(
+                        f"'{method_name}' must be callable in {udtf_class.__name__}"
+                    )
+
+
+class UDTFPartitionManager:
+    """
+    Manages UDTF partition states for Python UDTF execution.
+
+    This class maintains a mapping from partition_id to UDTF instances,
+    following the Snowflake UDTF pattern:
+    - __init__(*args): [Optional] Initialize partition state
+    - process(*row): [Required] Process each input row, yield output tuples
+    - end_partition(): [Optional] Complete partition processing, yield final tuples
+    """
+
+    def __init__(self):
+        """Initialize the partition manager."""
+        self.partitions: Dict[int, Any] = {}  # partition_id -> UDTF instance
+        self.udtf_class = None  # UDTF class to instantiate
+        self.lock = threading.Lock()  # Thread-safe partition access
+        self.output_schemas: Dict[int, pa.Schema] = (
+            {}
+        )  # Cache inferred output schema per partition
+
+    def set_udtf_class(self, udtf_class: type):
+        """
+        Set the UDTF class to use for creating instances.
+
+        Args:
+            udtf_class: The UDTF class (must follow Snowflake pattern)
+
+        Note:
+            Validation is performed by UDTFClassLoader before calling this method.
+        """
+        self.udtf_class = udtf_class
+
+    def init_partition(
+        self, partition_id: int, udtf_args: Optional[pa.RecordBatch] = None
+    ) -> None:
+        """
+        Initialize a new UDTF partition.
+
+        Args:
+            partition_id: Unique identifier for this partition
+            udtf_args: Optional arguments passed to __init__()
+        """
+        with self.lock:
+            if partition_id in self.partitions:
+                logging.warning(
+                    "Partition %s already exists, destroying old partition before recreating",
+                    partition_id,
+                )
+                del self.partitions[partition_id]
+                if partition_id in self.output_schemas:
+                    del self.output_schemas[partition_id]
+
+            if self.udtf_class is None:
+                raise RuntimeError("UDTF class not set. Call set_udtf_class() first.")
+
+            try:
+                # Call __init__ with arguments if provided
+                if udtf_args and udtf_args.num_rows > 0:
+                    # Extract first row as scalar arguments
+                    args = [
+                        udtf_args.column(i)[0].as_py()
+                        for i in range(udtf_args.num_columns)
+                    ]
+                    self.partitions[partition_id] = self.udtf_class(*args)
+                    logging.info(
+                        "Created UDTF partition %s with args: %s", partition_id, args
+                    )
+                else:
+                    self.partitions[partition_id] = self.udtf_class()
+                    logging.info("Created UDTF partition %s without args", partition_id)
+            except Exception as e:
+                logging.error("Failed to create UDTF partition: %s", e)
+                raise RuntimeError(f"Failed to create UDTF partition: {e}") from e
+
+    def get_partition(self, partition_id: int) -> Any:
+        """
+        Get the UDTF instance for the given partition_id.
+
+        Args:
+            partition_id: Unique identifier for the partition
+
+        Returns:
+            The UDTF instance
+        """
+        with self.lock:
+            if partition_id not in self.partitions:
+                raise KeyError(f"Partition {partition_id} not found")
+            return self.partitions[partition_id]
+
+    def _infer_output_schema(self, partition_id: int, sample_output: Any) -> pa.Schema:
+        """
+        Infer the output schema from a sample output tuple.
+
+        Args:
+            partition_id: Partition identifier
+            sample_output: Sample output tuple from process() or end_partition()
+
+        Returns:
+            Inferred PyArrow schema
+        """
+        if partition_id in self.output_schemas:
+            return self.output_schemas[partition_id]
+
+        # Convert sample output to PyArrow to infer types
+        if isinstance(sample_output, tuple):
+            # Create field names: col0, col1, col2, ...
+            fields = []
+            for i, value in enumerate(sample_output):
+                # Infer type from value
+                try:
+                    arrow_type = pa.infer_type([value])
+                    fields.append(pa.field(f"col{i}", arrow_type))
+                except Exception as e:
+                    logging.warning(
+                        "Failed to infer type for column %s, using string: %s", i, e
+                    )
+                    fields.append(pa.field(f"col{i}", pa.string()))
+
+            schema = pa.schema(fields)
+            self.output_schemas[partition_id] = schema
+            logging.info(
+                "Inferred output schema for partition %s: %s", partition_id, schema
+            )
+            return schema
+        else:
+            raise ValueError(
+                f"UDTF process() must yield tuples, got {type(sample_output)}"
+            )
+
+    def process(self, partition_id: int, input_batch: pa.RecordBatch) -> list:
+        """
+        Process input rows and generate output rows.
+
+        Args:
+            partition_id: Partition identifier
+            input_batch: Input row batch
+
+        Returns:
+            List of output RecordBatches
+        """
+        partition = self.get_partition(partition_id)
+
+        output_batches = []
+        accumulated_rows = []
+        batch_size = 1024  # Batch output rows for efficiency
+
+        try:
+            # Process each input row
+            for row_idx in range(input_batch.num_rows):
+                # Extract row as tuple of arguments
+                row_args = tuple(
+                    input_batch.column(col_idx)[row_idx].as_py()
+                    for col_idx in range(input_batch.num_columns)
+                )
+
+                # Call process() and collect yielded tuples
+                result = partition.process(*row_args)
+
+                # Handle generator vs direct return
+                if inspect.isgenerator(result):
+                    for output_tuple in result:
+                        accumulated_rows.append(output_tuple)
+
+                        # Batch output rows
+                        if len(accumulated_rows) >= batch_size:
+                            batch = self._create_output_batch(
+                                partition_id, accumulated_rows
+                            )
+                            output_batches.append(batch)
+                            accumulated_rows = []
+                elif result is not None:
+                    # process() returned a single tuple instead of yielding
+                    accumulated_rows.append(result)
+
+                    if len(accumulated_rows) >= batch_size:
+                        batch = self._create_output_batch(
+                            partition_id, accumulated_rows
+                        )
+                        output_batches.append(batch)
+                        accumulated_rows = []
+
+            # Flush remaining rows
+            if accumulated_rows:
+                batch = self._create_output_batch(partition_id, accumulated_rows)
+                output_batches.append(batch)
+
+            logging.info(
+                "PROCESS: partition_id=%s processed %s input rows, generated %s output batches",
+                partition_id,
+                input_batch.num_rows,
+                len(output_batches),
+            )
+            return output_batches
+
+        except Exception as e:
+            logging.error(
+                "Error processing partition %s: %s\\nTraceback: %s",
+                partition_id,
+                e,
+                traceback.format_exc(),
+            )
+            raise RuntimeError(f"Error processing partition: {e}") from e
+
+    def end_partition(self, partition_id: int) -> list:
+        """
+        Finalize partition processing and get final output rows.
+
+        Args:
+            partition_id: Partition identifier
+
+        Returns:
+            List of output RecordBatches
+        """
+        partition = self.get_partition(partition_id)
+
+        # Check if end_partition() method exists
+        if not hasattr(partition, "end_partition"):
+            logging.info(
+                "Partition %s has no end_partition() method, returning empty list",
+                partition_id,
+            )
+            return []
+
+        output_batches = []
+        accumulated_rows = []
+
+        try:
+            result = partition.end_partition()
+
+            # Handle generator vs direct return
+            if inspect.isgenerator(result):
+                for output_tuple in result:
+                    accumulated_rows.append(output_tuple)
+            elif result is not None:
+                accumulated_rows.append(result)
+
+            # Create output batch if there are rows
+            if accumulated_rows:
+                batch = self._create_output_batch(partition_id, accumulated_rows)
+                output_batches.append(batch)
+
+            logging.info(
+                "END_PARTITION: partition_id=%s generated %s output batches",
+                partition_id,
+                len(output_batches),
+            )
+            return output_batches
+
+        except Exception as e:
+            logging.error(
+                "Error ending partition %s: %s\\nTraceback: %s",
+                partition_id,
+                e,
+                traceback.format_exc(),
+            )
+            raise RuntimeError(f"Error ending partition: {e}") from e
+
+    def _create_output_batch(self, partition_id: int, rows: list) -> pa.RecordBatch:
+        """
+        Create a RecordBatch from accumulated output rows.
+
+        Args:
+            partition_id: Partition identifier
+            rows: List of output tuples
+
+        Returns:
+            PyArrow RecordBatch
+        """
+        if not rows:
+            # Return empty batch with inferred schema if available
+            if partition_id in self.output_schemas:
+                schema = self.output_schemas[partition_id]
+                return pa.RecordBatch.from_arrays(
+                    [pa.array([], type=field.type) for field in schema],
+                    schema=schema,
+                )
+            else:
+                raise ValueError("Cannot create empty batch without schema")
+
+        # Infer schema from first row if not cached
+        if partition_id not in self.output_schemas:
+            self._infer_output_schema(partition_id, rows[0])
+
+        schema = self.output_schemas[partition_id]
+
+        # Transpose rows to columns
+        num_cols = len(schema)
+        columns = [[] for _ in range(num_cols)]
+
+        for row in rows:
+            if not isinstance(row, tuple):
+                raise ValueError(
+                    f"UDTF must yield tuples, got {type(row)} at partition {partition_id}"
+                )
+            if len(row) != num_cols:
+                raise ValueError(
+                    f"Output tuple length mismatch: expected {num_cols}, got {len(row)} "
+                    f"at partition {partition_id}"
+                )
+            for col_idx, value in enumerate(row):
+                columns[col_idx].append(value)
+
+        # Create arrays with explicit types
+        arrays = [
+            pa.array(columns[i], type=schema.field(i).type) for i in range(num_cols)
+        ]
+
+        return pa.RecordBatch.from_arrays(arrays, schema=schema)
+
+    def destroy_partition(self, partition_id: int) -> None:
+        """
+        Destroy the partition and free resources.
+
+        Args:
+            partition_id: Partition identifier
+        """
+        with self.lock:
+            if partition_id in self.partitions:
+                del self.partitions[partition_id]
+            if partition_id in self.output_schemas:
+                del self.output_schemas[partition_id]
+            logging.info("Destroyed partition: %s", partition_id)
+
+    def clear_all(self) -> None:
+        """Clear all partitions (for cleanup)."""
+        with self.lock:
+            count = len(self.partitions)
+            self.partitions.clear()
+            self.output_schemas.clear()
+            logging.info("Cleared all %d UDTF partitions", count)
+
+
 class UDAFStateManager:
     """
     Manages UDAF aggregate states for Python UDAF execution.
@@ -1330,7 +1804,7 @@ class UDAFStateManager:
 
 
 class FlightServer(flight.FlightServerBase):
-    """Arrow Flight server for executing Python UDFs and UDAFs."""
+    """Arrow Flight server for executing Python UDFs, UDAFs, and UDTFs."""
 
     def __init__(self, location: str):
         """
@@ -1719,7 +2193,7 @@ class FlightServer(flight.FlightServerBase):
             [pa.array([success], type=pa.bool_())], ["success"]
         )
 
-    def _do_exchange_udf(
+    def _handle_exchange_udf(
         self,
         python_udf_meta: PythonUDFMeta,
         reader: flight.MetadataRecordBatchReader,
@@ -1761,7 +2235,7 @@ class FlightServer(flight.FlightServerBase):
                 started = True
             writer.write_batch(result_batch)
 
-    def _do_exchange_udaf(
+    def _handle_exchange_udaf(
         self,
         python_udaf_meta: PythonUDFMeta,
         reader: flight.MetadataRecordBatchReader,
@@ -1853,6 +2327,277 @@ class FlightServer(flight.FlightServerBase):
 
             writer.write_batch(unified_response)
 
+    def _handle_exchange_udtf(
+        self,
+        python_udtf_meta: PythonUDFMeta,
+        reader: flight.MetadataRecordBatchReader,
+        writer: flight.MetadataRecordBatchWriter,
+    ) -> None:
+        """
+        Handle bidirectional streaming for UDTF execution.
+
+        Protocol (Offsets-based, aligned with Java UDTF):
+        - Input: RecordBatch with input columns
+        - Output: Structured RecordBatch with 2 columns:
+          * Column 0 ("offsets"): Int64Array with N+1 elements marking boundaries
+          * Column 1 ("data"): StructArray containing flattened output rows
+
+        Example:
+          Input: 3 rows
+          UDTF yields: Row 0 -> 5 outputs, Row 1 -> 2 outputs, Row 2 -> 3 outputs
+          Output offsets: [0, 5, 7, 10]
+          Output data: StructArray with 10 rows (flattened)
+        """
+        # Load the UDTF function (user-defined function name from symbol)
+        loader = UDFLoaderFactory.get_loader(python_udtf_meta)
+        adaptive_udtf = loader.load()
+        udtf_func = adaptive_udtf._eval_func
+        started = False
+
+        for chunk in reader:
+            if not chunk.data:
+                logging.info("Empty chunk received, skipping")
+                continue
+
+            input_batch = chunk.data
+
+            # Validate input schema
+            check_schema_result, error_msg = self.check_schema(
+                input_batch, python_udtf_meta.input_types
+            )
+            if not check_schema_result:
+                logging.error("Schema mismatch: %s", error_msg)
+                raise ValueError(f"Schema mismatch: {error_msg}")
+
+            # Process all input rows and build offsets array + flattened output
+            try:
+                offsets_array, data_batch = self._process_udtf_with_offsets(
+                    udtf_func, input_batch, python_udtf_meta.output_type
+                )
+
+                # Build structured response: {offsets: int64[], data: struct}
+                response_batch = self._create_udtf_response_batch(
+                    offsets_array, data_batch
+                )
+
+                # Send the single response batch
+                if not started:
+                    writer.begin(response_batch.schema)
+                    started = True
+
+                writer.write_batch(response_batch)
+                logging.info(
+                    "Sent UDTF response: %s input rows -> %s output rows (offsets: %s)",
+                    input_batch.num_rows,
+                    data_batch.num_rows if data_batch else 0,
+                    offsets_array.to_pylist() if offsets_array else None,
+                )
+
+            except Exception as e:
+                logging.error(
+                    "Error in UDTF execution: %s\\nTraceback: %s",
+                    e,
+                    traceback.format_exc(),
+                )
+                raise RuntimeError(f"Error in UDTF execution: {e}") from e
+
+    def _process_udtf_with_offsets(
+        self,
+        udtf_func: Callable,
+        input_batch: pa.RecordBatch,
+        expected_output_type: pa.DataType,
+    ) -> Tuple[pa.Int64Array, Optional[pa.RecordBatch]]:
+        """
+        Process UDTF function on all input rows and generate offsets array + flattened data.
+
+        Args:
+            udtf_func: The UDTF function to call
+            input_batch: Input RecordBatch with N rows
+            expected_output_type: Expected Arrow type for output data
+
+        Returns:
+            Tuple of (offsets_array, data_batch):
+            - offsets_array: Int64Array with N+1 elements [0, count1, count1+count2, ...]
+            - data_batch: Flattened RecordBatch with all output rows
+        """
+        offsets = [0]  # Start with 0
+        all_output_rows = []
+        output_schema = None
+
+        # Process each input row
+        for row_idx in range(input_batch.num_rows):
+            # Extract row as tuple of arguments
+            row_args = tuple(
+                input_batch.column(col_idx)[row_idx].as_py()
+                for col_idx in range(input_batch.num_columns)
+            )
+
+            # Call UDTF function - it should yield tuples
+            result = udtf_func(*row_args)
+
+            # Collect output rows for this input row
+            row_output_count = 0
+            if inspect.isgenerator(result):
+                for output_tuple in result:
+                    all_output_rows.append(output_tuple)
+                    row_output_count += 1
+            elif result is not None:
+                # Function returned a single tuple instead of yielding
+                all_output_rows.append(result)
+                row_output_count += 1
+
+            # Record cumulative offset
+            offsets.append(offsets[-1] + row_output_count)
+
+        # Build offsets array
+        offsets_array = pa.array(offsets, type=pa.int64())
+
+        # Build flattened data batch
+        if all_output_rows:
+            data_batch = self._create_udtf_output_batch(
+                all_output_rows, output_schema, expected_output_type
+            )
+        else:
+            # No output rows - create empty batch with minimal schema
+            # Use single column with null type as placeholder
+            data_batch = None
+
+        return offsets_array, data_batch
+
+    def _create_udtf_response_batch(
+        self, offsets_array: pa.Int64Array, data_batch: Optional[pa.RecordBatch]
+    ) -> pa.RecordBatch:
+        """
+        Create structured response batch with offsets stored in metadata.
+
+        Args:
+            offsets_array: Offsets array [0, n1, n1+n2, ...]
+            data_batch: Flattened output data
+
+        Returns:
+            RecordBatch with data columns and offsets in metadata
+        """
+        offsets_bytes = offsets_array.to_pylist()
+        offsets_str = ",".join(map(str, offsets_bytes))
+        metadata = {
+            b"offsets": offsets_str.encode("utf-8"),
+            b"num_input_rows": str(len(offsets_array) - 1).encode("utf-8"),
+        }
+
+        if data_batch is None or data_batch.num_rows == 0:
+            # No data - return empty batch with metadata
+            empty_schema = pa.schema([pa.field("col0", pa.null())], metadata=metadata)
+            response_batch = pa.RecordBatch.from_arrays(
+                [pa.array([], type=pa.null())], schema=empty_schema
+            )
+        else:
+            # Add metadata to data batch schema
+            schema_with_metadata = data_batch.schema.with_metadata(metadata)
+            response_batch = pa.RecordBatch.from_arrays(
+                [data_batch.column(i) for i in range(data_batch.num_columns)],
+                schema=schema_with_metadata,
+            )
+
+        return response_batch
+
+    def _create_udtf_output_batch(
+        self,
+        rows: list,
+        cached_schema: Optional[pa.Schema] = None,
+        expected_output_type: Optional[pa.DataType] = None,
+    ) -> pa.RecordBatch:
+        """
+        Create a RecordBatch from accumulated output rows.
+
+        Args:
+            rows: List of output tuples
+            cached_schema: Optional cached schema from previous batch
+            expected_output_type: Expected Arrow type from Doris (to avoid type mismatch)
+
+        Returns:
+            PyArrow RecordBatch
+        """
+        if not rows:
+            if cached_schema:
+                # Return empty batch with cached schema
+                return pa.RecordBatch.from_arrays(
+                    [pa.array([], type=field.type) for field in cached_schema],
+                    schema=cached_schema,
+                )
+            else:
+                raise ValueError("Cannot create empty batch without schema")
+
+        # Infer schema from first row if not cached
+        if cached_schema is None:
+            first_row = rows[0]
+            if not isinstance(first_row, tuple):
+                raise ValueError(f"UDTF must yield tuples, got {type(first_row)}")
+
+            # Infer field types from first row
+            fields = []
+
+            # CRITICAL FIX: If expected_output_type is STRUCT, create a single STRUCT column
+            # instead of expanding to multiple columns
+            if expected_output_type is not None and pa.types.is_struct(
+                expected_output_type
+            ):
+                # Use the STRUCT type directly as a single field
+                fields.append(pa.field("col0", expected_output_type))
+            elif expected_output_type is not None:
+                # Single field type (not a struct)
+                fields.append(pa.field("col0", expected_output_type))
+            else:
+                # Fallback: infer from first row
+                for i, value in enumerate(first_row):
+                    try:
+                        arrow_type = pa.infer_type([value])
+                        logging.warning(
+                            "No expected type from Doris, inferring type for column %s: %s",
+                            i,
+                            arrow_type,
+                        )
+                        fields.append(pa.field(f"col{i}", arrow_type))
+                    except Exception as e:
+                        logging.warning(
+                            "Failed to infer type for column %s, using string: %s", i, e
+                        )
+                    fields.append(pa.field(f"col{i}", pa.string()))
+
+            schema = pa.schema(fields)
+        else:
+            schema = cached_schema
+
+        # Transpose rows to columns
+        num_cols = len(schema)
+        columns = [[] for _ in range(num_cols)]
+
+        # Check if the schema expects a STRUCT type (single column with struct)
+        is_struct_output = num_cols == 1 and pa.types.is_struct(schema.field(0).type)
+
+        for row in rows:
+            if not isinstance(row, tuple):
+                raise ValueError(f"UDTF must yield tuples, got {type(row)}")
+
+            # If output is STRUCT, the tuple IS the struct value (not multiple columns)
+            if is_struct_output:
+                # The entire tuple is one STRUCT value for the single column
+                columns[0].append(row)
+            else:
+                # Multiple columns: validate length and distribute values
+                if len(row) != num_cols:
+                    raise ValueError(
+                        f"Output tuple length mismatch: expected {num_cols}, got {len(row)}"
+                    )
+                for col_idx, value in enumerate(row):
+                    columns[col_idx].append(value)
+
+        # Create arrays with explicit types
+        arrays = [
+            pa.array(columns[i], type=schema.field(i).type) for i in range(num_cols)
+        ]
+
+        return pa.RecordBatch.from_arrays(arrays, schema=schema)
+
     def do_exchange(
         self,
         context: flight.ServerCallContext,
@@ -1861,30 +2606,20 @@ class FlightServer(flight.FlightServerBase):
         writer: flight.MetadataRecordBatchWriter,
     ) -> None:
         """
-        Handle bidirectional streaming for both UDF and UDAF execution.
+        Handle bidirectional streaming for UDF, UDAF, and UDTF execution.
 
         Determines operation type (UDF vs UDAF vs UDTF) from descriptor metadata.
         """
-        logging.info("Received exchange request: %s", descriptor)
-
         python_udf_meta = self.parse_python_udf_meta(descriptor)
         if not python_udf_meta:
             raise ValueError("Invalid or missing metadata in descriptor")
 
-        # Route to appropriate handler based on client_type
-        logging.info(
-            "Handling %s operation for: %s",
-            python_udf_meta.client_type.name,
-            python_udf_meta.name,
-        )
-
         if python_udf_meta.is_udf():
-            self._do_exchange_udf(python_udf_meta, reader, writer)
+            self._handle_exchange_udf(python_udf_meta, reader, writer)
         elif python_udf_meta.is_udaf():
-            self._do_exchange_udaf(python_udf_meta, reader, writer)
+            self._handle_exchange_udaf(python_udf_meta, reader, writer)
         elif python_udf_meta.is_udtf():
-            # TODO: Implement UDTF support
-            raise NotImplementedError("UDTF is not yet supported")
+            self._handle_exchange_udtf(python_udf_meta, reader, writer)
         else:
             raise ValueError(f"Unsupported client type: {python_udf_meta.client_type}")
 
@@ -1899,6 +2634,15 @@ class UDAFOperationType(Enum):
     FINALIZE = 4
     RESET = 5
     DESTROY = 6
+
+
+class UDTFOperationType(Enum):
+    """Enum representing UDTF operation types."""
+
+    INIT_PARTITION = 0  # Initialize partition state with UDTF arguments
+    PROCESS = 1  # Process input rows, yield output rows
+    END_PARTITION = 2  # Finalize partition, yield final rows
+    DESTROY_PARTITION = 3  # Clean up partition resources
 
 
 def check_unix_socket_path(unix_socket_path: str) -> bool:
@@ -1939,11 +2683,13 @@ def main(unix_socket_path: str) -> None:
         current_pid = os.getpid()
         ServerState.unix_socket_path = f"{unix_socket_path}_{current_pid}.sock"
 
-        # Start unified server that handles both UDF and UDAF
+        # Start unified server that handles UDF, UDAF, and UDTF
         server = FlightServer(ServerState.unix_socket_path)
 
         print(ServerState.PYTHON_SERVER_START_SUCCESS_MSG, flush=True)
-        logging.info("##### PYTHON UDF/UDAF SERVER STARTED AT %s #####", datetime.now())
+        logging.info(
+            "##### PYTHON UDF/UDAF/UDTF SERVER STARTED AT %s #####", datetime.now()
+        )
         server.wait()
 
     except Exception as e:
@@ -1959,8 +2705,8 @@ def main(unix_socket_path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run an Arrow Flight UDF/UDAF server over Unix socket. "
-        "The server handles both UDF and UDAF operations dynamically."
+        description="Run an Arrow Flight UDF/UDAF/UDTF server over Unix socket. "
+        "The server handles UDF, UDAF, and UDTF operations dynamically."
     )
     parser.add_argument(
         "unix_socket_path",

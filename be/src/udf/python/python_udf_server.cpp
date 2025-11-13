@@ -29,6 +29,7 @@
 #include "common/config.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
+#include "udf/python/python_udtf_client.h"
 
 namespace doris {
 
@@ -140,7 +141,7 @@ void PythonUDFServerManager::shutdown() {
     LOG(INFO) << "Python UDF server manager shutdown successfully";
 }
 
-// Explicit template instantiation for UDF and UDAF clients
+// Explicit template instantiation for UDF, UDAF and UDTF clients
 template Status PythonUDFServerManager::get_client<PythonUDFClient>(
         const PythonUDFMeta& func_meta, const PythonVersion& version,
         std::shared_ptr<PythonUDFClient>* client);
@@ -148,5 +149,9 @@ template Status PythonUDFServerManager::get_client<PythonUDFClient>(
 template Status PythonUDFServerManager::get_client<PythonUDAFClient>(
         const PythonUDFMeta& func_meta, const PythonVersion& version,
         std::shared_ptr<PythonUDAFClient>* client);
+
+template Status PythonUDFServerManager::get_client<PythonUDTFClient>(
+        const PythonUDFMeta& func_meta, const PythonVersion& version,
+        std::shared_ptr<PythonUDTFClient>* client);
 
 } // namespace doris

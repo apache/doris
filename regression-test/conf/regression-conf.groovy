@@ -294,3 +294,4 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
+max_python_process_nums=512
