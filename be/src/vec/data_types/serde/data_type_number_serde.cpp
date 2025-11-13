@@ -226,7 +226,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                 const auto* offsets_data = concrete_array->value_offsets()->data();
                 memcpy(&start_offset, offsets_data + offset_i * sizeof(int32_t), sizeof(int32_t));
                 memcpy(&end_offset, offsets_data + (offset_i + 1) * sizeof(int32_t),
-					   sizeof(int32_t));
+                       sizeof(int32_t));
 
                 const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;
