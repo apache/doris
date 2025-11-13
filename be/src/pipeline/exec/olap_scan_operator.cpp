@@ -289,6 +289,10 @@ Status OlapScanLocalState::_init_profile() {
 
     _prefetch_segment_footer_timer = ADD_TIMER(_scanner_profile, "PrefetchSegmentFooterTimer");
 
+    _pk_index_load_timer = ADD_TIMER(_scanner_profile, "PrimaryKeyIndexLoadTimer");
+    _pk_index_load_bytes_counter =
+            ADD_COUNTER(_scanner_profile, "PrimaryKeyIndexLoadBytes", TUnit::BYTES);
+
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
 
@@ -478,6 +482,12 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                 stats->file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
                 stats->file_cache_stats.bytes_read_from_remote);
+
+        // Update parse footer related statistics from ParallelScannerBuilder
+        COUNTER_UPDATE(_parse_footer_count_counter, stats->parse_footer_count);
+        COUNTER_UPDATE(_parse_footer_total_bytes_counter, stats->parse_footer_total_bytes);
+        COUNTER_UPDATE(_parse_footer_read_fixed_timer, stats->parse_footer_read_fixed_timer_ns);
+        COUNTER_UPDATE(_parse_footer_read_footer_timer, stats->parse_footer_read_footer_timer_ns);
 
         _scanner_profile->add_info_string("UseParallelScannerBuilder", "true");
         return Status::OK();
