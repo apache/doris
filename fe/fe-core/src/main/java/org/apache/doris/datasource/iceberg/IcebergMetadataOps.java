@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.DropPartitionFieldClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
@@ -719,14 +721,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
      * Add partition field to Iceberg table for partition evolution
      */
     public void addPartitionField(ExternalTable dorisTable,
-            org.apache.doris.analysis.AddPartitionFieldClause clause) throws UserException {
+            AddPartitionFieldClause clause) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         org.apache.iceberg.UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
-        
+
         String transformName = clause.getTransformName();
         Integer transformArg = clause.getTransformArg();
         String columnName = clause.getColumnName();
-        
+
         if (transformName == null && columnName != null) {
             // Identity transform
             updateSpec.addField(columnName);
@@ -770,7 +772,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } else {
             throw new UserException("Invalid partition field specification");
         }
-        
+
         try {
             executionAuthenticator.execute(() -> updateSpec.commit());
         } catch (Exception e) {
@@ -784,23 +786,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
      * Drop partition field from Iceberg table for partition evolution
      */
     public void dropPartitionField(ExternalTable dorisTable,
-            org.apache.doris.analysis.DropPartitionFieldClause clause) throws UserException {
+            DropPartitionFieldClause clause) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         org.apache.iceberg.UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
-        
+
         String transformName = clause.getTransformName();
         Integer transformArg = clause.getTransformArg();
         String columnName = clause.getColumnName();
-        
+
         // For dropping, we need to find the partition field by matching the transform and column
         // Iceberg's removeField method takes the field name (which is the partition field name, not the source column)
         PartitionSpec currentSpec = icebergTable.spec();
         String fieldNameToRemove = null;
-        
+
         for (org.apache.iceberg.PartitionField field : currentSpec.fields()) {
             String sourceColumnName = icebergTable.schema().findColumnName(field.sourceId());
             String fieldTransform = field.transform().toString();
-            
+
             boolean matches = false;
             if (transformName == null && columnName != null) {
                 // Identity transform
@@ -811,7 +813,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 if (transformArg != null) {
                     // For bucket and truncate
                     if (transformLower.equals("bucket")) {
-                        matches = fieldTransform.startsWith("bucket[") 
+                        matches = fieldTransform.startsWith("bucket[")
                                 && fieldTransform.contains(String.valueOf(transformArg))
                                 && sourceColumnName.equals(columnName);
                     } else if (transformLower.equals("truncate")) {
@@ -825,19 +827,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                             && sourceColumnName.equals(columnName);
                 }
             }
-            
+
             if (matches) {
                 fieldNameToRemove = field.name();
                 break;
             }
         }
-        
+
         if (fieldNameToRemove == null) {
             throw new UserException("Partition field not found: " + clause.toSql());
         }
-        
+
         updateSpec.removeField(fieldNameToRemove);
-        
+
         try {
             executionAuthenticator.execute(() -> updateSpec.commit());
         } catch (Exception e) {

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.common.AnalysisException;
 
 /**
  * DropPartitionFieldClause for Iceberg partition evolution
@@ -47,6 +48,11 @@ public class DropPartitionFieldClause extends AlterTableClause {
     }
 
     @Override
+    public void analyze() throws AnalysisException {
+        // Validation will be done in IcebergMetadataOps
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP PARTITION FIELD ");
@@ -70,6 +76,16 @@ public class DropPartitionFieldClause extends AlterTableClause {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 }
 
