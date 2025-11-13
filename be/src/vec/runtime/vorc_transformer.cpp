@@ -30,6 +30,7 @@
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
 #include "orc/OrcFile.hh"
+#include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -256,6 +257,10 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     }
     case TYPE_DECIMAL128I: {
         type = orc::createDecimalType(data_type->get_precision(), data_type->get_scale());
+        break;
+    }
+    case TYPE_VARBINARY: {
+        type = orc::createPrimitiveType(orc::BINARY);
         break;
     }
     case TYPE_STRUCT: {

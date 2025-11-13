@@ -18,10 +18,13 @@
 #include "vec/exec/format/parquet/parquet_column_convert.h"
 
 #include <cctz/time_zone.h>
+#include <glog/logging.h>
 
 #include "common/cast_set.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized::parquet {
 #include "common/compile_check_begin.h"
@@ -222,11 +225,14 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (is_parquet_native_type(src_logical_primitive)) {
-        if (is_string_type(src_logical_primitive) &&
-            src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        bool is_string_logical_type = is_string_type(src_logical_primitive);
+        if (is_string_logical_type && src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
             // for FixedSizeBinary
             physical_converter =
                     std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
+        } else if (is_string_logical_type && src_physical_type == tparquet::Type::BYTE_ARRAY &&
+                   is_varbinary(remove_nullable(dst_logical_type)->get_primitive_type())) {
+            physical_converter = std::make_unique<VarBinaryConverter>();
         } else {
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
