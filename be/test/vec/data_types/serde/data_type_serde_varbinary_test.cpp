@@ -61,7 +61,7 @@ TEST_F(DataTypeVarbinarySerDeTest, Name) {
     EXPECT_EQ(serde.get_name(), std::string("Varbinary"));
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, JsonTextNotSupported) {
+TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
     auto* vb = assert_cast<ColumnVarbinary*>(col.get());
@@ -76,8 +76,15 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextNotSupported) {
     {
         auto out = ColumnString::create();
         VectorBufferWriter bw(*out);
-        auto st = serde.serialize_one_cell_to_json(*col, 0, bw, opt);
-        EXPECT_FALSE(st.ok());
+        auto st = serde.serialize_one_cell_to_json(*col, 1, bw, opt); // 使用第二行做例子
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        bw.commit();
+        // 提取写入的字符串
+        auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
+        // nesting_level ==1 不加引号，直接比较原字节
+        auto original = assert_cast<ColumnVarbinary&>(*col).get_data_at(1);
+        EXPECT_EQ(written.size, original.size);
+        EXPECT_EQ(memcmp(written.data, original.data, original.size), 0);
     }
     // serialize_column_to_json
     {
@@ -91,7 +98,10 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextNotSupported) {
         std::string json = "deadbeef";
         Slice s(json.data(), json.size());
         auto st = serde.deserialize_one_cell_from_json(*vb, s, opt);
-        EXPECT_FALSE(st.ok());
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        auto inserted = vb->get_data_at(vb->size() - 1);
+        EXPECT_EQ(inserted.size, json.size());
+        EXPECT_EQ(std::memcmp(inserted.data, json.data(), json.size()), 0);
     }
     // deserialize_column_from_json_vector
     {
@@ -154,17 +164,20 @@ TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
             EXPECT_TRUE(st.ok()) << st.to_string();
         }
         EXPECT_GT(rb.length(), 0);
-        // const column behavior: always pick row 0
+        const unsigned char* buf = reinterpret_cast<const unsigned char*>(rb.buf());
+        EXPECT_EQ(buf[0], 1);
+        EXPECT_EQ(buf[2], 3);
         MysqlRowBuffer<false> rb_const;
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 3; ++i) {
             auto st = serde.write_column_to_mysql(*col, rb_const, i, true, opt);
             EXPECT_TRUE(st.ok()) << st.to_string();
         }
-        EXPECT_GT(rb_const.length(), 0);
+        EXPECT_EQ(reinterpret_cast<const unsigned char*>(rb_const.buf())[0], 1);
     }
     // binary protocol (smoke)
     {
         MysqlRowBuffer<true> rb;
+        rb.start_binary_row(vals.size());
         for (int i = 0; i < static_cast<int>(vals.size()); ++i) {
             auto st = serde.write_column_to_mysql(*col, rb, i, false, opt);
             EXPECT_TRUE(st.ok()) << st.to_string();
@@ -173,7 +186,7 @@ TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
     }
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, ArrowNotSupported) {
+TEST_F(DataTypeVarbinarySerDeTest, ArrowWriteSupportedReadNotImplemented) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
     auto* vb = assert_cast<ColumnVarbinary*>(col.get());
@@ -184,15 +197,24 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowNotSupported) {
     cctz::time_zone tz;
 
     auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, 1, tz);
-    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
     std::shared_ptr<arrow::Array> arr;
     ASSERT_TRUE(builder->Finish(&arr).ok());
     st = serde.read_column_from_arrow(*vb, arr.get(), 0, 1, tz);
     EXPECT_FALSE(st.ok());
+
+    auto* binary_array = dynamic_cast<arrow::BinaryArray*>(arr.get());
+    ASSERT_NE(binary_array, nullptr);
+    ASSERT_EQ(binary_array->length(), 1);
+    ASSERT_FALSE(binary_array->IsNull(0));
+    auto view = vb->get_data_at(0);
+    EXPECT_EQ(binary_array->value_length(0), static_cast<int>(view.size));
+    const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
+    EXPECT_EQ(memcmp(raw, view.data, view.size), 0);
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, OrcNotSupported) {
+TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     DataTypeVarbinarySerDe serde;
     auto col = ColumnVarbinary::create();
     auto* vb = assert_cast<ColumnVarbinary*>(col.get());
@@ -202,7 +224,13 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcNotSupported) {
     Arena arena;
     auto batch = std::make_unique<orc::StringVectorBatch>(1, *orc::getDefaultPool());
     auto st = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 0, arena);
-    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(batch->numElements, 0);
+    auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 1, arena);
+    EXPECT_TRUE(st2.ok());
+    EXPECT_EQ(batch->numElements, 1);
+    EXPECT_EQ(batch->length[0], 3);
+    EXPECT_EQ(memcmp(batch->data[0], v.data(), 3), 0);
 }
 
 } // namespace doris::vectorized
