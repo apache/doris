@@ -212,7 +212,10 @@ Status VDataStreamRecvr::SenderQueue::add_blocks(const PTransmitDataParams* requ
             return Status::OK();
         }
         const int be_number = request->be_number();
-        const int64_t packet_seq = request->packet_seq();
+        // In the request, the packet_seq for blocks is [request->packet_seq() - blocks_size(), request->packet_seq())
+        // Note this is a left-closed, right-open interval; the packet_seq of the last block is request->packet_seq() - 1
+        // We store the packet_seq of the last block in _packet_seq_map so we can compare it with the packet_seq of the next received packet
+        const int64_t packet_seq = request->packet_seq() - 1;
         auto iter = _packet_seq_map.find(be_number);
         if (iter != _packet_seq_map.end()) {
             if (iter->second >= (packet_seq - request->blocks_size())) {
