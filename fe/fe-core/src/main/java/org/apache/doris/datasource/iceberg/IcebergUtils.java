@@ -615,18 +615,18 @@ public class IcebergUtils {
 
     /**
      * Get partition info map from PartitionData, considering partition evolution.
-     * 
+     *
      * @param partitionData the partition data
      * @param partitionSpec the partition spec (optional, used for partition evolution support)
      * @param timeZone the time zone for timestamp serialization
      * @return map of partition field names to serialized partition values
      */
-    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, 
-                                                           PartitionSpec partitionSpec, 
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData,
+                                                           PartitionSpec partitionSpec,
                                                            String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
-        
+
         // If partitionSpec is provided, use it to get the correct field names and transforms
         // This is important for partition evolution, as different specIds may have different
         // partition field names even if the partition type is the same
@@ -642,7 +642,7 @@ public class IcebergUtils {
                     // for this specId
                     partitionInfoMap.put(partitionField.name(), partitionString);
                 } catch (UnsupportedOperationException e) {
-                    LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", 
+                    LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}",
                             partitionField.name(), e.getMessage());
                     return null;
                 }
@@ -656,7 +656,7 @@ public class IcebergUtils {
                     String partitionString = serializePartitionValue(field.type(), value, timeZone);
                     partitionInfoMap.put(field.name(), partitionString);
                 } catch (UnsupportedOperationException e) {
-                    LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", 
+                    LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}",
                             field.name(), e.getMessage());
                     return null;
                 }

@@ -1593,10 +1593,14 @@ Status FileScanner::_generate_partition_columns() {
 
     // Load partition field mapping information for Iceberg partition evolution support
     if (range.__isset.partition_field_to_source_column_map) {
-        _partition_field_to_source_column_map = range.partition_field_to_source_column_map;
+        _partition_field_to_source_column_map = std::unordered_map<std::string, std::string>(
+                range.partition_field_to_source_column_map.begin(),
+                range.partition_field_to_source_column_map.end());
     }
     if (range.__isset.partition_field_transforms) {
-        _partition_field_transforms = range.partition_field_transforms;
+        _partition_field_transforms = std::unordered_map<std::string, std::string>(
+                range.partition_field_transforms.begin(),
+                range.partition_field_transforms.end());
     }
 
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
