@@ -522,7 +522,9 @@ public:
 
     void set_code(int code) { _code = code; }
 
-    bool ok() const { return _code == ErrorCode::OK; }
+    bool ok() const {
+        return _code == ErrorCode::OK || _code == ErrorCode::FINISHED;
+    }
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
