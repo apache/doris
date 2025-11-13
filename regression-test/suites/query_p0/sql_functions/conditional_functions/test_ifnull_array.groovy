@@ -15,12 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.Instant;
-import java.time.ZoneId;
-import org.junit.Assert;
-
 suite("test_ifnull_array") {
     String suiteName = "test_ifnull_array"
     String tableName = "${suiteName}_table"

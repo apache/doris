@@ -1677,7 +1677,7 @@ public class TypeCoercionUtils {
                 if (otherType.isIntegerType() || otherType.isBigIntType() || otherType.isLargeIntType()) {
                     return Optional.of(otherType);
                 }
-                if (otherType.isTinyIntType()) {
+                if (otherType.isTinyIntType() || otherType.isSmallIntType()) {
                     return Optional.of(IntegerType.INSTANCE);
                 }
             }
