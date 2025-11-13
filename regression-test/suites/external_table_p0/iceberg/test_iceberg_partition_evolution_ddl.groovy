@@ -1,0 +1,268 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker,external_docker_doris") {
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test.")
+        return
+    }
+
+    String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String catalog_name = "test_iceberg_partition_evolution_ddl"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """
+    CREATE CATALOG ${catalog_name} PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1"
+    );"""
+
+    logger.info("catalog " + catalog_name + " created")
+    sql """switch ${catalog_name};"""
+    logger.info("switched to catalog " + catalog_name)
+    sql """drop database if exists test_partition_evolution_db force"""
+    sql """create database test_partition_evolution_db"""
+    sql """use test_partition_evolution_db;"""
+
+    sql """set enable_fallback_to_original_planner=false;"""
+
+    // Test 1: Add identity partition field
+    String table1 = "test_add_identity_partition"
+    sql """drop table if exists ${table1}"""
+    sql """
+    CREATE TABLE ${table1} (
+        id INT,
+        name STRING,
+        category STRING
+    );
+    """
+    sql """INSERT INTO ${table1} VALUES (1, 'Alice', 'A'), (2, 'Bob', 'B')"""
+    
+    sql """ALTER TABLE ${table1} ADD PARTITION FIELD category"""
+    qt_add_identity_1 """DESC ${table1}"""
+    qt_add_identity_2 """SELECT * FROM ${table1} ORDER BY id"""
+    
+    sql """INSERT INTO ${table1} VALUES (3, 'Charlie', 'C')"""
+    qt_add_identity_3 """SELECT * FROM ${table1} ORDER BY id"""
+
+    // Test 2: Add time-based partition fields
+    String table2 = "test_add_time_partition"
+    sql """drop table if exists ${table2}"""
+    sql """
+    CREATE TABLE ${table2} (
+        id INT,
+        name STRING,
+        ts TIMESTAMP
+    );
+    """
+    sql """INSERT INTO ${table2} VALUES (1, 'Alice', '2024-01-01 10:00:00'), (2, 'Bob', '2024-02-01 11:00:00')"""
+    
+    sql """ALTER TABLE ${table2} ADD PARTITION FIELD year(ts)"""
+    qt_add_year_1 """DESC ${table2}"""
+    
+    sql """ALTER TABLE ${table2} ADD PARTITION FIELD month(ts)"""
+    qt_add_month_1 """DESC ${table2}"""
+    
+    sql """INSERT INTO ${table2} VALUES (3, 'Charlie', '2024-03-01 12:00:00')"""
+    qt_add_time_1 """SELECT * FROM ${table2} ORDER BY id"""
+
+    // Test 3: Add bucket partition field
+    String table3 = "test_add_bucket_partition"
+    sql """drop table if exists ${table3}"""
+    sql """
+    CREATE TABLE ${table3} (
+        id INT,
+        name STRING,
+        value DOUBLE
+    );
+    """
+    sql """INSERT INTO ${table3} VALUES (1, 'Alice', 100.0), (2, 'Bob', 200.0)"""
+    
+    sql """ALTER TABLE ${table3} ADD PARTITION FIELD bucket(16, id)"""
+    qt_add_bucket_1 """DESC ${table3}"""
+    
+    sql """INSERT INTO ${table3} VALUES (3, 'Charlie', 300.0)"""
+    qt_add_bucket_2 """SELECT * FROM ${table3} ORDER BY id"""
+
+    // Test 4: Add truncate partition field
+    String table4 = "test_add_truncate_partition"
+    sql """drop table if exists ${table4}"""
+    sql """
+    CREATE TABLE ${table4} (
+        id INT,
+        name STRING,
+        code STRING
+    );
+    """
+    sql """INSERT INTO ${table4} VALUES (1, 'Alice', 'ABCDE'), (2, 'Bob', 'FGHIJ')"""
+    
+    sql """ALTER TABLE ${table4} ADD PARTITION FIELD truncate(5, code)"""
+    qt_add_truncate_1 """DESC ${table4}"""
+    
+    sql """INSERT INTO ${table4} VALUES (3, 'Charlie', 'KLMNO')"""
+    qt_add_truncate_2 """SELECT * FROM ${table4} ORDER BY id"""
+
+    // Test 5: Drop partition field - identity
+    String table5 = "test_drop_identity_partition"
+    sql """drop table if exists ${table5}"""
+    sql """
+    CREATE TABLE ${table5} (
+        id INT,
+        name STRING,
+        category STRING
+    )
+    PARTITIONED BY (category);
+    """
+    sql """INSERT INTO ${table5} VALUES (1, 'Alice', 'A'), (2, 'Bob', 'B')"""
+    
+    sql """ALTER TABLE ${table5} DROP PARTITION FIELD category"""
+    qt_drop_identity_1 """DESC ${table5}"""
+    
+    sql """INSERT INTO ${table5} VALUES (3, 'Charlie', 'C')"""
+    qt_drop_identity_2 """SELECT * FROM ${table5} ORDER BY id"""
+
+    // Test 6: Drop partition field - time-based
+    String table6 = "test_drop_time_partition"
+    sql """drop table if exists ${table6}"""
+    sql """
+    CREATE TABLE ${table6} (
+        id INT,
+        name STRING,
+        created_date DATE
+    )
+    PARTITIONED BY (year(created_date));
+    """
+    sql """INSERT INTO ${table6} VALUES (1, 'Alice', '2023-01-01'), (2, 'Bob', '2024-01-01')"""
+    
+    sql """ALTER TABLE ${table6} DROP PARTITION FIELD year(created_date)"""
+    qt_drop_time_1 """DESC ${table6}"""
+    
+    sql """INSERT INTO ${table6} VALUES (3, 'Charlie', '2025-01-01')"""
+    qt_drop_time_2 """SELECT * FROM ${table6} ORDER BY id"""
+
+    // Test 7: Drop partition field - bucket
+    String table7 = "test_drop_bucket_partition"
+    sql """drop table if exists ${table7}"""
+    sql """
+    CREATE TABLE ${table7} (
+        id INT,
+        name STRING,
+        value DOUBLE
+    )
+    PARTITIONED BY (bucket(16, id));
+    """
+    sql """INSERT INTO ${table7} VALUES (1, 'Alice', 100.0), (2, 'Bob', 200.0)"""
+    
+    sql """ALTER TABLE ${table7} DROP PARTITION FIELD bucket(16, id)"""
+    qt_drop_bucket_1 """DESC ${table7}"""
+    
+    sql """INSERT INTO ${table7} VALUES (3, 'Charlie', 300.0)"""
+    qt_drop_bucket_2 """SELECT * FROM ${table7} ORDER BY id"""
+
+    // Test 8: Multiple partition evolution operations
+    String table8 = "test_multiple_evolution"
+    sql """drop table if exists ${table8}"""
+    sql """
+    CREATE TABLE ${table8} (
+        id INT,
+        name STRING,
+        ts TIMESTAMP,
+        category STRING
+    );
+    """
+    sql """INSERT INTO ${table8} VALUES (1, 'Alice', '2024-01-01 10:00:00', 'A')"""
+    
+    // Add multiple partition fields
+    sql """ALTER TABLE ${table8} ADD PARTITION FIELD day(ts)"""
+    sql """ALTER TABLE ${table8} ADD PARTITION FIELD category"""
+    sql """ALTER TABLE ${table8} ADD PARTITION FIELD bucket(8, id)"""
+    qt_multiple_1 """DESC ${table8}"""
+    
+    sql """INSERT INTO ${table8} VALUES (2, 'Bob', '2024-02-01 11:00:00', 'B')"""
+    qt_multiple_2 """SELECT * FROM ${table8} ORDER BY id"""
+    
+    // Drop some partition fields
+    sql """ALTER TABLE ${table8} DROP PARTITION FIELD bucket(8, id)"""
+    sql """ALTER TABLE ${table8} DROP PARTITION FIELD category"""
+    qt_multiple_3 """DESC ${table8}"""
+    
+    sql """INSERT INTO ${table8} VALUES (3, 'Charlie', '2024-03-01 12:00:00', 'C')"""
+    qt_multiple_4 """SELECT * FROM ${table8} ORDER BY id"""
+
+    // Test 9: Error cases - drop non-existent partition field
+    String table9 = "test_error_cases"
+    sql """drop table if exists ${table9}"""
+    sql """
+    CREATE TABLE ${table9} (
+        id INT,
+        name STRING
+    );
+    """
+    
+    test {
+        sql """ALTER TABLE ${table9} DROP PARTITION FIELD bucket(16, id)"""
+        exception "Partition field not found"
+    }
+
+    // Test 10: Error cases - invalid transform
+    test {
+        sql """ALTER TABLE ${table9} ADD PARTITION FIELD invalid_transform(id)"""
+        exception "Unsupported partition transform"
+    }
+
+    // Test 11: Error cases - missing argument for bucket
+    test {
+        sql """ALTER TABLE ${table9} ADD PARTITION FIELD bucket(id)"""
+        exception "Bucket transform requires a bucket count argument"
+    }
+
+    // Test 12: Error cases - not an Iceberg table
+    sql """drop table if exists test_internal_table"""
+    sql """
+    CREATE TABLE test_internal_table (
+        id INT,
+        name STRING
+    ) DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+    
+    test {
+        sql """ALTER TABLE test_internal_table ADD PARTITION FIELD id"""
+        exception "ADD PARTITION FIELD is only supported for Iceberg tables"
+    }
+
+    // Cleanup
+    sql """drop table if exists ${table1}"""
+    sql """drop table if exists ${table2}"""
+    sql """drop table if exists ${table3}"""
+    sql """drop table if exists ${table4}"""
+    sql """drop table if exists ${table5}"""
+    sql """drop table if exists ${table6}"""
+    sql """drop table if exists ${table7}"""
+    sql """drop table if exists ${table8}"""
+    sql """drop table if exists ${table9}"""
+    sql """drop table if exists test_internal_table"""
+}
+

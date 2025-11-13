@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 
 import org.junit.jupiter.api.Assertions;
@@ -48,6 +50,53 @@ public class AlterTableCommandTest {
         ops.add(new EnableFeatureOp("SEQUENCE_LOAD", properties));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
         Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")");
+    }
+
+    @Test
+    void testAddPartitionFieldOp() {
+        List<AlterTableOp> ops = new ArrayList<>();
+        ops.add(new AddPartitionFieldOp("bucket", 16, "id"));
+        AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ADD PARTITION FIELD bucket(16, id)");
+
+        ops.clear();
+        ops.add(new AddPartitionFieldOp("year", null, "ts"));
+        alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ADD PARTITION FIELD year(ts)");
+
+        ops.clear();
+        ops.add(new AddPartitionFieldOp(null, null, "category"));
+        alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ADD PARTITION FIELD category");
+    }
+
+    @Test
+    void testDropPartitionFieldOp() {
+        List<AlterTableOp> ops = new ArrayList<>();
+        ops.add(new DropPartitionFieldOp("bucket", 16, "id"));
+        AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION FIELD bucket(16, id)");
+
+        ops.clear();
+        ops.add(new DropPartitionFieldOp("year", null, "ts"));
+        alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION FIELD year(ts)");
+
+        ops.clear();
+        ops.add(new DropPartitionFieldOp(null, null, "category"));
+        alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION FIELD category");
+    }
+
+    @Test
+    void testMultiplePartitionFieldOps() {
+        List<AlterTableOp> ops = new ArrayList<>();
+        ops.add(new AddPartitionFieldOp("day", null, "ts"));
+        ops.add(new AddPartitionFieldOp("bucket", 8, "id"));
+        AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        String sql = alterTableCommand.toSql();
+        Assertions.assertTrue(sql.contains("ADD PARTITION FIELD day(ts)"));
+        Assertions.assertTrue(sql.contains("ADD PARTITION FIELD bucket(8, id)"));
     }
 }
 
