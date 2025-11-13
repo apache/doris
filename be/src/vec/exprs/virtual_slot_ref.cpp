@@ -175,6 +175,65 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
     return Status::OK();
 }
 
+Status VirtualSlotRef::execute(VExprContext* context, Block* block,
+                               ColumnPtr& result_column) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                _column_id, block->dump_structure());
+    }
+
+    ColumnWithTypeAndName col_type_name = block->get_by_position(_column_id);
+    result_column = col_type_name.column;
+
+    if (!col_type_name.column) {
+        // Maybe we need to create a column in this situation.
+        return Status::InternalError(
+                "VirtualSlotRef column is null, column_id: {}, column_name: {}", _column_id,
+                *_column_name);
+    }
+
+    const auto* col_nothing = check_and_get_column<ColumnNothing>(col_type_name.column.get());
+
+    if (this->_virtual_column_expr != nullptr) {
+        if (col_nothing != nullptr) {
+            // Virtual column is not materialized, so we need to materialize it.
+            // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
+            // because the vector might be resized during execution, causing previous references to become invalid.
+            ColumnPtr tmp_column;
+            RETURN_IF_ERROR(_virtual_column_expr->execute(context, block, tmp_column));
+            result_column = std::move(tmp_column);
+
+            VLOG_DEBUG << fmt::format(
+                    "Materialization of virtual column, slot_id {}, column_id {}, "
+                    "column_name {}, column size {}",
+                    _slot_id, _column_id, *_column_name,
+                    block->get_by_position(_column_id).column->size());
+        }
+
+#ifndef NDEBUG
+        // get_by_position again since vector in block may be resized
+        col_type_name = block->get_by_position(_column_id);
+        DCHECK(col_type_name.type != nullptr);
+        if (!_column_data_type->equals(*col_type_name.type)) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column type not match, column_id: {}, "
+                                   "column_name: {}, column_type: {}, virtual_column_type: {}",
+                                   _column_id, *_column_name, col_type_name.type->get_name(),
+                                   _column_data_type->get_name());
+        }
+#endif
+    } else {
+        // This is a virtual slot ref that not pushed to segment_iterator
+        if (col_nothing == nullptr) {
+            return Status::InternalError("Logical error, virtual column can not be materialized");
+        } else {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 const std::string& VirtualSlotRef::expr_name() const {
     return *_column_name;
 }

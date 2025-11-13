@@ -59,6 +59,32 @@ public:
         return _do_execute(context, block, result_column_id, arguments);
     }
 
+    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override {
+        DCHECK(_open_finished || _getting_const_col);
+
+        ColumnPtr argument_column;
+        RETURN_IF_ERROR(_children[0]->execute(context, block, argument_column));
+        argument_column = argument_column->convert_to_full_column_if_const();
+
+        size_t sz = argument_column->size();
+        auto res_data_column = ColumnUInt8::create(block->rows());
+        res_data_column->resize(sz);
+
+        if (argument_column->is_nullable()) {
+            auto column_nested = static_cast<const ColumnNullable*>(argument_column.get())
+                                         ->get_nested_column_ptr();
+            const auto& null_map =
+                    static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
+            _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
+        } else {
+            _filter->find_batch(*argument_column, sz, res_data_column->get_data());
+        }
+
+        DCHECK(!_data_type->is_nullable());
+        result_column = std::move(res_data_column);
+        return Status::OK();
+    }
+
     Status execute_runtime_filter(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   ColumnNumbers& args) override {

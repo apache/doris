@@ -47,6 +47,15 @@ public:
         return get_child(0)->execute(context, block, result_column_id);
     }
 
+    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override {
+        DCHECK(_open_finished || _getting_const_col);
+        return get_child(0)->execute(context, block, result_column);
+    }
+
+    DataTypePtr execute_type(const Block* block) const override {
+        return get_child(0)->execute_type(block);
+    }
+
     const std::string& expr_name() const override { return _expr_name; }
 
     uint64_t get_digest(uint64_t seed) const override { return 0; }

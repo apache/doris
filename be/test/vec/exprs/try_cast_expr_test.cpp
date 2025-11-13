@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "runtime/primitive_type.h"
+#include "udf/udf.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -125,7 +126,7 @@ class MockVExprForTryCast : public VExpr {
 public:
     MockVExprForTryCast() = default;
     MOCK_CONST_METHOD0(clone, VExprSPtr());
-    MOCK_CONST_METHOD0(expr_name, const std::string&());
+    const std::string& expr_name() const override { return _expr_name; }
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -138,6 +139,12 @@ public:
         *result_column_id = 0;
         return Status::OK();
     }
+
+    DataTypePtr execute_type(const Block* block) const override {
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    std::string _expr_name;
 };
 
 struct TryCastExprTest : public ::testing::Test {

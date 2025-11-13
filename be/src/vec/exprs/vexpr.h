@@ -131,6 +131,18 @@ public:
     }
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const = 0;
+
+    virtual Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+        int result_column_id = -1;
+        RETURN_IF_ERROR(execute(context, block, &result_column_id));
+        result_column = block->get_by_position(result_column_id).column;
+        return Status::OK();
+    }
+
+    // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
+    // Therefore we need a function like this to return the actual type produced by execution.
+    virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
@@ -281,6 +293,8 @@ public:
     bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
                       int* result_column_id) const;
 
+    bool fast_execute(VExprContext* context, ColumnPtr& result_column) const;
+
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
@@ -354,6 +368,8 @@ protected:
 
     Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
                                  int* result_column_id) const;
+
+    ColumnPtr get_result_from_const(const Block* block) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 

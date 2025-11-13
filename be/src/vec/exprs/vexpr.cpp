@@ -830,6 +830,10 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     return Status::OK();
 }
 
+ColumnPtr VExpr::get_result_from_const(const Block* block) const {
+    return ColumnConst::create(_constant_col->column_ptr, block->rows());
+}
+
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size
@@ -989,6 +993,20 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
             block->insert({result_column, _data_type, expr_name()});
         }
         *result_column_id = num_columns_without_result;
+        return true;
+    }
+    return false;
+}
+
+bool VExpr::fast_execute(VExprContext* context, ColumnPtr& result_column) const {
+    if (context->get_inverted_index_context() &&
+        context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
+        // prepare a column to save result
+        result_column =
+                context->get_inverted_index_context()->get_inverted_index_result_column()[this];
+        if (_data_type->is_nullable()) {
+            result_column = make_nullable(result_column);
+        }
         return true;
     }
     return false;

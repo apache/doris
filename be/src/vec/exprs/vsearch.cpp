@@ -133,6 +133,14 @@ Status VSearchExpr::execute(VExprContext* context, Block* block, int* result_col
     return Status::InternalError("SearchExpr should not be executed without inverted index");
 }
 
+Status VSearchExpr::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+    if (fast_execute(context, result_column)) {
+        return Status::OK();
+    }
+
+    return Status::InternalError("SearchExpr should not be executed without inverted index");
+}
+
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     LOG(INFO) << "VSearchExpr::evaluate_inverted_index called, DSL: " << _search_param.original_dsl;
 
