@@ -105,7 +105,7 @@ Status MergeFileSystem::file_size_impl(const Path& file, int64_t* file_size) con
     if (!_index_map_initialized) {
         return Status::InternalError("MergeFileSystem index map is not initialized");
     }
-    auto it = _index_map.find(file.native());
+    const auto it = _index_map.find(file.native());
     if (it != _index_map.end()) {
         *file_size = it->second.size;
         return Status::OK();

@@ -58,6 +58,8 @@ struct MergeFileAppendInfo {
 
 // Global object that manages merging small files into large files for S3 optimization
 class MergeFileManager {
+    struct MergeFileState;
+
 public:
     static MergeFileManager* instance();
 
@@ -84,6 +86,8 @@ public:
 
     // Internal helper; expects caller holds _current_merge_file_mutex
     Status mark_current_merge_file_for_upload_locked(const std::string& resource_id);
+
+    void record_merge_file_metrics(const MergeFileState& merge_file);
 
 private:
     MergeFileManager() = default;
@@ -166,6 +170,17 @@ private:
     // Global index mapping small file path to merge file index
     std::unordered_map<std::string, MergeFileSegmentIndex> _global_index_map;
     std::mutex _global_index_mutex;
+
+#ifdef BE_TEST
+public:
+    void reset_merge_file_bvars_for_test() const;
+    int64_t merge_file_total_count_for_test() const;
+    int64_t merge_file_total_small_file_num_for_test() const;
+    int64_t merge_file_total_size_bytes_for_test() const;
+    double merge_file_avg_small_file_num_for_test() const;
+    double merge_file_avg_file_size_for_test() const;
+    void record_merge_file_metrics_for_test(const MergeFileState* merge_file);
+#endif
 };
 
 } // namespace doris::io

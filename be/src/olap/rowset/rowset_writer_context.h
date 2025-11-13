@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <optional>
+#include <string_view>
 #include <unordered_map>
 
 #include "cloud/config.h"
@@ -178,7 +179,22 @@ struct RowsetWriterContext {
         // Apply merge file system for write path if enabled
         // Create empty index_map for write path
         // Index information will be populated after write completes
-        if (enable_merge_file && config::is_cloud_mode() && config::enable_merge_file) {
+        bool has_v1_inverted_index = tablet_schema != nullptr &&
+                                     tablet_schema->has_inverted_index() &&
+                                     tablet_schema->get_inverted_index_storage_format() ==
+                                             InvertedIndexStorageFormatPB::V1;
+
+        if (has_v1_inverted_index && enable_merge_file && config::enable_merge_file) {
+            static constexpr std::string_view kMsg =
+                    "Disable merge file for V1 inverted index tablet to avoid missing index "
+                    "metadata (temporary workaround)";
+            LOG(INFO) << kMsg << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id;
+        }
+
+        bool should_wrap_with_merge_fs = enable_merge_file && config::is_cloud_mode() &&
+                                         config::enable_merge_file && !has_v1_inverted_index;
+
+        if (should_wrap_with_merge_fs) {
             std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
             io::MergeFileAppendInfo append_info;
             append_info.tablet_id = tablet_id;
