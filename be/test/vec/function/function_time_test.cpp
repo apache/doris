@@ -1104,6 +1104,41 @@ TEST(VTimestampFunctionsTest, day_second_add_v2_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, day_hour_add_v2_test) {
+    std::string func_name = "day_hour_add";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
+                                Consted {PrimitiveType::TYPE_STRING}};
+
+    {
+        DataSet data_set = {
+                {{std::string("2020-10-23 00:00:11.123"), std::string("1 1")},
+                 std::string("2020-10-24 01:00:11.123")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:11.123"), std::string("1 10")},
+                 std::string("2020-05-24 10:00:11.123")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:11.123"), std::string("5 0")},
+                 std::string("2020-05-28 00:00:11.123")},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+}
+
 TEST(VTimestampFunctionsTest, to_days_v2_test) {
     std::string func_name = "to_days";
 
