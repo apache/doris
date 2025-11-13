@@ -640,8 +640,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                  std::decay_t<decltype(dst)>>) {
                         dst.hash_table = src.hash_table;
                     } else {
-                        throw Exception(
-                                Status::InternalError("Hash table type mismatch when share hash table"));
+                        throw Exception(Status::InternalError(
+                                "Hash table type mismatch when share hash table"));
                     }
                 },
                 local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
