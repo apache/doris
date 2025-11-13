@@ -17,7 +17,6 @@
 
 #include "olap/primary_key_index.h"
 
-#include <butil/time.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <utility>
@@ -30,6 +29,7 @@
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/types.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -98,9 +98,6 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     _index_reader->set_is_pk_index(true);
 
-    // Record start time for loading primary key index
-    int64_t start_ns = butil::cpuwide_time_ns();
-
     // Get the size of primary key index before loading
     int64_t pk_index_size = meta.primary_key_index().has_ordinal_index_meta()
                                     ? meta.primary_key_index().ordinal_index_meta().root_page().size()
@@ -109,13 +106,16 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
         pk_index_size += meta.primary_key_index().value_index_meta().root_page().size();
     }
 
-    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
-                                        pk_index_load_stats));
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
+                                            pk_index_load_stats));
+    }
 
     // Record the loading time and size
     if (pk_index_load_stats != nullptr) {
-        int64_t end_ns = butil::cpuwide_time_ns();
-        pk_index_load_stats->pk_index_load_timer_ns += (end_ns - start_ns);
+        pk_index_load_stats->pk_index_load_timer_ns += duration_ns;
         pk_index_load_stats->pk_index_load_bytes += pk_index_size;
     }
 
