@@ -24,6 +24,8 @@ import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -82,6 +84,9 @@ public abstract class AbstractJobProcessor implements JobProcessor {
 
     @Override
     public final void updateFragmentExecStatus(TReportExecStatusParams params) {
+        if (params.status.status_code == TStatusCode.FINISHED) {
+            params.status = new TStatus(TStatusCode.OK);
+        }
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
         if (fragmentTask == null) {
