@@ -169,6 +169,9 @@ public:
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
 
+    // Get storage for inspection
+    FileCacheStorage* get_storage() const { return _storage.get(); }
+
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
          * return list of cached non-overlapping non-empty
