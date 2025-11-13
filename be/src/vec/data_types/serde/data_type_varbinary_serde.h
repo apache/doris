@@ -23,8 +23,10 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
+#include "data_type_string_serde.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/common/arena.h"
 #include "vec/data_types/serde/data_type_nullable_serde.h"
 
@@ -39,9 +41,7 @@ public:
     std::string get_name() const override { return "Varbinary"; }
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
-                                      FormatOptions& options) const override {
-        return Status::NotSupported("serialize_one_cell_to_json with type " + column.get_name());
-    }
+                                      FormatOptions& options) const override;
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
@@ -49,8 +49,14 @@ public:
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
+        if (_nesting_level >= 2) {
+            slice.trim_quote();
+        }
+        if (options.escape_char != 0) {
+            escape_string(slice.data, &slice.size, options.escape_char);
+        }
+        assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
+        return Status::OK();
     }
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
@@ -75,9 +81,8 @@ public:
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                                 const cctz::time_zone& ctz) const override {
-        return Status::NotSupported("write_column_to_arrow with type " + column.get_name());
-    }
+                                 const cctz::time_zone& ctz) const override;
+
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override {
         return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -94,11 +99,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               vectorized::Arena& arena) const override {
-        return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                             "write_column_to_orc with type " + column.get_name());
-    }
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 

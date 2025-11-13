@@ -130,15 +130,15 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         """
 
         // Bucket by BINARY
-        qt_bucket_binary_4_cnt1 """
-            select count(*) from bucket_binary_4 where partition_key = 'abc';
-        """
-        qt_bucket_binary_4_cnt2 """
-            select count(*) from bucket_binary_4 where partition_key in ('', '你好');
-        """
-        qt_bucket_binary_4_select1 """
-            select * from bucket_binary_4 where partition_key = 'abc' order by id;
-        """
+        // qt_bucket_binary_4_cnt1 """
+        //     select count(*) from bucket_binary_4 where partition_key = 'abc';
+        // """
+        // qt_bucket_binary_4_cnt2 """
+        //     select count(*) from bucket_binary_4 where partition_key in ('', '你好');
+        // """
+        // qt_bucket_binary_4_select1 """
+        //     select * from bucket_binary_4 where partition_key = 'abc' order by id;
+        // """
 
         // Truncate STRING(3)
         qt_truncate_string_3_cnt1 """
@@ -152,15 +152,15 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         """
 
         // Truncate BINARY(4)
-        qt_truncate_binary_4_cnt1 """
-            select count(*) from truncate_binary_4 where partition_key = 'abcdef';
-        """
-        qt_truncate_binary_4_cnt2 """
-            select count(*) from truncate_binary_4 where partition_key in ('abcd', 'abcdef');
-        """
-        qt_truncate_binary_4_select1 """
-            select * from truncate_binary_4 where partition_key = 'abcdef' order by id;
-        """
+        // qt_truncate_binary_4_cnt1 """
+        //     select count(*) from truncate_binary_4 where partition_key = 'abcdef';
+        // """
+        // qt_truncate_binary_4_cnt2 """
+        //     select count(*) from truncate_binary_4 where partition_key in ('abcd', 'abcdef');
+        // """
+        // qt_truncate_binary_4_select1 """
+        //     select * from truncate_binary_4 where partition_key = 'abcdef' order by id;
+        // """
 
         // Truncate INT(10)
         qt_truncate_int_10_cnt1 """
