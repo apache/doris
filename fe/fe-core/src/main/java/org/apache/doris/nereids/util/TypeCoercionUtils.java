@@ -1674,9 +1674,11 @@ public class TypeCoercionUtils {
                 otherType = t1;
             }
             if (dateType.isDateType() || dateType.isDateV2Type()) {
-                if (otherType.isIntegerType() || otherType.isBigIntType() || otherType.isLargeIntType()
-                        || otherType.isTinyIntType()) {
+                if (otherType.isIntegerType() || otherType.isBigIntType() || otherType.isLargeIntType()) {
                     return Optional.of(otherType);
+                }
+                if (otherType.isTinyIntType()) {
+                    return Optional.of(IntegerType.INSTANCE);
                 }
             }
             if (dateType.isDateTimeType() || dateType.isDateTimeV2Type()) {
