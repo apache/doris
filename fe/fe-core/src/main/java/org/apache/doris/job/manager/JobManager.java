@@ -57,7 +57,7 @@ import org.apache.doris.rpc.RpcException;
 import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
