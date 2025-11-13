@@ -421,16 +421,11 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
     using Base::hash_table;
     using State = ColumnsHashing::HashMethodOneNumber<typename Base::Value, typename Base::Mapped,
                                                       FieldType>;
-    FieldType _max_key = std::numeric_limits<FieldType>::min();
-    FieldType _min_key = std::numeric_limits<FieldType>::max();
+    FieldType _max_key;
+    FieldType _min_key;
 
     MethodOneNumberDirect(FieldType max_key, FieldType min_key)
             : _max_key(max_key), _min_key(min_key) {}
-
-    MethodOneNumberDirect(MethodOneNumberDirect&& other)
-            : MethodOneNumber<FieldType, TData>(std::move(other)),
-              _max_key(other._max_key),
-              _min_key(other._min_key) {}
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
@@ -442,6 +437,7 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
                                                     .data
                                           : key_columns[0]->get_raw_data().data);
         CHECK(is_join);
+        CHECK_EQ(bucket_size, direct_mapping_range());
         Base::bucket_nums.resize(num_rows);
 
         if (null_map == nullptr) {
