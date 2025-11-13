@@ -245,8 +245,6 @@ public:
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
-    virtual bool is_compound_predicate() const { return false; }
-
     const TFunction& fn() const { return _fn; }
 
     /// Returns true if expr doesn't contain slotrefs, i.e., can be evaluated
