@@ -1169,7 +1169,7 @@ DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
-DEFINE_mBool(enable_file_cache_normal_queue_2qlru, "true");
+DEFINE_mBool(enable_file_cache_normal_queue_2qlru, "false");
 DEFINE_Int32(file_cache_2qlru_cold_blocks_percent, "20");
 // Inspired by MySQL's innodb_old_blocks_time, defines the time window (in milliseconds)
 // during which accesses to a cold block do not promote it to the hot queue.
