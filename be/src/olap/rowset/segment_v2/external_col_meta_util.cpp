@@ -34,6 +34,13 @@ bool ExternalColMetaUtil::parse_external_meta_pointers(
     out->region_start = footer.col_meta_region_start();
     out->cmo_offset = footer.column_meta_offsets_start();
     out->num_columns = footer.num_columns();
+    // Validate pointers to ensure external meta is actually present
+    if (out->num_columns == 0) {
+        return false;
+    }
+    if (out->cmo_offset <= out->region_start) {
+        return false;
+    }
     return true;
 }
 

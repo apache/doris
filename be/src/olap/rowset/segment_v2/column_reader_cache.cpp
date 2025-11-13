@@ -179,7 +179,6 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
             // keep the lock until the footer is loaded, since _get_segment_footer is not thread safe
             RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
         }
-        const auto& col_footer_pb = footer_pb_shared->columns(node->data.footer_ordinal);
         ColumnReaderOptions opts {
                 .kept_in_memory = _segment->tablet_schema()->is_in_memory(),
                 .be_exec_version = _be_exec_version,
@@ -187,7 +186,6 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
         };
         VLOG_DEBUG << "insert cache: " << col_uid << " "
                    << ""
-                   << ", type: " << (int)col_footer_pb.type()
                    << ", footer_ordinal: " << node->data.footer_ordinal;
         RETURN_IF_ERROR(_insert({col_uid, node->path}, opts, *footer_pb_shared,
                                 node->data.footer_ordinal, _segment->_file_reader,
