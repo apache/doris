@@ -34,7 +34,7 @@ final String NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAIL
 final String COLD_NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "cold_normal_queue_curr_size is 0"
 final String TOTAL_NORMAL_QUEUE_SIZE_NOT_MATCH_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "total normal queue size do not match"
 
-suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
+suite("test_file_cache_normal_queue_2qlru", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
     String enableHiveTest = context.config.otherConfigs.get("enableHiveTest")
     if (enableHiveTest == null || !enableHiveTest.equalsIgnoreCase("true")) {
         logger.info("disable hive test.")
@@ -60,7 +60,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     logger.info("file_cache_2qlru_cold_blocks_promotion_ms configuration: " + enableFileCacheNormalQueue2qlruResult)
 
     if (enableFileCacheNormalQueue2qlruResult.size() == 0 || enableFileCacheNormalQueue2qlruResult[0][3] == null ||
-                    !enableFileCacheResult[0][3].equalsIgnoreCase("true")) {
+                    !enableFileCacheNormalQueue2qlruResult[0][3].equalsIgnoreCase("true")) {
         logger.info(ENABLE_FILE_CACHE_NORMAL_QUEUE_2QLRU_CHECK_FAILED_MSG)
         return
     }
