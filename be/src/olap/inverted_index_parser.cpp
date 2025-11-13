@@ -167,13 +167,19 @@ std::string get_parser_dict_compression_from_properties(
     }
 }
 
-std::string get_custom_analyzer_string_from_properties(
+std::string get_analyzer_name_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_CUSTOM_ANALYZER_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
-    } else {
-        return "";
+    auto it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
+    if (it != properties.end() && !it->second.empty()) {
+        return it->second;
     }
+
+    it = properties.find(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+    if (it != properties.end() && !it->second.empty()) {
+        return it->second;
+    }
+
+    return "";
 }
 
 } // namespace doris
