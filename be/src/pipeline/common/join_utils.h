@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <rapidjson/internal/meta.h>
-
 #include <variant>
 
 #include "vec/common/hash_table/hash_key_type.h"
@@ -125,7 +123,7 @@ struct JoinDataVariants {
 
 template <typename Method>
 void primary_to_direct_mapping(Method* context, const vectorized::ColumnRawPtrs& key_columns,
-                               std::shared_ptr<JoinDataVariants> variant_ptr) {
+                               const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     using FieldType = typename Method::Base::Key;
     FieldType max_key = std::numeric_limits<FieldType>::min();
     FieldType min_key = std::numeric_limits<FieldType>::max();
@@ -159,37 +157,44 @@ void primary_to_direct_mapping(Method* context, const vectorized::ColumnRawPtrs&
     constexpr auto MAX_MAPPING_RANGE = 1 << 23;
     bool allow_direct_mapping = (max_key >= min_key && max_key - min_key + 1 < MAX_MAPPING_RANGE);
     if (allow_direct_mapping) {
-        variant_ptr->method_variant.emplace<DirectPrimaryTypeHashTableContext<FieldType>>(max_key,
-                                                                                          min_key);
+        for (const auto& variant_ptr : variant_ptrs) {
+            variant_ptr->method_variant.emplace<DirectPrimaryTypeHashTableContext<FieldType>>(
+                    max_key, min_key);
+        }
     }
 }
 
 template <typename Method>
-void try_convert_to_direct_mapping(Method* method, const vectorized::ColumnRawPtrs& key_columns,
-                                   std::shared_ptr<JoinDataVariants> variant_ptr) {}
+void try_convert_to_direct_mapping(
+        Method* method, const vectorized::ColumnRawPtrs& key_columns,
+        const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {}
 
-inline void try_convert_to_direct_mapping(PrimaryTypeHashTableContext<vectorized::UInt8>* context,
-                                          const vectorized::ColumnRawPtrs& key_columns,
-                                          std::shared_ptr<JoinDataVariants> variant_ptr) {
-    primary_to_direct_mapping(context, key_columns, variant_ptr);
+inline void try_convert_to_direct_mapping(
+        PrimaryTypeHashTableContext<vectorized::UInt8>* context,
+        const vectorized::ColumnRawPtrs& key_columns,
+        const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
+    primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
-inline void try_convert_to_direct_mapping(PrimaryTypeHashTableContext<vectorized::UInt16>* context,
-                                          const vectorized::ColumnRawPtrs& key_columns,
-                                          std::shared_ptr<JoinDataVariants> variant_ptr) {
-    primary_to_direct_mapping(context, key_columns, variant_ptr);
+inline void try_convert_to_direct_mapping(
+        PrimaryTypeHashTableContext<vectorized::UInt16>* context,
+        const vectorized::ColumnRawPtrs& key_columns,
+        const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
+    primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
-inline void try_convert_to_direct_mapping(PrimaryTypeHashTableContext<vectorized::UInt32>* context,
-                                          const vectorized::ColumnRawPtrs& key_columns,
-                                          std::shared_ptr<JoinDataVariants> variant_ptr) {
-    primary_to_direct_mapping(context, key_columns, variant_ptr);
+inline void try_convert_to_direct_mapping(
+        PrimaryTypeHashTableContext<vectorized::UInt32>* context,
+        const vectorized::ColumnRawPtrs& key_columns,
+        const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
+    primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
-inline void try_convert_to_direct_mapping(PrimaryTypeHashTableContext<vectorized::UInt64>* context,
-                                          const vectorized::ColumnRawPtrs& key_columns,
-                                          std::shared_ptr<JoinDataVariants> variant_ptr) {
-    primary_to_direct_mapping(context, key_columns, variant_ptr);
+inline void try_convert_to_direct_mapping(
+        PrimaryTypeHashTableContext<vectorized::UInt64>* context,
+        const vectorized::ColumnRawPtrs& key_columns,
+        const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
+    primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
 } // namespace doris

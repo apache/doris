@@ -357,13 +357,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     SCOPED_TIMER(_build_table_timer);
     auto rows = (uint32_t)block.rows();
-    if (UNLIKELY(rows == 0)) {
-        return Status::OK();
-    }
-
-    LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
-              << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
-              << PrettyPrinter::print_bytes(block.allocated_bytes());
     // 1. Dispose the overflow of ColumnString
     // 2. Finalize the ColumnVariant to speed up
     for (auto& data : block) {
@@ -465,19 +458,19 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
         p._should_keep_hash_key_column = true;
     }
 
-    std::shared_ptr<JoinDataVariants>& variant_ptr =
-            _shared_state->hash_table_variant_vector[p._use_shared_hash_table ? _task_idx : 0];
+    std::vector<std::shared_ptr<JoinDataVariants>> variant_ptrs;
+    if (p._is_broadcast_join && p._use_shared_hash_table) {
+        variant_ptrs = _shared_state->hash_table_variant_vector;
+    } else {
+        variant_ptrs.emplace_back(
+                _shared_state->hash_table_variant_vector[p._use_shared_hash_table ? _task_idx : 0]);
+    }
 
-    RETURN_IF_ERROR(init_hash_method<JoinDataVariants>(variant_ptr.get(), data_types, true));
-
-    std::visit(vectorized::Overload {[&](std::monostate& arg) {
-                                         throw Exception(
-                                                 Status::FatalError("FATAL: uninited hash table"));
-                                     },
-                                     [&](auto&& arg) {
-                                         try_convert_to_direct_mapping(&arg, raw_ptrs, variant_ptr);
-                                     }},
-               variant_ptr->method_variant);
+    for (auto& variant_ptr : variant_ptrs) {
+        RETURN_IF_ERROR(init_hash_method<JoinDataVariants>(variant_ptr.get(), data_types, true));
+    }
+    std::visit([&](auto&& arg) { try_convert_to_direct_mapping(&arg, raw_ptrs, variant_ptrs); },
+               variant_ptrs[0]->method_variant);
     return Status::OK();
 }
 
@@ -646,6 +639,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                   std::is_same_v<std::decay_t<decltype(src)>,
                                                  std::decay_t<decltype(dst)>>) {
                         dst.hash_table = src.hash_table;
+                    } else {
+                        throw Exception(
+                                Status::InternalError("Hash table type mismatch when share hash table"));
                     }
                 },
                 local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
