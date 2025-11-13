@@ -100,6 +100,21 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
     return Status::OK();
 }
 
+Status StreamLoadRecorder::get(const std::string& key, std::string* value) {
+    rocksdb::ColumnFamilyHandle* handle = _handles[0];
+    rocksdb::ReadOptions read_options;
+    rocksdb::Status s = _db->Get(read_options, handle, rocksdb::Slice(key), value);
+    if (s.IsNotFound()) {
+        return Status::NotFound("Key not found: {}", key);
+    }
+    if (!s.ok()) {
+        LOG(WARNING) << "rocks db get key:" << key << " failed, reason:" << s.ToString();
+        return Status::InternalError("Stream load record rocksdb get failed, reason: {}",
+                                     s.ToString());
+    }
+    return Status::OK();
+}
+
 Status StreamLoadRecorder::get_batch(const std::string& start, int batch_size,
                                      std::map<std::string, std::string>* stream_load_records) {
     rocksdb::ColumnFamilyHandle* handle = _handles[0];
