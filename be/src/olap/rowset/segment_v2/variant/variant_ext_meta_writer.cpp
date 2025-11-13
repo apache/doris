@@ -153,7 +153,7 @@ Status VariantExtMetaWriter::externalize_from_footer(SegmentFooterPB* footer) {
     RETURN_IF_ERROR(flush_to_footer(footer));
 
     // Replace columns with kept ones (prune externalized subcolumns) and
-    // embed sparse subcolumns into variant root's children_columns
+    // embed sparse subcolumns into variant root's children_columns, to reduce cost of external meta read
     footer->clear_columns();
     for (const auto& c : kept) {
         auto* dst = footer->add_columns();
