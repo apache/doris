@@ -86,13 +86,13 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
 
 shape:
     point 
-    { ctx->shape = $1; }
+    { ctx->shape.reset($1); $1 = nullptr; }
     | linestring
-    { ctx->shape = $1; }
+    { ctx->shape.reset($1); $1 = nullptr; }
     | polygon
-    { ctx->shape = $1; }
+    { ctx->shape.reset($1); $1 = nullptr; }
     | multi_polygon
-    { ctx->shape = $1; }
+    { ctx->shape.reset($1); $1 = nullptr; }
     ;
 
 point:
