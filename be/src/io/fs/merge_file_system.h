@@ -92,7 +92,6 @@ private:
     std::unordered_map<std::string, MergeFileSegmentIndex> _index_map;
     bool _index_map_initialized = false;
     MergeFileAppendInfo _append_info;
-    bool _index_map_initialized = false;
 };
 
 } // namespace doris::io
