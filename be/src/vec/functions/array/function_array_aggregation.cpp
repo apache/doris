@@ -183,6 +183,10 @@ struct ArrayAggregateImpl {
             execute_type<TYPE_LARGEINT>(res, type, data, offsets) ||
             execute_type<TYPE_FLOAT>(res, type, data, offsets) ||
             execute_type<TYPE_DOUBLE>(res, type, data, offsets) ||
+            execute_type<TYPE_DECIMAL32>(res, type, data, offsets) ||
+            execute_type<TYPE_DECIMAL64>(res, type, data, offsets) ||
+            execute_type<TYPE_DECIMAL128I>(res, type, data, offsets) ||
+            execute_type<TYPE_DECIMAL256>(res, type, data, offsets) ||
             execute_type<TYPE_DATEV2>(res, type, data, offsets) ||
             execute_type<TYPE_DATETIMEV2>(res, type, data, offsets) ||
             execute_type<TYPE_VARCHAR>(res, type, data, offsets)) {
@@ -254,7 +258,7 @@ struct ArrayAggregateImpl {
             if constexpr ((operation == AggregateOperation::SUM ||
                            operation == AggregateOperation::PRODUCT ||
                            operation == AggregateOperation::AVERAGE) &&
-                          is_date_type(Element)) {
+                          (is_date_type(Element) || is_decimalv3(Element))) {
                 return false;
             } else {
                 using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
