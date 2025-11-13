@@ -91,9 +91,6 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
 
     private AutoCloseSessionVariable openGuard() {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || sessionVars == null || sessionVars.isEmpty()) {
-            return new AutoCloseSessionVariable();
-        }
         return new AutoCloseSessionVariable(ctx, sessionVars);
     }
 

@@ -26,11 +26,9 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
@@ -185,53 +183,23 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
 
     private void getCseCandidatesFromAggregateFunction(Expression expr, Map<Expression, Alias> result,
             List<Expression> allAggFuncChild) {
-        GetterContext context = new GetterContext(result, allAggFuncChild);
-        CseCandidatesGetter getter = new CseCandidatesGetter();
-        expr.accept(getter, context);
-    }
-
-    private static class GetterContext {
-        public final Map<Expression, Alias> result;
-        public final List<Expression> allAggFuncChild;
-        public Map<String, String> sessionVar;
-
-        public GetterContext(Map<Expression, Alias> result, List<Expression> allAggFuncChild) {
-            this.result = result;
-            this.allAggFuncChild = allAggFuncChild;
-            sessionVar = null;
-        }
-    }
-
-    private static class CseCandidatesGetter extends DefaultExpressionVisitor<Void, GetterContext> {
-        @Override
-        public Void visitAggregateFunction(AggregateFunction aggregateFunction, GetterContext context) {
-            for (Expression child : aggregateFunction.children()) {
+        if (expr instanceof AggregateFunction) {
+            for (Expression child : expr.children()) {
                 if (!(child instanceof SlotReference) && !child.isConstant() && !(child instanceof OrderExpression)) {
-                    context.allAggFuncChild.add(child);
+                    allAggFuncChild.add(child);
                     if (child instanceof Alias) {
-                        context.result.put(child, (Alias) child);
+                        result.put(child, (Alias) child);
                     } else {
-                        if (child instanceof SessionVarGuardExpr) {
-                            context.result.put(child, new Alias(child));
-                        } else {
-                            if (context.sessionVar == null) {
-                                continue;
-                            }
-                            context.result.put(child, new Alias(new SessionVarGuardExpr(child, context.sessionVar)));
-                        }
+                        result.put(child, new Alias(child));
                     }
                 }
             }
-            return null;
-        }
-
-        @Override
-        public Void visitSessionVarGuardExpr(SessionVarGuardExpr sessionVarGuardExpr, GetterContext context) {
-            Map<String, String> previousSessionVar = context.sessionVar;
-            context.sessionVar = sessionVarGuardExpr.getSessionVars();
-            super.visit(sessionVarGuardExpr, context);
-            context.sessionVar = previousSessionVar;
-            return null;
+        } else {
+            for (Expression child : expr.children()) {
+                if (!(child instanceof SlotReference) && !child.isConstant()) {
+                    getCseCandidatesFromAggregateFunction(child, result, allAggFuncChild);
+                }
+            }
         }
     }
 }

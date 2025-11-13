@@ -20,32 +20,35 @@ package org.apache.doris.qe;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Used to generate new SessionVariables based on the persisted map,
  * and automatically restore to the previous SessionVariables after use.
  */
 public class AutoCloseSessionVariable implements AutoCloseable {
-    public ConnectContext connectContext;
-    public SessionVariable sessionVariable;
-    public boolean changed;
-
+    private static final ConnectContext notNullContext = new ConnectContext();
+    private ConnectContext connectContext;
+    private boolean changed = false;
     private SessionVariable previousVariable;
-
-    public AutoCloseSessionVariable() {
-        this.changed = false;
-    }
+    private ConnectContext previousConnectContext = notNullContext;
 
     public AutoCloseSessionVariable(ConnectContext connectContext, Map<String, String> affectQueryResultVariables) {
-        Objects.requireNonNull(connectContext, "require connectContext object");
-        this.changed = true;
-        this.connectContext = connectContext;
-        this.previousVariable = connectContext.getSessionVariable();
-        sessionVariable = new SessionVariable();
+        if (affectQueryResultVariables == null || affectQueryResultVariables.isEmpty()) {
+            return;
+        }
+        if (connectContext == null) {
+            previousConnectContext = null;
+            this.connectContext = new ConnectContext();
+            this.connectContext.setThreadLocalInfo();
+        } else {
+            this.changed = true;
+            this.connectContext = connectContext;
+            this.previousVariable = connectContext.getSessionVariable();
+        }
+        SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setAffectQueryResultSessionVariables(
                 affectQueryResultVariables == null ? Maps.newHashMap() : affectQueryResultVariables);
-        connectContext.setSessionVariable(sessionVariable);
+        this.connectContext.setSessionVariable(sessionVariable);
     }
 
     public void call() {
@@ -55,6 +58,10 @@ public class AutoCloseSessionVariable implements AutoCloseable {
 
     @Override
     public void close() {
+        if (previousConnectContext == null) {
+            ConnectContext.remove();
+            return;
+        }
         if (changed) {
             connectContext.setSessionVariable(previousVariable);
         }

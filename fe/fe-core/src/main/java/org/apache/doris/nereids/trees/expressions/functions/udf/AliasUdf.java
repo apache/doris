@@ -100,19 +100,10 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         String functionSql = function.getOriginFunction().toSqlWithoutTbl();
         Map<String, String> sessionVariables = function.getSessionVariables();
         Expression parsedFunction;
-        if (sessionVariables != null && !sessionVariables.isEmpty()) {
-            ConnectContext ctx = ConnectContext.get();
-            if (ctx != null) {
-                try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
-                    parsedFunction = new NereidsParser().parseExpression(functionSql);
-                }
-            } else {
-                parsedFunction = new NereidsParser().parseExpression(functionSql);
-            }
-        } else {
+        ConnectContext ctx = ConnectContext.get();
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
             parsedFunction = new NereidsParser().parseExpression(functionSql);
         }
-
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
