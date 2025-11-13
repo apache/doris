@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <condition_variable>
 #include <future>
 #include <map>
 #include <memory>
@@ -204,8 +205,8 @@ public:
 
     std::vector<TTabletCommitInfo> commit_infos;
 
-    std::promise<Status> promise;
-    std::future<Status> future = promise.get_future();
+    std::promise<Status> load_status_promise;
+    std::future<Status> load_status_future = load_status_promise.get_future();
 
     Status status;
 
@@ -255,6 +256,15 @@ public:
     // use for cloud cluster mode
     std::string qualified_user;
     std::string cloud_cluster;
+
+    std::mutex _send_reply_lock;
+    // maybe > 1 callback send reply, so we need to notify all,
+    // but `_finish_send_reply` will protect that only one callback send reply
+    std::condition_variable _can_send_reply_cv;
+    // avoid sending reply before on_chunk_data finish, or client will receive `broken pipe`
+    bool _can_send_reply = false;
+    // avoid sending reply two times
+    bool _finish_send_reply = false;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }
