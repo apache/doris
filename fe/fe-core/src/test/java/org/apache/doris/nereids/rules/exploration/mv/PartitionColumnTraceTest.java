@@ -1219,9 +1219,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
             }
             if (StringUtils.isNotEmpty(timeUnit) && partitionExpression.isPresent()) {
                 List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
-                anyFoundDateTrunc = anyFoundDateTrunc
-                        || (dateTruncs.size() == 1
-                        && Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(1).toString().toLowerCase()));
+                anyFoundDateTrunc = anyFoundDateTrunc || (dateTruncs.size() == 1
+                        && (Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(0).toString().toLowerCase())
+                        || Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(1).toString().toLowerCase())));
             }
             try {
                 relatedTableColumnPairs.add(
