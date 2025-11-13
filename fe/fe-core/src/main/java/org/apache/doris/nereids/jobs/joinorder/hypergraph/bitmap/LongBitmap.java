@@ -155,6 +155,11 @@ public class LongBitmap {
         return SIZE - Long.numberOfLeadingZeros(newBitmap) - 1;
     }
 
+    // return true if bitmap1 contains all bits in bitmap2
+    public static boolean containAll(long bitmap1, long bitmap2) {
+        return (bitmap1 & bitmap2) == bitmap2;
+    }
+
     public static int lowestOneIndex(long bitmap) {
         return Long.numberOfTrailingZeros(bitmap);
     }
