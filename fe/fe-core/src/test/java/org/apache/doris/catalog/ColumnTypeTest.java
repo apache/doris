@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
@@ -41,7 +40,7 @@ public class ColumnTypeTest {
     }
 
     @Test
-    public void testPrimitiveType() throws AnalysisException {
+    public void testPrimitiveType() {
         Type type = ScalarType.createType(PrimitiveType.INT);
         Assert.assertEquals(PrimitiveType.INT, type.getPrimitiveType());
         Assert.assertEquals("int", type.toSql());
@@ -55,12 +54,8 @@ public class ColumnTypeTest {
         Assert.assertNotSame(type, type3);
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testInvalidType() throws AnalysisException {
-    }
-
     @Test
-    public void testCharType() throws AnalysisException {
+    public void testCharType() {
         Type type = ScalarType.createVarchar(10);
         Assert.assertEquals("varchar(10)", type.toSql());
         Assert.assertEquals(PrimitiveType.VARCHAR, type.getPrimitiveType());
@@ -80,7 +75,7 @@ public class ColumnTypeTest {
     }
 
     @Test
-    public void testDecimal() throws AnalysisException {
+    public void testDecimal() {
         Type type = ScalarType.createDecimalType(12, 5);
         if (Config.enable_decimal_conversion) {
             Assert.assertEquals("decimalv3(12,5)", type.toSql());
@@ -108,7 +103,7 @@ public class ColumnTypeTest {
     }
 
     @Test
-    public void testDatetimeV2() throws AnalysisException {
+    public void testDatetimeV2() {
         Type type = ScalarType.createDatetimeV2Type(3);
         Assert.assertEquals("datetimev2(3)", type.toSql());
         Assert.assertEquals(PrimitiveType.DATETIMEV2, type.getPrimitiveType());
@@ -136,7 +131,7 @@ public class ColumnTypeTest {
     }
 
     @Test
-    public void testDateV2() throws AnalysisException {
+    public void testDateV2() {
         Type type = ScalarType.createType(PrimitiveType.DATE);
         Type type2 = ScalarType.createType(PrimitiveType.DATEV2);
         Assert.assertNotEquals(type, type2);
@@ -147,7 +142,7 @@ public class ColumnTypeTest {
     }
 
     @Test
-    public void testTimeV2() throws AnalysisException {
+    public void testTimeV2() {
         Type type = ScalarType.createTimeV2Type(3);
         Assert.assertEquals("time(3)", type.toSql());
         Assert.assertEquals(PrimitiveType.TIMEV2, type.getPrimitiveType());
@@ -167,18 +162,6 @@ public class ColumnTypeTest {
         // different type
         Type type4 = ScalarType.createType(PrimitiveType.BIGINT);
         Assert.assertNotEquals(type, type4);
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testDecimalPreFail() throws AnalysisException {
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testDecimalScaleFail() throws AnalysisException {
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testDecimalScaleLargeFail() throws AnalysisException {
     }
 
     @Test
