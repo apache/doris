@@ -43,11 +43,6 @@ under the License.
     </profiles>
     <dependencies>
         <dependency>
-            <groupId>javax.annotation</groupId>
-            <artifactId>javax.annotation-api</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.google.guava/guava -->
-        <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
         </dependency>

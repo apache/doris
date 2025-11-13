@@ -105,8 +105,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
-import org.apache.doris.deploy.impl.AmbariDeployManager;
-import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.encryption.KeyManagerFactory;
@@ -1555,11 +1553,7 @@ public class Env {
         }
 
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
-            if (Config.enable_deploy_manager.equalsIgnoreCase("k8s")) {
-                deployManager = new K8sDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("ambari")) {
-                deployManager = new AmbariDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
+            if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
                 deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
             } else {
                 throw new AnalysisException("Unknow deploy manager: " + Config.enable_deploy_manager);
