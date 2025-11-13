@@ -274,7 +274,7 @@ public class HMSTransaction implements Transaction {
                                 nameMapping,
                                 false,
                                 sd.getInputFormat(),
-                                pu.getLocation().getTargetPath(),
+                                writePath,
                                 HiveUtil.toPartitionValues(pu.getName()),
                                 Maps.newHashMap(),
                                 sd.getOutputFormat(),
