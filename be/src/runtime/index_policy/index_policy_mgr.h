@@ -22,10 +22,12 @@
 #include <shared_mutex>
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/normalizer/custom_normalizer.h"
 
 namespace doris {
 
 using Policys = std::unordered_map<int64_t, TIndexPolicy>;
+using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
 
 class IndexPolicyMgr {
 public:
@@ -36,9 +38,12 @@ public:
                               const std::vector<int64_t>& policies_to_delete);
 
     const Policys& get_index_policys();
-    segment_v2::inverted_index::CustomAnalyzerPtr get_policy_by_name(const std::string& name);
+    AnalyzerPtr get_policy_by_name(const std::string& name);
 
 private:
+    AnalyzerPtr build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer);
+    AnalyzerPtr build_normalizer_from_policy(const TIndexPolicy& index_policy_normalizer);
+
     constexpr static auto PROP_TOKENIZER = "tokenizer";
     constexpr static auto PROP_CHAR_FILTER = "char_filter";
     constexpr static auto PROP_TOKEN_FILTER = "token_filter";

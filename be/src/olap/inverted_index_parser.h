@@ -46,7 +46,7 @@ enum class InvertedIndexParserType {
 using CharFilterMap = std::map<std::string, std::string>;
 
 struct InvertedIndexCtx {
-    std::string custom_analyzer;
+    std::string analyzer_name;
     InvertedIndexParserType parser_type;
     std::string parser_mode;
     std::string support_phrase;
@@ -97,7 +97,7 @@ const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
 const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
 
-const std::string INVERTED_INDEX_CUSTOM_ANALYZER_KEY = "analyzer";
+const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
@@ -138,7 +138,6 @@ std::string get_parser_stopwords_from_properties(
 std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties);
 
-std::string get_custom_analyzer_string_from_properties(
-        const std::map<std::string, std::string>& properties);
+std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
 } // namespace doris

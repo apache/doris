@@ -192,7 +192,7 @@ public class IndexDefinition {
                                && indexType == IndexType.INVERTED && properties != null
                                && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                                    || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY))) {
+                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY))) {
                     throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
                         + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
                 }
@@ -364,6 +364,6 @@ public class IndexDefinition {
                 && properties != null
                         && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                             || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY));
     }
 }
