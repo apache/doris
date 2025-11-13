@@ -262,12 +262,23 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const auto offsets_buffer = concrete_array->value_offsets();
+        const uint8_t* offsets_data = offsets_buffer->data();
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
+                int32_t start_offset;
+                int32_t end_offset;
+
+                memcpy(&start_offset, offsets_data + offset_i * sizeof(int32_t), sizeof(int32_t));
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * sizeof(int32_t),
+                       sizeof(int32_t));
+
+                int32_t length = end_offset - start_offset;
+                const auto* raw_data = buffer->data() + start_offset;
+
                 assert_cast<ColumnType&>(column).insert_data(
-                        (char*)raw_data, concrete_array->value_length(offset_i));
+                        reinterpret_cast<const char*>(raw_data), length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }

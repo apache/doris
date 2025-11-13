@@ -398,7 +398,11 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         }
         }
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto utc_epoch = static_cast<UInt64>(concrete_array->Value(value_i));
+            int64_t utc_epoch_raw;
+            const auto* raw_data_ptr = concrete_array->raw_values() + value_i;
+            memcpy(&utc_epoch_raw, raw_data_ptr, sizeof(int64_t));
+
+            auto utc_epoch = static_cast<UInt64>(utc_epoch_raw);
 
             DateV2Value<DateTimeV2ValueType> v;
             // convert second
