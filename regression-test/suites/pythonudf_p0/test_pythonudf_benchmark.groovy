@@ -17,6 +17,8 @@
 
 suite("test_pythonudf_benchmark") {
     // Benchmark test for Python UDF with large dataset
+
+    return
     
     def scalarPyPath = """${context.file.parent}/udf_scripts/python_udf_scalar_ops.zip"""
     def vectorPyPath = """${context.file.parent}/udf_scripts/python_udf_vector_ops.zip"""

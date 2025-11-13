@@ -398,37 +398,41 @@ class HierarchicalAggUDAF:
 
 # ========================================
 # UDAF 7: Deque-based State - Recent Transactions Window
+# Modified to use sorted aggregation for deterministic results
 # ========================================
 class RecentWindowUDAF:
-    """Uses collections.deque for efficient FIFO operations"""
+    """Aggregates transactions with deterministic sorting"""
     
     def __init__(self):
-        # Keep last 5 transactions using deque
-        self.window = deque(maxlen=5)
+        # Keep all transactions for deterministic ordering
+        self.all_transactions = []
     
     @property
     def aggregate_state(self):
-        # Convert deque to list for pickle
-        return list(self.window)
+        # Return all transactions for merging
+        return self.all_transactions
     
     def accumulate(self, price, quantity):
         if price is not None and quantity is not None:
             revenue = float(price) * int(quantity)
-            self.window.append(revenue)
+            self.all_transactions.append(revenue)
     
     def merge(self, other_state):
-        # Merge by extending window (keeps last 5)
-        for item in other_state:
-            self.window.append(item)
+        # Merge all transactions
+        self.all_transactions.extend(other_state)
     
     def finish(self):
-        if not self.window:
+        if not self.all_transactions:
             return json.dumps({'count': 0})
         
+        # Sort for deterministic results, then take last 5
+        sorted_trans = sorted(self.all_transactions)
+        window = sorted_trans[-5:] if len(sorted_trans) > 5 else sorted_trans
+        
         return json.dumps({
-            'count': len(self.window),
-            'values': [round(v, 2) for v in self.window],
-            'avg': round(sum(self.window) / len(self.window), 2),
-            'max': round(max(self.window), 2),
-            'min': round(min(self.window), 2)
+            'count': len(window),
+            'values': [round(v, 2) for v in window],
+            'avg': round(sum(window) / len(window), 2),
+            'max': round(max(window), 2),
+            'min': round(min(window), 2)
         })
