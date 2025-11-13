@@ -155,7 +155,7 @@ void primary_to_direct_mapping(Method* context, const vectorized::ColumnRawPtrs&
     }
 
     constexpr auto MAX_MAPPING_RANGE = 1 << 23;
-    bool allow_direct_mapping = (max_key >= min_key && max_key - min_key + 1 < MAX_MAPPING_RANGE);
+    bool allow_direct_mapping = (max_key >= min_key && max_key - min_key < MAX_MAPPING_RANGE - 1);
     if (allow_direct_mapping) {
         for (const auto& variant_ptr : variant_ptrs) {
             variant_ptr->method_variant.emplace<DirectPrimaryTypeHashTableContext<FieldType>>(
