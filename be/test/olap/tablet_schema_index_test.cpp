@@ -166,18 +166,18 @@ TEST_F(TabletSchemaIndexTest, TestUpdateIndexWithMultipleColumns) {
 TEST_F(TabletSchemaIndexTest, TestRemoveParserAndAnalyzer) {
     std::map<std::string, std::string> properties = {
             {INVERTED_INDEX_PARSER_KEY, "english"},
-            {INVERTED_INDEX_CUSTOM_ANALYZER_KEY, "my_analyzer"}};
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, "my_analyzer"}};
 
     TabletIndex index =
             create_test_index_with_pb(1, IndexType::INVERTED, {100}, "suffix1", properties);
 
     EXPECT_TRUE(index.properties().contains(INVERTED_INDEX_PARSER_KEY));
-    EXPECT_TRUE(index.properties().contains(INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+    EXPECT_TRUE(index.properties().contains(INVERTED_INDEX_ANALYZER_NAME_KEY));
 
     index.remove_parser_and_analyzer();
 
     EXPECT_FALSE(index.properties().contains(INVERTED_INDEX_PARSER_KEY));
-    EXPECT_FALSE(index.properties().contains(INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+    EXPECT_FALSE(index.properties().contains(INVERTED_INDEX_ANALYZER_NAME_KEY));
 }
 
 TEST_F(TabletSchemaIndexTest, TestIsSameExceptId) {
