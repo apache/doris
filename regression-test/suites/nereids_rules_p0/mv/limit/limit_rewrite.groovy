@@ -179,6 +179,7 @@ suite("limit_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             where o_orderdate > '2023-12-08'
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 8 offset 1;
             """
     def query1_0 =
@@ -195,6 +196,7 @@ suite("limit_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             where o_orderdate > '2023-12-08'
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 4 offset 2;
             """
     def result1_0 = sql """${query1_0}"""
@@ -216,6 +218,7 @@ suite("limit_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             where o_orderdate > '2023-12-08'
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 8 offset 1;
             """
     def query1_1 =
@@ -232,6 +235,7 @@ suite("limit_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             where o_orderdate > '2023-12-09'
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 4 offset 2;
             """
     // the filter in query and view is different, shoule fail
@@ -252,6 +256,7 @@ suite("limit_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             where o_orderdate > '2023-12-08'
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 8 offset 1;
             """
     def query1_2 =
@@ -268,6 +273,7 @@ suite("limit_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             where o_orderdate > '2023-12-08'
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 4 offset 12;
             """
     // limit and offset in query is larger than the view, should fail
@@ -289,6 +295,7 @@ suite("limit_rewrite") {
             join lineitem on l_orderkey = o_orderkey
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 8 offset 1;
             """
     def query2_0 =
@@ -304,6 +311,7 @@ suite("limit_rewrite") {
             join lineitem on l_orderkey = o_orderkey
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 4 offset 2;
             """
     def result2_0 = sql """${query2_0}"""
@@ -325,6 +333,7 @@ suite("limit_rewrite") {
             join lineitem on l_orderkey = o_orderkey
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 8 offset 1;
             """
     def query2_1 =
@@ -340,6 +349,7 @@ suite("limit_rewrite") {
             join lineitem on l_orderkey = o_orderkey
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             group by o_orderdate, l_orderkey
+            order by o_orderdate, l_orderkey
             limit 4 offset 12;
             """
     async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
@@ -527,7 +537,7 @@ suite("limit_rewrite") {
             o_shippriority,
             o_comment
             from
-            orders 
+            orders
             where o_orderdate > '2023-12-08'
             limit 4 offset 2;
             """
@@ -538,7 +548,7 @@ suite("limit_rewrite") {
             o_shippriority,
             o_comment
             from
-            orders 
+            orders
             where o_orderdate > '2023-12-08'
             limit 2 offset 3;
             """
