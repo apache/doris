@@ -582,12 +582,12 @@ TEST(FunctionMatchTest, custom_analyzer_handling) {
     auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
 
     // Test without custom analyzer
-    ctx.ctx->custom_analyzer = "";
+    ctx.ctx->analyzer_name = "";
     auto tokens1 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
     EXPECT_GT(tokens1.size(), 0);
 
     // Test with custom analyzer (should be handled appropriately)
-    ctx.ctx->custom_analyzer = "custom_analyzer_name";
+    ctx.ctx->analyzer_name = "custom_analyzer_name";
     auto tokens2 = match_any.analyse_query_str_token(ctx.ctx.get(), "test query", "test_col");
     // Custom analyzer handling would depend on implementation details
     EXPECT_GE(tokens2.size(), 0);
