@@ -1674,7 +1674,8 @@ public class TypeCoercionUtils {
                 otherType = t1;
             }
             if (dateType.isDateType() || dateType.isDateV2Type()) {
-                if (otherType.isIntegerType() || otherType.isBigIntType() || otherType.isLargeIntType()) {
+                if (otherType.isIntegerType() || otherType.isBigIntType() || otherType.isLargeIntType()
+                        || otherType.isTinyIntType()) {
                     return Optional.of(otherType);
                 }
             }
