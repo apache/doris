@@ -440,6 +440,9 @@ struct OlapReaderStatistics {
     int64_t parse_footer_total_bytes = 0;
     int64_t parse_footer_read_fixed_timer_ns = 0;
     int64_t parse_footer_read_footer_timer_ns = 0;
+
+    int64_t pk_index_load_timer_ns = 0;
+    int64_t pk_index_load_bytes = 0;
 };
 
 using ColumnId = uint32_t;

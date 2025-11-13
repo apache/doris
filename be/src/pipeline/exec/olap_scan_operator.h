@@ -274,6 +274,9 @@ private:
 
     RuntimeProfile::Counter* _prefetch_segment_footer_timer = nullptr;
 
+    RuntimeProfile::Counter* _pk_index_load_timer = nullptr;
+    RuntimeProfile::Counter* _pk_index_load_bytes_counter = nullptr;
+
     std::mutex _profile_mtx;
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
