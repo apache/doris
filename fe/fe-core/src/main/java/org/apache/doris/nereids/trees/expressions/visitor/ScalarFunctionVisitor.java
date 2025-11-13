@@ -177,6 +177,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
@@ -1135,6 +1136,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDaysDiff(DaysDiff daysDiff, C context) {
         return visitScalarFunction(daysDiff, context);
+    }
+
+    default R visitDayHourAdd(DayHourAdd dayHourAdd, C context) {
+        return visitScalarFunction(dayHourAdd, context);
     }
 
     default R visitDaysAdd(DaysAdd daysAdd, C context) {
