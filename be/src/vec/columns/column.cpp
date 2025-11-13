@@ -78,7 +78,7 @@ bool IColumn::null_map_check() const {
 
     bool is_valid = check_null_map_is_zero_or_one(*this);
     ColumnCallback callback = [&](ColumnPtr& subcolumn) {
-        if (!check_null_map_is_zero_or_one(*subcolumn)) {
+        if (!subcolumn->null_map_check()) {
             is_valid = false;
         }
     };
@@ -90,12 +90,12 @@ bool IColumn::null_map_check() const {
 Status IColumn::column_self_check() const {
     // check const nested
     if (!const_nested_check()) {
-        return Status::InvalidArgument("const nested check failed for column: {} , {}", get_name(),
-                                       dump_structure());
+        return Status::InternalError("const nested check failed for column: {} , {}", get_name(),
+                                     dump_structure());
     }
     // check null map
     if (!null_map_check()) {
-        return Status::InvalidArgument("null map check failed for column: {}", get_name());
+        return Status::InternalError("null map check failed for column: {}", get_name());
     }
     return Status::OK();
 }
