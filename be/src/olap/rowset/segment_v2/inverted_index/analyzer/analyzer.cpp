@@ -157,19 +157,58 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 
     lucene::analysis::Token token;
     int32_t position = 0;
+    int32_t last_position = -1;
+
     while (token_stream->next(&token)) {
         if (token.termLength<char>() != 0) {
-            TermInfo t;
-            t.term = std::string(token.termBuffer<char>(), token.termLength<char>());
+            std::string term_str(token.termBuffer<char>(), token.termLength<char>());
             position += token.getPositionIncrement();
-            t.position = position;
-            analyse_result.emplace_back(std::move(t));
+
+            if (position == last_position && !analyse_result.empty()) {
+                auto& last_term_info = analyse_result.back();
+
+                if (last_term_info.is_single_term()) {
+                    std::vector<std::string> multi_terms;
+                    multi_terms.reserve(2);
+                    multi_terms.push_back(std::move(std::get<std::string>(last_term_info.term)));
+                    multi_terms.push_back(std::move(term_str));
+                    last_term_info.term = std::move(multi_terms);
+                } else {
+                    std::get<std::vector<std::string>>(last_term_info.term)
+                            .push_back(std::move(term_str));
+                }
+            } else {
+                TermInfo t;
+                t.term = std::move(term_str);
+                t.position = position;
+                analyse_result.emplace_back(std::move(t));
+                last_position = position;
+            }
         }
     }
 
     if (token_stream != nullptr) {
         token_stream->close();
     }
+
+#ifndef NDEBUG
+    // Debug print analysis result (only compiled in debug mode)
+    LOG(INFO) << "Analysis result: term_infos.size()=" << analyse_result.size();
+    for (size_t i = 0; i < analyse_result.size(); ++i) {
+        const auto& term_info = analyse_result[i];
+        if (term_info.is_single_term()) {
+            LOG(INFO) << "  [" << i << "] position=" << term_info.position << ", single_term='"
+                      << term_info.get_single_term() << "'";
+        } else if (term_info.is_multi_terms()) {
+            const auto& terms = term_info.get_multi_terms();
+            LOG(INFO) << "  [" << i << "] position=" << term_info.position
+                      << ", multi_terms_count=" << terms.size();
+            for (size_t j = 0; j < terms.size(); ++j) {
+                LOG(INFO) << "    [" << j << "] '" << terms[j] << "'";
+            }
+        }
+    }
+#endif
 
     return analyse_result;
 }
