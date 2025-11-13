@@ -584,15 +584,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return exprRewriter.rewriteExpr(plan);
                 }
             }, null);
-            // 这个方法似乎无法解决物化视图改写的问题，看来可能还是要把使用到aggfunc的改写去挨个改一下，把session var带上
-            // CacheSignature cacheSignature = new CacheSignature(parentContext);
-            // analyzedPlan.accept(new DefaultPlanRewriter<Void>() {
-            //     @Override
-            //     public Plan visit(Plan plan, Void ctx) {
-            //         plan = super.visit(plan, ctx);
-            //         return cacheSignature.rewriteExpr(plan);
-            //     }
-            // }, null);
         }
         return analyzedPlan;
     }

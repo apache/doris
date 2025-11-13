@@ -85,7 +85,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private final MTMVRefreshInfo refreshInfo;
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
-    private Map<String, String> sessionVariables;
+    private final Map<String, String> sessionVariables;
 
     /**
      * constructor for create MTMV

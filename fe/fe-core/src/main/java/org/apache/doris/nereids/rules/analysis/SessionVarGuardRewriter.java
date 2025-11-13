@@ -72,17 +72,16 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return ImmutableList.of(
                     matchesType(Alias.class).thenApply(ctx -> {
                         Alias alias = ctx.expr;
-                        // 对alias的child进行改写，对实现了NeedSessionVarGuard接口的表达式，添加SessionVarGuardExpr
-                        // 自顶向下遍历，发现第一个需要添加SessionVarGuardExpr的表达式就添加，避免重复添加
-                        Expression aliasChild = alias.child().accept(new AddSessionVarGuard(sessionVar), null);
-                        return alias.withChildren(aliasChild);
+                        // 对 alias 的 child 进行改写，保证所有实现 NeedSessionVarGuard 的表达式都会被独立包裹一层
+                        Expression aliasChild = alias.child().accept(new AddSessionVarGuard(sessionVar), Boolean.FALSE);
+                        return alias.withChildren(ImmutableList.of(aliasChild));
                     }).toRule(ExpressionRuleType.ADD_SESSION_VAR_GUARD)
             );
         }
     }
 
     /**AddSessionVarGuard*/
-    public static class AddSessionVarGuard extends DefaultExpressionRewriter<Void> {
+    public static class AddSessionVarGuard extends DefaultExpressionRewriter<Boolean> {
         private final Map<String, String> sessionVar;
 
         public AddSessionVarGuard(Map<String, String> var) {
@@ -90,15 +89,23 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         }
 
         @Override
-        public Expression visit(Expression expr, Void context) {
-            if (expr instanceof NeedSessionVarGuard) {
-                return new SessionVarGuardExpr(expr, sessionVar);
+        public Expression visit(Expression expr, Boolean insideGuard) {
+            Expression rewritten = rewriteChildren(this, expr, Boolean.FALSE);
+            if (expr instanceof NeedSessionVarGuard && !Boolean.TRUE.equals(insideGuard)) {
+                if (rewritten instanceof SessionVarGuardExpr) {
+                    return rewritten;
+                }
+                return new SessionVarGuardExpr(rewritten, sessionVar);
             }
-            return rewriteChildren(this, expr, context);
+            return rewritten;
         }
 
         @Override
-        public Expression visitSessionVarGuardExpr(SessionVarGuardExpr expr, Void context) {
+        public Expression visitSessionVarGuardExpr(SessionVarGuardExpr expr, Boolean context) {
+            Expression child = expr.child().accept(this, Boolean.TRUE);
+            if (child != expr.child()) {
+                return expr.withChildren(ImmutableList.of(child));
+            }
             return expr;
         }
     }

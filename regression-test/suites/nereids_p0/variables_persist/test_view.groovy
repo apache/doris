@@ -201,4 +201,45 @@ suite("test_view") {
         set enable_decimal256=false;
     """
     qt_if_condition_func "select * from v_test_if_condition;"
+
+    // array func
+    multi_sql """
+    set enable_decimal256=true;
+    drop view if EXISTS v_test_array_func;
+    create view v_test_array_func as
+    select array_sum(array(a*b,a*b)), array_avg(array(a*b,a*b-1)),array_max(array(a*b,a*b+1)), array_min(array(a*b,a*b+1)),array_cum_sum(array(a*b,a*b)) from t_decimalv3;
+    set enable_decimal256=false;"""
+    qt_array_funcs "select * from v_test_array_func;"
+
+    multi_sql """set enable_decimal256=true;
+    drop view if EXISTS v_test_array_product;
+    create view v_test_array_product as
+    select  array_product(array(f1,f2)) from test_decimal_mul_overflow1;
+    set enable_decimal256=false;"""
+    qt_array_product "select * from v_test_array_product;"
+
+    // compare expr
+    multi_sql """
+        set enable_decimal256=true;
+        drop view if exists v_test_compare;
+        create view v_test_compare as select *,a=b equal, a <=> b nullsafe, a<b lessthan, b>a greaterthan from t_decimalv3_for_compare;
+        set enable_decimal256=false;
+    """
+    qt_compare_expr "select * from v_test_compare;"
+
+    multi_sql """
+        set enable_decimal256=true;
+        drop view if exists v_test_in;
+        create view v_test_in as select a in (b,123) in_col from t_decimalv3_for_compare;
+        set enable_decimal256=false;
+    """
+    qt_int "select * from v_test_in;"
+
+    multi_sql """
+        set enable_decimal256=true;
+        drop view if exists v_test_union;
+        create view v_test_union as select a from t_decimalv3_for_compare union all select b from t_decimalv3_for_compare;
+        set enable_decimal256=false;
+    """
+    qt_union "select * from v_test_union;"
 }

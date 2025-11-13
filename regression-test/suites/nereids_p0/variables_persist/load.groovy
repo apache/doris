@@ -31,7 +31,14 @@ suite("load") {
         create table t_decimalv3(a decimal(38,9),b decimal(38,10))
         DISTRIBUTED BY HASH(a)
         PROPERTIES("replication_num" = "1");
-        set enable_decimal256=false;
         insert into t_decimalv3 values(1.012345678,1.0123456789);
+    """
+
+    multi_sql """
+        drop table if exists t_decimalv3_for_compare;
+        create table t_decimalv3_for_compare(a decimal(38,9),b decimal(38,10))
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        insert into t_decimalv3_for_compare values(1.012345678,1.0123456781);
     """
 }
