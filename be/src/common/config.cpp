@@ -1164,6 +1164,7 @@ DEFINE_mInt32(file_cache_num_parallel_prefetch, "0");
 // config::file_cache_each_block_size + 10KB
 // if tail read is 101KB, the actual IO is 101KB
 DEFINE_mInt64(file_cache_tail_read_extra_bytes_threshold, "102400");
+DEFINE_mInt64(file_cache_tail_read_extra_factor, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
