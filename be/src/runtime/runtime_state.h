@@ -200,10 +200,6 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
-    bool enable_decimal256() const {
-        return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
-    }
-
     bool enable_common_expr_pushdown() const {
         return _query_options.__isset.enable_common_expr_pushdown &&
                _query_options.enable_common_expr_pushdown;

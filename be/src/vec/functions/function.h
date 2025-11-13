@@ -48,7 +48,6 @@
 namespace doris::vectorized {
 
 struct FunctionAttr {
-    bool enable_decimal256 {false};
     bool new_version_unix_timestamp {false};
 };
 

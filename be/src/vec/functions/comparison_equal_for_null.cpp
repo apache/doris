@@ -181,9 +181,8 @@ public:
                             ""}};
             Block temporary_block(eq_columns);
 
-            auto func_eq = SimpleFunctionFactory::instance().get_function(
-                    "eq", eq_columns, return_type,
-                    {.enable_decimal256 = context ? context->state()->enable_decimal256() : false});
+            auto func_eq = SimpleFunctionFactory::instance().get_function("eq", eq_columns,
+                                                                          return_type, {});
             DCHECK(func_eq) << fmt::format("Left type {} right type {} return type {}",
                                            col_left.type->get_name(), col_right.type->get_name(),
                                            return_type->get_name());
@@ -221,9 +220,8 @@ public:
             const ColumnsWithTypeAndName eq_columns {
                     ColumnWithTypeAndName {col_left.column, col_left.type, ""},
                     ColumnWithTypeAndName {col_right.column, col_right.type, ""}};
-            auto func_eq = SimpleFunctionFactory::instance().get_function(
-                    "eq", eq_columns, return_type,
-                    {.enable_decimal256 = context ? context->state()->enable_decimal256() : false});
+            auto func_eq = SimpleFunctionFactory::instance().get_function("eq", eq_columns,
+                                                                          return_type, {});
             DCHECK(func_eq);
 
             Block temporary_block(eq_columns);
