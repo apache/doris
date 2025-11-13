@@ -80,7 +80,7 @@ public class Index implements Writable {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                         || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)) {
                     String supportPhraseKey = InvertedIndexUtil
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!this.properties.containsKey(supportPhraseKey)) {
@@ -209,8 +209,8 @@ public class Index implements Writable {
                 || (indexType == IndexDefinition.IndexType.INVERTED);
     }
 
-    public String getInvertedIndexCustomAnalyzer() {
-        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
+    public String getInvertedIndexAnalyzerName() {
+        return InvertedIndexUtil.getInvertedIndexAnalyzerName(properties);
     }
 
     public String getComment() {
@@ -386,6 +386,6 @@ public class Index implements Writable {
                 && properties != null
                 && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY));
     }
 }

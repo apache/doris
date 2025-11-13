@@ -17,63 +17,40 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
-
-#include "olap/rowset/segment_v2/inverted_index/setting.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer_config.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class ComponentConfig;
-using ComponentConfigPtr = std::shared_ptr<ComponentConfig>;
+class CustomNormalizerConfig;
+using CustomNormalizerConfigPtr = std::shared_ptr<CustomNormalizerConfig>;
 
-class CustomAnalyzerConfig;
-using CustomAnalyzerConfigPtr = std::shared_ptr<CustomAnalyzerConfig>;
-
-class CustomAnalyzerConfig {
+class CustomNormalizerConfig {
 public:
     class Builder {
     public:
         Builder() = default;
         ~Builder() = default;
 
-        void with_tokenizer_config(const std::string& name, const Settings& params);
         void add_char_filter_config(const std::string& name, const Settings& params);
         void add_token_filter_config(const std::string& name, const Settings& params);
-        CustomAnalyzerConfigPtr build();
+        CustomNormalizerConfigPtr build();
 
     private:
-        ComponentConfigPtr _tokenizer_config;
         std::vector<ComponentConfigPtr> _char_filters;
         std::vector<ComponentConfigPtr> _token_filters;
 
-        friend class CustomAnalyzerConfig;
+        friend class CustomNormalizerConfig;
     };
 
-    CustomAnalyzerConfig(Builder* builder);
-    ~CustomAnalyzerConfig() = default;
+    CustomNormalizerConfig(Builder* builder);
+    ~CustomNormalizerConfig() = default;
 
-    ComponentConfigPtr get_tokenizer_config();
     std::vector<ComponentConfigPtr> get_char_filter_configs();
     std::vector<ComponentConfigPtr> get_token_filter_configs();
 
 private:
-    ComponentConfigPtr _tokenizer_config;
     std::vector<ComponentConfigPtr> _char_filters;
     std::vector<ComponentConfigPtr> _token_filters;
-};
-
-class ComponentConfig {
-public:
-    ComponentConfig(std::string name, Settings params);
-    ~ComponentConfig() = default;
-
-    std::string get_name() const;
-    Settings get_params() const;
-
-private:
-    std::string _name;
-    Settings _params;
 };
 
 } // namespace doris::segment_v2::inverted_index
