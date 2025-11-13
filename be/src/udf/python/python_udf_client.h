@@ -19,52 +19,57 @@
 
 #include <arrow/status.h>
 
-#include "arrow/flight/client.h"
-#include "common/status.h"
-#include "udf/python/python_udf_meta.h"
-#include "udf/python/python_udf_runtime.h"
-#include "util/arrow/utils.h"
+#include "udf/python/python_client.h"
 
 namespace doris {
 
 class PythonUDFClient;
-class PythonUDFProcessPool;
 
 using PythonUDFClientPtr = std::shared_ptr<PythonUDFClient>;
 
-class PythonUDFClient {
+/**
+ * Python UDF Client
+ *
+ * Implements standard UDF (User-Defined Function) pattern with a single evaluation function:
+ * - evaluate_func(*args): Process input arguments and return result
+ *
+ * UDF Characteristics:
+ * - Takes scalar or column inputs
+ * - Returns scalar or column outputs
+ * - Stateless evaluation (each call is independent)
+ * - Simple input-output transformation
+ *
+ * Example:
+ * ```python
+ * def evaluate_func(x, y):
+ *     # Add two numbers
+ *     return x + y
+ * ```
+ *
+ * Communication protocol with Python server:
+ * 1. Send input batch (RecordBatch with N rows)
+ * 2. Python calls evaluate_func() for each row (or vectorized)
+ * 3. Receive output batch (RecordBatch with N rows)
+ */
+class PythonUDFClient : public PythonClient {
 public:
-    using FlightDescriptor = arrow::flight::FlightDescriptor;
-    using FlightClient = arrow::flight::FlightClient;
-    using FlightStreamWriter = arrow::flight::FlightStreamWriter;
-    using FlightStreamReader = arrow::flight::FlightStreamReader;
-
     PythonUDFClient() = default;
-
-    ~PythonUDFClient() = default;
+    ~PythonUDFClient() override = default;
 
     static Status create(const PythonUDFMeta& func_meta, ProcessPtr process,
                          PythonUDFClientPtr* client);
 
-    Status init(const PythonUDFMeta& func_meta, ProcessPtr process);
-
+    /**
+     * Evaluate UDF on input rows
+     *
+     * @param input Input row batch (columns = UDF function parameters)
+     * @param output Output row batch (single column = UDF return value)
+     * @return Status
+     */
     Status evaluate(const arrow::RecordBatch& input, std::shared_ptr<arrow::RecordBatch>* output);
-
-    Status close();
-
-    Status handle_error(arrow::Status status);
-
-    std::string print_process() const { return _process->to_string(); }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PythonUDFClient);
-
-    bool _inited = false;
-    bool _begin = false;
-    std::unique_ptr<FlightClient> _arrow_client;
-    std::unique_ptr<FlightStreamWriter> _writer;
-    std::unique_ptr<FlightStreamReader> _reader;
-    ProcessPtr _process;
 };
 
 } // namespace doris

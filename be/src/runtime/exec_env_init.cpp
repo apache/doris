@@ -99,7 +99,7 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
-#include "udf/python/python_udf_server.h"
+#include "udf/python/python_server.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
@@ -890,7 +890,7 @@ void ExecEnv::destroy() {
     _s_tracking_memory = false;
 
     clear_storage_resource();
-    PythonUDFServerManager::instance().shutdown();
+    PythonServerManager::instance().shutdown();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

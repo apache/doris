@@ -23,15 +23,6 @@ Home	{"unique_users": 1, "unique_products": 1, "payment_methods": ["Debit"]}
 -- !test_hierarchical_agg --
 {"East": {"categories": {"Electronics": {"products": 3, "revenue": 1479.95}, "Furniture": {"products": 1, "revenue": 299.99}}, "total_revenue": 1779.94}, "North": {"categories": {"Electronics": {"products": 5, "revenue": 2069.93}}, "total_revenue": 2069.93}, "South": {"categories": {"Accessories": {"products": 1, "revenue": 29.97}, "Electronics": {"products": 2, "revenue": 879.97}, "Home": {"products": 1, "revenue": 45.99}}, "total_revenue": 955.93}, "West": {"categories": {"Accessories": {"products": 1, "revenue": 31.98}, "Electronics": {"products": 1, "revenue": 29.99}}, "total_revenue": 61.97}}
 
--- !test_recent_window --
-101	{"count": 4, "values": [1299.99, 399.99, 59.98, 149.99], "avg": 477.49, "max": 1299.99, "min": 59.98}
-102	{"count": 3, "values": [79.99, 45.99, 29.97], "avg": 51.98, "max": 79.99, "min": 29.97}
-103	{"count": 3, "values": [89.99, 1299.99, 89.97], "avg": 493.32, "max": 1299.99, "min": 89.97}
-104	{"count": 2, "values": [29.99, 31.98], "avg": 30.98, "max": 31.98, "min": 29.99}
-105	{"count": 1, "values": [159.98], "avg": 159.98, "max": 159.98, "min": 159.98}
-106	{"count": 1, "values": [799.98], "avg": 799.98, "max": 799.98, "min": 799.98}
-107	{"count": 1, "values": [299.99], "avg": 299.99, "max": 299.99, "min": 299.99}
-
 -- !test_complex_window --
 101	Laptop Pro	1299.99	{"101": {"item_count": 1, "total_spent": 1299.99, "unique_categories": 1}}
 101	Mouse	29.99	{"101": {"item_count": 2, "total_spent": 1359.97, "unique_categories": 1}}

@@ -221,6 +221,8 @@ public class Function implements Writable {
         this.isUDTFunction = other.isUDTFunction;
         this.isStaticLoad = other.isStaticLoad;
         this.expirationTime = other.expirationTime;
+        this.runtimeVersion = other.runtimeVersion;
+        this.functionCode = other.functionCode;
     }
 
     public void setNestedFunction(Function nestedFunction) {
