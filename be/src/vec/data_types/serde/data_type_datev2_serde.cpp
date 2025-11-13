@@ -115,8 +115,12 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
     auto& col_data = static_cast<ColumnDateV2&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
     for (auto value_i = start; value_i < end; ++value_i) {
+        int32_t date_value;
+        const auto* raw_data_ptr = concrete_array->raw_values() + value_i;
+        memcpy(&date_value, raw_data_ptr, sizeof(int32_t));
+
         DateV2Value<DateV2ValueType> v;
-        v.get_date_from_daynr(concrete_array->Value(value_i) + date_threshold);
+        v.get_date_from_daynr(date_value + date_threshold);
         col_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
     }
     return Status::OK();
