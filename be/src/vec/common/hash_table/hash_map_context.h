@@ -160,7 +160,6 @@ struct MethodBaseInner {
                                           uint32_t num_rows) = 0;
 
     virtual uint32_t direct_mapping_range() { return 0; }
-
 };
 
 template <typename T>
@@ -447,32 +446,32 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
 
         if (null_map == nullptr) {
             if (is_build) {
-                for (uint32_t k = 0; k < num_rows; ++k) {
-                    Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key);
+                for (uint32_t k = 1; k < num_rows; ++k) {
+                    Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
                 }
             } else {
                 for (uint32_t k = 0; k < num_rows; ++k) {
                     if (Base::keys[k] < _min_key || Base::keys[k] > _max_key) {
-                        Base::bucket_nums[k] = bucket_size - 1;
+                        Base::bucket_nums[k] = 0;
                     } else {
-                        Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key);
+                        Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
                     }
                 }
             }
         } else {
             if (is_build) {
-                for (uint32_t k = 0; k < num_rows; ++k) {
+                for (uint32_t k = 1; k < num_rows; ++k) {
                     Base::bucket_nums[k] =
-                            null_map[k] ? bucket_size : uint32_t(Base::keys[k] - _min_key);
+                            null_map[k] ? bucket_size : uint32_t(Base::keys[k] - _min_key + 1);
                 }
             } else {
                 for (uint32_t k = 0; k < num_rows; ++k) {
                     if (null_map[k]) {
                         Base::bucket_nums[k] = bucket_size;
                     } else if (Base::keys[k] < _min_key || Base::keys[k] > _max_key) {
-                        Base::bucket_nums[k] = bucket_size - 1;
+                        Base::bucket_nums[k] = 0;
                     } else {
-                        Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key);
+                        Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
                     }
                 }
             }
@@ -483,7 +482,6 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
         // +2 to include max_key and one slot for out of range value
         return static_cast<uint32_t>(_max_key - _min_key + 2);
     }
-
 };
 
 template <typename TData>
