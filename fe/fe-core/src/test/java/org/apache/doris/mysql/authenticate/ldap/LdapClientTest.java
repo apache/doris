@@ -49,10 +49,12 @@ public class LdapClientTest {
     public void testDoesUserExist() {
         List<String> list = Arrays.asList("zhangsan");
 
-        new Expectations(ldapClient) {{
-            ldapClient.getDn((LdapQuery) any);
-            result = list;
-        }};
+        new Expectations(ldapClient) {
+            {
+                ldapClient.getDn((LdapQuery) any);
+                result = list;
+            }
+        };
 
         boolean result = ldapClient.doesUserExist("zhangsan");
         Assert.assertTrue(result);
@@ -60,31 +62,37 @@ public class LdapClientTest {
 
     @Test
     public void testDoesUserExistFail() {
-        new Expectations(ldapClient) {{
-            ldapClient.getDn((LdapQuery) any);
-            result = null;
-        }};
+        new Expectations(ldapClient) {
+            {
+                ldapClient.getDn((LdapQuery) any);
+                result = null;
+            }
+        };
         Assert.assertFalse(ldapClient.doesUserExist("zhangsan"));
     }
 
     @Test(expected = RuntimeException.class)
     public void testDoesUserExistException() {
-        List<String> list = Arrays.asList("zhangsan","zhangsan");
-        new Expectations(ldapClient) {{
-            ldapClient.getDn((LdapQuery) any);
-            result = list;
-        }};
+        List<String> list = Arrays.asList("zhangsan", "zhangsan");
+        new Expectations(ldapClient) {
+            {
+                ldapClient.getDn((LdapQuery) any);
+                result = list;
+            }
+        };
         Assert.assertTrue(ldapClient.doesUserExist("zhangsan"));
         Assert.fail("No Exception throws.");
     }
 
     @Test
     public void testGetGroups() {
-        List<String> list =  Arrays.asList("cn=groupName,ou=groups,dc=example,dc=com");
-        new Expectations(ldapClient) {{
-            ldapClient.getDn((LdapQuery) any);
-            result = list;
-        }};
+        List<String> list = Arrays.asList("cn=groupName,ou=groups,dc=example,dc=com");
+        new Expectations(ldapClient) {
+            {
+                ldapClient.getDn((LdapQuery) any);
+                result = list;
+            }
+        };
         Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
     }
 }
