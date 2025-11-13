@@ -1599,8 +1599,7 @@ Status FileScanner::_generate_partition_columns() {
     }
     if (range.__isset.partition_field_transforms) {
         _partition_field_transforms = std::unordered_map<std::string, std::string>(
-                range.partition_field_transforms.begin(),
-                range.partition_field_transforms.end());
+                range.partition_field_transforms.begin(), range.partition_field_transforms.end());
     }
 
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
