@@ -236,6 +236,9 @@ private:
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<DataTypePtr>* col_types);
 
+    Status _process_one_line(Block* block, MutableColumns& columns, size_t* rows,
+                             bool* is_remove_bom, bool is_count_agg);
+
     // If the CSV file is an UTF8 encoding with BOM,
     // then remove the first 3 bytes at the beginning of this file
     // and set size = size - 3.
