@@ -215,7 +215,7 @@ Status VDataStreamRecvr::SenderQueue::add_blocks(const PTransmitDataParams* requ
         const int64_t packet_seq = request->packet_seq();
         auto iter = _packet_seq_map.find(be_number);
         if (iter != _packet_seq_map.end()) {
-            if (iter->second >= packet_seq) {
+            if (iter->second >= (packet_seq - request->blocks_size())) {
                 return Status::InternalError(
                         "packet already exist [cur_packet_id= {} receive_packet_id={}]",
                         iter->second, packet_seq);
