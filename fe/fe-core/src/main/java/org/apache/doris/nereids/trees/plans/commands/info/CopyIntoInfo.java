@@ -371,7 +371,7 @@ public class CopyIntoInfo {
         brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
-        this.copyIntoProperties.analyze();
+        this.copyIntoProperties.validate();
     }
 
     public ShowResultSetMetaData getMetaData() {
