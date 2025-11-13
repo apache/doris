@@ -184,7 +184,6 @@ public class ColumnDef {
     // parameter initialized in constructor
     private String name;
     private Type type;
-    private boolean isTypeAnalyzed;
     private AggregateType aggregateType;
 
     private boolean isKey;
