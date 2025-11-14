@@ -37,8 +37,9 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>java-common</artifactId>
+            <artifactId>preload-extensions</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -57,12 +58,6 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
             <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
-            <version>${doris.hive.catalog.shade.version}</version>
         </dependency>
 
     </dependencies>
