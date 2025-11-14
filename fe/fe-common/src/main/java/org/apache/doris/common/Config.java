@@ -693,6 +693,12 @@ public class Config extends ConfigBase {
             "Whether to disable show stream load and clear stream load records in memory."})
     public static boolean disable_show_stream_load = false;
 
+    @ConfField(mutable = true, description = {
+            "是否开启stream load profile",
+            "Whether to enable stream load profile"
+    })
+    public static boolean enable_stream_load_profile = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否启用 stream load 和 broker load 的单副本写入。",
             "Whether to enable to write single replica for stream load and broker load."},
