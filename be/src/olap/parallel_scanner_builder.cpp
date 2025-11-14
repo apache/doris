@@ -36,7 +36,14 @@ using namespace vectorized;
 Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
     if (_is_dup_mow_key) {
-        return _build_scanners_by_rowid(scanners);
+        // Check if split by segment is enabled
+        if (_state->parallel_scan_split_by_segment()) {
+            LOG(INFO) << "Using segment-based scan range splitting";
+            return _build_scanners_by_segment(scanners);
+        } else {
+            LOG(INFO) << "Using row-based scan range splitting";
+            return _build_scanners_by_rowid(scanners);
+        }
     } else {
         // TODO: support to split by key range
         return Status::NotSupported("split by key range not supported yet.");
@@ -293,6 +300,76 @@ Status ParallelScannerBuilder::_load() {
         LOG(INFO) << ss.str();
     }
 
+    return Status::OK();
+}
+
+Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<VScannerSPtr>& scanners) {
+    int scanner_index = 0;
+    for (auto&& [tablet, version] : _tablets) {
+        DCHECK(_all_read_sources.contains(tablet->tablet_id()));
+        auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
+
+        LOG(INFO) << "[verbose] Building scanners by segment for tablet_id=" << tablet->tablet_id()
+                  << ", version=" << version
+                  << ", rowsets_count=" << entire_read_source.rs_splits.size();
+
+        if (config::is_cloud_mode()) {
+            // FIXME(plat1ko): Avoid pointer cast
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+        }
+
+        // Each segment will create a separate scanner
+        for (auto& rs_split : entire_read_source.rs_splits) {
+            auto reader = rs_split.rs_reader;
+            auto rowset = reader->rowset();
+            const auto rowset_id = rowset->rowset_id();
+
+            const auto& segments_rows = _all_segments_rows[rowset_id];
+
+            if (rowset->num_rows() == 0) {
+                continue;
+            }
+
+            // Create one scanner per segment
+            for (size_t i = 0; i != segments_rows.size(); ++i) {
+                const size_t rows_of_segment = segments_rows[i];
+                if (rows_of_segment == 0) {
+                    continue;
+                }
+
+                TabletReadSource partitial_read_source;
+                auto split = RowSetSplits(reader->clone());
+
+                // Set segment range to only include this segment
+                split.segment_offsets.first = i;
+                split.segment_offsets.second = i + 1;
+
+                // Create a row range covering the entire segment
+                RowRanges row_ranges;
+                row_ranges.add({0, static_cast<int64_t>(rows_of_segment)});
+                split.segment_row_ranges.emplace_back(std::move(row_ranges));
+
+                partitial_read_source.rs_splits.emplace_back(std::move(split));
+
+                // Log scan range details
+                LOG(INFO) << "[verbose] Scanner[" << scanner_index
+                          << "] scan_range (by_segment): tablet_id=" << tablet->tablet_id()
+                          << ", rowset_id=" << rowset_id.to_string()
+                          << ", segment_id=" << i
+                          << ", rows=" << rows_of_segment;
+
+                scanners.emplace_back(_build_scanner(
+                        tablet, version, _key_ranges,
+                        {.rs_splits = std::move(partitial_read_source.rs_splits),
+                         .delete_predicates = entire_read_source.delete_predicates,
+                         .delete_bitmap = entire_read_source.delete_bitmap}));
+
+                scanner_index++;
+            }
+        }
+    }
+
+    LOG(INFO) << "Total scanners built by segment: " << scanner_index;
     return Status::OK();
 }
 

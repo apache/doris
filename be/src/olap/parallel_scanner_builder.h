@@ -71,6 +71,8 @@ private:
 
     Status _build_scanners_by_rowid(std::list<VScannerSPtr>& scanners);
 
+    Status _build_scanners_by_segment(std::list<VScannerSPtr>& scanners);
+
     std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
             TabletReadSource&& read_source);
