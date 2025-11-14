@@ -287,6 +287,44 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusSeconds(seconds), getDataType().getScale());
     }
 
+    /**
+     * plusDaySecond
+     */
+    public Expression plusDayHour(VarcharLiteral dayHour) {
+        String stringValue = dayHour.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9\\-\\s]+")) {
+            return new NullLiteral(dataType);
+        }
+
+        String[] split = stringValue.split("\\s+");
+        if (split.length != 2) {
+            return new NullLiteral(dataType);
+        }
+
+        String day = split[0];
+        String hour = split[1];
+
+        try {
+            long days = Long.parseLong(day);
+            boolean dayPositive = days >= 0;
+
+            long hours = Long.parseLong(hour);
+
+            if (dayPositive) {
+                hours = Math.abs(hours);
+            } else {
+                hours = -Math.abs(hours);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusDays(days)
+                .plusHours(hours), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
+    }
+
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public Expression plusMicroSeconds(long microSeconds) {

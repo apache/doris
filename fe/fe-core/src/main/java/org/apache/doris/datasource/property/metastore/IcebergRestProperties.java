@@ -85,6 +85,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.credential"},
             required = false,
+            sensitive = true,
             description = "The oauth2 credential for the iceberg rest catalog service.")
     private String icebergRestOauth2Credential;
 
@@ -149,6 +150,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
             required = false,
+            sensitive = true,
             description = "The secret access key for the iceberg rest catalog service.")
     private String icebergRestSecretAccessKey = "";
 
@@ -326,7 +328,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
             } else {
                 // For other storage types, just use fileIOProperties map
-                storageProperties.getBackendConfigProperties().forEach(conf::set);
+                conf.addResource(storageProperties.getHadoopStorageConfig());
             }
         }
 
