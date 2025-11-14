@@ -80,7 +80,8 @@ namespace ErrorCode {
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
-    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
+    TStatusError(FINISHED, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
@@ -736,14 +737,14 @@ using ResultError = unexpected<Status>;
         }                                           \
     } while (false)
 
-#define DORIS_TRY(stmt)                          \
-    ({                                           \
-        auto&& res = (stmt);                     \
-        using T = std::decay_t<decltype(res)>;   \
-        if (!res.has_value()) [[unlikely]] {     \
-            return std::forward<T>(res).error(); \
-        }                                        \
-        std::forward<T>(res).value();            \
+#define DORIS_TRY(stmt)                              \
+    ({                                               \
+        auto&& try_res = (stmt);                     \
+        using T = std::decay_t<decltype(try_res)>;   \
+        if (!try_res.has_value()) [[unlikely]] {     \
+            return std::forward<T>(try_res).error(); \
+        }                                            \
+        std::forward<T>(try_res).value();            \
     });
 
 #define TEST_TRY(stmt)                                                                          \

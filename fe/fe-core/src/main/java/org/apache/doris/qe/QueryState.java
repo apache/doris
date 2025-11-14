@@ -36,6 +36,7 @@ public class QueryState {
 
     public enum ErrType {
         ANALYSIS_ERR,
+        SYNTAX_PARSE_ERR,
         OTHER_ERR
     }
 
@@ -52,6 +53,7 @@ public class QueryState {
     private boolean isNereids = true;
     private boolean isInternal = false;
     private ShowResultSet rs = null;
+    private boolean planWithUnKnownColumnStats = false;
 
     public QueryState() {
     }
@@ -59,6 +61,7 @@ public class QueryState {
     public void reset() {
         stateType = MysqlStateType.OK;
         errorCode = null;
+        errType = ErrType.OTHER_ERR;
         infoMessage = null;
         errorMessage = "";
         serverStatus = 0;
@@ -67,6 +70,7 @@ public class QueryState {
         warningRows = 0;
         isNereids = false;
         rs = null;
+        planWithUnKnownColumnStats = false;
     }
 
     public MysqlStateType getStateType() {
@@ -191,5 +195,13 @@ public class QueryState {
     @Override
     public String toString() {
         return String.valueOf(stateType);
+    }
+
+    public boolean isPlanWithUnKnownColumnStats() {
+        return planWithUnKnownColumnStats;
+    }
+
+    public void setPlanWithUnKnownColumnStats(boolean planWithUnKnownColumnStats) {
+        this.planWithUnKnownColumnStats = planWithUnKnownColumnStats;
     }
 }

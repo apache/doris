@@ -45,6 +45,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
+bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
 
 using namespace ErrorCode;
 
@@ -103,6 +104,10 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
+    if (_num_columns > _column_offset.size()) [[unlikely]] {
+        throw std::runtime_error(fmt::format("num_columns {} is greater than block columns {}",
+                                             _num_columns, _column_offset.size()));
+    }
     for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {
@@ -481,7 +486,7 @@ void MemTable::_clear_row_agg(RowInBlock* row) {
         row->remove_init_agg();
     }
 }
-
+// only in `to_block` the `is_final` flag will be true, in other cases, it will be false
 template <bool is_final, bool has_skip_bitmap_col>
 void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
@@ -506,10 +511,15 @@ void MemTable::_aggregate() {
                 }
                 _stat.merged_rows++;
                 _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row, prev_row);
+                // Clean up aggregation state of the merged row to avoid memory leak
+                if (cur_row) {
+                    _clear_row_agg(cur_row);
+                }
             } else {
                 prev_row = cur_row;
                 if (!temp_row_in_blocks.empty()) {
-                    // no more rows to merge for prev row, finalize it
+                    // The rows from the previous batch of _row_in_blocks have been merged into temp_row_in_blocks,
+                    // now call finalize to write the aggregation results into _output_mutable_block.
                     _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data,
                                                 row_pos);
                 }
@@ -660,7 +670,12 @@ bool MemTable::need_flush() const {
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
-    return memory_usage() >= max_size;
+
+    if (memory_usage() >= max_size) {
+        g_flush_cuz_memtable_full << 1;
+        return true;
+    }
+    return false;
 }
 
 int64_t MemTable::_adaptive_write_buffer_size() const {

@@ -238,7 +238,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;
     default:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;
     }
 
@@ -516,6 +516,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.variant_max_sparse_column_statistics_size) {
         column->set_variant_max_sparse_column_statistics_size(
                 tcolumn.variant_max_sparse_column_statistics_size);
+    }
+    if (tcolumn.__isset.variant_sparse_hash_shard_count) {
+        column->set_variant_sparse_hash_shard_count(tcolumn.variant_sparse_hash_shard_count);
     }
 }
 
@@ -1176,7 +1179,7 @@ static void decode_agg_cache_key(const std::string& key_str, int64_t& tablet_id,
     const char* ptr = key_str.data();
     tablet_id = *reinterpret_cast<const int64_t*>(ptr);
     ptr += sizeof(tablet_id);
-    auto* t = reinterpret_cast<DeleteBitmap::BitmapKey*>(const_cast<char*>(ptr));
+    const auto* t = reinterpret_cast<const DeleteBitmap::BitmapKey*>(ptr);
     std::get<RowsetId>(bmk).version = std::get<RowsetId>(*t).version;
     std::get<RowsetId>(bmk).hi = std::get<RowsetId>(*t).hi;
     std::get<RowsetId>(bmk).mi = std::get<RowsetId>(*t).mi;
@@ -1252,6 +1255,35 @@ DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) noexcept {
     _tablet_id = std::move(o._tablet_id);
     o._rowset_cache_version.clear();
     return *this;
+}
+
+DeleteBitmap DeleteBitmap::from_pb(const DeleteBitmapPB& pb, int64_t tablet_id) {
+    size_t len = pb.rowset_ids().size();
+    DCHECK_EQ(len, pb.segment_ids().size());
+    DCHECK_EQ(len, pb.versions().size());
+    DeleteBitmap delete_bitmap(tablet_id);
+    for (int32_t i = 0; i < len; ++i) {
+        RowsetId rs_id;
+        rs_id.init(pb.rowset_ids(i));
+        BitmapKey key = {rs_id, pb.segment_ids(i), pb.versions(i)};
+        delete_bitmap.delete_bitmap[key] =
+                roaring::Roaring::read(pb.segment_delete_bitmaps(i).data());
+    }
+    return delete_bitmap;
+}
+
+DeleteBitmapPB DeleteBitmap::to_pb() {
+    std::shared_lock l(lock);
+    DeleteBitmapPB ret;
+    for (const auto& [k, v] : delete_bitmap) {
+        ret.mutable_rowset_ids()->Add(std::get<0>(k).to_string());
+        ret.mutable_segment_ids()->Add(std::get<1>(k));
+        ret.mutable_versions()->Add(std::get<2>(k));
+        std::string bitmap_data(v.getSizeInBytes(), '\0');
+        v.write(bitmap_data.data());
+        ret.mutable_segment_delete_bitmaps()->Add(std::move(bitmap_data));
+    }
+    return ret;
 }
 
 DeleteBitmap DeleteBitmap::snapshot() const {
@@ -1709,6 +1741,22 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg_without_cache(
         *bitmap |= bm;
     }
     return bitmap;
+}
+
+DeleteBitmap DeleteBitmap::diffset(const std::set<BitmapKey>& key_set) const {
+    std::shared_lock l(lock);
+    auto diff_key_set_view =
+            delete_bitmap | std::ranges::views::transform([](const auto& kv) { return kv.first; }) |
+            std::ranges::views::filter(
+                    [&key_set](const auto& key) { return !key_set.contains(key); });
+
+    DeleteBitmap dbm(_tablet_id);
+    for (const auto& key : diff_key_set_view) {
+        const auto* bitmap = get(key);
+        DCHECK_NE(bitmap, nullptr);
+        dbm.delete_bitmap[key] = *bitmap;
+    }
+    return dbm;
 }
 
 std::string tablet_state_name(TabletState state) {

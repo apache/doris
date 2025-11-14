@@ -23,10 +23,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.VarcharType;
 
 import java.math.BigDecimal;
 
@@ -69,16 +67,6 @@ public class FloatLiteral extends FractionalLiteral {
         }
         if (targetType.isDoubleType()) {
             return new DoubleLiteral(Double.parseDouble(String.valueOf(value)));
-        } else if (targetType.isStringType()) {
-            return new StringLiteral(castToString());
-        } else if (targetType.isCharType()) {
-            String desc = castToString();
-            if (((CharType) targetType).getLen() >= desc.length()) {
-                return new CharLiteral(desc, ((CharType) targetType).getLen());
-            }
-        } else if (targetType.isVarcharType()) {
-            String desc = castToString();
-            return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
         } else if (targetType.isDecimalV2Type() || targetType.isDecimalV3Type()) {
             if (Float.isInfinite(value) || Float.isNaN(value)) {
                 throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));

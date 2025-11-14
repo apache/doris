@@ -26,7 +26,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "parquet_pred_cmp.h"
+#include "parquet_predicate.h"
 #include "util/thrift_util.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 

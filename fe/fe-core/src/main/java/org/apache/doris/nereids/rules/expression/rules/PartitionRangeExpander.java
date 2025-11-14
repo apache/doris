@@ -34,7 +34,7 @@ import org.apache.doris.nereids.types.DataType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.iterators.SingletonIterator;
+import org.apache.commons.collections4.iterators.SingletonIterator;
 
 import java.math.BigInteger;
 import java.time.LocalDate;

@@ -41,5 +41,5 @@ suite("test_variant_multi_index_file", "p0, nonConcurrent"){
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)
     String port = backendId_to_backendHttpPort.get(backend_id)
-    check_nested_index_file(ip, port, tablet_id, 2, 4, "V2")
+    check_nested_index_file(ip, port, tablet_id, 2, 4, "V3")
 }

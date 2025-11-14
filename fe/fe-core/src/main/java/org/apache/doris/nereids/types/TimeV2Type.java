@@ -33,8 +33,9 @@ import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTimeType {
 
     public static final int MAX_SCALE = 6;
-    public static final TimeV2Type INSTANCE = new TimeV2Type(0);
+    public static final TimeV2Type SYSTEM_DEFAULT = new TimeV2Type(0);
     public static final TimeV2Type MAX = new TimeV2Type(MAX_SCALE);
+    public static final TimeV2Type WILDCARD = new TimeV2Type(-1);
 
     private static final int WIDTH = 8;
     private final int scale;
@@ -81,7 +82,7 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
      */
     public static TimeV2Type forTypeFromString(String s) {
         try {
-            new TimeV2Literal(INSTANCE, s);
+            new TimeV2Literal(SYSTEM_DEFAULT, s);
         } catch (AnalysisException e) {
             return MAX;
         }
@@ -97,7 +98,7 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
         }
         if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
                 || dataType instanceof DateTimeType) {
-            return INSTANCE;
+            return SYSTEM_DEFAULT;
         }
         if (dataType instanceof DecimalV3Type) {
             return TimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), 6));

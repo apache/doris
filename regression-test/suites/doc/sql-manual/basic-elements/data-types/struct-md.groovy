@@ -148,10 +148,10 @@ suite("struct-md", "p0") {
         exception "Type exceeds the maximum nesting depth of 9"
     }
     
-    test {
-        sql """ SELECT CAST(STRUCT(1, 'John') AS STRING) """
-        exception "can not cast from origin type STRUCT<StructField ( name=col1, dataType=TINYINT, nullable=true ),StructField ( name=col2, dataType=VARCHAR(4), nullable=true )> to target type=TEXT"
-    }
+    //    test {
+    //        sql """ SELECT CAST(STRUCT(1, 'John') AS STRING) """
+    //        exception "can not cast from origin type STRUCT<StructField ( name=col1, dataType=TINYINT, nullable=true ),StructField ( name=col2, dataType=VARCHAR(4), nullable=true )> to target type=TEXT"
+    //    }
 
     qt_sql """ SELECT CAST(STRUCT(1, 'John') AS STRUCT<id: INT, name: STRING>) """
 

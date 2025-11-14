@@ -58,7 +58,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import lombok.val;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -202,11 +201,15 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_USE_FOR_REWRITE =
             "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+
+    public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
+            "async_mv.query_rewrite.consistency_relaxed_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_PARTITION_RETENTION_COUNT = "partition.retention_count";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -259,6 +262,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
             "variant_max_sparse_column_statistics_size";
+    // number of buckets when using bucketized sparse serialization
+    public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -613,6 +618,23 @@ public class PropertyAnalyzer {
             }
         }
         return ttlSeconds;
+    }
+
+    public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
+        int retentionCount = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            String val = properties.get(PROPERTIES_PARTITION_RETENTION_COUNT);
+            properties.remove(PROPERTIES_PARTITION_RETENTION_COUNT);
+            try {
+                retentionCount = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.retention_count format error");
+            }
+            if (retentionCount <= 0) {
+                throw new AnalysisException("partition.retention_count should be > 0");
+            }
+        }
+        return retentionCount;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
@@ -1194,10 +1216,10 @@ public class PropertyAnalyzer {
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
-                return TInvertedIndexFileStorageFormat.V3;
-            } else {
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else {
+                return TInvertedIndexFileStorageFormat.V3;
             }
         }
 
@@ -1210,10 +1232,10 @@ public class PropertyAnalyzer {
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
-                return TInvertedIndexFileStorageFormat.V3;
-            } else {
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
+            } else {
+                return TInvertedIndexFileStorageFormat.V3;
             }
         } else {
             throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
@@ -1910,6 +1932,25 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
         }
         return maxSparseColumnStatisticsSize;
+    }
+
+    public static int analyzeVariantSparseHashShardCount(Map<String, String> properties, int defaultValue)
+                                                                                throws AnalysisException {
+        int bucketNum = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+            String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+            try {
+                bucketNum = Integer.parseInt(bucketNumStr);
+                if (bucketNum < 1 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
+            }
+
+            properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+        }
+        return bucketNum;
     }
 
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {

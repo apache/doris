@@ -285,6 +285,7 @@ struct WorkloadGroupInfo {
     int cgroup_cpu_hard_limit = 0;
     const bool valid = true;
     const int pipeline_exec_thread_num = 0;
+    const int blocking_pipeline_exec_thread_num = 0;
     const int max_flush_thread_num = 0;
     const int min_flush_thread_num = 0;
 

@@ -57,17 +57,17 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                 bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                        MysqlRowBinaryBuffer& row_buffer,
+                                                        int64_t row_idx, bool col_const,
+                                                        const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
-                                                 bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeJsonbSerDe::write_column_to_mysql_text(const IColumn& column,
+                                                      MysqlRowTextBuffer& row_buffer,
+                                                      int64_t row_idx, bool col_const,
+                                                      const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
@@ -328,6 +328,26 @@ void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
            sizeof(size_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
+}
+
+const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_column(const uint8_t* data,
+                                                                IColumn& column) {
+    auto& col = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    const size_t data_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    col.insert_data(reinterpret_cast<const char*>(data), data_size);
+    data += data_size;
+    return data;
+}
+
+const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                               FieldInfo& info) {
+    const size_t data_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    field = Field::create_field<TYPE_JSONB>(
+            JsonbField(reinterpret_cast<const char*>(data), data_size));
+    data += data_size;
+    return data;
 }
 
 void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,

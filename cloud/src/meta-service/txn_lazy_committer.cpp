@@ -355,6 +355,20 @@ void convert_tmp_rowsets(
         }
     }
 
+    // Batch get existing versioned tablet stats if needed
+    std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+    if (is_versioned_write && !tablet_stats.empty()) {
+        internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                             tablet_ids, &existing_versioned_stats);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "batch get versioned tablet stats failed, code=" << code
+                         << " msg=" << msg << " txn_id=" << txn_id;
+            return;
+        }
+        LOG(INFO) << "batch get " << existing_versioned_stats.size()
+                  << " versioned tablet stats, txn_id=" << txn_id;
+    }
+
     for (auto& [tablet_id, stats] : tablet_stats) {
         DCHECK(tablet_ids.count(tablet_id));
         auto& tablet_idx = tablet_ids[tablet_id];
@@ -364,16 +378,7 @@ void convert_tmp_rowsets(
         if (code != MetaServiceCode::OK) return;
 
         if (is_versioned_write) {
-            TabletStatsPB stats_pb;
-            internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
-                                                tablet_idx, stats_pb);
-            if (code != MetaServiceCode::OK) {
-                LOG(WARNING) << "update versioned tablet stats failed, code=" << code
-                             << " msg=" << msg << " txn_id=" << txn_id
-                             << " tablet_id=" << tablet_id;
-                return;
-            }
-
+            TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
             merge_tablet_stats(stats_pb, stats);
             std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
 

@@ -434,7 +434,7 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
-    std::vector<ColumnId> _non_predicate_column_ids;
+    std::vector<ColumnId> _common_expr_column_ids;
     // TODO: Should use std::vector<size_t>
     std::vector<ColumnId> _columns_to_filter;
     std::vector<bool> _converted_column_ids;
@@ -513,6 +513,8 @@ private:
     bool _find_condition_cache = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     static constexpr int CONDITION_CACHE_OFFSET = 2048;
+    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+            _common_expr_to_slotref_map;
 };
 
 } // namespace segment_v2

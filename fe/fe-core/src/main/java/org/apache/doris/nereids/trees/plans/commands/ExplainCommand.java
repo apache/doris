@@ -87,6 +87,9 @@ public class ExplainCommand extends Command implements NoForward {
                 || explainable instanceof UpdateCommand) {
             ctx.getStatementContext().setIsInsert(true);
         }
+        if (explainable instanceof DeleteFromCommand) {
+            ctx.getStatementContext().setSkipPrunePredicate(true);
+        }
         explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
         NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
             new NereidsPlanner(ctx.getStatementContext())

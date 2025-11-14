@@ -81,6 +81,7 @@
 // 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
 // 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
 // 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
+// 0x02 "system" "meta-service" "instance_update"                                          -> int64
 //
 // 0x03 "version" ${instance_id} "partition" ${partition_id} ${timestamp}   -> VersionPB
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
@@ -434,6 +435,7 @@ void copy_file_key(const CopyFileKeyInfo& in, std::string* out);
 
 std::string system_meta_service_registry_key();
 std::string system_meta_service_arn_info_key();
+std::string system_meta_service_instance_update_key();
 
 // Note:
 // This key points to a value (EncryptionKeyInfoPB, the format is below) which stores a set of items,
@@ -461,6 +463,7 @@ std::string stats_key_prefix(std::string_view instance_id);
 std::string meta_key_prefix(std::string_view instance_id);
 std::string data_key_prefix(std::string_view instance_id);
 std::string log_key_prefix(std::string_view instance_id);
+std::string snapshot_key_prefix(std::string_view instance_id);
 
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
@@ -522,6 +525,7 @@ static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { std
 void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out);
 static inline std::string snapshot_reference_key(const SnapshotReferenceKeyInfo& in) { std::string s; snapshot_reference_key(in, &s); return s; }
 std::string snapshot_reference_key_prefix(std::string_view instance_id, Versionstamp timestamp);
+std::string snapshot_reference_key_prefix(std::string_view instance_id);
 
 void log_key(const LogKeyInfo& in, std::string* out);
 static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key(in, &s); return s; }
@@ -536,10 +540,12 @@ static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key
  *
  * @param in input byte stream, successfully decoded part will be consumed
  * @param out the vector of each <field decoded, field type and its position> in the input stream
+ * @param timestamp the timestamp of a versioned key
  * @return 0 for successful decoding of the entire input, otherwise error.
  */
 int decode_key(std::string_view* in,
-               std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* out);
+               std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* out,
+               Versionstamp* timestamp = nullptr);
 
 /**
  * Return the list of single version meta key prefixs.
@@ -548,10 +554,36 @@ std::vector<std::string> get_single_version_meta_key_prefixs();
 
 namespace versioned {
 
+// Decode table version key
+// Return true if decode successfully, otherwise false
+bool decode_table_version_key(std::string_view* in, int64_t* table_id, Versionstamp* timestamp);
+
 // Decode partition inverted index key
 // Return true if decode successfully, otherwise false
 bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
                                          int64_t* partition_id);
+
+// Decode meta partition key
+// Return true if decode successfully, otherwise false
+bool decode_meta_partition_key(std::string_view* in, int64_t* partition_id,
+                               Versionstamp* timestamp);
+
+// Decode meta index key
+// Return true if decode successfully, otherwise false
+bool decode_meta_index_key(std::string_view* in, int64_t* index_id, Versionstamp* timestamp);
+
+// Decode meta schema key
+// Return true if decode successfully, otherwise false
+bool decode_meta_schema_key(std::string_view* in, int64_t* index_id, int64_t* schema_version);
+
+// Decode meta tablet key
+// Return true if decode successfully, otherwise false
+bool decode_meta_tablet_key(std::string_view* in, int64_t* tablet_id, Versionstamp* timestamp);
+
+// Decode snapshot reference key
+// Return true if decode successfully, otherwise false
+bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
+                             Versionstamp* timestamp, std::string* ref_instance_id);
 } // namespace versioned
 
 // Decode stats tablet key
@@ -584,5 +616,9 @@ bool decode_meta_rowset_key(std::string_view* in, int64_t* tablet_id, int64_t* v
 // Decode meta tablet idx key
 // Return true if decode successfully, otherwise false
 bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id);
+
+// Decode instance key
+// Return true if decode successfully, otherwise false
+bool decode_instance_key(std::string_view* in, std::string* instance_id);
 
 } // namespace doris::cloud

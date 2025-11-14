@@ -41,8 +41,8 @@ public class CurrentTime extends ScalarFunction
         implements LeafExpression, ImplicitlyCastableSignature, AlwaysNotNullable, ComputeSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(TinyIntType.INSTANCE)
+            FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(),
+            FunctionSignature.ret(TimeV2Type.WILDCARD).args(TinyIntType.INSTANCE)
     );
 
     /**

@@ -96,6 +96,15 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 }
 
 PipelineTask::~PipelineTask() {
+    auto reset_member = [&]() {
+        _shared_state_map.clear();
+        _sink_shared_state.reset();
+        _op_shared_states.clear();
+        _sink.reset();
+        _operators.clear();
+        _block.reset();
+        _pipeline.reset();
+    };
 // PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
 // so that it maybe the last one to be destructed.
 // But pipeline task hold some objects, like operators, shared state, etc. So that should release
@@ -103,15 +112,11 @@ PipelineTask::~PipelineTask() {
 #ifndef BE_TEST
     if (_query_mem_tracker) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+        reset_member();
+        return;
     }
 #endif
-    _shared_state_map.clear();
-    _sink_shared_state.reset();
-    _op_shared_states.clear();
-    _sink.reset();
-    _operators.clear();
-    _block.reset();
-    _pipeline.reset();
+    reset_member();
 }
 
 Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,

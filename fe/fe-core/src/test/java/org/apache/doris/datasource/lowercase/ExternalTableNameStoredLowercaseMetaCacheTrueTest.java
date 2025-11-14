@@ -53,7 +53,6 @@ public class ExternalTableNameStoredLowercaseMetaCacheTrueTest extends TestWithF
         // 1. create test catalog
         String createStmt = "create catalog test1 properties(\n"
                 + "    \"type\" = \"test\",\n"
-                + "    \"use_meta_cache\" = \"true\",\n"
                 + "    \"catalog_provider.class\" "
                 + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameStoredLowercaseMetaCacheTrueTest$ExternalTableNameStoredLowercaseProvider\"\n"
                 + ");";

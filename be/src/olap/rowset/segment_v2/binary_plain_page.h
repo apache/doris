@@ -158,7 +158,10 @@ public:
         return Slice(&_buffer[_offsets[idx]], value_size);
     }
 
-    inline Slice get(std::size_t idx) const { return (*this)[idx]; }
+    Status get_dict_word(uint32_t value_code, Slice* word) override {
+        *word = (*this)[value_code];
+        return Status::OK();
+    }
 
 private:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
@@ -314,7 +317,7 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
-    Status get_dict_word_info(StringRef* dict_word_info) {
+    Status get_dict_word_info(StringRef* dict_word_info) override {
         if (UNLIKELY(_num_elems <= 0)) {
             return Status::OK();
         }

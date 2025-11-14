@@ -86,7 +86,7 @@ public class AddPartitionRecord {
             sb.append(", ");
             sb.append(range.upperEndpoint().toSql());
             sb.append(") (\"version_info\" = \"");
-            sb.append(partition.getVisibleVersion());
+            sb.append(partition.getCachedVisibleVersion());
             sb.append("\");");
         } else if (!this.listPartitionItem.equals(ListPartitionItem.DUMMY_ITEM)) {
             // list
@@ -97,7 +97,7 @@ public class AddPartitionRecord {
                 sb.append(partitionSql);
             }
             sb.append(" (\"version_info\" = \"");
-            sb.append(partition.getVisibleVersion());
+            sb.append(partition.getCachedVisibleVersion());
             sb.append("\");");
         } else {
             // unpartitioned.

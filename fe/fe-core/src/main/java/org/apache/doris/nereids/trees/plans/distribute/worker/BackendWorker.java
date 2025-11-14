@@ -45,7 +45,7 @@ public class BackendWorker implements DistributedPlanWorker {
 
     @Override
     public String brpcAddress() {
-        return backend.getHost() + brpcPort();
+        return backend.getHost() + ":" + brpcPort();
     }
 
     @Override

@@ -28,6 +28,7 @@
 #include <memory>
 #include <numeric>
 #include <set>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -578,9 +579,8 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
         auto row_range = RowRanges::create_single(lower_rowid, upper_rowid);
         RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
     }
-    // pre-condition: _row_ranges == [0, num_rows)
     size_t pre_size = _row_bitmap.cardinality();
-    _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
+    _row_bitmap &= RowRanges::ranges_to_roaring(result_ranges);
     _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
 
     return Status::OK();
@@ -751,6 +751,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 "Ann topn can not be evaluated by ann index, has_ann_index: {}, "
                 "has_common_expr_push_down: {}, has_column_predicate: {}",
                 has_ann_index, has_common_expr_push_down, has_column_predicate);
+        // Disable index-only scan on ann indexed column.
+        _need_read_data_indices[src_cid] = true;
         return Status::OK();
     }
 
@@ -762,11 +764,15 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         if (_ann_topn_runtime->is_asc()) {
             VLOG_DEBUG << fmt::format(
                     "Asc topn for inner product can not be evaluated by ann index");
+            // Disable index-only scan on ann indexed column.
+            _need_read_data_indices[src_cid] = true;
             return Status::OK();
         }
     } else {
         if (!_ann_topn_runtime->is_asc()) {
             VLOG_DEBUG << fmt::format("Desc topn for l2/cosine can not be evaluated by ann index");
+            // Disable index-only scan on ann indexed column.
+            _need_read_data_indices[src_cid] = true;
             return Status::OK();
         }
     }
@@ -777,6 +783,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 "ann index",
                 metric_to_string(_ann_topn_runtime->get_metric_type()),
                 metric_to_string(ann_index_reader->get_metric_type()));
+        // Disable index-only scan on ann indexed column.
+        _need_read_data_indices[src_cid] = true;
         return Status::OK();
     }
 
@@ -788,6 +796,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 "to "
                 "filter",
                 pre_size, rows_of_segment);
+        // Disable index-only scan on ann indexed column.
+        _need_read_data_indices[src_cid] = true;
         return Status::OK();
     }
     vectorized::IColumn::MutablePtr result_column;
@@ -821,6 +831,10 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     // reference count of result_column should be 1, so move will not issue any data copy.
     virtual_column_iter->prepare_materialization(std::move(result_column),
                                                  std::move(result_row_ids));
+
+    _need_read_data_indices[src_cid] = false;
+    VLOG_DEBUG << fmt::format(
+            "Enable ANN index-only scan for src column cid {} (skip reading data pages)", src_cid);
 
     return Status::OK();
 }
@@ -1094,9 +1108,9 @@ Status SegmentIterator::_apply_index_expr() {
     segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         size_t origin_rows = _row_bitmap.cardinality();
-        RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(_index_iterators, _schema->column_ids(),
-                                                            _column_iterators, _row_bitmap,
-                                                            ann_index_stats));
+        RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
+                _index_iterators, _schema->column_ids(), _column_iterators,
+                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats));
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
@@ -1107,7 +1121,7 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
-        if ((*it)->root()->has_been_executed()) {
+        if ((*it)->root()->ann_range_search_executedd()) {
             _opts.stats->ann_index_range_search_cnt++;
             it = _common_expr_ctxs_push_down.erase(it);
         } else {
@@ -1240,7 +1254,12 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     //    and the operation is a push down of the 'COUNT_ON_INDEX' aggregation function.
     // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
     // Then, return false.
-    int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    const auto& column = _opts.tablet_schema->column(cid);
+    // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
+    if (column.is_extracted_column()) {
+        return true;
+    }
+    int32_t unique_id = column.unique_id();
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
@@ -1817,7 +1836,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                     _lazy_materialization_read = true;
                 }
                 if (_is_common_expr_column[cid]) {
-                    _non_predicate_column_ids.push_back(cid);
+                    _common_expr_column_ids.push_back(cid);
                 } else {
                     _non_predicate_columns.push_back(cid);
                 }
@@ -1846,21 +1865,13 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                                _short_cir_pred_column_ids.end());
             pred_id_set.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
 
-            DCHECK(_non_predicate_column_ids.empty());
+            DCHECK(_common_expr_column_ids.empty());
             // _non_predicate_column_ids must be empty. Otherwise _lazy_materialization_read must not false.
             for (int i = 0; i < _schema->num_column_ids(); i++) {
                 auto cid = _schema->column_id(i);
                 if (pred_id_set.find(cid) != pred_id_set.end()) {
                     _predicate_column_ids.push_back(cid);
                 }
-                // In the past, if schema columns > pred columns, the _lazy_materialization_read maybe == false, but
-                // we make sure using _lazy_materialization_read= true now, so these logic may never happens. I comment
-                // these lines and we could delete them in the future to make the code more clear.
-                // else if (non_pred_set.find(cid) != non_pred_set.end()) {
-                //    _predicate_column_ids.push_back(cid);
-                //    // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
-                //    _is_pred_column[cid] = true;
-                // }
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_is_need_vec_eval && !_is_need_short_eval);
@@ -1881,7 +1892,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             "_schema_block_id_map: [{}]",
             _lazy_materialization_read, _col_predicates.size(),
             fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_columns, ","),
-            fmt::join(_non_predicate_column_ids, ","), fmt::join(_columns_to_filter, ","),
+            fmt::join(_common_expr_column_ids, ","), fmt::join(_columns_to_filter, ","),
             fmt::join(_schema_block_id_map, ","));
     return Status::OK();
 }
@@ -2005,12 +2016,12 @@ Status SegmentIterator::_init_current_block(
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const auto* column_desc = _schema->column(cid);
-        if (!_is_pred_column[cid] &&
-            !_segment->same_with_storage_type(
-                    cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
+
+        auto file_column_type = _storage_name_and_type[cid].second;
+        auto expected_type = Schema::get_data_type_ptr(*column_desc);
+        if (!_is_pred_column[cid] && !file_column_type->equals(*expected_type)) {
             // The storage layer type is different from schema needed type, so we use storage
             // type to read columns instead of schema type for safety
-            auto file_column_type = _storage_name_and_type[cid].second;
             VLOG_DEBUG << fmt::format(
                     "Recreate column with expected type {}, file column type {}, col_name {}, "
                     "col_path {}",
@@ -2074,8 +2085,9 @@ Status SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
             if (column_in_block_is_nothing || column_is_normal) {
                 block->replace_by_position(loc, std::move(_current_return_columns[cid]));
                 VLOG_DEBUG << fmt::format(
-                        "Output non-predicate column, cid: {}, loc: {}, col_name: {}", cid, loc,
-                        _schema->column(cid)->name());
+                        "Output non-predicate column, cid: {}, loc: {}, col_name: {}, rows {}", cid,
+                        loc, _schema->column(cid)->name(),
+                        block->get_by_position(loc).column->size());
             }
             // Means virtual column in block has been materialized(maybe by common expr).
             // so do nothing here.
@@ -2118,6 +2130,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
 
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
+        VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
+                                  _schema->column(cid)->name());
         if (!_virtual_column_exprs.contains(cid)) {
             if (_no_need_read_key_data(cid, column, nrows_read)) {
                 VLOG_DEBUG << fmt::format("Column {} no need to read.", cid);
@@ -2441,11 +2455,10 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
         if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
-        if (!_segment->same_with_storage_type(
-                    i, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
-            const Field* field_type = _schema->column(i);
-            vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
-            vectorized::DataTypePtr file_column_type = _storage_name_and_type[i].second;
+        const Field* field_type = _schema->column(i);
+        vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
+        vectorized::DataTypePtr file_column_type = _storage_name_and_type[i].second;
+        if (!file_column_type->equals(*expected_type)) {
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
@@ -2542,13 +2555,13 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
-                    if (_non_predicate_column_ids.size() > 0) {
+                    if (_common_expr_column_ids.size() > 0) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
-                                _non_predicate_column_ids, _block_rowids, _sel_rowid_idx.data(),
+                                _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
-                        _replace_version_col_if_needed(_non_predicate_column_ids, _selected_size);
-                        RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
+                        _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                        RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
 
                     DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
@@ -2558,7 +2571,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             } else {
                 _fill_column_nothing();
                 if (_is_need_expr_eval) {
-                    RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
+                    RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                 }
             }
         } else if (_is_need_expr_eval) {
@@ -2897,6 +2910,8 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
         if (root_expr == nullptr) {
             continue;
         }
+        _common_expr_to_slotref_map[root_expr_ctx.get()] =
+                std::unordered_map<ColumnId, vectorized::VExpr*>();
 
         std::stack<vectorized::VExprSPtr> stack;
         stack.emplace(root_expr);
@@ -2906,10 +2921,53 @@ void SegmentIterator::_calculate_expr_in_remaining_conjunct_root() {
             stack.pop();
 
             for (const auto& child : expr->children()) {
+                if (child->is_virtual_slot_ref()) {
+                    // Expand virtual slot ref to its underlying expression tree and
+                    // collect real slot refs used inside. We still associate those
+                    // slot refs with the current parent expr node for inverted index
+                    // tracking, just like normal slot refs.
+                    auto* vir_slot_ref = assert_cast<vectorized::VirtualSlotRef*>(child.get());
+                    auto vir_expr = vir_slot_ref->get_virtual_column_expr();
+                    if (vir_expr) {
+                        std::stack<vectorized::VExprSPtr> vir_stack;
+                        vir_stack.emplace(vir_expr);
+
+                        while (!vir_stack.empty()) {
+                            const auto& vir_node = vir_stack.top();
+                            vir_stack.pop();
+
+                            for (const auto& vir_child : vir_node->children()) {
+                                if (vir_child->is_slot_ref()) {
+                                    auto* inner_slot_ref =
+                                            assert_cast<vectorized::VSlotRef*>(vir_child.get());
+                                    _common_expr_inverted_index_status[_schema->column_id(
+                                            inner_slot_ref->column_id())][expr.get()] = false;
+                                    _common_expr_to_slotref_map[root_expr_ctx.get()]
+                                                               [inner_slot_ref->column_id()] =
+                                                                       expr.get();
+                                    // Print debug info for virtual slot expansion
+                                    LOG(INFO) << fmt::format(
+                                            "common_expr_ctx_ptr: {}, expr_ptr: {}, "
+                                            "virtual_slotref_ptr: {}, inner_slotref_ptr: {}, "
+                                            "column_id: {}",
+                                            fmt::ptr(root_expr_ctx.get()), fmt::ptr(expr.get()),
+                                            fmt::ptr(child.get()), fmt::ptr(vir_child.get()),
+                                            inner_slot_ref->column_id());
+                                }
+
+                                if (!vir_child->children().empty()) {
+                                    vir_stack.emplace(vir_child);
+                                }
+                            }
+                        }
+                    }
+                }
                 if (child->is_slot_ref()) {
                     auto* column_slot_ref = assert_cast<vectorized::VSlotRef*>(child.get());
                     _common_expr_inverted_index_status[_schema->column_id(
                             column_slot_ref->column_id())][expr.get()] = false;
+                    _common_expr_to_slotref_map[root_expr_ctx.get()][column_slot_ref->column_id()] =
+                            expr.get();
                 }
             }
 

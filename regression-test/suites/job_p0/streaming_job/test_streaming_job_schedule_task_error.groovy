@@ -74,7 +74,7 @@ suite("test_streaming_job_schedule_task_error", 'nonConcurrent') {
             def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
             log.info("show job: " + showjob)
             log.info("show task: " + showtask)
-            throw ex;chixu
+            throw ex;
         }
 
         def errorMsg = sql """select ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""

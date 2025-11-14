@@ -81,7 +81,7 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         if (!_predicate->has_value()) {
             block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
                            _data_type, _expr_name});
@@ -104,7 +104,7 @@ public:
         uint32_t num_columns_without_result = block->columns();
         block->insert({nullptr, _data_type, _expr_name});
         RETURN_IF_ERROR(_function->execute(nullptr, *block, arguments, num_columns_without_result,
-                                           block->rows(), false));
+                                           block->rows()));
         *result_column_id = num_columns_without_result;
 
         if (is_nullable() && _predicate->nulls_first()) {

@@ -1638,6 +1638,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     if (next_visible_version > 0) {
         req.set_next_visible_version(next_visible_version);
     }
+    req.set_store_version(store_version);
 
     bool write_v1 = store_version == 1 || store_version == 3;
     bool write_v2 = store_version == 2 || store_version == 3;

@@ -92,7 +92,8 @@ private:
     std::unordered_map<Key, std::shared_ptr<Call>> _call_map;
 };
 
-SingleFlight<int64_t /* tablet_id */, std::shared_ptr<CloudTablet>> s_singleflight_load_tablet;
+// tablet_id -> load tablet function
+SingleFlight<int64_t, Result<std::shared_ptr<CloudTablet>>> s_singleflight_load_tablet;
 
 } // namespace
 
@@ -159,7 +160,7 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
                                                                 bool sync_delete_bitmap,
                                                                 SyncRowsetStats* sync_stats,
-                                                                bool force_use_cache) {
+                                                                bool local_only) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
@@ -177,17 +178,22 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
 
-    if (handle == nullptr && force_use_cache) {
-        return ResultError(
-                Status::InternalError("failed to get cloud tablet from cache {}", tablet_id));
-    }
-
     if (handle == nullptr) {
+        if (local_only) {
+            LOG(INFO) << "tablet=" << tablet_id
+                      << "does not exists in local tablet cache, because param local_only=true, "
+                         "treat it as an error";
+            return ResultError(Status::InternalError(
+                    "tablet={} does not exists in local tablet cache, because param "
+                    "local_only=true, "
+                    "treat it as an error",
+                    tablet_id));
+        }
         if (sync_stats) {
             ++sync_stats->tablet_meta_cache_miss;
         }
         auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap,
-                            sync_stats](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
+                            sync_stats](int64_t tablet_id) -> Result<std::shared_ptr<CloudTablet>> {
             TabletMetaSharedPtr tablet_meta;
             auto start = std::chrono::steady_clock::now();
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
@@ -198,7 +204,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             }
             if (!st.ok()) {
                 LOG(WARNING) << "failed to tablet " << tablet_id << ": " << st;
-                return nullptr;
+                return ResultError(st);
             }
 
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
@@ -210,7 +216,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options, sync_stats);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
-                return nullptr;
+                return ResultError(st);
             }
 
             auto* handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
@@ -224,10 +230,12 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             return ret;
         };
 
-        auto tablet = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
-        if (tablet == nullptr) {
-            return ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
+        auto load_result = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
+        if (!load_result.has_value()) {
+            return ResultError(Status::InternalError("failed to get tablet {}, msg={}", tablet_id,
+                                                     load_result.error()));
         }
+        auto tablet = load_result.value();
         set_tablet_access_time_ms(tablet.get());
         return tablet;
     }
@@ -479,7 +487,7 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         tablet->build_tablet_report_info(&tablet_info);
         using namespace std::chrono;
         int64_t now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (now - g_tablet_report_inactive_duration_ms * 1000 < tablet->last_access_time_ms) {
+        if (now - g_tablet_report_inactive_duration_ms < tablet->last_access_time_ms) {
             // the tablet is still being accessed and used in recently, so not report it
             return;
         }

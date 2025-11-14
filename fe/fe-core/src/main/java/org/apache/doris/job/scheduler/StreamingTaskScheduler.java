@@ -41,9 +41,9 @@ import java.util.concurrent.TimeUnit;
 @Log4j2
 public class StreamingTaskScheduler extends MasterDaemon {
     private final ThreadPoolExecutor threadPool = new ThreadPoolExecutor(
+                    Config.job_streaming_task_exec_thread_num,
+                    Config.job_streaming_task_exec_thread_num,
                     0,
-                    Config.max_streaming_job_num,
-                    60,
                     TimeUnit.SECONDS,
                     new ArrayBlockingQueue<>(Config.max_streaming_job_num),
                     new CustomThreadFactory("streaming-task-execute"),
@@ -51,6 +51,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
             );
     private final ScheduledThreadPoolExecutor delayScheduler
                 = new ScheduledThreadPoolExecutor(1, new CustomThreadFactory("streaming-task-delay-scheduler"));
+
+    private static long DELAY_SCHEDULER_MS = 500;
 
     public StreamingTaskScheduler() {
         super("Streaming-task-scheduler", 1);
@@ -108,29 +110,34 @@ public class StreamingTaskScheduler extends MasterDaemon {
 
         // reject invalid task
         if (!job.needScheduleTask()) {
-            log.info("do not need to schedule invalid task, task id: {}, job id: {}",
-                        task.getTaskId(), task.getJobId());
+            log.info("do not need to schedule invalid task, task id: {}, job id: {}, job status: {}",
+                        task.getTaskId(), task.getJobId(), job.getJobStatus());
             return;
         }
         // reject task if no more data to consume
         if (!job.hasMoreDataToConsume()) {
-            scheduleTaskWithDelay(task, 500);
+            String delayMsg = "No data available for consumption at the moment, will retry after "
+                    + (System.currentTimeMillis() + DELAY_SCHEDULER_MS);
+            job.setJobRuntimeMsg(delayMsg);
+            scheduleTaskWithDelay(task, DELAY_SCHEDULER_MS);
             return;
         }
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
         job.setLastScheduleTaskTimestamp(System.currentTimeMillis());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().addRunningTask(task);
-
+        // clear delay msg
+        job.setJobRuntimeMsg("");
+        long start = System.currentTimeMillis();
         try {
             task.execute();
+            log.info("Finished executing task, task id: {}, job id: {}, cost {}ms",
+                    task.getTaskId(), task.getJobId(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.error("Failed to execute task, task id: {}, job id: {}", task.getTaskId(), task.getJobId(), e);
         }
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
-        task.setOtherMsg("No data available for consumption at the moment, will retry after "
-                + (System.currentTimeMillis() + delayMs));
         delayScheduler.schedule(() -> {
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
         }, delayMs, TimeUnit.MILLISECONDS);

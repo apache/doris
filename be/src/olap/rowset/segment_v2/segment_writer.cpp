@@ -375,7 +375,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -697,7 +697,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        _serialize_block_to_row_column(*block);
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
@@ -1043,10 +1043,9 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
                                                              cache_builder->_expiration_time == 0 &&
                                                              config::is_cloud_mode()) {
         auto size = *index_size + *segment_file_size;
-        auto holder = cache_builder->allocate_cache_holder(index_start, size);
+        auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
         for (auto& segment : holder->file_blocks) {
-            static_cast<void>(
-                    segment->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+            static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
         }
     }
     return Status::OK();

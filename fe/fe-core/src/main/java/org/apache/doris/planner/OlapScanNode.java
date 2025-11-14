@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -59,7 +58,6 @@ import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -80,14 +78,12 @@ import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -184,15 +180,7 @@ public class OlapScanNode extends ScanNode {
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
     public Map<Integer, Long> bucketSeq2Bytes = Maps.newLinkedHashMap();
 
-    // For point query
-    private Map<SlotRef, Expr> pointQueryEqualPredicats;
-    private DescriptorTable descTable;
-
     private Set<Integer> distributionColumnIds;
-
-    private boolean shouldColoScan = false;
-
-    protected List<Expr> rewrittenProjectList;
 
     private long maxVersion = -1L;
     private SortInfo annSortInfo = null;
@@ -213,7 +201,7 @@ public class OlapScanNode extends ScanNode {
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
+        super(id, desc, planNodeName);
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 
@@ -239,12 +227,6 @@ public class OlapScanNode extends ScanNode {
 
     public HashSet<Long> getScanBackendIds() {
         return scanBackendIds;
-    }
-
-    public void setSampleTabletIds(List<Long> sampleTablets) {
-        if (sampleTablets != null) {
-            this.sampleTabletIds.addAll(sampleTablets);
-        }
     }
 
     public void setTableSample(TableSample tSample) {
@@ -326,14 +308,6 @@ public class OlapScanNode extends ScanNode {
 
     public OlapTable getOlapTable() {
         return olapTable;
-    }
-
-    @Override
-    protected String debugString() {
-        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-        helper.addValue(super.debugString());
-        helper.addValue("olapTable=" + olapTable.getName());
-        return helper.toString();
     }
 
     /**
@@ -698,12 +672,6 @@ public class OlapScanNode extends ScanNode {
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
-
-        if (tablets.isEmpty()) {
-            desc.setCardinality(0);
-        } else {
-            desc.setCardinality(cardinality);
-        }
     }
 
     private String fastToString(long version) {
@@ -757,7 +725,6 @@ public class OlapScanNode extends ScanNode {
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
         if (selectedPartitionIds.isEmpty()) {
-            desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);
@@ -1020,7 +987,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortInfo != null) {
             output.append(prefix).append("SORT INFO:\n");
-            sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
+            sortInfo.getOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
         }
@@ -1083,11 +1050,6 @@ public class OlapScanNode extends ScanNode {
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT\n");
         }
-
-        if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
-            output.append(prefix).append("rewrittenProjectList: ").append(
-                    getExplainString(rewrittenProjectList)).append("\n");
-        }
         return output.toString();
     }
 
@@ -1126,15 +1088,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            TColumn tColumn = globalRowIdColumn.toThrift();
-            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
-            tColumn.setIsKey(false);
-            tColumn.setIsAllowNull(false);
-            // keep compatibility
-            tColumn.setVisible(false);
-            tColumn.setColUniqueId(Integer.MAX_VALUE);
-            columnsDesc.add(tColumn);
+            columnsDesc.add(globalRowIdColumn.toThrift());
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
@@ -1188,9 +1142,6 @@ public class OlapScanNode extends ScanNode {
                     Expr.treesToThrift(sortInfo.getOrderingExprs()),
                     sortInfo.getIsAscOrder(),
                     sortInfo.getNullsFirst());
-            if (sortInfo.getSortTupleSlotExprs() != null) {
-                tSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(sortInfo.getSortTupleSlotExprs()));
-            }
             msg.olap_scan_node.setSortInfo(tSortInfo);
         }
         if (sortLimit != -1) {
@@ -1201,9 +1152,6 @@ public class OlapScanNode extends ScanNode {
                     Expr.treesToThrift(scoreSortInfo.getOrderingExprs()),
                     scoreSortInfo.getIsAscOrder(),
                     scoreSortInfo.getNullsFirst());
-            if (scoreSortInfo.getSortTupleSlotExprs() != null) {
-                tScoreSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(scoreSortInfo.getSortTupleSlotExprs()));
-            }
             msg.olap_scan_node.setScoreSortInfo(tScoreSortInfo);
         }
         if (scoreSortLimit != -1) {
@@ -1214,9 +1162,6 @@ public class OlapScanNode extends ScanNode {
                     Expr.treesToThrift(annSortInfo.getOrderingExprs()),
                     annSortInfo.getIsAscOrder(),
                     annSortInfo.getNullsFirst());
-            if (annSortInfo.getSortTupleSlotExprs() != null) {
-                tAnnSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(annSortInfo.getSortTupleSlotExprs()));
-            }
             msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
         }
         if (annSortLimit != -1) {
@@ -1402,24 +1347,11 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
-        for (SlotDescriptor virtualSlot : context.getTupleDesc(this.getTupleId()).getSlots()) {
-            Expr virtualColumn = virtualSlot.getVirtualColumn();
-            if (virtualColumn == null) {
-                continue;
-            }
-            Set<Expr> slotRefs = Sets.newHashSet();
-            virtualColumn.collect(e -> e instanceof SlotRef, slotRefs);
-            Set<SlotId> virtualColumnInputSlotIds = slotRefs.stream()
-                    .filter(s -> s instanceof SlotRef)
-                    .map(s -> (SlotRef) s)
-                    .map(SlotRef::getSlotId)
-                    .collect(Collectors.toSet());
-            for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
-                if (virtualColumnInputSlotIds.contains(slot.getId()) && slot.getColumn() != null) {
-                    outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
-                }
-            }
-        }
+        // Do not add input slots of virtual columns into outputColumnUniqueIds.
+        // Backend can decide whether the underlying source columns are truly needed
+        // (e.g., ANN distance index-only scan can produce the virtual distance without
+        // reading the source vector column). Keeping only the real projected slots here
+        // avoids forcing unnecessary reads in BE.
     }
 
     @Override

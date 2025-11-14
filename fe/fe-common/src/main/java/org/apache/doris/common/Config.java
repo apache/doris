@@ -562,6 +562,15 @@ public class Config extends ConfigBase {
             "Whether to enable parallel publish version"})
     public static boolean enable_parallel_publish_version = true;
 
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的数目",
+        "Num of thread to handle tablet report task"})
+    public static int tablet_report_thread_pool_num = 10;
+
+    @ConfField(masterOnly = true, description = {"Tablet report 线程池的队列大小",
+        "Queue size to store tablet report task in publish thread pool"})
+    public static int tablet_report_queue_size = 1024;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -862,14 +871,11 @@ public class Config extends ConfigBase {
      * Set to true if you deploy Palo using thirdparty deploy manager
      * Valid options are:
      *      disable:    no deploy manager
-     *      k8s:        Kubernetes
-     *      ambari:     Ambari
+     *      k8s:        Kubernetes NB:Support removed starting from version 3.1.X
+     *      ambari:     Ambari NB: Support removed starting from version 3.1.X
      *      local:      Local File (for test or Boxer2 BCC version)
      */
     @ConfField public static String enable_deploy_manager = "disable";
-
-    // If use k8s deploy manager locally, set this to true and prepare the certs files
-    @ConfField public static boolean with_k8s_certs = false;
 
     // Set runtime locale when exec some cmds
     @ConfField public static String locale = "zh_CN.UTF-8";
@@ -1976,10 +1982,20 @@ public class Config extends ConfigBase {
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
 
+    @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为10",
+            "The number of threads used to execute Streaming Tasks, "
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
+    public static int job_streaming_task_exec_thread_num = 10;
+
     @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
             "The maximum number of Streaming jobs, "
                     + "the value should be greater than 0, if it is <=0, default is 1024."})
     public static int max_streaming_job_num = 1024;
+
+    @ConfField(masterOnly = true, description = {"一个 Streaming Job 在内存中最多保留的 task的数量，超过将丢弃旧的记录",
+            "The maximum number of tasks a Streaming Job can keep in memory. If the number exceeds the limit, "
+                    + "old records will be discarded."})
+    public static int max_streaming_task_show_count = 100;
 
     /* job test config */
     /**
@@ -3039,9 +3055,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "倒排索引默认存储格式",
-            "Default storage format of inverted index, the default value is V1."
+            "Default storage format of inverted index, the default value is V3."
     })
-    public static String inverted_index_storage_format = "V2";
+    public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
@@ -3118,6 +3134,41 @@ public class Config extends ConfigBase {
             "Profile 在 query 完成后等待多久后才会被写入磁盘",
             "Profile will be spilled to storage after query has finished for this time"})
     public static int profile_waiting_time_for_spill_seconds = 10;
+
+    // Enable profile archive feature. When enabled, profiles exceeding storage limits
+    // will be archived to compressed ZIP files instead of being directly deleted.
+    @ConfField(mutable = true, description = {"是否启用 profile 归档功能。启用后，超过存储限制的 profile 将被归档到压缩文件而不是直接删除",
+            "Enable profile archive feature. When enabled, profiles exceeding storage limits "
+                    + "will be archived to compressed ZIP files instead of being directly deleted"})
+    public static boolean enable_profile_archive = true;
+
+    // Number of profiles to include in each archive ZIP file.
+    // Recommended value: 1000
+    @ConfField(mutable = true, description = {"每个归档 ZIP 文件包含的 profile 数量。推荐值 1000",
+            "Number of profiles per archive ZIP file. Recommended: 1000"})
+    public static int profile_archive_batch_size = 1000;
+
+    // Storage path for archived profiles.
+    // If empty, defaults to ${spilled_profile_storage_path}/archive
+    @ConfField(description = {"profile 归档文件的存储路径。为空时使用 ${spilled_profile_storage_path}/archive",
+            "Storage path for archived profiles. Use ${spilled_profile_storage_path}/archive if empty"})
+    public static String profile_archive_path = "";
+
+    // Retention period for archive files in seconds.
+    // -1: keep forever
+    // 0: disable archiving (equivalent to enable_profile_archive = false)
+    // >0: delete archives older than specified seconds (e.g., 604800 = 30 days)
+    @ConfField(mutable = true, description = {"归档文件的保留时长（秒）。-1 表示永久保留，0 表示不保留",
+            "Retention period for archive files in seconds. -1 for unlimited, 0 to disable archiving"})
+    public static int profile_archive_retention_seconds = 28800; // 8 hours
+
+    // Maximum waiting time for pending archive files in seconds.
+    // If the oldest file in pending directory exceeds this time, archive will be forced
+    // even if the batch size is not reached.
+    @ConfField(mutable = true, description = {"待归档缓冲区的最大等待时间（秒）。超过此时间即使未满批次也会强制归档",
+            "Maximum waiting time for pending archive files in seconds. "
+                    + "Force archive even if batch is not full"})
+    public static int profile_archive_pending_timeout_seconds = 3600; // 1 hours
 
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
@@ -3329,8 +3380,26 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_cloud_warm_up_for_rebalance = true;
+    @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有Compute group的扩缩容预热方式。"
+            + "without_warmup: 直接修改tablet分片映射，首次读从S3拉取，均衡最快但性能波动最大；"
+            + "async_warmup: 异步预热，尽力而为拉取cache，均衡较快但可能cache miss；"
+            + "sync_warmup: 同步预热，确保cache迁移完成，均衡较慢但无cache miss；"
+            + "peer_read_async_warmup: 直接修改tablet分片映射，首次读从Peer BE拉取，均衡最快可能会影响同计算组中其他BE性能。"
+            + "注意：此为全局FE配置，也可通过SQL（ALTER COMPUTE GROUP cg PROPERTIES）"
+            + "设置compute group维度的balance类型，compute group维度配置优先级更高",
+        "Specify the scaling and warming methods for all Compute groups in a cloud mode. "
+            + "without_warmup: Directly modify shard mapping, first read from S3,"
+            + "fastest re-balance but largest fluctuation; "
+            + "async_warmup: Asynchronous warmup, best-effort cache pulling, "
+            + "faster re-balance but possible cache miss; "
+            + "sync_warmup: Synchronous warmup, ensure cache migration completion, "
+            + "slower re-balance but no cache miss; "
+            + "peer_read_async_warmup: Directly modify shard mapping, first read from Peer BE, "
+            + "fastest re-balance but may affect other BEs in the same compute group performance. "
+            + "Note: This is a global FE configuration, you can also use SQL (ALTER COMPUTE GROUP cg PROPERTIES) "
+            + "to set balance type at compute group level, compute group level configuration has higher priority"},
+            options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
+    public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3646,4 +3715,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
+
+    @ConfField(description = {
+            "agent tasks 健康检查的时间间隔，默认五分钟，小于等于0时不做健康检查",
+            "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
+    })
+    public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
 }

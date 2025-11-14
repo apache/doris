@@ -118,7 +118,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     public static BulkLoadJob fromLoadCommand(LoadCommand command, StmtExecutor executor, ConnectContext ctx)
             throws Exception {
         // get db id
-        String dbName = command.getLabel().getDbName();
+        String dbName = command.getLabel().getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
@@ -127,7 +127,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             switch (command.getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
-                            command.getLabel().getLabelName(), command.getBrokerDesc(), executor.getOriginStmt(),
+                            command.getLabel().getLabel(), command.getBrokerDesc(), executor.getOriginStmt(),
                             command.getUserIdentity());
                     break;
                 case DELETE:

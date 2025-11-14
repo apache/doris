@@ -39,6 +39,12 @@ feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
+// ccr, need BE enable_feature_binlog=true and FE enable_feature_binlog = true
+ccrDownstreamUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+ccrDownstreamUser = "root"
+ccrDownstreamPassword = ""
+ccrDownstreamFeThriftAddress = "127.0.0.1:9030"
+
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"
@@ -227,6 +233,7 @@ extArrowFlightSqlHost = "127.0.0.1"
 extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
+extArrowFlightHttpPort= 8030
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181

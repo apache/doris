@@ -213,7 +213,7 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
             assertTrue(hasCompactedRowsets, "Should have compacted rowsets starting from version 2")
             int segment_count = calc_segment_count(tablet)
             logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V2")
+            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V3")
         }
 
         int segmentsCount = 0
