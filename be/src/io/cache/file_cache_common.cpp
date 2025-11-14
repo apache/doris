@@ -155,34 +155,6 @@ std::string FileCacheInfo::to_string() const {
     return ss.str();
 }
 
-std::string InconsistencyType::to_string() const {
-    std::string result = "Inconsistency Reason: ";
-    if (type == NONE) {
-        result += "NONE";
-    } else {
-        if (type & NOT_LOADED) {
-            result += "NOT_LOADED ";
-        }
-        if (type & MISSING_IN_STORAGE) {
-            result += "MISSING_IN_STORAGE ";
-        }
-        if (type & SIZE_INCONSISTENT) {
-            result += "SIZE_INCONSISTENT ";
-        }
-        if (type & CACHE_TYPE_INCONSISTENT) {
-            result += "CACHE_TYPE_INCONSISTENT ";
-        }
-        if (type & EXPIRATION_TIME_INCONSISTENT) {
-            result += "EXPIRATION_TIME_INCONSISTENT ";
-        }
-        if (type & TMP_FILE_EXPECT_DOWNLOADING_STATE) {
-            result += "TMP_FILE_EXPECT_DOWNLOADING_STATE";
-        }
-    }
-    result += "\n";
-    return result;
-}
-
 std::optional<int64_t> get_tablet_id(std::string file_path) {
     // Expected path formats:
     // support both .dat and .idx file extensions
