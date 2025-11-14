@@ -16,6 +16,7 @@
 // under the License.
 
 #include "writer.h"
+
 #include <type_traits>
 
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -84,7 +85,7 @@ Status Writer::_channel_add_rows(RuntimeState* state,
         for (uint32_t i = 0; i < rows; i++) {
             if constexpr (std::is_signed_v<ChannelIdType>) {
                 // -1 means this row is filtered by table sink hash partitioner
-                if(channel_ids[i]==-1){
+                if (channel_ids[i] == -1) {
                     continue;
                 }
             }
