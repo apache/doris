@@ -117,16 +117,7 @@ if [[ ${enable_hdfs} -eq 1 ]]; then
 
     if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         # add hadoop libs
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        done
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        done
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        done
-        for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
             DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         done
     fi
