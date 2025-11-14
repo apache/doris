@@ -185,6 +185,7 @@ import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
 import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.EmptySetNode;
@@ -245,6 +246,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -2299,6 +2301,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
+        if (setOperation instanceof PhysicalUnion
+                && context.getConnectContext().getSessionVariable().getEnableLocalExchange()) {
+            boolean isInplaceUnion = false;
+            if (setOperation.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecExecutionAny) {
+                Map<Integer, ExchangeNode> exchangeIdToExchangeNode = new IdentityHashMap<>();
+                for (PlanNode child : setOperationNode.getChildren()) {
+                    if (child instanceof ExchangeNode) {
+                        exchangeIdToExchangeNode.put(child.getId().asInt(), (ExchangeNode) child);
+                    }
+                }
+
+                for (PlanFragment childFragment : setOperationFragment.getChildren()) {
+                    DataSink sink = childFragment.getSink();
+                    if (sink instanceof DataStreamSink) {
+                        isInplaceUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, (DataStreamSink) sink);
+                    } else if (sink instanceof MultiCastDataSink) {
+                        MultiCastDataSink multiCastDataSink = (MultiCastDataSink) sink;
+                        for (DataStreamSink dataStreamSink : multiCastDataSink.getDataStreamSinks()) {
+                            isInplaceUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, dataStreamSink);
+                        }
+                    }
+                }
+            }
+            ((UnionNode) setOperationNode).setInplaceUnion(isInplaceUnion);
+        }
+
         return setOperationFragment;
     }
 
@@ -3257,5 +3285,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             child = child.child(0);
         }
         return child instanceof PhysicalRelation;
+    }
+
+    private boolean setLocalRandomPartition(
+            Map<Integer, ExchangeNode> exchangeIdToExchangeNode, DataStreamSink dataStreamSink) {
+        ExchangeNode exchangeNode = exchangeIdToExchangeNode.get(
+                dataStreamSink.getExchNodeId().asInt());
+        if (exchangeNode == null) {
+            return false;
+        }
+        exchangeNode.setPartitionType(TPartitionType.LOCAL_RANDOM);
+
+        DataPartition p2pPartition = new DataPartition(TPartitionType.LOCAL_RANDOM);
+        dataStreamSink.setOutputPartition(p2pPartition);
+        return true;
     }
 }
