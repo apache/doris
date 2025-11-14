@@ -96,8 +96,7 @@ Status LoadStreamWriter::init() {
     RETURN_IF_ERROR(_rowset_builder->init());
     _rowset_writer = _rowset_builder->rowset_writer();
 
-    auto tablet_res = ExecEnv::get_tablet(_req.tablet_id);
-    if (tablet_res.has_value()) {
+    if (auto tablet_res = ExecEnv::get_tablet(_req.tablet_id); tablet_res.has_value()) {
         auto tablet = std::dynamic_pointer_cast<Tablet>(tablet_res.value());
         if (tablet && tablet->data_dir()) {
             _data_dir = tablet->data_dir();
