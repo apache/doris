@@ -200,6 +200,10 @@ public class AzurePropertiesTest {
                 StorageProperties.createPrimary(origProps), "For OAuth2 authentication, please provide oauth2_client_id, "
                 + "oauth2_tenant_id, oauth2_client_secret, and oauth2_server_uri.");
         origProps.put("fs.azure.support", "true");
+        Assertions.assertThrows(UnsupportedOperationException.class, () ->
+                StorageProperties.createPrimary(origProps), "Azure OAuth2 is not supported in the current backend.");
+        origProps.put("type", "iceberg");
+        origProps.put("iceberg.catalog.type", "rest");
         AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
         Configuration hadoopStorageConfig = azureProperties.getHadoopStorageConfig();
         Assertions.assertEquals("OAuth", hadoopStorageConfig.get("fs.azure.account.auth.type.onelake.dfs.fabric.microsoft.com"));

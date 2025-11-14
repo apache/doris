@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.datasource.property.storage.exception.AzureAuthType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -108,7 +109,7 @@ public class AzureProperties extends StorageProperties {
     @ConnectorProperty(names = {"azure.auth_type"},
             required = false,
             description = "The auth type of Azure blob.")
-    private String azureAuthType = "SharedKey";
+    private String azureAuthType = AzureAuthType.SharedKey.name();
 
     @Getter
     @ConnectorProperty(names = {"container", "azure.bucket", "s3.bucket"},
@@ -142,6 +143,9 @@ public class AzureProperties extends StorageProperties {
         //check endpoint
         this.endpoint = formatAzureEndpoint(endpoint, accountName);
         buildRules().validate();
+        if (AzureAuthType.OAuth2.name().equals(azureAuthType) && (!isIcebergRestCatalog())) {
+            throw new UnsupportedOperationException("OAuth2 auth type is only supported for iceberg rest catalog");
+        }
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -262,13 +266,36 @@ public class AzureProperties extends StorageProperties {
     private ParamRules buildRules() {
         return new ParamRules()
                 // OAuth2 requires either credential or token, but not both
-                .requireIf(azureAuthType, "OAuth2", new String[]{accountHost,
+                .requireIf(azureAuthType, AzureAuthType.OAuth2.name(), new String[]{accountHost,
                         clientId,
                         clientSecret,
                         oauthServerUri}, "When auth_type is OAuth2, oauth2_account_host, oauth2_client_id"
                         + ", oauth2_client_secret, and oauth2_server_uri are required.")
-                .requireIf(azureAuthType, "SharedKey", new String[]{accountName, accountKey},
+                .requireIf(azureAuthType, AzureAuthType.SharedKey.name(), new String[]{accountName, accountKey},
                         "When auth_type is SharedKey, account_name and account_key are required.");
+    }
+
+    // NB:Temporary check:
+    // Temporary check: Currently using OAuth2 for accessing Onalake storage via HDFS.
+    // In the future, OAuth2 will be supported via native SDK to reduce maintenance.
+    // For now, OAuth2 authentication is only allowed for Iceberg REST.
+    // TODO: Remove this temporary check later
+    private static final String ICEBERG_CATALOG_TYPE_KEY = "iceberg.catalog.type";
+    private static final String ICEBERG_CATALOG_TYPE_REST = "rest";
+    private static final String TYPE_KEY = "type";
+    private static final String ICEBERG_VALUE = "iceberg";
+
+    private boolean isIcebergRestCatalog() {
+        // check iceberg type
+        boolean hasIcebergType = origProps.entrySet().stream()
+                .anyMatch(entry -> TYPE_KEY.equalsIgnoreCase(entry.getKey())
+                        && ICEBERG_VALUE.equalsIgnoreCase(entry.getValue()));
+        if (!hasIcebergType && origProps.keySet().stream().anyMatch(TYPE_KEY::equalsIgnoreCase)) {
+            return false;
+        }
+        return origProps.entrySet().stream()
+                .anyMatch(entry -> ICEBERG_CATALOG_TYPE_KEY.equalsIgnoreCase(entry.getKey())
+                        && ICEBERG_CATALOG_TYPE_REST.equalsIgnoreCase(entry.getValue()));
     }
 
 }
