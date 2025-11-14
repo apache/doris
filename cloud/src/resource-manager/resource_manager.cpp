@@ -1413,24 +1413,24 @@ std::pair<MetaServiceCode, std::string> ResourceManager::refresh_instance(
 
 void ResourceManager::refresh_instance(const std::string& instance_id,
                                        const InstanceInfoPB& instance) {
-    bool is_succeed_instance = instance.has_original_instance_id();
-    std::string source_instance_id = is_succeed_instance ? instance.source_instance_id() : "";
+    bool is_successor_instance = instance.has_original_instance_id();
+    std::string source_instance_id = is_successor_instance ? instance.source_instance_id() : "";
 
     std::lock_guard l(mtx_);
     for (auto i = node_info_.begin(); i != node_info_.end();) {
-        // erase all nodes belong to this instance_id
+        // erase all nodes not belong to this instance_id
         if (i->second.instance_id != instance_id &&
-            // ... or, if is_succeed_instance, erase nodes belong to source_instance_id
-            (!is_succeed_instance || i->second.instance_id != source_instance_id)) {
+            // ... or, if is_successor_instance, erase nodes belong to source_instance_id
+            (!is_successor_instance || i->second.instance_id != source_instance_id)) {
             ++i;
             continue;
         }
         i = node_info_.erase(i);
     }
 
-    // If succeed_instance_id is set, it means this instance has a succeeded instance,
+    // If successor_instance_id is set, it means this instance has a successor instance,
     // so we do not need to add its clusters to the index again.
-    if (!instance.has_succeed_instance_id()) {
+    if (!instance.has_successor_instance_id()) {
         for (int i = 0; i < instance.clusters_size(); ++i) {
             add_cluster_to_index_no_lock(instance_id, instance.clusters(i));
         }

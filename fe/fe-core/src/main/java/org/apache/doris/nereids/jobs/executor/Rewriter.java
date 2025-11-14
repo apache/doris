@@ -228,8 +228,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             // so there may be two filters we need to merge them
                                             new MergeFilters()
                                     ),
-                                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                            AggScalarSubQueryToWindowFunction::new),
                                     bottomUp(
                                             new EliminateUselessPlanUnderApply(),
                                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -244,13 +242,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                              *   we expected.
                                              */
                                             new CorrelateApplyToUnCorrelateApply(),
-                                            new ApplyToJoin(),
-                                            // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
-                                            // The later rule CheckPrivileges which inherent from ColumnPruning
-                                            // only works
-                                            // if the aggregation node is normalized, so we need call
-                                            // NormalizeAggregate here
-                                            new NormalizeAggregate()
+                                            new ApplyToJoin()
                                     )
                             ),
                             // before `Subquery unnesting` topic, some correlate slots should have appeared at
@@ -394,6 +386,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new CollectFilterAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
+                            topic("eliminate join according unique or foreign key",
+                                    cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                                    bottomUp(new EliminateJoinByFK()),
+                                    topDown(new EliminateJoinByUnique())
+                            ),
                             topic("Table/Physical optimization",
                                     topDown(
                                             new PruneOlapScanPartition(),
@@ -409,7 +406,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
                             ),
                             topic("add projection for join",
-                                    // this is for hint project join rewrite rule
                                     custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                                     topDown(new MergeProjectable())
                             )

@@ -88,13 +88,6 @@ public class StructLiteral extends LiteralExpr {
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 
-    @Override
-    public String toDigestImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toDigestImpl()));
-        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
-    }
-
     private String getStringValue(Expr expr) {
         String stringValue = expr.getStringValue();
         if (stringValue.isEmpty()) {

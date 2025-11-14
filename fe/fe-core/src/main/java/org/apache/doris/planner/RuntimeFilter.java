@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -116,10 +115,6 @@ public final class RuntimeFilter {
 
         public RuntimeFilterTarget(PlanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
-            Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds())
-                    || targetNode instanceof CTEScanNode,
-                    "RuntimeFilter target " + expr + " is not bounded: slotDesc"
-                            + (targetExpr instanceof SlotRef ? ((SlotRef) targetExpr).getTupleId() : "null"));
             this.node = targetNode;
             this.expr = targetExpr;
             this.isBoundByKeyColumns = isBoundByKeyColumns;
