@@ -506,15 +506,6 @@ struct TFileRangeDesc {
     14: optional i64 self_split_weight
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
-    // For Iceberg partition evolution support:
-    // Maps partition field names to source column names
-    // e.g., "ts_day" -> "ts" for day(ts) partition
-    16: optional map<string, string> partition_field_to_source_column_map;
-    // Maps partition field names to transform functions
-    // e.g., "ts_day" -> "day", "id_bucket" -> "bucket[16]"
-    17: optional map<string, string> partition_field_transforms;
-    // Partition spec ID for partition evolution support
-    18: optional i32 partition_spec_id;
 }
 
 struct TSplitSource {

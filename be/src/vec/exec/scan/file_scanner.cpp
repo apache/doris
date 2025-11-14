@@ -27,7 +27,6 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <cstdio>
 #include <map>
 #include <ranges>
 #include <tuple>
@@ -256,40 +255,13 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     size_t partition_value_column_size = 1;
 
     // 1. Get partition key values to string columns.
-    // For Iceberg partition evolution, we need to handle transform functions (day/year/month/hour)
     std::unordered_map<SlotId, MutableColumnPtr> partition_slot_id_to_column;
     for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         std::string source_column_name = partition_slot_desc->col_name();
 
-        // Check if there's a transform function for this partition field
-        std::string transform;
-        auto transform_it = _partition_field_transforms.find(source_column_name);
-        if (transform_it != _partition_field_transforms.end()) {
-            transform = transform_it->second;
-        }
-
-        // For bucket/truncate transforms, we don't support partition pruning
-        // Skip them and let the data be read (conservative approach)
-        if (!transform.empty() && (transform.find("bucket") != std::string::npos ||
-                                   transform.find("truncate") != std::string::npos)) {
-            // Skip this partition field for runtime filter pruning
-            continue;
-        }
-
         auto data_type = partition_slot_desc->get_data_type_ptr();
         std::string value_to_deserialize = partition_value;
-
-        // For time transforms (day/year/month/hour), convert partition value to source column range
-        // We use the lower bound of the range for conservative pruning
-        if (!transform.empty() && (transform == "day" || transform == "year" ||
-                                   transform == "month" || transform == "hour")) {
-            std::string lower_bound, upper_bound;
-            RETURN_IF_ERROR(_convert_partition_value_to_source_range(
-                    partition_value, transform, data_type, lower_bound, upper_bound));
-            // Use lower bound for conservative pruning (if lower bound doesn't match, the partition can be filtered)
-            value_to_deserialize = lower_bound;
-        }
 
         auto test_serde = data_type->get_serde();
         auto partition_value_column = data_type->create_column();
@@ -1586,67 +1558,23 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
 Status FileScanner::_generate_partition_columns() {
     _partition_col_descs.clear();
     _partition_value_is_null.clear();
-    _partition_field_to_source_column_map.clear();
-    _partition_field_transforms.clear();
 
     const TFileRangeDesc& range = _current_range;
-
-    // Load partition field mapping information for Iceberg partition evolution support
-    if (range.__isset.partition_field_to_source_column_map) {
-        _partition_field_to_source_column_map = std::unordered_map<std::string, std::string>(
-                range.partition_field_to_source_column_map.begin(),
-                range.partition_field_to_source_column_map.end());
-    }
-    if (range.__isset.partition_field_transforms) {
-        _partition_field_transforms = std::unordered_map<std::string, std::string>(
-                range.partition_field_transforms.begin(), range.partition_field_transforms.end());
-    }
 
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
-                // For Iceberg partition evolution, we need to map partition field names to source column names
-                std::string partition_field_name = slot_desc->col_name();
-                std::string source_column_name = partition_field_name;
-
-                // Check if there's a mapping from partition field to source column
-                auto map_it = _partition_field_to_source_column_map.find(partition_field_name);
-                if (map_it != _partition_field_to_source_column_map.end()) {
-                    source_column_name = map_it->second;
-                }
-
-                // Find the source column slot descriptor
-                const SlotDescriptor* source_slot_desc = nullptr;
-                for (const auto& src_slot_desc : _partition_slot_descs) {
-                    if (src_slot_desc && src_slot_desc->col_name() == source_column_name) {
-                        source_slot_desc = src_slot_desc;
-                        break;
-                    }
-                }
-
-                // If source column not found in partition slots, try to find it in all slots
-                if (!source_slot_desc) {
-                    for (const auto& src_slot_desc : _real_tuple_desc->slots()) {
-                        if (src_slot_desc->col_name() == source_column_name) {
-                            source_slot_desc = src_slot_desc;
-                            break;
-                        }
-                    }
-                }
-
-                if (!source_slot_desc) {
-                    // Fallback to original slot_desc if source column not found
-                    source_slot_desc = slot_desc;
-                }
-
+                // For identity transforms, we assume partition field names match source column names
+                // For Iceberg partition evolution, partition field names should match source column names
                 auto it = _partition_slot_index_map.find(slot_desc->id());
                 if (it == std::end(_partition_slot_index_map)) {
                     return Status::InternalError("Unknown source slot descriptor, slot_id={}",
                                                  slot_desc->id());
                 }
                 const std::string& column_from_path = range.columns_from_path[it->second];
+                std::string source_column_name = slot_desc->col_name();
                 _partition_col_descs.emplace(source_column_name,
-                                             std::make_tuple(column_from_path, source_slot_desc));
+                                             std::make_tuple(column_from_path, slot_desc));
                 if (range.__isset.columns_from_path_is_null) {
                     _partition_value_is_null.emplace(source_column_name,
                                                      range.columns_from_path_is_null[it->second]);
@@ -1827,122 +1755,6 @@ void FileScanner::try_stop() {
     if (_io_ctx) {
         _io_ctx->should_stop = true;
     }
-}
-
-Status FileScanner::_convert_partition_value_to_source_range(const std::string& partition_value,
-                                                             const std::string& transform,
-                                                             const DataTypePtr& source_data_type,
-                                                             std::string& lower_bound,
-                                                             std::string& upper_bound) {
-    // For time transforms, convert partition value to source column value range
-    // This is used for Runtime Filter partition pruning with Iceberg partition evolution
-
-    if (transform == "day") {
-        // Partition value format: "2024-01-15" (DATE)
-        // Source range: ["2024-01-15 00:00:00", "2024-01-16 00:00:00")
-        lower_bound = partition_value + " 00:00:00";
-        // Calculate next day
-        // Simple approach: parse the date and add 1 day
-        // For now, we'll use a simple string manipulation for common cases
-        // In production, should use proper date parsing
-        std::string next_day = partition_value;
-        // Try to parse YYYY-MM-DD format and add 1 day
-        // This is a simplified implementation
-        if (partition_value.length() >= 10) {
-            int year = std::stoi(partition_value.substr(0, 4));
-            int month = std::stoi(partition_value.substr(5, 2));
-            int day = std::stoi(partition_value.substr(8, 2));
-
-            // Add 1 day (simplified, doesn't handle month/year boundaries)
-            day++;
-            if (day > 28) {
-                // Simple check for month boundaries (not perfect, but works for most cases)
-                int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-                if (day > days_in_month[month - 1]) {
-                    day = 1;
-                    month++;
-                    if (month > 12) {
-                        month = 1;
-                        year++;
-                    }
-                }
-            }
-
-            char buffer[32];
-            snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d 00:00:00", year, month, day);
-            upper_bound = std::string(buffer);
-        } else {
-            upper_bound = partition_value + " 23:59:59";
-        }
-    } else if (transform == "year") {
-        // Partition value format: "2024" (INT as string)
-        // Source range: ["2024-01-01 00:00:00", "2025-01-01 00:00:00")
-        int year = std::stoi(partition_value);
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%04d-01-01 00:00:00", year);
-        lower_bound = std::string(buffer);
-        snprintf(buffer, sizeof(buffer), "%04d-01-01 00:00:00", year + 1);
-        upper_bound = std::string(buffer);
-    } else if (transform == "month") {
-        // Partition value format: "202401" (INT as string, YYYYMM)
-        // Source range: ["2024-01-01 00:00:00", "2024-02-01 00:00:00")
-        if (partition_value.length() >= 6) {
-            int year = std::stoi(partition_value.substr(0, 4));
-            int month = std::stoi(partition_value.substr(4, 2));
-            char buffer[32];
-            snprintf(buffer, sizeof(buffer), "%04d-%02d-01 00:00:00", year, month);
-            lower_bound = std::string(buffer);
-            month++;
-            if (month > 12) {
-                month = 1;
-                year++;
-            }
-            snprintf(buffer, sizeof(buffer), "%04d-%02d-01 00:00:00", year, month);
-            upper_bound = std::string(buffer);
-        } else {
-            return Status::InvalidArgument("Invalid month partition value: {}", partition_value);
-        }
-    } else if (transform == "hour") {
-        // Partition value format: "2024011510" (INT as string, YYYYMMDDHH)
-        // Source range: ["2024-01-15 10:00:00", "2024-01-15 11:00:00")
-        if (partition_value.length() >= 10) {
-            int year = std::stoi(partition_value.substr(0, 4));
-            int month = std::stoi(partition_value.substr(4, 2));
-            int day = std::stoi(partition_value.substr(6, 2));
-            int hour = std::stoi(partition_value.substr(8, 2));
-            char buffer[32];
-            snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:00:00", year, month, day, hour);
-            lower_bound = std::string(buffer);
-            hour++;
-            if (hour >= 24) {
-                hour = 0;
-                day++;
-                // Simple day increment (doesn't handle month boundaries perfectly)
-                if (day > 28) {
-                    int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-                    if (day > days_in_month[month - 1]) {
-                        day = 1;
-                        month++;
-                        if (month > 12) {
-                            month = 1;
-                            year++;
-                        }
-                    }
-                }
-            }
-            snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:00:00", year, month, day, hour);
-            upper_bound = std::string(buffer);
-        } else {
-            return Status::InvalidArgument("Invalid hour partition value: {}", partition_value);
-        }
-    } else {
-        // Identity transform or unsupported transform
-        // For identity, partition value = source value
-        lower_bound = partition_value;
-        upper_bound = partition_value;
-    }
-
-    return Status::OK();
 }
 
 void FileScanner::update_realtime_counters() {

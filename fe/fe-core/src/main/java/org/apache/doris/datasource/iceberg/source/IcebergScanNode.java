@@ -64,7 +64,6 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -240,27 +239,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
             // Set partition field mapping information for BE side Runtime Filter partition pruning
             // This is needed for partition evolution support and non-identity transforms
-            Integer specId = icebergSplit.getSpecId();
-            if (specId != null && isPartitionedTable) {
-                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
-                if (partitionSpec != null) {
-                    Map<String, String> partitionFieldToSourceColumnMap = new HashMap<>();
-                    Map<String, String> partitionFieldTransforms = new HashMap<>();
-
-                    for (PartitionField partitionField : partitionSpec.fields()) {
-                        String partitionFieldName = partitionField.name();
-                        String sourceColumnName = icebergTable.schema().findColumnName(partitionField.sourceId());
-                        String transform = partitionField.transform().toString();
-
-                        partitionFieldToSourceColumnMap.put(partitionFieldName, sourceColumnName);
-                        partitionFieldTransforms.put(partitionFieldName, transform);
-                    }
-
-                    rangeDesc.setPartitionFieldToSourceColumnMap(partitionFieldToSourceColumnMap);
-                    rangeDesc.setPartitionFieldTransforms(partitionFieldTransforms);
-                    rangeDesc.setPartitionSpecId(specId);
-                }
-            }
+            // However, for now we disable runtime filter partition pruning for tables with transforms
+            // For tables with transforms, runtime filter partition pruning is disabled
+            // For identity transforms, we assume partition field names match source column names
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
