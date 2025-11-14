@@ -22,12 +22,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,26 +35,21 @@ import java.util.Optional;
 public class MaterializedViewExprReplacer extends DefaultExpressionRewriter<Void> {
 
     private final Map<? extends Expression, ? extends Expression> replaceMap;
-    private final Plan queryTopPlan;
-    private final BitSet sourcePlanBitSet;
-    private boolean valid = true;
+    // indicate whether all expressions are replaced successfully
+    private boolean replaceSuccess = true;
 
     public MaterializedViewExprReplacer(
-            Map<? extends Expression, ? extends Expression> replaceMap,
-            Plan queryTopPlan,
-            BitSet sourcePlanBitSet) {
+            Map<? extends Expression, ? extends Expression> replaceMap) {
         this.replaceMap = replaceMap;
-        this.queryTopPlan = queryTopPlan;
-        this.sourcePlanBitSet = sourcePlanBitSet;
     }
 
-    public boolean isValid() {
-        return valid;
+    public boolean isReplaceSuccess() {
+        return replaceSuccess;
     }
 
     @Override
     public Expression visit(Expression expr, Void context) {
-        if (!valid) {
+        if (!replaceSuccess) {
             return expr;
         }
         Expression replacedExpr = replaceMap.get(expr);
@@ -68,7 +60,7 @@ public class MaterializedViewExprReplacer extends DefaultExpressionRewriter<Void
         boolean hasChanged = false;
         for (Expression child : expr.children()) {
             Expression newChild = child.accept(this, context);
-            if (!valid) {
+            if (!replaceSuccess) {
                 return expr;
             }
             if (newChild != child) {
@@ -81,34 +73,35 @@ public class MaterializedViewExprReplacer extends DefaultExpressionRewriter<Void
 
     @Override
     public Expression visitSlot(Slot slot, Void context) {
-        if (!valid) {
+        if (!replaceSuccess) {
             return slot;
-        }
-        if (slot instanceof VirtualSlotReference) {
-            return handleVirtualSlot((VirtualSlotReference) slot, context);
         }
         Expression replacedExpr = replaceMap.get(slot);
         if (replacedExpr != null) {
             return replacedExpr;
         }
-        valid = false;
+        replaceSuccess = false;
         return slot;
+    }
+
+    @Override
+    public Expression visitVirtualReference(VirtualSlotReference virtualSlotReference, Void context) {
+        if (!replaceSuccess) {
+            return virtualSlotReference;
+        }
+        return handleVirtualSlot(virtualSlotReference, context);
     }
 
     private Expression handleVirtualSlot(
             VirtualSlotReference virtualSlot,
             Void context) {
-        if (!valid) {
+        if (!replaceSuccess) {
             return virtualSlot;
         }
         Optional<GroupingScalarFunction> originExpression = virtualSlot.getOriginExpression();
-        if (!originExpression.isPresent()) {
-            return Repeat.generateVirtualGroupingIdSlot();
-        }
-        GroupingScalarFunction groupingFunc = originExpression.get();
-        groupingFunc = (GroupingScalarFunction) ExpressionUtils.shuttleExpressionWithLineage(
-                groupingFunc, queryTopPlan, sourcePlanBitSet);
-        groupingFunc = (GroupingScalarFunction) groupingFunc.accept(this, context);
-        return Repeat.generateVirtualSlotByFunction(groupingFunc);
+        return originExpression.map(groupingScalarFunction ->
+                        Repeat.generateVirtualSlotByFunction(
+                                (GroupingScalarFunction) groupingScalarFunction.accept(this, context)))
+                .orElseGet(Repeat::generateVirtualGroupingIdSlot);
     }
 }

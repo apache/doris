@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -40,12 +39,11 @@ class MaterializedViewExprReplacerTest {
         SlotReference newSlot = new SlotReference("b", IntegerType.INSTANCE);
 
         Map<Expression, Expression> replaceMap = ImmutableMap.of(oldSlot, newSlot);
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
 
         Expression result = replacer.visit(oldSlot, null);
         Assertions.assertEquals(newSlot, result);
-        Assertions.assertTrue(replacer.isValid());
+        Assertions.assertTrue(replacer.isReplaceSuccess());
     }
 
     @Test
@@ -53,12 +51,11 @@ class MaterializedViewExprReplacerTest {
         SlotReference slot = new SlotReference("a", IntegerType.INSTANCE);
 
         Map<Expression, Expression> replaceMap = new HashMap<>();
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
 
         Expression result = slot.accept(replacer, null);
         Assertions.assertEquals(slot, result);
-        Assertions.assertFalse(replacer.isValid());
+        Assertions.assertFalse(replacer.isReplaceSuccess());
     }
 
     @Test
@@ -73,15 +70,14 @@ class MaterializedViewExprReplacerTest {
                 slot1, newSlot1,
                 slot2, newSlot2
         );
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
 
         Expression result = replacer.visit(addExpr, null);
         Assertions.assertInstanceOf(Add.class, result);
         Add resultAdd = (Add) result;
         Assertions.assertEquals(newSlot1, resultAdd.child(0));
         Assertions.assertEquals(newSlot2, resultAdd.child(1));
-        Assertions.assertTrue(replacer.isValid());
+        Assertions.assertTrue(replacer.isReplaceSuccess());
     }
 
     @Test
@@ -92,11 +88,10 @@ class MaterializedViewExprReplacerTest {
         IntegerLiteral replacement = new IntegerLiteral(100);
 
         Map<Expression, Expression> replaceMap = ImmutableMap.of(addExpr, replacement);
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
         Expression result = replacer.visit(addExpr, null);
         Assertions.assertEquals(replacement, result);
-        Assertions.assertTrue(replacer.isValid());
+        Assertions.assertTrue(replacer.isReplaceSuccess());
     }
 
     @Test
@@ -106,10 +101,9 @@ class MaterializedViewExprReplacerTest {
         SlotReference newSlot1 = new SlotReference("c", IntegerType.INSTANCE);
         Add addExpr = new Add(slot1, slot2);
         Map<Expression, Expression> replaceMap = ImmutableMap.of(slot1, newSlot1);
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
         addExpr.accept(replacer, null);
-        Assertions.assertFalse(replacer.isValid());
+        Assertions.assertFalse(replacer.isReplaceSuccess());
     }
 
     @Test
@@ -118,15 +112,14 @@ class MaterializedViewExprReplacerTest {
         SlotReference slot2 = new SlotReference("b", IntegerType.INSTANCE);
 
         Map<Expression, Expression> replaceMap = new HashMap<>();
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
 
         slot1.accept(replacer, null);
-        Assertions.assertFalse(replacer.isValid());
+        Assertions.assertFalse(replacer.isReplaceSuccess());
 
         Expression result = replacer.visit(slot2, null);
         Assertions.assertEquals(slot2, result);
-        Assertions.assertFalse(replacer.isValid());
+        Assertions.assertFalse(replacer.isReplaceSuccess());
     }
 
     @Test
@@ -144,8 +137,7 @@ class MaterializedViewExprReplacerTest {
                 slot2, newSlot2
         );
 
-        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(
-                replaceMap, null, new BitSet());
+        MaterializedViewExprReplacer replacer = new MaterializedViewExprReplacer(replaceMap);
         Expression result = replacer.visit(outerAdd, null);
         Assertions.assertInstanceOf(Add.class, result);
         Add resultOuter = (Add) result;
@@ -153,6 +145,6 @@ class MaterializedViewExprReplacerTest {
         Add resultInner = (Add) resultOuter.child(0);
         Assertions.assertEquals(newSlot1, resultInner.child(0));
         Assertions.assertEquals(newSlot2, resultInner.child(1));
-        Assertions.assertTrue(replacer.isValid());
+        Assertions.assertTrue(replacer.isReplaceSuccess());
     }
 }

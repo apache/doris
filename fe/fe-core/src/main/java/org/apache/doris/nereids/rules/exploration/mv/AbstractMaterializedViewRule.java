@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -642,11 +643,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             extendMappingByVariant(variants, targetToTargetReplacementMappingQueryBased);
 
             MaterializedViewExprReplacer materializedViewExprReplacer = new MaterializedViewExprReplacer(
-                    targetToTargetReplacementMappingQueryBased,
-                    sourcePlan, sourcePlanBitSet);
+                    targetToTargetReplacementMappingQueryBased);
             Expression replacedExpression =
                     expressionShuttledToRewrite.accept(materializedViewExprReplacer, null);
-            if (!materializedViewExprReplacer.isValid()) {
+            if (!materializedViewExprReplacer.isReplaceSuccess()) {
                 // if contains any slot to rewrite, which means can not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
@@ -674,7 +674,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 Expression dateTruncWithLiteral = ExpressionUtils.replace(
                         viewExprParamToDateTruncMap.get(queryShuttledExprParam), datetruncMap);
                 Expression foldedExpressionWithLiteral = FoldConstantRuleOnFE.evaluate(dateTruncWithLiteral,
-                        new org.apache.doris.nereids.rules.expression.ExpressionRewriteContext(cascadesContext));
+                        new ExpressionRewriteContext(cascadesContext));
                 if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
                     return ImmutableList.of();
                 }
