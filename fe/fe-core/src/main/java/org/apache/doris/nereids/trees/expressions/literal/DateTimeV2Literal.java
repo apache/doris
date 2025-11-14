@@ -325,6 +325,44 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         }
     }
 
+    /**
+     * plusMinuteSecond
+     */
+    public Expression plusMinuteSecond(VarcharLiteral minuteSecond) {
+        String stringValue = minuteSecond.getStringValue().trim();
+
+        if (!stringValue.matches("[0-9\\-:\\s]+")) {
+            return new NullLiteral(dataType);
+        }
+
+        String[] split = stringValue.split(":");
+        if (split.length != 2) {
+            return new NullLiteral(dataType);
+        }
+
+        String minute = split[0].trim();
+        String second = split[1].trim();
+
+        try {
+            long minutes = Long.parseLong(minute);
+            boolean minutePositive = minutes >= 0;
+
+            long seconds = Long.parseLong(second);
+
+            if (minutePositive) {
+                seconds = Math.abs(seconds);
+            } else {
+                seconds = -Math.abs(seconds);
+            }
+
+            return fromJavaDateType(toJavaDateType()
+                .plusMinutes(minutes)
+                .plusSeconds(seconds), getDataType().getScale());
+        } catch (NumberFormatException e) {
+            return new NullLiteral(dataType);
+        }
+    }
+
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public Expression plusMicroSeconds(long microSeconds) {
