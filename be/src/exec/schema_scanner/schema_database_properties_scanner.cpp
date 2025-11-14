@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "exec/schema_scanner/schema_database_properties_scanner.h"
 
 #include "exec/schema_scanner/schema_helper.h"
@@ -76,7 +93,8 @@ Status SchemaDatabasePropertiesScanner::get_onedb_info_from_fe(int64_t dbId) {
 
     _dbproperties_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _dbproperties_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
@@ -84,15 +102,16 @@ Status SchemaDatabasePropertiesScanner::get_onedb_info_from_fe(int64_t dbId) {
     if (result_data.size() > 0) {
         auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
-            return Status::InternalError<false>("database properties schema is not match for FE and BE");
+            return Status::InternalError<false>(
+                    "database properties schema is not match for FE and BE");
         }
     }
 
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(
-                    row.column_value[j], j, _dbproperties_block.get(), _s_tbls_columns[j].type));
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _dbproperties_block.get(),
+                                                _s_tbls_columns[j].type));
         }
     }
     return Status::OK();
@@ -109,7 +128,8 @@ bool SchemaDatabasePropertiesScanner::check_and_mark_eos(bool* eos) const {
     return false;
 }
 
-Status SchemaDatabasePropertiesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaDatabasePropertiesScanner::get_next_block_internal(vectorized::Block* block,
+                                                                bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -137,5 +157,4 @@ Status SchemaDatabasePropertiesScanner::get_next_block_internal(vectorized::Bloc
     return Status::OK();
 }
 
-}
-
+} // namespace doris
