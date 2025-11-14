@@ -37,17 +37,17 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Map;
 
-/**SessionVarGuardRewriter*/
+/**
+ * 这个类的作用是：对一个plan node中，所有需要guard的expression，添加session var guard
+ * */
 public class SessionVarGuardRewriter extends ExpressionRewrite {
-    private static Map<String, String> sessionVar;
-    private static final ReplaceRule INSTANCE = new ReplaceRule();
     private final List<Rule> rules;
     private final CascadesContext cascadesContext;
 
     public SessionVarGuardRewriter(Map<String, String> var, CascadesContext ctx) {
-        super(new ExpressionRuleExecutor(ImmutableList.of(bottomUp(INSTANCE))));
+        super(new ExpressionRuleExecutor(ImmutableList.of(bottomUp(
+                new ReplaceRule(new AddSessionVarGuardRewriter(var))))));
         rules = buildRules();
-        sessionVar = var;
         cascadesContext = ctx;
     }
 
@@ -67,24 +67,32 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     }
 
     private static class ReplaceRule implements ExpressionPatternRuleFactory {
+        private final AddSessionVarGuardRewriter addGuardRewriter;
+
+        private ReplaceRule(AddSessionVarGuardRewriter guard) {
+            this.addGuardRewriter = guard;
+        }
+
         @Override
         public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
             return ImmutableList.of(
                     matchesType(Alias.class).thenApply(ctx -> {
                         Alias alias = ctx.expr;
-                        // 对 alias 的 child 进行改写，保证所有实现 NeedSessionVarGuard 的表达式都会被独立包裹一层
-                        Expression aliasChild = alias.child().accept(new AddSessionVarGuard(sessionVar), Boolean.FALSE);
+                        Expression aliasChild = alias.child().accept(addGuardRewriter, Boolean.FALSE);
                         return alias.withChildren(ImmutableList.of(aliasChild));
                     }).toRule(ExpressionRuleType.ADD_SESSION_VAR_GUARD)
             );
         }
     }
 
-    /**AddSessionVarGuard*/
-    public static class AddSessionVarGuard extends DefaultExpressionRewriter<Boolean> {
+    /** This ensures that all expressions implementing NeedSessionVarGuard are
+     * wrapped in a SessionVarGuardExpr layer.
+     * e.g. (a+b)*c -> guard(guard(a+b)*c)
+     * */
+    public static class AddSessionVarGuardRewriter extends DefaultExpressionRewriter<Boolean> {
         private final Map<String, String> sessionVar;
 
-        public AddSessionVarGuard(Map<String, String> var) {
+        public AddSessionVarGuardRewriter(Map<String, String> var) {
             sessionVar = var;
         }
 

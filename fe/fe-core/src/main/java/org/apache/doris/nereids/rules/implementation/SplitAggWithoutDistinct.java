@@ -130,10 +130,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
 
                 @Override
                 public Void visitSessionVarGuardExpr(SessionVarGuardExpr expr, SplitContext context) {
-                    Map<String, String> originVar = context.sessionVars;
-                    context.sessionVars = expr.getSessionVars();
-                    super.visit(expr, context);
-                    context.sessionVars = originVar;
+                    super.visit(expr, new SplitContext(expr.getSessionVars()));
                     return null;
                 }
             }, new SplitContext());
@@ -189,5 +186,12 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
     /**SplitContext*/
     public static class SplitContext {
         public Map<String, String> sessionVars = null;
+
+        public SplitContext() {
+        }
+
+        public SplitContext(Map<String, String> sessionVars) {
+            this.sessionVars = sessionVars;
+        }
     }
 }

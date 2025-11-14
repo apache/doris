@@ -23,7 +23,7 @@ import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter.AddSessionVarGuard;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter.AddSessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -118,8 +118,9 @@ public class AliasUdfBuilder extends UdfBuilder {
                 }
             };
             analyzedExpression = udfAnalyzer.analyze(aliasUdf.getUnboundFunction());
-            analyzedExpression = analyzedExpression.accept(
-                    new AddSessionVarGuard(sessionVariables), Boolean.FALSE);
+            if (sessionVariables != null && !sessionVariables.isEmpty()) {
+                analyzedExpression = analyzedExpression.accept(new AddSessionVarGuardRewriter(sessionVariables), Boolean.FALSE);
+            }
         }
         return Pair.of(analyzedExpression, boundAliasFunction);
     }
