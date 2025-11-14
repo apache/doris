@@ -467,13 +467,81 @@ TEST_F(ColumnVarbinaryTest, InsertRangeFromOutOfBoundsThrows) {
     EXPECT_THROW(dst->insert_range_from(*src, /*start=*/1, /*length=*/5), doris::Exception);
 }
 
+TEST_F(ColumnVarbinaryTest, GetMaxRowByteSizeMix) {
+    auto col = ColumnVarbinary::create();
+    // empty, inline, contains '\0', non-inline
+    std::string empty;
+    std::string inline_v = make_bytes(3, 0x01);       // inline (<= kInlineSize)
+    std::string with_zero = std::string("AB\0CD", 5); // explicit embedded zero
+    std::string big = make_bytes(doris::StringView::kInlineSize + 15, 0x11); // non-inline
+
+    col->insert_data(empty.data(), empty.size());
+    col->insert_data(inline_v.data(), inline_v.size());
+    col->insert_data(with_zero.data(), with_zero.size());
+    col->insert_data(big.data(), big.size());
+
+    size_t expected = std::max({empty.size(), inline_v.size(), with_zero.size(), big.size()}) +
+                      sizeof(uint32_t);
+    ASSERT_EQ(col->get_max_row_byte_size(), expected);
+}
+
+TEST_F(ColumnVarbinaryTest, SerializeDeserializeKeysArray) {
+    auto col = ColumnVarbinary::create();
+    std::vector<std::string> vals = {
+            std::string(),                                        // empty
+            std::string("Z", 1),                                  // single char inline
+            std::string("A\0B", 3),                               // inline with zero
+            make_bytes(doris::StringView::kInlineSize + 2, 0x33), // non-inline small
+            make_bytes(doris::StringView::kInlineSize + 25, 0x44) // non-inline larger
+    };
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
+    size_t n = vals.size();
+    size_t per_row_cap = col->get_max_row_byte_size();
+    std::vector<std::vector<char>> buffers(n); // each row independent buffer
+    std::vector<StringRef> keys(n);
+    for (size_t i = 0; i < n; ++i) {
+        buffers[i].resize(per_row_cap);
+        keys[i].data = buffers[i].data();
+        keys[i].size = 0; // used bytes starts at 0
+    }
+    // serialize each row independently
+    col->serialize(keys.data(), n);
+
+    for (size_t i = 0; i < n; ++i) {
+        size_t expected_sz = vals[i].size() + sizeof(uint32_t);
+        ASSERT_EQ(keys[i].size, expected_sz); // used bytes recorded
+        // verify header length matches
+        uint32_t len;
+        memcpy(&len, buffers[i].data(), sizeof(uint32_t));
+        ASSERT_EQ(len, vals[i].size());
+        ASSERT_EQ(memcmp(buffers[i].data() + sizeof(uint32_t), vals[i].data(), vals[i].size()), 0);
+    }
+
+    // Prepare for deserialize into new column
+    auto col2 = ColumnVarbinary::create();
+    std::vector<StringRef> dkeys(n);
+    for (size_t i = 0; i < n; ++i) {
+        dkeys[i].data = buffers[i].data();
+        dkeys[i].size = keys[i].size; // remaining bytes to consume
+    }
+    col2->deserialize(dkeys.data(), n);
+
+    ASSERT_EQ(col2->size(), n);
+    for (size_t i = 0; i < n; ++i) {
+        auto r = col2->get_data_at(i);
+        ASSERT_EQ(r.size, vals[i].size());
+        ASSERT_EQ(memcmp(r.data, vals[i].data(), r.size), 0);
+        // After deserialize pointer advanced & size reduced
+        ASSERT_EQ(dkeys[i].size, 0U);
+    }
+}
+
 TEST_F(ColumnVarbinaryTest, PermuteThrowsOnShortPermutation) {
     auto col = ColumnVarbinary::create();
     std::vector<std::string> vals = {make_bytes(1, 0x31), make_bytes(1, 0x32),
                                      make_bytes(doris::StringView::kInlineSize + 2, 0x33)};
-    for (auto& v : vals) {
-        col->insert_data(v.data(), v.size());
-    }
 
     IColumn::Permutation perm = {1};
     EXPECT_THROW(col->permute(perm, 2), doris::Exception);
@@ -521,6 +589,40 @@ TEST_F(ColumnVarbinaryTest, CloneResizedZero) {
     auto c0 = col->clone_resized(0);
     const auto& cc0 = assert_cast<const ColumnVarbinary&>(*c0);
     EXPECT_EQ(cc0.size(), 0U);
+}
+
+TEST_F(ColumnVarbinaryTest, GetPermutationAscDescIgnoreLimit) {
+    auto col = ColumnVarbinary::create();
+    // Deliberately craft strings with shared prefixes & embedded zeros
+    std::vector<std::string> vals = {
+            std::string("aa"),
+            std::string("aa\0", 3),
+            std::string("aa\0b", 4),
+            std::string("aaa"),
+            make_bytes(doris::StringView::kInlineSize + 5, 0x50), // non-inline high bytes
+            std::string("aab"),
+            std::string("aa\0aa", 5)};
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
+
+    IColumn::Permutation perm_asc;
+    col->get_permutation(/*reverse=*/false, /*limit=*/3, /*nan_hint=*/0,
+                         perm_asc); // limit ignored by impl
+    ASSERT_EQ(perm_asc.size(), vals.size());
+    // check ascending ordering
+    for (size_t i = 1; i < perm_asc.size(); ++i) {
+        int c = col->compare_at(perm_asc[i - 1], perm_asc[i], *col, 0);
+        ASSERT_LE(c, 0) << "Permutation not ascending at position " << i;
+    }
+
+    IColumn::Permutation perm_desc;
+    col->get_permutation(/*reverse=*/true, /*limit=*/vals.size(), /*nan_hint=*/0, perm_desc);
+    ASSERT_EQ(perm_desc.size(), vals.size());
+    for (size_t i = 1; i < perm_desc.size(); ++i) {
+        int c = col->compare_at(perm_desc[i - 1], perm_desc[i], *col, 0);
+        ASSERT_GE(c, 0) << "Permutation not descending at position " << i;
+    }
 }
 
 } // namespace doris::vectorized
