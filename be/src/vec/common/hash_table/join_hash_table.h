@@ -257,11 +257,20 @@ private:
         while (probe_idx < probe_rows) {
             auto build_idx = build_idx_map[probe_idx];
 
-            while (build_idx) {
-                if (!visited[build_idx] && _eq(keys[probe_idx], build_keys[build_idx])) {
-                    visited[build_idx] = 1;
+            if constexpr (DirectMapping) {
+                if (!visited[build_idx]) {
+                    while (build_idx) {
+                        visited[build_idx] = 1;
+                        build_idx = next[build_idx];
+                    }
                 }
-                build_idx = next[build_idx];
+            } else {
+                while (build_idx) {
+                    if (!visited[build_idx] && _eq(keys[probe_idx], build_keys[build_idx])) {
+                        visited[build_idx] = 1;
+                    }
+                    build_idx = next[build_idx];
+                }
             }
             probe_idx++;
         }
