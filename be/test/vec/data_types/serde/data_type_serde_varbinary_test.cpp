@@ -36,6 +36,7 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_varbinary_serde.h"
 
@@ -231,6 +232,177 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
     EXPECT_EQ(batch->numElements, 1);
     EXPECT_EQ(batch->length[0], 3);
     EXPECT_EQ(memcmp(batch->data[0], v.data(), 3), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    std::vector<std::string> vals = {std::string("A", 1), std::string("BC", 2),
+                                     std::string("XYZ", 3)};
+    for (auto& v : vals) {
+        vb->insert_data(v.data(), v.size());
+    }
+
+    // null map: second row null
+    NullMap nulls = {0, 1, 0};
+    cctz::time_zone tz;
+
+    // BinaryBuilder path + nulls
+    {
+        auto builder = std::make_shared<arrow::BinaryBuilder>();
+        auto st = serde.write_column_to_arrow(*col, &nulls, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* bin = dynamic_cast<arrow::BinaryArray*>(arr.get());
+        ASSERT_NE(bin, nullptr);
+        ASSERT_EQ(bin->length(), static_cast<int>(vals.size()));
+        ASSERT_FALSE(bin->IsNull(0));
+        ASSERT_TRUE(bin->IsNull(1));
+        ASSERT_FALSE(bin->IsNull(2));
+        // row 0
+        ASSERT_EQ(bin->value_length(0), static_cast<int>(vals[0].size()));
+        const uint8_t* p0 = bin->value_data()->data() + bin->value_offset(0);
+        EXPECT_EQ(memcmp(p0, vals[0].data(), vals[0].size()), 0);
+        // row 2
+        ASSERT_EQ(bin->value_length(2), static_cast<int>(vals[2].size()));
+        const uint8_t* p2 = bin->value_data()->data() + bin->value_offset(2);
+        EXPECT_EQ(memcmp(p2, vals[2].data(), vals[2].size()), 0);
+    }
+
+    // StringBuilder path (no nulls)
+    {
+        auto builder = std::make_shared<arrow::StringBuilder>();
+        auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* str_arr = dynamic_cast<arrow::StringArray*>(arr.get());
+        ASSERT_NE(str_arr, nullptr);
+        ASSERT_EQ(str_arr->length(), static_cast<int>(vals.size()));
+        for (int i = 0; i < str_arr->length(); ++i) {
+            ASSERT_FALSE(str_arr->IsNull(i));
+            // StringArray shares BinaryArray API for raw buffer checks
+            auto* bin = static_cast<arrow::BinaryArray*>(arr.get());
+            ASSERT_EQ(bin->value_length(i), static_cast<int>(vals[i].size()));
+            const uint8_t* pi = bin->value_data()->data() + bin->value_offset(i);
+            EXPECT_EQ(memcmp(pi, vals[i].data(), vals[i].size()), 0);
+        }
+    }
+
+    // Unsupported builder type
+    {
+        arrow::Int32Builder ib;
+        auto st = serde.write_column_to_arrow(*col, nullptr, &ib, 0, 1, tz);
+        EXPECT_FALSE(st.ok());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    std::vector<std::string> vals = {std::string("aa", 2), std::string("bbb", 3),
+                                     std::string("cccc", 4)};
+    for (auto& v : vals) {
+        vb->insert_data(v.data(), v.size());
+    }
+
+    Arena arena;
+    auto batch = std::make_unique<orc::StringVectorBatch>(8, *orc::getDefaultPool());
+
+    // Provide a null_map but implementation ignores it; ensure data still written.
+    NullMap nulls = {0, 1, 0};
+    auto st = serde.write_column_to_orc("UTC", *col, &nulls, batch.get(), /*start=*/1, /*end=*/3,
+                                        arena);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(batch->numElements, 2);
+    // rows 1 and 2 are filled
+    EXPECT_EQ(batch->length[1], static_cast<long>(vals[1].size()));
+    EXPECT_EQ(memcmp(batch->data[1], vals[1].data(), vals[1].size()), 0);
+    EXPECT_EQ(batch->length[2], static_cast<long>(vals[2].size()));
+    EXPECT_EQ(memcmp(batch->data[2], vals[2].data(), vals[2].size()), 0);
+
+    // Empty range should set numElements = 0
+    auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), /*start=*/3, /*end=*/3,
+                                         arena);
+    EXPECT_TRUE(st2.ok());
+    EXPECT_EQ(batch->numElements, 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonNestingLevels) {
+    // nesting_level == 1: no quotes
+    {
+        DataTypeVarbinarySerDe serde1(/*nesting_level=*/1);
+        auto col = ColumnVarbinary::create();
+        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+        std::string v = std::string("A\0B", 3); // include NUL
+        vb->insert_data(v.data(), v.size());
+        DataTypeSerDe::FormatOptions opt;
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        auto st = serde1.serialize_one_cell_to_json(*col, 0, bw, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        bw.commit();
+        auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
+        EXPECT_EQ(written.size, v.size());
+        EXPECT_EQ(memcmp(written.data, v.data(), v.size()), 0);
+    }
+    // nesting_level >= 2: wrap with quotes
+    {
+        DataTypeVarbinarySerDe serde2(/*nesting_level=*/2);
+        auto col = ColumnVarbinary::create();
+        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+        std::string v = std::string("hello", 5);
+        vb->insert_data(v.data(), v.size());
+        DataTypeSerDe::FormatOptions opt;
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        auto st = serde2.serialize_one_cell_to_json(*col, 0, bw, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        bw.commit();
+        auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
+        ASSERT_GE(written.size, v.size() + 2);
+        EXPECT_EQ(written.data[0], '"');
+        EXPECT_EQ(written.data[written.size - 1], '"');
+        EXPECT_EQ(memcmp(written.data + 1, v.data(), v.size()), 0);
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithQuotesAndEscape) {
+    // nesting_level >= 2: trim quotes then unescape
+    {
+        DataTypeVarbinarySerDe serde2(/*nesting_level=*/2);
+        auto col = ColumnVarbinary::create();
+        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+        std::string json = "\"a\\b\""; // "a\b"
+        Slice s(json.data(), json.size());
+        DataTypeSerDe::FormatOptions opt;
+        opt.escape_char = '\\';
+        auto st = serde2.deserialize_one_cell_from_json(*vb, s, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        auto inserted = vb->get_data_at(vb->size() - 1);
+        std::string expected = "ab";
+        EXPECT_EQ(inserted.size, expected.size());
+        EXPECT_EQ(memcmp(inserted.data, expected.data(), expected.size()), 0);
+    }
+    // nesting_level == 1: no trim, only unescape
+    {
+        DataTypeVarbinarySerDe serde1(/*nesting_level=*/1);
+        auto col = ColumnVarbinary::create();
+        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+        std::string json = "c\\d"; // c\d -> cd
+        Slice s(json.data(), json.size());
+        DataTypeSerDe::FormatOptions opt;
+        opt.escape_char = '\\';
+        auto st = serde1.deserialize_one_cell_from_json(*vb, s, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        auto inserted = vb->get_data_at(vb->size() - 1);
+        std::string expected = "cd";
+        EXPECT_EQ(inserted.size, expected.size());
+        EXPECT_EQ(memcmp(inserted.data, expected.data(), expected.size()), 0);
+    }
 }
 
 } // namespace doris::vectorized
