@@ -616,9 +616,8 @@ Status FileScanner::_cast_to_input_block(Block* block) {
         auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
-        auto func_cast = SimpleFunctionFactory::instance().get_function(
-                "CAST", arguments, return_type,
-                {.enable_decimal256 = runtime_state()->enable_decimal256()});
+        auto func_cast =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type, {});
         if (!func_cast) {
             return Status::InternalError("Function CAST[arg={}, col name={}, return={}] not found!",
                                          arg.type->get_name(), slot_desc->col_name(),

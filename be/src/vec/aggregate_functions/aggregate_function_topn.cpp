@@ -29,6 +29,7 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const DataTypes& argument_types,
+                                                    const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 2) {
@@ -54,6 +55,7 @@ using creator =
 
 AggregateFunctionPtr create_aggregate_function_topn_array(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     bool has_default_param = (argument_types.size() == 3);
@@ -73,6 +75,7 @@ using ImplWeightWithDefault = AggregateFunctionTopNImplWeight<T, true>;
 
 AggregateFunctionPtr create_aggregate_function_topn_weighted(const std::string& name,
                                                              const DataTypes& argument_types,
+                                                             const DataTypePtr& result_type,
                                                              const bool result_is_nullable,
                                                              const AggregateFunctionAttr& attr) {
     bool has_default_param = (argument_types.size() == 4);

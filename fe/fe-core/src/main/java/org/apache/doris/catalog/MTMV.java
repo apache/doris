@@ -87,8 +87,13 @@ public class MTMV extends OlapTable {
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
     // Should update after every fresh, not persist
-    private MTMVCache cache;
+    // Cache with SessionVarGuardExpr: used when query session variables differ from MV creation variables
+    private MTMVCache cacheWithGuard;
+    // Cache without SessionVarGuardExpr: used when query session variables match MV creation variables
+    private MTMVCache cacheWithoutGuard;
     private long schemaChangeVersion;
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     // For deserialization
     public MTMV() {
@@ -115,6 +120,7 @@ public class MTMV extends OlapTable {
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.envInfo = new EnvInfo(-1L, -1L);
+        this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -167,10 +173,6 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public void setCache(MTMVCache cache) {
-        this.cache = cache;
-    }
-
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
         writeMvLock();
         try {
@@ -218,7 +220,8 @@ public class MTMV extends OlapTable {
                     // shouldn't do this while holding mvWriteLock
                     mtmvCache = MTMVCache.from(this.getQuerySql(),
                             MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                            true, true, currentContext);
+                            true, true, currentContext, true);
+
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -241,7 +244,10 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
                 if (needUpdateCache) {
-                    this.cache = mtmvCache;
+                    // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
+                    this.cacheWithGuard = mtmvCache;
+                    // Clear the other cache to ensure consistency
+                    this.cacheWithoutGuard = null;
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
@@ -361,26 +367,78 @@ public class MTMV extends OlapTable {
      */
     public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
             org.apache.doris.nereids.exceptions.AnalysisException {
+        // store two MTMVCaches: one is a cache where SessionVariables differ from those at creation time,
+        // and the MTMV plan includes a guardexpr;
+        // the other is a cache where SessionVariables are the same as at creation time, and the MTMV plan
+        // does not include a guardexpr;
+        // This way, when sessionVariables are the same, rewriting is possible;
+        // When sessionVariables are different, there are two cases:
+        // 1. If a guardexpr is present, rewriting is not possible;
+        // 2. If no guardexpr is present, rewriting is possible.
+        // Determine if current session variables match MV creation session variables
+        boolean sessionVarsMatch = checkSessionVariablesMatch(connectionContext);
+
+        // Select appropriate cache based on session variable match
         readMvLock();
         try {
-            if (cache != null) {
-                return cache;
+            if (sessionVarsMatch && cacheWithoutGuard != null) {
+                return cacheWithoutGuard;
+            }
+            if (!sessionVarsMatch && cacheWithGuard != null) {
+                return cacheWithGuard;
             }
         } finally {
             readMvUnlock();
         }
+
+        // Generate cache if not exists
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
         MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(),
                 MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                true, false, connectionContext);
+                true, false, connectionContext, !sessionVarsMatch);
         writeMvLock();
         try {
-            this.cache = mtmvCache;
-            return cache;
+            if (sessionVarsMatch) {
+                this.cacheWithoutGuard = mtmvCache;
+            } else {
+                this.cacheWithGuard = mtmvCache;
+            }
+            return mtmvCache;
         } finally {
             writeMvUnlock();
         }
+    }
+
+    /**
+     * Check if current query session variables match MV creation session variables.
+     * Only compares variables that affect query results.
+     */
+    private boolean checkSessionVariablesMatch(ConnectContext connectionContext) {
+        if (this.sessionVariables == null || this.sessionVariables.isEmpty()) {
+            // If no session variables saved, consider them matched
+            return true;
+        }
+
+        if (connectionContext == null) {
+            return true;
+        }
+
+        Map<String, String> currentSessionVars =
+                connectionContext.getSessionVariable().getAffectQueryResultVariables();
+
+        // Check if all saved session variables match current ones
+        for (Map.Entry<String, String> entry : this.sessionVariables.entrySet()) {
+            String varName = entry.getKey();
+            String savedValue = entry.getValue();
+            String currentValue = currentSessionVars.get(varName);
+
+            if (currentValue == null || !currentValue.equals(savedValue)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public Map<String, String> getMvProperties() {
@@ -591,5 +649,9 @@ public class MTMV extends OlapTable {
                 pcts.put(relatedTableInfo, partitions);
             }
         }
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 }

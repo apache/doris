@@ -36,7 +36,7 @@ import java.util.List;
 /**
  * Divide Expression.
  */
-public class Divide extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral {
+public class Divide extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral, NeedSessionVarGuard {
 
     public Divide(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.DIVIDE);

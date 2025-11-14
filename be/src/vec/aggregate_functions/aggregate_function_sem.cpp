@@ -28,12 +28,12 @@ namespace doris::vectorized {
 using AggregateFuncSem = AggregateFunctionSem<AggregateFunctionSemData>;
 
 void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory) {
-    AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
-                                           const bool result_is_nullable,
-                                           const AggregateFunctionAttr& attr) {
-        return creator_without_type::creator<AggregateFuncSem>(name, types, result_is_nullable,
-                                                               attr);
-    };
+    AggregateFunctionCreator creator =
+            [&](const std::string& name, const DataTypes& types, const DataTypePtr& result_type,
+                const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+                return creator_without_type::creator<AggregateFuncSem>(name, types, result_type,
+                                                                       result_is_nullable, attr);
+            };
     factory.register_function_both("sem", creator);
 }
 

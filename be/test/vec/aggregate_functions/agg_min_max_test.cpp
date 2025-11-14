@@ -59,7 +59,7 @@ TEST_P(AggMinMaxTest, min_max_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeInt32>()};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -92,7 +92,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -140,7 +140,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>()};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -169,7 +169,7 @@ TEST_P(AggMinMaxTest, any_json_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeJsonb>()};
-    auto agg_function = factory.get("any", data_types, false, -1);
+    auto agg_function = factory.get("any", data_types, nullptr, false, -1);
 
     // Create and initialize place for aggregation
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

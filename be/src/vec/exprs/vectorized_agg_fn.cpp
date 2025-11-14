@@ -212,19 +212,17 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         // Here, only foreachv1 needs special treatment, and v2 can follow the normal code logic.
         if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
             _function = AggregateFunctionSimpleFactory::instance().get(
-                    _fn.name.function_name, argument_types,
+                    _fn.name.function_name, argument_types, _data_type,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
                     state->be_exec_version(),
-                    {.enable_decimal256 = state->enable_decimal256(),
-                     .is_window_function = _is_window_function,
+                    {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
-                    _fn.name.function_name, argument_types, _data_type->is_nullable(),
+                    _fn.name.function_name, argument_types, _data_type, _data_type->is_nullable(),
                     state->be_exec_version(),
-                    {.enable_decimal256 = state->enable_decimal256(),
-                     .is_window_function = _is_window_function,
+                    {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
                      .column_names = std::move(column_names)});
         }

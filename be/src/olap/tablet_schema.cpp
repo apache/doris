@@ -784,7 +784,8 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
+                agg_name, {type}, type, type->is_nullable(),
+                BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
