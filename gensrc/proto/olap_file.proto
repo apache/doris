@@ -151,6 +151,8 @@ message RowsetMetaPB {
 
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
+
+    optional int64 job_id = 1111;  // For compaction/sc txn info
 }
 
 message SchemaDictKeyList {
@@ -249,6 +251,8 @@ message RowsetMetaCloudPB {
 
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
+
+    optional int64 job_id = 111;  // For compaction/sc txn info
 }
 
 message SegmentStatisticsPB {

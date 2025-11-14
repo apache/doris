@@ -68,6 +68,7 @@ struct RowsetWriterContext {
 
     // properties for pending rowset
     int64_t txn_id {0};
+    int64_t job_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
     TabletUid tablet_uid {0, 0};
