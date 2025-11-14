@@ -488,7 +488,8 @@ private:
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
+                            std::string& reason);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
