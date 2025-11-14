@@ -50,6 +50,9 @@ enum TPartitionType {
 
   // used for hive unparititoned table
   HIVE_TABLE_SINK_UNPARTITIONED = 8
+
+  // used for inplace union, one source instance send data to one target instance
+  POINT_TO_POINT = 9
 }
 
 enum TDistributionType {

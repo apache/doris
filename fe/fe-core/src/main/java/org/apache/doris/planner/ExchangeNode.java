@@ -64,7 +64,7 @@ public class ExchangeNode extends PlanNode {
         offset = 0;
         limit = -1;
         this.conjuncts = Collections.emptyList();
-        children.add(inputNode);
+        this.children.add(inputNode);
         TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
         updateTupleIds(outputTupleDesc);
     }
