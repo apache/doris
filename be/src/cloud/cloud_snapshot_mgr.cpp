@@ -145,6 +145,9 @@ Status CloudSnapshotMgr::convert_rowsets(
     cooldown_meta_id->set_hi(0);
     cooldown_meta_id->set_lo(0);
 
+    TabletSchemaSPtr target_tablet_schema = std::make_shared<TabletSchema>();
+    target_tablet_schema->copy_from(*target_tablet->tablet_schema());
+
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(in.schema());
 
@@ -155,8 +158,17 @@ Status CloudSnapshotMgr::convert_rowsets(
         RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, rowset_meta_pb, tablet_id,
                                             target_tablet, storage_resource, tablet_schema,
                                             file_mapping, rowset_id_mapping));
+        if (new_rowset_meta_pb->has_tablet_schema() &&
+            new_rowset_meta_pb->tablet_schema().index_size() > 0) {
+            RETURN_IF_ERROR(_rename_index_ids(*new_rowset_meta_pb->mutable_tablet_schema(),
+                                              target_tablet_schema));
+        }
         Version rowset_version = {rowset_meta_pb.start_version(), rowset_meta_pb.end_version()};
         rs_version_map[rowset_version] = new_rowset_meta_pb;
+    }
+
+    if (out->schema().index_size() > 0) {
+        RETURN_IF_ERROR(_rename_index_ids(*out->mutable_schema(), target_tablet_schema));
     }
 
     if (!rowset_id_mapping.empty() && in.has_delete_bitmap()) {
@@ -178,6 +190,7 @@ Status CloudSnapshotMgr::convert_rowsets(
             new_del_bitmap_pb->set_rowset_ids(cast_set<int>(i), it->second.to_string());
         }
     }
+
     return Status::OK();
 }
 
@@ -268,6 +281,28 @@ Status CloudSnapshotMgr::_create_rowset_meta(
         *new_delete_condition = source_meta_pb.delete_predicate();
     }
 
+    return Status::OK();
+}
+
+Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb,
+                                           const TabletSchemaSPtr& tablet_schema) const {
+    if (tablet_schema == nullptr) {
+        return Status::OK();
+    }
+
+    for (int i = 0; i < schema_pb.index_size(); ++i) {
+        TabletIndexPB* index_pb = schema_pb.mutable_index(i);
+        for (int32_t col_unique_id : index_pb->col_unique_id()) {
+            auto local_index = tablet_schema->get_index(col_unique_id, index_pb->index_type(),
+                                                        index_pb->index_suffix_name());
+            if (local_index) {
+                if (index_pb->index_id() != local_index->index_id()) {
+                    index_pb->set_index_id(local_index->index_id());
+                }
+                break;
+            }
+        }
+    }
     return Status::OK();
 }
 
