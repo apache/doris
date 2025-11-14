@@ -269,7 +269,7 @@ ThreadPool::~ThreadPool() {
     CHECK_EQ(1, _tokens.size()) << absl::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens", _name, _tokens.size());
     shutdown();
-    LOG_INFO("Thread pool {} destroyed", _name);
+    VLOG_DEBUG << fmt::format("Thread pool {} destroyed", _name);
 }
 
 Status ThreadPool::try_create_thread(int thread_num, std::lock_guard<std::mutex>&) {
@@ -333,7 +333,7 @@ Status ThreadPool::init() {
 }
 
 void ThreadPool::shutdown() {
-    LOG_INFO("Shutting down thread pool {}", _name);
+    VLOG_DEBUG << fmt::format("Shutting down thread pool {}", _name);
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
