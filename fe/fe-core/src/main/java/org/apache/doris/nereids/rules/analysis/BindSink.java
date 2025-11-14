@@ -54,7 +54,7 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter.AddSessionVarGuard;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter.AddSessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -478,8 +478,10 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-                boundExpression = boundExpression.accept(new AddSessionVarGuard(column.getSessionVariables()),
-                        Boolean.FALSE);
+                if (column.getSessionVariables() != null && !column.getSessionVariables().isEmpty()) {
+                    boundExpression = boundExpression.accept(new AddSessionVarGuardRewriter(column.getSessionVariables()),
+                            Boolean.FALSE);
+                }
                 Alias output = new Alias(boundExpression, info.getExprSql());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());

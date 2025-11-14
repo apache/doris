@@ -42,9 +42,8 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
     private final Map<String, String> sessionVars;
 
     public SessionVarGuardExpr(Expression child, Map<String, String> sessionVars) {
-        // Expose the same children as the wrapped expression to stay transparent for rewrites
-        // 检查一下sessionVars不是null.
         super(ImmutableList.of(child));
+        Preconditions.checkNotNull(sessionVars, "sessionVars cannot be null in SessionVarGuardExpr");
         this.sessionVars = sessionVars;
     }
 
@@ -80,10 +79,6 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        // Apply session variables during visitor traversal
-        // try (AutoCloseSessionVariable ignored = openGuard()) {
-        //     return child.accept(visitor, context);
-        // }
         try (AutoCloseSessionVariable ignored = openGuard()) {
             return visitor.visitSessionVarGuardExpr(this, context);
         }

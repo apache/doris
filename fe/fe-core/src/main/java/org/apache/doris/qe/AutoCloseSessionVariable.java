@@ -51,11 +51,6 @@ public class AutoCloseSessionVariable implements AutoCloseable {
         this.connectContext.setSessionVariable(sessionVariable);
     }
 
-    public void call() {
-        // try (AutoSessionVariable autoCloseCtx = new AutoSessionVariable(context)) {
-        // will report autoCloseCtx is not used, so call an empty method.
-    }
-
     @Override
     public void close() {
         if (previousConnectContext == null) {

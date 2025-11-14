@@ -367,10 +367,14 @@ public class MTMV extends OlapTable {
      */
     public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
             org.apache.doris.nereids.exceptions.AnalysisException {
-        // 我的想法时保存两个MTMVCache,一个是当SessionVariables与创建时不同的cache，mtmv plan上带有guardexpr的
-        // 另一个是当SessionVariables与创建时相同的cache，mtmv plan上不带guardexpr
-        // 这样，当sessionVar相同，能够改写
-        // 当sessionVar不同，分两种情况：1.有guardExpr，则不能改写；2.无guardExpr，则能改写。
+        // store two MTMVCaches: one is a cache where SessionVariables differ from those at creation time,
+        // and the MTMV plan includes a guardexpr;
+        // the other is a cache where SessionVariables are the same as at creation time, and the MTMV plan
+        // does not include a guardexpr;
+        // This way, when sessionVariables are the same, rewriting is possible;
+        // When sessionVariables are different, there are two cases:
+        // 1. If a guardexpr is present, rewriting is not possible;
+        // 2. If no guardexpr is present, rewriting is possible.
         // Determine if current session variables match MV creation session variables
         boolean sessionVarsMatch = checkSessionVariablesMatch(connectionContext);
 
