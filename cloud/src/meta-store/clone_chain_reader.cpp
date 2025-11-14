@@ -867,6 +867,9 @@ TxnErrorCode CloneChainReader::get_rowset_metas(Transaction* txn, int64_t tablet
                                 version);
                     return TxnErrorCode::TXN_INVALID_DATA;
                 }
+                if (!rowset.has_reference_instance_id()) {
+                    rowset.set_reference_instance_id(current_instance_id);
+                }
                 version_to_rowset[version] = std::move(rowset);
             }
         }
