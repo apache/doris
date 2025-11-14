@@ -182,22 +182,19 @@ void direct_write_to_mysql_result_string(std::string& mysql_rows, const char* st
     // < 16777216: 1 byte (253) + 3 bytes for length
     // >= 16777216: 1 byte (254) + 8 bytes for length
 
+    char buf[16];
     if (size < 251ULL) {
-        char buf[1];
         int1store(buf, size);
         mysql_rows.append(buf, 1);
     } else if (size < 65536ULL) {
-        char buf[3];
         buf[0] = static_cast<char>(252);
         int2store(buf + 1, size);
         mysql_rows.append(buf, 3);
     } else if (size < 16777216ULL) {
-        char buf[4];
         buf[0] = static_cast<char>(253);
         int3store(buf + 1, size);
         mysql_rows.append(buf, 4);
     } else {
-        char buf[9];
         buf[0] = static_cast<char>(254);
         int8store(buf + 1, size);
         mysql_rows.append(buf, 9);
