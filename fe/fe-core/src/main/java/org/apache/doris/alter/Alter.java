@@ -185,6 +185,16 @@ public class Alter {
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
 
+        // Check for unsupported operations on internal tables
+        for (AlterClause clause : alterClauses) {
+            if (clause instanceof AddPartitionFieldClause) {
+                throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
+            }
+            if (clause instanceof DropPartitionFieldClause) {
+                throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+            }
+        }
+
         for (AlterClause clause : alterClauses) {
             Map<String, String> properties = null;
             try {
@@ -425,7 +435,7 @@ public class Alter {
                     ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
                             (IcebergExternalTable) table, addPartitionField);
                 } else {
-                    throw new UserException("ADD PARTITION FIELD is only supported for Iceberg tables");
+                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
                 }
             } else if (alterClause instanceof DropPartitionFieldClause) {
                 DropPartitionFieldClause dropPartitionField = (DropPartitionFieldClause) alterClause;
@@ -433,7 +443,7 @@ public class Alter {
                     ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
                             (IcebergExternalTable) table, dropPartitionField);
                 } else {
-                    throw new UserException("DROP PARTITION FIELD is only supported for Iceberg tables");
+                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
                 }
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);

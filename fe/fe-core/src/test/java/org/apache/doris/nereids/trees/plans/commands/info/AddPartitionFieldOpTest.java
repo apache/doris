@@ -34,7 +34,7 @@ public class AddPartitionFieldOpTest {
         Assertions.assertNull(op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("category", op.getColumnName());
-        Assertions.assertEquals("ADD PARTITION FIELD category", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY category", op.toSql());
 
         AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertNotNull(clause);
@@ -49,7 +49,7 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("year", op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("ts", op.getColumnName());
-        Assertions.assertEquals("ADD PARTITION FIELD year(ts)", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY year(ts)", op.toSql());
 
         AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertEquals("year", clause.getTransformName());
@@ -63,7 +63,7 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("bucket", op.getTransformName());
         Assertions.assertEquals(16, op.getTransformArg());
         Assertions.assertEquals("id", op.getColumnName());
-        Assertions.assertEquals("ADD PARTITION FIELD bucket(16, id)", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY bucket(16, id)", op.toSql());
 
         AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertEquals("bucket", clause.getTransformName());
@@ -77,25 +77,25 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("truncate", op.getTransformName());
         Assertions.assertEquals(10, op.getTransformArg());
         Assertions.assertEquals("name", op.getColumnName());
-        Assertions.assertEquals("ADD PARTITION FIELD truncate(10, name)", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY truncate(10, name)", op.toSql());
     }
 
     @Test
     public void testMonthTransform() {
         AddPartitionFieldOp op = new AddPartitionFieldOp("month", null, "created_date");
-        Assertions.assertEquals("ADD PARTITION FIELD month(created_date)", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY month(created_date)", op.toSql());
     }
 
     @Test
     public void testDayTransform() {
         AddPartitionFieldOp op = new AddPartitionFieldOp("day", null, "ts");
-        Assertions.assertEquals("ADD PARTITION FIELD day(ts)", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY day(ts)", op.toSql());
     }
 
     @Test
     public void testHourTransform() {
         AddPartitionFieldOp op = new AddPartitionFieldOp("hour", null, "ts");
-        Assertions.assertEquals("ADD PARTITION FIELD hour(ts)", op.toSql());
+        Assertions.assertEquals("ADD PARTITION KEY hour(ts)", op.toSql());
     }
 
     @Test

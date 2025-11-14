@@ -81,7 +81,7 @@ public class AddPartitionFieldOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD PARTITION FIELD ");
+        sb.append("ADD PARTITION KEY ");
         if (transformName != null) {
             sb.append(transformName);
             if (transformArg != null) {

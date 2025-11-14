@@ -34,7 +34,7 @@ public class DropPartitionFieldOpTest {
         Assertions.assertNull(op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("category", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION FIELD category", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY category", op.toSql());
 
         DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertNotNull(clause);
@@ -49,7 +49,7 @@ public class DropPartitionFieldOpTest {
         Assertions.assertEquals("year", op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("ts", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION FIELD year(ts)", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY year(ts)", op.toSql());
 
         DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertEquals("year", clause.getTransformName());
@@ -63,7 +63,7 @@ public class DropPartitionFieldOpTest {
         Assertions.assertEquals("bucket", op.getTransformName());
         Assertions.assertEquals(16, op.getTransformArg());
         Assertions.assertEquals("id", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION FIELD bucket(16, id)", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY bucket(16, id)", op.toSql());
 
         DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertEquals("bucket", clause.getTransformName());
@@ -77,25 +77,25 @@ public class DropPartitionFieldOpTest {
         Assertions.assertEquals("truncate", op.getTransformName());
         Assertions.assertEquals(10, op.getTransformArg());
         Assertions.assertEquals("name", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION FIELD truncate(10, name)", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY truncate(10, name)", op.toSql());
     }
 
     @Test
     public void testMonthTransform() {
         DropPartitionFieldOp op = new DropPartitionFieldOp("month", null, "created_date");
-        Assertions.assertEquals("DROP PARTITION FIELD month(created_date)", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY month(created_date)", op.toSql());
     }
 
     @Test
     public void testDayTransform() {
         DropPartitionFieldOp op = new DropPartitionFieldOp("day", null, "ts");
-        Assertions.assertEquals("DROP PARTITION FIELD day(ts)", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY day(ts)", op.toSql());
     }
 
     @Test
     public void testHourTransform() {
         DropPartitionFieldOp op = new DropPartitionFieldOp("hour", null, "ts");
-        Assertions.assertEquals("DROP PARTITION FIELD hour(ts)", op.toSql());
+        Assertions.assertEquals("DROP PARTITION KEY hour(ts)", op.toSql());
     }
 
     @Test

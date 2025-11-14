@@ -20,6 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 
+import java.util.Collections;
+import java.util.Map;
+
 /**
  * AddPartitionFieldClause for Iceberg partition evolution
  */
@@ -55,7 +58,7 @@ public class AddPartitionFieldClause extends AlterTableClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD PARTITION FIELD ");
+        sb.append("ADD PARTITION KEY ");
         if (transformName != null) {
             sb.append(transformName);
             if (transformArg != null) {
@@ -86,6 +89,11 @@ public class AddPartitionFieldClause extends AlterTableClause {
     @Override
     public boolean needChangeMTMVState() {
         return false;
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return Collections.emptyMap();
     }
 }
 

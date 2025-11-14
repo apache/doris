@@ -60,7 +60,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     sql """INSERT INTO ${table1} VALUES (1, 'Alice', 'A'), (2, 'Bob', 'B')"""
     
-    sql """ALTER TABLE ${table1} ADD PARTITION FIELD category"""
+    sql """ALTER TABLE ${table1} ADD PARTITION KEY category"""
     // Insert data after adding partition field to see new partition info
     sql """INSERT INTO ${table1} VALUES (3, 'Charlie', 'C')"""
     qt_add_identity_2 """SELECT * FROM ${table1} ORDER BY id"""
@@ -78,12 +78,12 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     sql """INSERT INTO ${table2} VALUES (1, 'Alice', '2024-01-01 10:00:00'), (2, 'Bob', '2024-02-01 11:00:00')"""
     
-    sql """ALTER TABLE ${table2} ADD PARTITION FIELD year(ts)"""
+    sql """ALTER TABLE ${table2} ADD PARTITION KEY year(ts)"""
     // Insert data after adding partition field to see new partition info
     sql """INSERT INTO ${table2} VALUES (3, 'Charlie', '2024-01-15 10:00:00')"""
     order_qt_partitions_year """SELECT `partition`, spec_id, record_count FROM ${table2}\$partitions ORDER BY `partition`"""
     
-    sql """ALTER TABLE ${table2} ADD PARTITION FIELD month(ts)"""
+    sql """ALTER TABLE ${table2} ADD PARTITION KEY month(ts)"""
     // Insert data after adding partition field to see new partition info
     sql """INSERT INTO ${table2} VALUES (4, 'David', '2024-03-01 12:00:00')"""
     order_qt_partitions_month """SELECT `partition`, spec_id, record_count FROM ${table2}\$partitions ORDER BY `partition`"""
@@ -102,7 +102,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     sql """INSERT INTO ${table3} VALUES (1, 'Alice', 100.0), (2, 'Bob', 200.0)"""
     
-    sql """ALTER TABLE ${table3} ADD PARTITION FIELD bucket(16, id)"""
+    sql """ALTER TABLE ${table3} ADD PARTITION KEY bucket(16, id)"""
     // Insert data after adding partition field to see new partition info
     sql """INSERT INTO ${table3} VALUES (3, 'Charlie', 300.0)"""
     qt_add_bucket_2 """SELECT * FROM ${table3} ORDER BY id"""
@@ -120,7 +120,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     sql """INSERT INTO ${table4} VALUES (1, 'Alice', 'ABCDE'), (2, 'Bob', 'FGHIJ')"""
     
-    sql """ALTER TABLE ${table4} ADD PARTITION FIELD truncate(5, code)"""
+    sql """ALTER TABLE ${table4} ADD PARTITION KEY truncate(5, code)"""
     // Insert data after adding partition field to see new partition info
     sql """INSERT INTO ${table4} VALUES (3, 'Charlie', 'KLMNO')"""
     qt_add_truncate_2 """SELECT * FROM ${table4} ORDER BY id"""
@@ -140,7 +140,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     sql """INSERT INTO ${table5} VALUES (1, 'Alice', 'A'), (2, 'Bob', 'B')"""
 
     // Drop partition field
-    sql """ALTER TABLE ${table5} DROP PARTITION FIELD category"""
+    sql """ALTER TABLE ${table5} DROP PARTITION KEY category"""
     // Insert data after dropping partition field to see new partition info
     sql """INSERT INTO ${table5} VALUES (3, 'Charlie', 'C')"""
     qt_drop_identity_2 """SELECT * FROM ${table5} ORDER BY id"""
@@ -161,7 +161,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     sql """INSERT INTO ${table6} VALUES (1, 'Alice', '2023-01-01'), (2, 'Bob', '2024-01-01')"""
     
-    sql """ALTER TABLE ${table6} DROP PARTITION FIELD year(created_date)"""
+    sql """ALTER TABLE ${table6} DROP PARTITION KEY year(created_date)"""
     qt_drop_time_1 """DESC ${table6}"""
     
     sql """INSERT INTO ${table6} VALUES (3, 'Charlie', '2025-01-01')"""
@@ -183,7 +183,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     sql """INSERT INTO ${table7} VALUES (1, 'Alice', 100.0), (2, 'Bob', 200.0)"""
     
-    sql """ALTER TABLE ${table7} DROP PARTITION FIELD bucket(16, id)"""
+    sql """ALTER TABLE ${table7} DROP PARTITION KEY bucket(16, id)"""
     qt_drop_bucket_1 """DESC ${table7}"""
     
     sql """INSERT INTO ${table7} VALUES (3, 'Charlie', 300.0)"""
@@ -204,17 +204,17 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     sql """INSERT INTO ${table8} VALUES (1, 'Alice', '2024-01-01 10:00:00', 'A')"""
     
     // Add multiple partition fields
-    sql """ALTER TABLE ${table8} ADD PARTITION FIELD day(ts)"""
-    sql """ALTER TABLE ${table8} ADD PARTITION FIELD category"""
-    sql """ALTER TABLE ${table8} ADD PARTITION FIELD bucket(8, id)"""
+    sql """ALTER TABLE ${table8} ADD PARTITION KEY day(ts)"""
+    sql """ALTER TABLE ${table8} ADD PARTITION KEY category"""
+    sql """ALTER TABLE ${table8} ADD PARTITION KEY bucket(8, id)"""
     // Insert data after adding partition fields to see new partition info
     sql """INSERT INTO ${table8} VALUES (2, 'Bob', '2024-02-01 11:00:00', 'B')"""
     qt_multiple_2 """SELECT * FROM ${table8} ORDER BY id"""
     order_qt_partitions_multiple_add """SELECT `partition`, spec_id, record_count FROM ${table8}\$partitions ORDER BY `partition`"""
     
     // Drop some partition fields
-    sql """ALTER TABLE ${table8} DROP PARTITION FIELD bucket(8, id)"""
-    sql """ALTER TABLE ${table8} DROP PARTITION FIELD category"""
+    sql """ALTER TABLE ${table8} DROP PARTITION KEY bucket(8, id)"""
+    sql """ALTER TABLE ${table8} DROP PARTITION KEY category"""
     // Insert data after dropping partition fields to see new partition info
     sql """INSERT INTO ${table8} VALUES (3, 'Charlie', '2024-03-01 12:00:00', 'C')"""
     qt_multiple_4 """SELECT * FROM ${table8} ORDER BY id"""
@@ -231,19 +231,19 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     """
     
     test {
-        sql """ALTER TABLE ${table9} DROP PARTITION FIELD bucket(16, id)"""
+        sql """ALTER TABLE ${table9} DROP PARTITION KEY bucket(16, id)"""
         exception "Partition field not found"
     }
 
     // Test 10: Error cases - invalid transform
     test {
-        sql """ALTER TABLE ${table9} ADD PARTITION FIELD invalid_transform(id)"""
+        sql """ALTER TABLE ${table9} ADD PARTITION KEY invalid_transform(id)"""
         exception "Unsupported partition transform"
     }
 
     // Test 11: Error cases - missing argument for bucket
     test {
-        sql """ALTER TABLE ${table9} ADD PARTITION FIELD bucket(id)"""
+        sql """ALTER TABLE ${table9} ADD PARTITION KEY bucket(id)"""
         exception "Bucket transform requires a bucket count argument"
     }
 
@@ -257,9 +257,9 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     ) DISTRIBUTED BY HASH(id) BUCKETS 1
     PROPERTIES("replication_num" = "1");
     """
-    
-    // test {
-    //     sql """ALTER TABLE internal.test_internal_table_db.test_internal_table ADD PARTITION FIELD id"""
-    //     exception "ADD PARTITION FIELD is only supported for Iceberg tables"
-    // }
+
+    test {
+        sql """ALTER TABLE internal.test_internal_table_db.test_internal_table ADD PARTITION KEY id"""
+        exception "ADD PARTITION KEY is only supported for Iceberg tables"
+    }
 }

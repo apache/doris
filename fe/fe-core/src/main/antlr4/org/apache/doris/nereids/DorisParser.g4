@@ -753,8 +753,8 @@ alterTableClause
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
     | dropBranchClause                                                              #dropBranchClauses
     | dropTagClause                                                                 #dropTagClauses
-    | ADD PARTITION FIELD partitionTransform                                        #addPartitionFieldClause
-    | DROP PARTITION FIELD partitionTransform                                       #dropPartitionFieldClause
+    | ADD PARTITION KEY partitionTransform                                          #addPartitionFieldClause
+    | DROP PARTITION KEY partitionTransform                                         #dropPartitionFieldClause
     ;
 
 createOrReplaceTagClause

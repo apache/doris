@@ -81,7 +81,7 @@ public class DropPartitionFieldOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP PARTITION FIELD ");
+        sb.append("DROP PARTITION KEY ");
         if (transformName != null) {
             sb.append(transformName);
             if (transformArg != null) {
