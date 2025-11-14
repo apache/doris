@@ -20,7 +20,7 @@ suite("test_hive_page_index", "p0,external,hive,external_docker,external_docker_
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
 
@@ -82,8 +82,8 @@ suite("test_hive_page_index", "p0,external,hive,external_docker,external_docker_
 
 
         order_qt_q33 """ select * from decimals_1_10 where d_1 is null or d_10 is null ; """
-        order_qt_q33 """ select * from decimals_1_10 where d_1 is null"""
-        order_qt_q33 """ select * from decimals_1_10 where d_10 is null ; """
+        order_qt_q34 """ select * from decimals_1_10 where d_1 is null"""
+        order_qt_q35 """ select * from decimals_1_10 where d_10 is null ; """
 
     
     }

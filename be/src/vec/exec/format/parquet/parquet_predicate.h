@@ -182,7 +182,7 @@ public:
         std::function<bool(PageIndexStat**, int)> get_stat_func;
     };
 
-    // The encoded Parquet min-max value is parsed into  `fields`;
+    // The encoded Parquet min-max value is parsed into `fields`;
     // Can be used in row groups and page index statistics.
     static Status parse_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
                                       const std::string& encoded_max, const cctz::time_zone& ctz,

@@ -214,7 +214,7 @@ private:
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             RowRanges* candidate_row_ranges);
 
-    // check this range contain this tow group.
+    // check this range contain this row group.
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
 
     // Row Group min-max Filter
