@@ -48,9 +48,8 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     public static final String SNAPSHOT_ID = "snapshot_id";
 
     public IcebergCherrypickSnapshotAction(Map<String, String> properties,
-            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
-        super("cherrypick_snapshot", properties, partitionNamesInfo, whereCondition, icebergTable);
+            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition) {
+        super("cherrypick_snapshot", properties, partitionNamesInfo, whereCondition);
     }
 
     @Override

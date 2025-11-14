@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.optimize;
+package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -44,9 +44,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Abstract base class for all OPTIMIZE TABLE actions.
+ * Abstract base class for all EXECUTE TABLE actions.
  */
-public abstract class BaseOptimizeAction implements OptimizeAction {
+public abstract class BaseExecuteAction implements ExecuteAction {
 
     protected final String actionType;
     protected final Map<String, String> properties;
@@ -59,16 +59,13 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
     // ResultSet metadata if the action produces results
     protected final ResultSetMetaData resultSetMetaData;
 
-    protected BaseOptimizeAction(String actionType, Map<String, String> properties,
+    protected BaseExecuteAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition) {
         this.actionType = actionType;
         this.properties = properties != null ? properties : Maps.newHashMap();
         this.partitionNamesInfo = partitionNamesInfo;
         this.whereCondition = whereCondition;
-
-        // Add OPTIMIZE TABLE specific allowed arguments
-        this.namedArguments.addAllowedArgument("action");
 
         // Register arguments specific to this action
         registerArguments();

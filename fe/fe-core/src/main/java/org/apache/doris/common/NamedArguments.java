@@ -224,6 +224,7 @@ public class NamedArguments {
      * @return The typed value, or null if not set
      * @throws ClassCastException If the stored value cannot be cast to T
      */
+    @SuppressWarnings("unchecked")
     public <T> T getValue(String name) {
         return (T) parsedValues.get(name);
     }

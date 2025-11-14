@@ -275,6 +275,10 @@ public class StatementContext implements Closeable {
 
     private boolean isInsert = false;
 
+    // For Iceberg rewrite operations: store file scan tasks to be used by IcebergScanNode
+    // TODO: better solution?
+    private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -993,5 +997,23 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    /**
+     * Set file scan tasks for Iceberg rewrite operations.
+     * This allows IcebergScanNode to use specific file scan tasks instead of scanning the full table.
+     */
+    public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
+        this.icebergRewriteFileScanTasks = tasks;
+    }
+
+    /**
+     * Get and consume file scan tasks for Iceberg rewrite operations.
+     * Returns the tasks and clears the field to prevent reuse.
+     */
+    public List<org.apache.iceberg.FileScanTask> getAndClearIcebergRewriteFileScanTasks() {
+        List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
+        this.icebergRewriteFileScanTasks = null;
+        return tasks;
     }
 }
