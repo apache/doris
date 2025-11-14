@@ -845,7 +845,8 @@ public class CreateTableInfo {
         analyzeEngine();
 
         Env env = Env.getCurrentEnv();
-        if (ctx != null && env != null && partitionTableInfo != null) {
+        if (ctx != null && env != null && partitionTableInfo != null
+                && !partitionTableInfo.getPartitionList().isEmpty()) {
             checkLegalityOfPartitionExprs(partitionTableInfo);
         }
 
