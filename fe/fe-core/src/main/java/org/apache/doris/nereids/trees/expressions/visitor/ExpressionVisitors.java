@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * This is the factory for all ExpressionVisitor instance.
@@ -30,31 +31,39 @@ import java.util.Map;
  */
 public class ExpressionVisitors {
 
-    public static final ContainsAggregateChecker CONTAINS_AGGREGATE_CHECKER = new ContainsAggregateChecker();
+    public static final NonWindowAggregateGetter NON_WINDOW_AGGREGATE_GETTER = new NonWindowAggregateGetter();
     public static final ExpressionMapReplacer EXPRESSION_MAP_REPLACER = new ExpressionMapReplacer();
 
-    private static class ContainsAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
+    // return non window aggregate function, but return only one, not all
+    private static class NonWindowAggregateGetter extends DefaultExpressionVisitor<Optional<AggregateFunction>, Void> {
         @Override
-        public Boolean visit(Expression expr, Void context) {
-            boolean needAggregate = false;
+        public Optional<AggregateFunction> visit(Expression expr, Void context) {
+            if (!expr.containsType(AggregateFunction.class)) {
+                return Optional.empty();
+            }
             for (Expression child : expr.children()) {
-                needAggregate = needAggregate || child.accept(this, context);
+                Optional<AggregateFunction> aggOpt = child.accept(this, context);
+                if (aggOpt.isPresent()) {
+                    return aggOpt;
+                }
             }
-            return needAggregate;
+            return Optional.empty();
         }
 
         @Override
-        public Boolean visitWindow(WindowExpression windowExpression, Void context) {
-            boolean needAggregate = false;
+        public Optional<AggregateFunction> visitWindow(WindowExpression windowExpression, Void context) {
             for (Expression child : windowExpression.getExpressionsInWindowSpec()) {
-                needAggregate = needAggregate || child.accept(this, context);
+                Optional<AggregateFunction> aggOpt = child.accept(this, context);
+                if (aggOpt.isPresent()) {
+                    return aggOpt;
+                }
             }
-            return needAggregate;
+            return Optional.empty();
         }
 
         @Override
-        public Boolean visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
-            return true;
+        public Optional<AggregateFunction> visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
+            return Optional.of(aggregateFunction);
         }
     }
 

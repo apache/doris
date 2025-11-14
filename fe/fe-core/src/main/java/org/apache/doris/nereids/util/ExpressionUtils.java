@@ -1239,7 +1239,7 @@ public class ExpressionUtils {
      * has aggregate function, exclude the window function
      */
     public static boolean hasNonWindowAggregateFunction(Expression expression) {
-        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
+        return expression.accept(ExpressionVisitors.NON_WINDOW_AGGREGATE_GETTER, null).isPresent();
     }
 
     /**
