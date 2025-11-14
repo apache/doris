@@ -16,6 +16,7 @@
 // under the License.
 
 #include "writer.h"
+#include <type_traits>
 
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "vec/core/block.h"
@@ -81,6 +82,12 @@ Status Writer::_channel_add_rows(RuntimeState* state,
                     _channel_start_offsets[i - 1] + _partition_rows_histogram[i - 1];
         }
         for (uint32_t i = 0; i < rows; i++) {
+            if constexpr (std::is_signed_v<ChannelIdType>) {
+                // -1 means this row is filtered by table sink hash partitioner
+                if(channel_ids[i]==-1){
+                    continue;
+                }
+            }
             _row_idx[_channel_start_offsets[channel_ids[i]]++] = i;
         }
     }
