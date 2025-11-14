@@ -447,11 +447,9 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
                 }
             } else {
                 for (uint32_t k = 0; k < num_rows; ++k) {
-                    if (Base::keys[k] < _min_key || Base::keys[k] > _max_key) {
-                        Base::bucket_nums[k] = 0;
-                    } else {
-                        Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
-                    }
+                    Base::bucket_nums[k] = (Base::keys[k] >= _min_key && Base::keys[k] <= _max_key)
+                                                   ? uint32_t(Base::keys[k] - _min_key + 1)
+                                                   : 0;
                 }
             }
         } else {
@@ -462,13 +460,11 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
                 }
             } else {
                 for (uint32_t k = 0; k < num_rows; ++k) {
-                    if (null_map[k]) {
-                        Base::bucket_nums[k] = bucket_size;
-                    } else if (Base::keys[k] < _min_key || Base::keys[k] > _max_key) {
-                        Base::bucket_nums[k] = 0;
-                    } else {
-                        Base::bucket_nums[k] = uint32_t(Base::keys[k] - _min_key + 1);
-                    }
+                    Base::bucket_nums[k] =
+                            null_map[k] ? bucket_size
+                            : (Base::keys[k] >= _min_key && Base::keys[k] <= _max_key)
+                                    ? uint32_t(Base::keys[k] - _min_key + 1)
+                                    : 0;
                 }
             }
         }
