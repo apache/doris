@@ -64,6 +64,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -385,27 +386,18 @@ public class IcebergScanNode extends FileQueryScanNode {
                 // Get specId and corresponding PartitionSpec to handle partition evolution
                 int specId = fileScanTask.file().specId();
                 PartitionSpec partitionSpec = icebergTable.specs().get(specId);
-                
-                // If partitionSpec is null, it means the specId is not found in the table's specs
-                // This should not happen in normal cases, but handle it gracefully
-                if (partitionSpec == null) {
-                    LOG.warn("Partition spec with specId {} not found for table {}, skipping partition info",
-                            specId, icebergTable.name());
-                    partitionMapInfos.put(partitionData, null);
-                } else {
-                    // Compute partition info map with partition spec to handle partition evolution
-                    // Different specIds may have different partition structures, but PartitionData
-                    // already contains the structure information, so using it as cache key is safe
-                    Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
-                            partitionData, k -> {
-                                return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
-                                        sessionVariable.getTimeZone());
-                            });
-                    // Only set partition values if all partitions are identity transform
-                    // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
-                    if (partitionInfoMap != null) {
-                        split.setIcebergPartitionValues(partitionInfoMap);
-                    }
+
+                Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                        specId, icebergTable.name());
+                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
+                        partitionData, k -> {
+                            return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
+                                    sessionVariable.getTimeZone());
+                        });
+                // Only set partition values if all partitions are identity transform
+                // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
+                if (partitionInfoMap != null) {
+                    split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {
                 partitionMapInfos.put(partitionData, null);
