@@ -614,15 +614,15 @@ public class HiveMetaStoreClientHelper {
     /**
      * Convert hive type to doris type.
      */
-    public static Type hiveTypeToDorisType(String hiveType) {
+    public static Type hiveTypeToDorisType(String hiveType, boolean enableMappingVarbinary) {
         // use the largest scale as default time scale.
-        return hiveTypeToDorisType(hiveType, 6);
+        return hiveTypeToDorisType(hiveType, 6, enableMappingVarbinary);
     }
 
     /**
      * Convert hive type to doris type with timescale.
      */
-    public static Type hiveTypeToDorisType(String hiveType, int timeScale) {
+    public static Type hiveTypeToDorisType(String hiveType, int timeScale, boolean enableMappingVarbinary) {
         String lowerCaseType = hiveType.toLowerCase();
         switch (lowerCaseType) {
             case "boolean":
@@ -646,14 +646,16 @@ public class HiveMetaStoreClientHelper {
             case "string":
                 return ScalarType.createStringType();
             case "binary":
-                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
+                        : ScalarType.createStringType();
             default:
                 break;
         }
         // resolve schema like array<int>
         if (lowerCaseType.startsWith("array")) {
             if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
+                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1),
+                        enableMappingVarbinary);
                 return ArrayType.create(innerType, true);
             }
         }
@@ -663,8 +665,8 @@ public class HiveMetaStoreClientHelper {
                 String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
                 int index = findNextNestedField(keyValue);
                 if (index != keyValue.length() && index != 0) {
-                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index)),
-                            hiveTypeToDorisType(keyValue.substring(index + 1)));
+                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index), enableMappingVarbinary),
+                            hiveTypeToDorisType(keyValue.substring(index + 1), enableMappingVarbinary));
                 }
             }
         }
@@ -678,7 +680,7 @@ public class HiveMetaStoreClientHelper {
                     int pivot = listFields.indexOf(':');
                     if (pivot > 0 && pivot < listFields.length() - 1) {
                         fields.add(new StructField(listFields.substring(0, pivot),
-                                hiveTypeToDorisType(listFields.substring(pivot + 1, index))));
+                                hiveTypeToDorisType(listFields.substring(pivot + 1, index), enableMappingVarbinary)));
                         listFields = listFields.substring(Math.min(index + 1, listFields.length()));
                     } else {
                         break;

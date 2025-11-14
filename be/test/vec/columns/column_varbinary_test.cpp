@@ -542,7 +542,9 @@ TEST_F(ColumnVarbinaryTest, PermuteThrowsOnShortPermutation) {
     auto col = ColumnVarbinary::create();
     std::vector<std::string> vals = {make_bytes(1, 0x31), make_bytes(1, 0x32),
                                      make_bytes(doris::StringView::kInlineSize + 2, 0x33)};
-
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
     IColumn::Permutation perm = {1};
     EXPECT_THROW(col->permute(perm, 2), doris::Exception);
 }
