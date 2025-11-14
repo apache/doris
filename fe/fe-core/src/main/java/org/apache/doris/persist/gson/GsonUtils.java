@@ -382,11 +382,6 @@ public class GsonUtils {
         }
     }
 
-    // runtime adapter for class "SyncJob"
-    private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(SyncJob.class, "clazz")
-            .registerSubtype(CanalSyncJob.class, CanalSyncJob.class.getSimpleName());
-
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")

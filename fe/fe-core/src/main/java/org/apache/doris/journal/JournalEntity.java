@@ -570,16 +570,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_SYNC_JOB: {
-                data = SyncJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                data = SyncJob.SyncJobUpdateStateInfo.read(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
                 data = FetchStreamLoadRecord.read(in);
                 isRead = true;
