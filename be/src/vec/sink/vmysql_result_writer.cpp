@@ -188,7 +188,8 @@ void direct_write_to_mysql_result_string(std::string& mysql_rows, const char* st
         mysql_rows.append(buf, 1);
     } else if (size < 65536ULL) {
         buf[0] = static_cast<char>(252);
-        int2store(buf + 1, size);
+        uint16_t temp16 = static_cast<uint16_t>(size);
+        memcpy(buf + 1, &temp16, sizeof(temp16));
         mysql_rows.append(buf, 3);
     } else if (size < 16777216ULL) {
         buf[0] = static_cast<char>(253);
@@ -196,7 +197,8 @@ void direct_write_to_mysql_result_string(std::string& mysql_rows, const char* st
         mysql_rows.append(buf, 4);
     } else {
         buf[0] = static_cast<char>(254);
-        int8store(buf + 1, size);
+        uint64_t temp64 = static_cast<uint64_t>(size);
+        memcpy(buf + 1, &temp64, sizeof(temp64));
         mysql_rows.append(buf, 9);
     }
 
