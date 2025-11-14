@@ -105,6 +105,9 @@ static void set_child_node_level(FieldSchema* parent, int16_t repeated_parent_de
 }
 
 static bool is_struct_list_node(const tparquet::SchemaElement& schema) {
+    if (!schema.__isset.type) {
+        return false;
+    }
     const std::string& name = schema.name;
     static const Slice array_slice("array", 5);
     static const Slice tuple_slice("_tuple", 6);
