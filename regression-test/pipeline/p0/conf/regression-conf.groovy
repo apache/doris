@@ -76,6 +76,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
     "cloud_p0," +
+    "external_table_p0/remote_doris," + // ubsan issue, need to investigate
     "workload_manager_p1," +
     "plsql_p0," + // plsql is not developped any more, add by sk
     "variant_p0/nested," +

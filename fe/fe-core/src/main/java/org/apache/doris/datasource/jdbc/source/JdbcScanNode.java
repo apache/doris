@@ -152,9 +152,6 @@ public class JdbcScanNode extends ExternalScanNode {
     private void createJdbcColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add(tbl.getProperRemoteColumnName(jdbcType, col.getName()));
         }

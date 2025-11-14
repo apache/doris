@@ -21,7 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -36,7 +36,7 @@ import java.util.List;
  * ScalarFunction 'days_add'.
  */
 public class HoursAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
+        PropagateNullable, DateAddSubMonotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(FunctionSignature
             .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE));

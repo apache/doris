@@ -299,7 +299,6 @@ public class PlanTranslatorContext {
             slotDescriptor.setCaptionAndNormalize(slotReference.toString());
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-        slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
         if (slotReference instanceof VirtualSlotReference) {
             slotRef = new VirtualSlotRef(slotDescriptor);
@@ -317,7 +316,6 @@ public class PlanTranslatorContext {
                             + "." + String.join(".", slotReference.getSubPath()));
             }
         }
-        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());

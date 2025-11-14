@@ -493,12 +493,13 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
             scan_task, scanner_context->_max_scan_concurrency - 1);
     EXPECT_EQ(pull_scan_task.get(), scan_task.get());
 
-    scanner_context->_pending_scanners = std::stack<std::weak_ptr<ScannerDelegate>>();
+    scanner_context->_pending_scanners = std::stack<std::shared_ptr<ScanTask>>();
     pull_scan_task = scanner_context->_pull_next_scan_task(
             nullptr, scanner_context->_max_scan_concurrency - 1);
     EXPECT_EQ(pull_scan_task, nullptr);
 
-    scanner_context->_pending_scanners.push(std::make_shared<ScannerDelegate>(scanner));
+    scanner_context->_pending_scanners.push(
+            std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner)));
     pull_scan_task = scanner_context->_pull_next_scan_task(
             nullptr, scanner_context->_max_scan_concurrency - 1);
     EXPECT_NE(pull_scan_task, nullptr);

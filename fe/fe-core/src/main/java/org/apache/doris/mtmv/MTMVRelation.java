@@ -20,7 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.datasource.CatalogMgr;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.Set;
 

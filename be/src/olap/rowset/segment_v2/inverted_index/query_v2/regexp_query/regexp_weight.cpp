@@ -26,29 +26,36 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/const_score_query/const_score_scorer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/null_bitmap_fetcher.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/nullable_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
-#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 
 CL_NS_USE(index)
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 RegexpWeight::RegexpWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern,
-                           bool enable_scoring)
+                           bool enable_scoring, bool nullable)
         : _context(std::move(context)),
           _field(std::move(field)),
           _pattern(std::move(pattern)),
-          _enable_scoring(enable_scoring) {
+          _enable_scoring(enable_scoring),
+          _nullable(nullable) {
     // _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
 }
 
 ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
                                const std::string& binding_key) {
-    auto logical_field = logical_field_or_fallback(context, binding_key, _field);
-    VLOG_DEBUG << "RegexpWeight::scorer() called - pattern=" << _pattern << ", logical_field='"
-               << logical_field << "'";
+    auto scorer = regexp_scorer(context, binding_key);
+    if (_nullable) {
+        auto logical_field = logical_field_or_fallback(context, binding_key, _field);
+        return make_nullable_scorer(scorer, logical_field, context.null_resolver);
+    }
+    return scorer;
+}
+
+ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
+                                      const std::string& binding_key) {
     auto prefix = get_regex_prefix(_pattern);
 
     hs_database_t* database = nullptr;
@@ -81,10 +88,7 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
     hs_free_database(database);
 
     if (matching_terms.empty()) {
-        // Even when there are no matching terms, we must honor NULL semantics for the field.
-        auto empty_true = std::make_shared<roaring::Roaring>();
-        auto null_bitmap = FieldNullBitmapFetcher::fetch(context, logical_field);
-        return std::make_shared<BitSetScorer>(std::move(empty_true), std::move(null_bitmap));
+        return std::make_shared<EmptyScorer>();
     }
 
     auto doc_bitset = std::make_shared<roaring::Roaring>();
@@ -101,8 +105,7 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
         }
     }
 
-    auto null_bitmap = FieldNullBitmapFetcher::fetch(context, logical_field);
-    auto bit_set = std::make_shared<BitSetScorer>(doc_bitset, null_bitmap);
+    auto bit_set = std::make_shared<BitSetScorer>(doc_bitset);
     auto const_score = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(std::move(bit_set));
     return const_score;
 }

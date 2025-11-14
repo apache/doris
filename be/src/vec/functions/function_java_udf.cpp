@@ -24,6 +24,7 @@
 
 #include "common/exception.h"
 #include "jni.h"
+#include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/core/block.h"
@@ -35,22 +36,10 @@ const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 
 namespace doris::vectorized {
-std::unique_ptr<ThreadPool> JavaFunctionCall::close_workers;
-std::once_flag JavaFunctionCall::close_workers_init_once;
 
 JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                    const DataTypePtr& return_type)
-        : fn_(fn), _argument_types(argument_types), _return_type(return_type) {
-    std::call_once(close_workers_init_once, []() {
-        auto build_st = ThreadPoolBuilder("UDFCloseWorkers")
-                                .set_min_threads(4)
-                                .set_max_threads(std::min(32, CpuInfo::num_cores()))
-                                .build(&close_workers);
-        if (!build_st.ok()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to build UDFCloseWorkers");
-        }
-    });
-}
+        : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
 
 Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
@@ -156,7 +145,8 @@ Status JavaFunctionCall::close(FunctionContext* context,
         // Use the close_workers pthread pool to execute the close function
         auto task = std::make_shared<std::packaged_task<Status()>>(std::move(close_func));
         auto task_future = task->get_future();
-        RETURN_IF_ERROR(close_workers->submit_func([task]() { (*task)(); }));
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->udf_close_workers_pool()->submit_func(
+                [task]() { (*task)(); }));
         RETURN_IF_ERROR(task_future.get());
         return Status::OK();
     }

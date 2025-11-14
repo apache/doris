@@ -374,11 +374,6 @@ public enum PrimitiveType {
         return (this == VARCHAR || this == CHAR || this == STRING);
     }
 
-    public boolean isIntegerType() {
-        return (this == TINYINT || this == SMALLINT
-                || this == INT || this == BIGINT);
-    }
-
     public boolean isIPType() {
         return (this == IPV4 || this == IPV6);
     }

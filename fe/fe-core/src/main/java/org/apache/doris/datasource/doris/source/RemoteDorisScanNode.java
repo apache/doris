@@ -201,9 +201,6 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private void createColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add("`" + col.getName() + "`");
         }

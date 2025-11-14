@@ -138,6 +138,10 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
 }
 
 void JvmMetrics::update() {
+    // If enable_jvm_monitor is false, the jvm stats object is not initialized. call jvm_stats.refresh() may core.
+    if (!doris::config::enable_jvm_monitor) {
+        return;
+    }
     static long fail_count = 0;
     try {
         Status st = _jvm_stats.refresh(this);

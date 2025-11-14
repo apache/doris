@@ -21,7 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.mysql.authenticate.AuthenticatorFactory;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 
-import org.apache.commons.collections.map.HashedMap;
+import org.apache.commons.collections4.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

@@ -105,9 +105,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         int groupingExprNum = groupingExprs != null ? groupingExprs.size() : 0;
         Preconditions.checkState(groupingExprNum <= outputSlots.size());
         for (int i = groupingExprNum; i < outputSlots.size(); ++i) {
-            if (outputSlots.get(i).isMaterialized()) {
-                materializedSlots.add(i - groupingExprNum);
-            }
+            materializedSlots.add(i - groupingExprNum);
         }
     }
 

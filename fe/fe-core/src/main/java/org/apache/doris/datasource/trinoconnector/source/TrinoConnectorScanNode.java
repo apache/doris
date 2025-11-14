@@ -252,9 +252,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         List<ColumnHandle> columnHandles = new ArrayList<>();
         List<ColumnMetadata> columnMetadataList = new ArrayList<>();
         for (SlotDescriptor slotDescriptor : source.getDesc().getSlots()) {
-            if (!slotDescriptor.isMaterialized()) {
-                continue;
-            }
             String colName = slotDescriptor.getColumn().getName();
             if (columnMetadataMap.containsKey(colName)) {
                 columnMetadataList.add(columnMetadataMap.get(colName));

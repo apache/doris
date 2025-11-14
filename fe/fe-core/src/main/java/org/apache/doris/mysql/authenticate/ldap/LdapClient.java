@@ -25,6 +25,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
@@ -206,7 +207,8 @@ public class LdapClient {
         return userDns.get(0);
     }
 
-    private List<String> getDn(LdapQuery query) {
+    @VisibleForTesting
+    public List<String> getDn(LdapQuery query) {
         init();
         try {
             return clientInfo.getLdapTemplatePool().search(query,

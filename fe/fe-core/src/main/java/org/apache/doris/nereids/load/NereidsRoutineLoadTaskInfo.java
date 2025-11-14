@@ -67,6 +67,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected boolean loadToSingleTablet;
     protected boolean isPartialUpdate;
     protected boolean memtableOnSinkNode;
+    protected int timeoutSec;
 
     /**
      * NereidsRoutineLoadTaskInfo
@@ -96,6 +97,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.loadToSingleTablet = loadToSingleTablet;
         this.isPartialUpdate = isPartialUpdate;
         this.memtableOnSinkNode = memtableOnSinkNode;
+        this.timeoutSec = calTimeoutSec();
     }
 
     @Override
@@ -108,12 +110,21 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         return -1L;
     }
 
-    @Override
-    public int getTimeout() {
+    public int calTimeoutSec() {
         int timeoutSec = (int) maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
         int realTimeoutSec = timeoutSec < Config.routine_load_task_min_timeout_sec
                 ? Config.routine_load_task_min_timeout_sec : timeoutSec;
         return realTimeoutSec;
+    }
+
+    @Override
+    public int getTimeout() {
+        return this.timeoutSec;
+    }
+
+    @Override
+    public void setTimeout(int timeout) {
+        this.timeoutSec = timeout;
     }
 
     @Override

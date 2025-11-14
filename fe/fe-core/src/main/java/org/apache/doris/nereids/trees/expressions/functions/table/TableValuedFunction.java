@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -118,9 +117,7 @@ public abstract class TableValuedFunction extends BoundFunction
     }
 
     public PhysicalProperties getPhysicalProperties() {
-        if (SessionVariable.canUseNereidsDistributePlanner()) {
-            return PhysicalProperties.ANY;
-        }
+        // always need shuffle when exists union all
         return PhysicalProperties.STORAGE_ANY;
     }
 

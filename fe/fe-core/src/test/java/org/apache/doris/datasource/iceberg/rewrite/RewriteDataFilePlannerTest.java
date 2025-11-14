@@ -91,6 +91,12 @@ public class RewriteDataFilePlannerTest {
         );
 
         planner = new RewriteDataFilePlanner(defaultParameters);
+
+        // Setup common mocks for table scan chain used by planFileScanTasks()
+        // planFileScanTasks() calls: table.newScan() -> tableScan.ignoreResiduals() -> tableScan.planFiles()
+        // Also handles: table.currentSnapshot() and tableScan.useSnapshot() if snapshot exists
+        Mockito.when(mockTable.currentSnapshot()).thenReturn(null);
+        Mockito.when(mockTableScan.ignoreResiduals()).thenReturn(mockTableScan);
     }
 
     @Test

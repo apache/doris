@@ -97,14 +97,8 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
         msg.analytic_node.setIsColocate(isColocate);
-        if (analyticWindow == null) {
-            if (!orderByElements.isEmpty()) {
-                msg.analytic_node.setWindow(AnalyticWindow.DEFAULT_WINDOW.toThrift());
-            }
-        } else {
-            // TODO: Window boundaries should have range_offset_predicate set
-            msg.analytic_node.setWindow(analyticWindow.toThrift());
-        }
+        // TODO: Window boundaries should have range_offset_predicate set
+        msg.analytic_node.setWindow(analyticWindow.toThrift());
 
         if (partitionByEq != null) {
             msg.analytic_node.setPartitionByEq(partitionByEq.treeToThrift());

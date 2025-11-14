@@ -60,12 +60,6 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
-    protected void resetAnalysisState() {
-        super.resetAnalysisState();
-        type = Type.NULL;
-    }
-
-    @Override
     public Expr clone() {
         return new NullLiteral(this);
     }

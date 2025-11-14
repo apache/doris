@@ -973,7 +973,9 @@ prepare_java_udf() {
     OLD_JAVA_HOME=${JAVA_HOME}
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
-    if bash "${DORIS_HOME}"/../run-regression-test.sh --clean &&
+    bash "${DORIS_HOME}"/../run-regression-test.sh --clean
+    if bash "${DORIS_HOME}"/../run-regression-test.sh --compile ||
+        bash "${DORIS_HOME}"/../run-regression-test.sh --compile ||
         bash "${DORIS_HOME}"/../run-regression-test.sh --compile; then
         echo
     else

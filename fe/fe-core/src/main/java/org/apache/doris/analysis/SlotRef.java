@@ -38,7 +38,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -49,8 +49,6 @@ import java.util.TreeSet;
 public class SlotRef extends Expr {
     @SerializedName("tn")
     private TableNameInfo tableNameInfo;
-    private TableIf table = null;
-    private TupleId tupleId = null;
     @SerializedName("col")
     private String col;
     // Used in toSql
@@ -70,14 +68,6 @@ public class SlotRef extends Expr {
         this.tableNameInfo = tableNameInfo;
         this.col = col;
         this.label = "`" + col + "`";
-    }
-
-    public SlotRef(TableNameInfo tableNameInfo, String col, List<String> subColPath) {
-        super();
-        this.tableNameInfo = tableNameInfo;
-        this.col = col;
-        this.label = "`" + col + "`";
-        this.subColPath = subColPath;
     }
 
     // C'tor for a "pre-analyzed" ref to slot that doesn't correspond to
@@ -116,7 +106,6 @@ public class SlotRef extends Expr {
         col = other.col;
         label = other.label;
         desc = other.desc;
-        tupleId = other.tupleId;
         subColPath = other.subColPath;
     }
 
@@ -276,26 +265,8 @@ public class SlotRef extends Expr {
         }
     }
 
-    public TableNameInfo getTableName() {
-        if (tableNameInfo == null) {
-            Preconditions.checkState(isAnalyzed);
-            Preconditions.checkNotNull(desc);
-            Preconditions.checkNotNull(desc.getParent());
-            if (desc.getParent().getRef() == null) {
-                return null;
-            }
-            return desc.getParent().getRef().getTableNameInfo();
-        }
-        return tableNameInfo;
-    }
-
-    public TableNameInfo getOriginTableName() {
-        return tableNameInfo;
-    }
-
     @Override
     public String toColumnLabel() {
-        // return tblName == null ? col : tblName.getTbl() + "." + col;
         return col;
     }
 
@@ -393,57 +364,10 @@ public class SlotRef extends Expr {
         return false;
     }
 
-    public TupleId getTupleId() {
-        return tupleId;
-    }
-
-    @Override
-    public boolean isBoundByTupleIds(List<TupleId> tids) {
-        Preconditions.checkState(desc != null || tupleId != null);
-        if (desc != null) {
-            tupleId = desc.getParent().getId();
-        }
-        for (TupleId tid : tids) {
-            if (tid.equals(tupleId)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @Override
     public boolean isBound(SlotId slotId) {
         Preconditions.checkState(isAnalyzed);
         return desc.getId().equals(slotId);
-    }
-
-    @Override
-    public void getSlotRefsBoundByTupleIds(List<TupleId> tupleIds, Set<SlotRef> boundSlotRefs) {
-        if (desc == null) {
-            return;
-        }
-        if (tupleIds.contains(desc.getParent().getId())) {
-            boundSlotRefs.add(this);
-            return;
-        }
-        if (desc.getSourceExprs() == null) {
-            return;
-        }
-        for (Expr sourceExpr : desc.getSourceExprs()) {
-            sourceExpr.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
-        }
-    }
-
-    @Override
-    public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
-        Preconditions.checkState(!type.equals(Type.INVALID));
-        Preconditions.checkState(desc != null);
-        if (slotIds != null) {
-            slotIds.add(desc.getId());
-        }
-        if (tupleIds != null) {
-            tupleIds.add(desc.getParent().getId());
-        }
     }
 
     @Override
@@ -470,10 +394,6 @@ public class SlotRef extends Expr {
             }
             columnNames.add(desc.getColumn().getName());
         }
-    }
-
-    public void setTable(TableIf table) {
-        this.table = table;
     }
 
     public void setLabel(String label) {

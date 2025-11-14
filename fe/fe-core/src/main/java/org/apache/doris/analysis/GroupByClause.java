@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,14 +71,14 @@ public class GroupByClause implements ParseNode {
 
     protected GroupByClause(GroupByClause other) {
         this.groupingType = other.groupingType;
-        this.groupingExprs = (other.groupingExprs != null) ? Expr.cloneAndResetList(other.groupingExprs) : null;
+        this.groupingExprs = (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
         this.oriGroupingExprs =
-                (other.oriGroupingExprs != null) ? Expr.cloneAndResetList(other.oriGroupingExprs) : null;
+                (other.oriGroupingExprs != null) ? Expr.cloneList(other.oriGroupingExprs) : null;
 
         if (other.groupingSetList != null) {
             this.groupingSetList = new ArrayList<>();
             for (List<Expr> exprList : other.groupingSetList) {
-                this.groupingSetList.add(Expr.cloneAndResetList(exprList));
+                this.groupingSetList.add(Expr.cloneList(exprList));
             }
         }
     }
@@ -89,25 +89,6 @@ public class GroupByClause implements ParseNode {
 
     public GroupingType getGroupingType() {
         return groupingType;
-    }
-
-    public void reset() {
-        groupingExprs = new ArrayList<>();
-        analyzed = false;
-        exprGenerated = false;
-        if (oriGroupingExprs != null) {
-            Expr.resetList(oriGroupingExprs);
-            groupingExprs.addAll(oriGroupingExprs);
-        }
-        if (groupingSetList != null) {
-            for (List<Expr> s : groupingSetList) {
-                for (Expr e : s) {
-                    if (e != null) {
-                        e.reset();
-                    }
-                }
-            }
-        }
     }
 
     public List<Expr> getOriGroupingExprs() {

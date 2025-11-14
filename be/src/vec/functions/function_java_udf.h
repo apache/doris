@@ -110,9 +110,6 @@ private:
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
 
-    static std::unique_ptr<ThreadPool> close_workers;
-    static std::once_flag close_workers_init_once;
-
     struct JniContext {
         // Do not save parent directly, because parent is in VExpr, but jni context is in FunctionContext
         // The deconstruct sequence is not determined, it will core.

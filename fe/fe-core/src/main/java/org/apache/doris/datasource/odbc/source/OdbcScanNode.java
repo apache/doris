@@ -158,9 +158,6 @@ public class OdbcScanNode extends ExternalScanNode {
     private void createOdbcColumns() {
         columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             Column col = slot.getColumn();
             columns.add(JdbcTable.databaseProperName(odbcType, col.getName()));
         }
