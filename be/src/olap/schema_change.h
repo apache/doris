@@ -280,6 +280,7 @@ struct SchemaChangeParams {
     ObjectPool pool;
     int32_t be_exec_version;
     std::string vault_id;
+    bool output_to_file_cache;
 };
 
 class SchemaChangeJob {
