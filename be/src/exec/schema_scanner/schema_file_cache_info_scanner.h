@@ -14,19 +14,34 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlannerContext.java
-// and modified by Doris
 
-package org.apache.doris.planner;
+#pragma once
 
-/**
- * Contains the analysis result of a query as well as planning-specific
- * parameters and state such as plan-node and plan-fragment id generators.
- */
-public class PlannerContext {
+#include <vector>
 
-    // Estimate of the overhead imposed by storing data in a hash tbl;
-    // used for determining whether a broadcast join is feasible.
-    public static final double HASH_TBL_SPACE_OVERHEAD = 1.1;
-}
+#include "common/status.h"
+#include "exec/schema_scanner.h"
+
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
+class SchemaFileCacheInfoScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaFileCacheInfoScanner);
+
+public:
+    SchemaFileCacheInfoScanner();
+    ~SchemaFileCacheInfoScanner() override;
+
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+
+private:
+    Status _fill_block_impl(vectorized::Block* block);
+};
+
+} // namespace doris

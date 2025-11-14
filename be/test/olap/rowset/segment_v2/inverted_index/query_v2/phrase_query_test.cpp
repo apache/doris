@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
@@ -27,8 +26,8 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_weight.h"
-#include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -136,8 +135,17 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_construction) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("quick"),
                                        StringHelper::to_wstring("brown")};
 
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
     // Test query construction
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     ASSERT_NE(query, nullptr);
 
     // Test weight creation without scoring
@@ -178,9 +186,9 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_empty_terms) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
-    std::vector<std::wstring> terms; // Empty terms
+    std::vector<TermInfo> term_infos; // Empty term_infos
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     ASSERT_NE(query, nullptr);
 
     // Should throw exception when creating weight with empty terms
@@ -201,7 +209,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_two_terms) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("quick"),
                                        StringHelper::to_wstring("brown")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -240,7 +257,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_three_terms) {
                                        StringHelper::to_wstring("brown"),
                                        StringHelper::to_wstring("fox")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -273,7 +299,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_single_term) {
     std::wstring field = StringHelper::to_wstring("content");
     std::vector<std::wstring> terms = {StringHelper::to_wstring("fox")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     ASSERT_NE(query, nullptr);
 
     // Should throw exception when creating weight with single term (phrase requires at least 2 terms)
@@ -294,7 +329,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_no_matches) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("purple"),
                                        StringHelper::to_wstring("elephant")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -331,13 +375,22 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_scoring) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("quick"),
                                        StringHelper::to_wstring("brown")};
 
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
     // Fill collection statistics for scoring
     context->collection_statistics->_total_num_docs = reader_holder->numDocs();
     context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("brown")] = 10;
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(true);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -382,7 +435,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_with_binding_key) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("lazy"),
                                        StringHelper::to_wstring("dog")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -418,8 +480,17 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_destructor) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("test"),
                                        StringHelper::to_wstring("phrase")};
 
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
     {
-        auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+        auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
         auto weight = query->weight(false);
         ASSERT_NE(weight, nullptr);
         // Query and weight will be destroyed at scope exit
@@ -444,7 +515,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_long_phrase) {
             StringHelper::to_wstring("brown"), StringHelper::to_wstring("fox"),
             StringHelper::to_wstring("jumps")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -482,7 +562,16 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_terms_not_in_sequence) {
     std::vector<std::wstring> terms = {StringHelper::to_wstring("dog"),
                                        StringHelper::to_wstring("fox")};
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -521,6 +610,15 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_bm25_similarity) {
                                        StringHelper::to_wstring("brown"),
                                        StringHelper::to_wstring("fox")};
 
+    std::vector<TermInfo> term_infos;
+    term_infos.reserve(terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = StringHelper::to_string(terms[i]);
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(term_info);
+    }
+
     // Setup statistics for BM25
     context->collection_statistics->_total_num_docs = reader_holder->numDocs();
     context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
@@ -528,7 +626,7 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_bm25_similarity) {
         context->collection_statistics->_term_doc_freqs[field][term] = 5;
     }
 
-    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, terms);
+    auto query = std::make_shared<query_v2::PhraseQuery>(context, field, term_infos);
     auto weight = query->weight(true); // Enable scoring
 
     query_v2::QueryExecutionContext exec_ctx;

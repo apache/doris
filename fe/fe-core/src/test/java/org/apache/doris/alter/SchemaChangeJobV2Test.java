@@ -24,7 +24,6 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -97,7 +96,7 @@ public class SchemaChangeJobV2Test {
     private static Env masterEnv;
     private static Env slaveEnv;
 
-    private static ColumnDef newCol = new ColumnDef("add_v", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
+    private static ColumnDef newCol = new ColumnDef("add_v", ScalarType.createType(PrimitiveType.INT),
             false, AggregateType.MAX, false, new DefaultValue(true, "1"), "");
     private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
 

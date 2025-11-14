@@ -511,6 +511,7 @@ public abstract class BaseAnalysisTask {
         long startTime = System.currentTimeMillis();
         String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
+            a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
