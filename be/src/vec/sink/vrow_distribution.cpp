@@ -107,6 +107,8 @@ Status VRowDistribution::automatic_create_partition() {
     if (_state && _state->get_query_ctx()) {
         request.__set_is_stream_load(_state->get_query_ctx()->get_query_source() ==
                                      QuerySource::STREAM_LOAD);
+        // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
+        request.__set_query_id(_state->get_query_ctx()->query_id());
     }
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;

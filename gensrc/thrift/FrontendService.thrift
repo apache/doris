@@ -1362,6 +1362,8 @@ struct TCreatePartitionRequest {
     6: optional bool write_single_replica = false
     // indicate whether this request is from stream load
     7: optional bool is_stream_load = false
+    // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
+    8: optional Types.TUniqueId query_id
 }
 
 struct TCreatePartitionResult {

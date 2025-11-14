@@ -3666,16 +3666,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("send create partition error status: {}", result);
             return result;
         }
-
-        boolean isStreamLoad;
-        if (request.isSetIsStreamLoad()) {
-            isStreamLoad = request.isIsStreamLoad();
-        } else {
-            errorStatus.setErrorMsgs(
-                    Lists.newArrayList("Logical error: please check the RPC transmission between BE and FE."));
-            result.setStatus(errorStatus);
-            LOG.warn("Logical error: please check the RPC transmission between BE and FE: {}", result);
-            return result;
+        // Cache tablet location only when needed:
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
+        //    distribution issues due to concurrent createPartition RPCs.
+        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load commit/abort from BE),
+        //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
+        //    So we skip caching for them.
+        boolean needUseCache = false;
+        if (request.isSetQueryId()) {
+            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
+            if (coordinator != null) {
+                // Found coordinator, check if it's multi-instance
+                // For single-instance imports (like stream load from FE), we don't need cache either
+                // Only multi-instance imports need to ensure consistent tablet replica information
+                int instanceNum = coordinator.getInstanceIds().size();
+                if (instanceNum > 1) {
+                    needUseCache = true;
+                }
+            }
         }
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -3759,7 +3767,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             partitions.add(tPartition);
             // tablet
-            if (!isStreamLoad
+            if (needUseCache
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                     partitionSlaveTablets)) {
@@ -3831,12 +3839,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
 
-            // For stream load, skip caching, reason as follow:
-            // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
-            //    distribution issues, while stream load is always a single-instance import.
-            // 2. From a necessity perspective: Stream load triggers FE commit/abort txn requests from BE.
-            //    If a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
-            if (!isStreamLoad) {
+            if (needUseCache) {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);
