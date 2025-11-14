@@ -114,15 +114,15 @@ suite("test_array_index2") {
         exception "is not supported in"
     }
 
-    // Test creating index on array of float - should success
-    test {
-        sql """ ALTER TABLE ${tableName2} ADD INDEX idx_float_arr (float_arr) USING INVERTED; """
-    }
-
     // Test creating index on array of struct - should fail
     test {
         sql """ ALTER TABLE ${tableName2} ADD INDEX idx_struct_arr (struct_arr) USING INVERTED; """
         exception "is not supported in"
+    }
+
+    // Test creating index on array of float - should success
+    test {
+        sql """ ALTER TABLE ${tableName2} ADD INDEX idx_float_arr (float_arr) USING INVERTED; """
     }
 
     // Test array_contains function
