@@ -131,7 +131,7 @@ public:
         return Status::InternalError(expr_name() + " is not ready when execute");
     }
 
-    MOCK_FUNCTION Status execute(VExprContext* context, Block* block, int* result_column_id) const {
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
         RETURN_IF_ERROR(execute(context, block, result_column));
         *result_column_id = block->columns();
