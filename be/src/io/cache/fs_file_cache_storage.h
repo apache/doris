@@ -119,6 +119,9 @@ private:
     void load_cache_info_into_memory_from_fs(BlockFileCache* _mgr) const;
     void load_cache_info_into_memory_from_db(BlockFileCache* _mgr) const;
 
+    Status get_file_cache_infos(std::vector<FileCacheInfo>& infos,
+                                std::lock_guard<std::mutex>& cache_lock) const override;
+
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
