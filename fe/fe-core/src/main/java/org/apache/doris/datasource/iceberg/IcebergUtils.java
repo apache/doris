@@ -1103,7 +1103,16 @@ public class IcebergUtils {
             return IcebergPartitionInfo.empty();
         }
         Table table = getIcebergTable(dorisTable);
-        List<IcebergPartition> icebergPartitions = loadIcebergPartition(table, snapshotId);
+        List<IcebergPartition> icebergPartitions;
+        try {
+            icebergPartitions = dorisTable.getCatalog().getExecutionAuthenticator()
+                    .execute(() -> loadIcebergPartition(table, snapshotId));
+        } catch (Exception e) {
+            String errorMsg = String.format("Failed to get iceberg partition info, table: %s.%s.%s, snapshotId: %s",
+                    dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), snapshotId);
+            LOG.warn(errorMsg, e);
+            throw new AnalysisException(errorMsg, e);
+        }
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
 
