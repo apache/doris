@@ -159,10 +159,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                source.getCatalog().getCatalogProperty().getMetastoreProperties(),
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                 icebergTable
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
