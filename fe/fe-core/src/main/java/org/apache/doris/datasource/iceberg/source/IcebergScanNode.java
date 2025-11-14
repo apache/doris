@@ -382,12 +382,30 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (isPartitionedTable) {
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition data is not in the map, we need to calculate the partition
-                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k -> {
-                    return IcebergUtils.getPartitionInfoMap(partitionData, sessionVariable.getTimeZone());
-                });
-                if (partitionInfoMap != null) {
-                    split.setIcebergPartitionValues(partitionInfoMap);
+                // Get specId and corresponding PartitionSpec to handle partition evolution
+                int specId = fileScanTask.file().specId();
+                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+                
+                // If partitionSpec is null, it means the specId is not found in the table's specs
+                // This should not happen in normal cases, but handle it gracefully
+                if (partitionSpec == null) {
+                    LOG.warn("Partition spec with specId {} not found for table {}, skipping partition info",
+                            specId, icebergTable.name());
+                    partitionMapInfos.put(partitionData, null);
+                } else {
+                    // Compute partition info map with partition spec to handle partition evolution
+                    // Different specIds may have different partition structures, but PartitionData
+                    // already contains the structure information, so using it as cache key is safe
+                    Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
+                            partitionData, k -> {
+                                return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
+                                        sessionVariable.getTimeZone());
+                            });
+                    // Only set partition values if all partitions are identity transform
+                    // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
+                    if (partitionInfoMap != null) {
+                        split.setIcebergPartitionValues(partitionInfoMap);
+                    }
                 }
             } else {
                 partitionMapInfos.put(partitionData, null);
