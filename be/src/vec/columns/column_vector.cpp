@@ -221,7 +221,7 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
     } else {
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
-                hashes[i] = HashUtil::fnv_hash(
+                hashes[i] = HashUtil::zlib_crc_hash(
                         &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
                         hashes[i]);
             }
