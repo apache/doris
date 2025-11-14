@@ -263,6 +263,17 @@ public:
     int64_t hot_data_interval {0};
 };
 
+struct FileCacheInfo {
+    UInt128Wrapper hash {0};
+    uint64_t expiration_time {0};
+    uint64_t size {0};
+    size_t offset {0};
+    bool is_tmp {false};
+    FileCacheType cache_type {NORMAL};
+
+    std::string to_string() const;
+};
+
 std::optional<int64_t> get_tablet_id(std::string file_path);
 
 } // namespace doris::io
