@@ -86,7 +86,9 @@ public class CacheFactory {
     public <K, V> LoadingCache<K, V> buildCacheWithSyncRemovalListener(CacheLoader<K, V> cacheLoader,
             RemovalListener<K, V> removalListener) {
         Caffeine<Object, Object> builder = buildWithParams();
-        builder.removalListener(removalListener);
+        if (removalListener != null) {
+            builder.removalListener(removalListener);
+        }
         builder.executor(Runnable::run);  // Sync execution to avoid thread pool deadlock
         return builder.build(cacheLoader);
     }
@@ -97,7 +99,9 @@ public class CacheFactory {
             ExecutorService executor) {
         Caffeine<Object, Object> builder = buildWithParams();
         builder.executor(executor);
-        builder.removalListener(removalListener);
+        if (removalListener != null) {
+            builder.removalListener(removalListener);
+        }
         return builder.build(cacheLoader);
     }
 
