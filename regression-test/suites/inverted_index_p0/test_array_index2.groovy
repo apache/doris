@@ -155,5 +155,5 @@ suite("test_array_index2") {
     """
 
     sql "DROP TABLE IF EXISTS ${tableName1}"
-    sql "DROP TABLE IF EXISTS ${tableName2}"
+    sql "DROP TABLE IF EXISTS ${tableName2} FORCE"
 } 
