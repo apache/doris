@@ -2327,7 +2327,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     }
                 }
             }
-            ((UnionNode) setOperationNode).setInplaceUnion(true);
+            ((UnionNode) setOperationNode).setInplaceUnion(isInplaceUnion);
         }
 
         return setOperationFragment;
