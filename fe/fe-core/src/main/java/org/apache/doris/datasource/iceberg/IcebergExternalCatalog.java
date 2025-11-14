@@ -152,8 +152,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     /**
      * Add partition field to Iceberg table for partition evolution
      */
-    public void addPartitionField(IcebergExternalTable table,
-            AddPartitionFieldClause clause) throws org.apache.doris.common.UserException {
+    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldClause clause) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Add partition field operation is not supported for catalog: " + getName());
@@ -165,7 +164,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                             ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
                                     table.getDbName(), table.getName()));
         } catch (Exception e) {
-            throw new org.apache.doris.common.UserException("Failed to add partition field to table: "
+            throw new DdlException("Failed to add partition field to table: "
                     + table.getName() + ", error message is: " + e.getMessage(), e);
         }
     }
@@ -173,8 +172,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     /**
      * Drop partition field from Iceberg table for partition evolution
      */
-    public void dropPartitionField(IcebergExternalTable table,
-            DropPartitionFieldClause clause) throws org.apache.doris.common.UserException {
+    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldClause clause) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop partition field operation is not supported for catalog: " + getName());
@@ -186,7 +184,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                             ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
                                     table.getDbName(), table.getName()));
         } catch (Exception e) {
-            throw new org.apache.doris.common.UserException("Failed to drop partition field from table: "
+            throw new DdlException("Failed to drop partition field from table: "
                     + table.getName() + ", error message is: " + e.getMessage(), e);
         }
     }
