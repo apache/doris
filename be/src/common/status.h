@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <client/obj_storage_client.h>
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h> // for TStatus
 #include <gen_cpp/types.pb.h>
@@ -23,13 +24,9 @@
 
 namespace doris {
 
-namespace io {
-struct ObjectStorageStatus;
-}
-
 class Status;
 
-extern io::ObjectStorageStatus convert_to_obj_response(Status st);
+extern ObjectStorageStatus convert_to_obj_response(Status st);
 
 class PStatus;
 
@@ -572,7 +569,7 @@ public:
 
     std::pair<int, std::string> retrieve_error_msg() { return {_code, std::move(_err_msg->_msg)}; }
 
-    friend io::ObjectStorageStatus convert_to_obj_response(Status st);
+    friend ObjectStorageStatus convert_to_obj_response(Status st);
 
 private:
     int _code;

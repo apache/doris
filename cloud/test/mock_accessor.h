@@ -39,11 +39,19 @@ public:
 
     bool is_valid() override { return true; }
 
-    bool has_next() override { return !entries_.empty(); }
+    ObjectStorageResponse has_next() override {
+        return entries_.empty()
+                       ? ObjectStorageResponse {.status =
+                                                        ObjectStorageStatus {TStatusCode::NOT_FOUND,
+                                                                             "No more results"},
+                                                .http_code = 404,
+                                                .request_id = ""}
+                       : ObjectStorageResponse::OK();
+    }
 
     std::optional<FileMeta> next() override {
         std::optional<FileMeta> ret;
-        if (has_next()) {
+        if (has_next().status.code == TStatusCode::OK) {
             ret = FileMeta {.path = std::move(entries_.back())};
             entries_.pop_back();
         }

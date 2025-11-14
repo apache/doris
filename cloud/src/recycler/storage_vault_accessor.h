@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <client/obj_storage_client.h>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,7 +46,7 @@ class ListIterator {
 public:
     virtual ~ListIterator() = default;
     virtual bool is_valid() = 0;
-    virtual bool has_next() = 0;
+    virtual ObjectStorageResponse has_next() = 0;
     virtual std::optional<FileMeta> next() = 0;
 };
 
