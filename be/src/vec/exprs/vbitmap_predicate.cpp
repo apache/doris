@@ -75,16 +75,7 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
     return Status::OK();
 }
 
-Status VBitmapPredicate::execute(vectorized::VExprContext* context, doris::vectorized::Block* block,
-                                 int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    *result_column_id = block->columns();
-    block->insert({result_column, _data_type, EXPR_NAME});
-    return Status::OK();
-}
-
-Status VBitmapPredicate::execute(VExprContext* context, Block* block,
+Status VBitmapPredicate::execute(VExprContext* context, const Block* block,
                                  ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     DCHECK_EQ(_children.size(), 1);

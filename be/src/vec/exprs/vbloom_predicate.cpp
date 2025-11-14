@@ -70,15 +70,7 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    block->insert({std::move(result_column), _data_type, EXPR_NAME});
-    *result_column_id = block->columns() - 1;
-    return Status::OK();
-}
-
-Status VBloomPredicate::execute(VExprContext* context, Block* block,
+Status VBloomPredicate::execute(VExprContext* context, const Block* block,
                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     DCHECK_EQ(_children.size(), 1);

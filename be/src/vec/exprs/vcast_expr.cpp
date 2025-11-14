@@ -105,15 +105,8 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    *result_column_id = block->columns();
-    block->insert({result_column, _data_type, _expr_name});
-    return Status::OK();
-}
-
-Status VCastExpr::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+Status VCastExpr::execute(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
@@ -152,15 +145,8 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
     }
 }
 
-Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    *result_column_id = block->columns();
-    block->insert({result_column, make_nullable(_data_type), _expr_name});
-    return Status::OK();
-}
-
-Status TryCastExpr::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+Status TryCastExpr::execute(VExprContext* context, const Block* block,
+                            ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function

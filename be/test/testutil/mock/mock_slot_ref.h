@@ -36,6 +36,7 @@ class VExprContext;
 // use to mock a slot ref expr
 class MockSlotRef final : public VSlotRef {
 public:
+    using VExpr::execute;
     MockSlotRef(int column_id) {
         _node_type = TExprNodeType::SLOT_REF;
         _column_id = column_id;

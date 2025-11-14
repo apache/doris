@@ -77,7 +77,7 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, vectorized::Block* block, ColumnPtr& result_column,
+    Status execute(VExprContext* context, const vectorized::Block* block, ColumnPtr& result_column,
                    const DataTypePtr& result_type, const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
@@ -355,7 +355,7 @@ private:
         }
     }
 
-    void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
+    void _extend_data(std::vector<MutableColumnPtr>& columns, const Block* block,
                       int current_repeat_times, int size, int64_t current_row_idx,
                       const std::vector<int>& output_slot_ref_indexs) const {
         if (!current_repeat_times || !size) {

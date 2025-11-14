@@ -29,6 +29,7 @@ class VExprContext;
 // use to mock a slot ref expr
 class MockFnCall final : public VectorizedFnCall {
 public:
+    using VExpr::execute;
     MockFnCall(const std::string fn_name) {
         _fn.name.function_name = fn_name;
         _function_name = fn_name;

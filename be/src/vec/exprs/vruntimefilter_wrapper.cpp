@@ -87,16 +87,7 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
     _impl->close(context, scope);
 }
 
-Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block,
-                                      int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    block->insert({result_column, _data_type, ""});
-    *result_column_id = block->columns() - 1;
-    return Status::OK();
-}
-
-Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block,
+Status VRuntimeFilterWrapper::execute(VExprContext* context, const Block* block,
                                       ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     if (_judge_counter.fetch_sub(1) == 0) {

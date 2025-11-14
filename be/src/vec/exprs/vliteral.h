@@ -36,6 +36,7 @@ class VLiteral : public VExpr {
     ENABLE_FACTORY_CREATOR(VLiteral);
 
 public:
+    using VExpr::execute;
     VLiteral(const TExprNode& node, bool should_init = true)
             : VExpr(node), _expr_name(_data_type->get_name()) {
         if (should_init) {
@@ -48,9 +49,8 @@ public:
 #endif
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
-
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override;
+    Status execute(VExprContext* context, const Block* block,
+                   ColumnPtr& result_column) const override;
 
     const std::string& expr_name() const override { return _expr_name; }
     std::string debug_string() const override;

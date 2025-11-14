@@ -55,15 +55,8 @@ VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
     this->_column_ptr = _data_type->create_column_const(1, field);
 }
 
-Status VInfoFunc::execute(VExprContext* context, vectorized::Block* block,
-                          int* result_column_id) const {
-    // Info function should return least one row, e.g. select current_user().
-    size_t row_size = std::max(block->rows(), 1UL);
-    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
-    return Status::OK();
-}
-
-Status VInfoFunc::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+Status VInfoFunc::execute(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const {
     // Info function should return least one row, e.g. select current_user().
     size_t row_size = std::max(block->rows(), _column_ptr->size());
     result_column = _column_ptr->clone_resized(row_size);

@@ -76,15 +76,8 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    *result_column_id = block->columns();
-    block->insert({result_column, _data_type, EXPR_NAME});
-    return Status::OK();
-}
-
-Status VCaseExpr::execute(VExprContext* context, Block* block, ColumnPtr& result_column) const {
+Status VCaseExpr::execute(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(block);
         return Status::OK();

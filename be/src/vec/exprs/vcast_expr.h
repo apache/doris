@@ -43,13 +43,14 @@ class VCastExpr : public VExpr {
     ENABLE_FACTORY_CREATOR(VCastExpr);
 
 public:
+    using VExpr::execute;
 #ifdef BE_TEST
     VCastExpr() = default;
 #endif
     VCastExpr(const TExprNode& node) : VExpr(node) {}
     ~VCastExpr() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override;
+    Status execute(VExprContext* context, const Block* block,
+                   ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -77,14 +78,15 @@ class TryCastExpr final : public VCastExpr {
     ENABLE_FACTORY_CREATOR(TryCastExpr);
 
 public:
+    using VExpr::execute;
 #ifdef BE_TEST
     TryCastExpr() = default;
 #endif
 
     TryCastExpr(const TExprNode& node)
             : VCastExpr(node), _original_cast_return_is_nullable(node.is_cast_nullable) {}
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override;
+    Status execute(VExprContext* context, const Block* block,
+                   ColumnPtr& result_column) const override;
     ~TryCastExpr() override = default;
     std::string cast_name() const override { return "TRY CAST"; }
 

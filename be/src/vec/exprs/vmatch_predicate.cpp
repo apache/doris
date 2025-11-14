@@ -135,15 +135,7 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    *result_column_id = block->columns();
-    block->insert({result_column, _data_type, _expr_name});
-    return Status::OK();
-}
-
-Status VMatchPredicate::execute(VExprContext* context, Block* block,
+Status VMatchPredicate::execute(VExprContext* context, const Block* block,
                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     if (fast_execute(context, result_column)) {

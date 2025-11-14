@@ -42,12 +42,7 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
-        DCHECK(_open_finished || _getting_const_col);
-        return get_child(0)->execute(context, block, result_column_id);
-    }
-
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override {
+    Status execute(VExprContext* context, const Block* block, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || _getting_const_col);
         return get_child(0)->execute(context, block, result_column);
     }

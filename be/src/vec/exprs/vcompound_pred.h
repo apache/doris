@@ -156,15 +156,8 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
-        ColumnPtr result_column = nullptr;
-        RETURN_IF_ERROR(execute(context, block, result_column));
-        *result_column_id = block->columns();
-        block->insert({std::move(result_column), _data_type, ""});
-        return Status::OK();
-    }
-
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override {
+    Status execute(VExprContext* context, const Block* block,
+                   ColumnPtr& result_column) const override {
         if (fast_execute(context, result_column)) {
             return Status::OK();
         }

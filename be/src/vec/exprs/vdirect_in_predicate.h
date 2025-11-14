@@ -54,20 +54,13 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
-        ColumnPtr result_column;
-        RETURN_IF_ERROR(execute(context, block, result_column));
-        block->insert({result_column, _data_type, ""});
-        *result_column_id = block->columns() - 1;
-        return Status::OK();
-    }
-
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override {
+    Status execute(VExprContext* context, const Block* block,
+                   ColumnPtr& result_column) const override {
         return _do_execute(context, block, result_column, nullptr);
     }
 
-    Status execute_runtime_filter(VExprContext* context, Block* block, ColumnPtr& result_column,
-                                  ColumnPtr* arg_column) const override {
+    Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                  ColumnPtr& result_column, ColumnPtr* arg_column) const override {
         return _do_execute(context, block, result_column, arg_column);
     }
 
@@ -116,7 +109,7 @@ public:
     uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
-    Status _do_execute(VExprContext* context, Block* block, ColumnPtr& result_column,
+    Status _do_execute(VExprContext* context, const Block* block, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const {
         DCHECK(_open_finished || _getting_const_col);
 

@@ -81,15 +81,8 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
-        ColumnPtr result_column;
-        RETURN_IF_ERROR(execute(context, block, result_column));
-        *result_column_id = block->columns();
-        block->insert({result_column, _data_type, _expr_name});
-        return Status::OK();
-    }
-
-    Status execute(VExprContext* context, Block* block, ColumnPtr& result_column) const override {
+    Status execute(VExprContext* context, const Block* block,
+                   ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
             result_column = create_always_true_column(block->rows(), _data_type->is_nullable());
             return Status::OK();

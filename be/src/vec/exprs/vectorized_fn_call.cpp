@@ -184,8 +184,8 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, Block* block, ColumnPtr& result_column,
-                                     ColumnPtr* arg_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
+                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(block);
         return Status::OK();
@@ -266,22 +266,13 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, Block* block,
+Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Block* block,
                                                 ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
     return _do_execute(context, block, result_column, arg_column);
 }
 
-Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
-                                 int* result_column_id) const {
-    ColumnPtr result_column;
-    RETURN_IF_ERROR(execute(context, block, result_column));
-    block->insert({result_column, _data_type, ""});
-    *result_column_id = block->columns() - 1;
-    return Status::OK();
-}
-
-Status VectorizedFnCall::execute(VExprContext* context, Block* block,
+Status VectorizedFnCall::execute(VExprContext* context, const Block* block,
                                  ColumnPtr& result_column) const {
     return _do_execute(context, block, result_column, nullptr);
 }
