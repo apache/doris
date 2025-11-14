@@ -24,21 +24,6 @@ suite("test_materialized_view_common_expr_push_down") {
         return jobStateResult[0][8]
     }
 
-    def query_mv_index_type = { indexName ->
-        def res = sql_return_maparray "SHOW TABLETS FROM ${dbName}.${tableName}"
-        def tabletId = res[0].TabletId
-        res = sql_return_maparray "SHOW TABLET ${tabletId}"
-        def dbId = res[0].DbId
-        def tableId = res[0].TableId
-        res = sql_return_maparray """ SHOW PROC "/dbs/${dbId}/${tableId}/indexes" """
-        for (def record in res) {
-            if (record.KeyName == indexName) {
-                return record.IndexId
-            }
-        }
-        throw new Exception("index ${indexName} is not exists")
-    }
-
     sql """set enable_common_expr_pushdown = true"""
 
     sql "DROP TABLE IF EXISTS ${baseTable}"
