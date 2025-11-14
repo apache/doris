@@ -184,96 +184,8 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
-                                     doris::vectorized::Block* block, int* result_column_id,
-                                     ColumnNumbers& args) const {
-    if (is_const_and_have_executed()) { // const have executed in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
-    }
-    if (fast_execute(context, block, result_column_id)) {
-        return Status::OK();
-    }
-    DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
-        if (get_child(0)->is_slot_ref()) {
-            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
-                    "VectorizedFnCall.must_in_slow_path", "column_name", "");
-
-            std::vector<std::string> column_names;
-            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
-
-            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-            std::string column_name = column_slot_ref->expr_name();
-            auto it = std::find(column_names.begin(), column_names.end(), column_name);
-            if (it == column_names.end()) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "column {} should in slow path while VectorizedFnCall::execute.",
-                        column_name);
-            }
-        }
-    })
-    DCHECK(_open_finished || _getting_const_col) << debug_string();
-    // TODO: not execute const expr again, but use the const column in function context
-    args.resize(_children.size());
-    for (int i = 0; i < _children.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        args[i] = column_id;
-    }
-
-    RETURN_IF_ERROR(check_constant(*block, args));
-    // call function
-    uint32_t num_columns_without_result = block->columns();
-    // prepare a column to save result
-    block->insert({nullptr, _data_type, _expr_name});
-
-    DBUG_EXECUTE_IF("VectorizedFnCall.wait_before_execute", {
-        auto possibility = DebugPoints::instance()->get_debug_param_or_default<double>(
-                "VectorizedFnCall.wait_before_execute", "possibility", 0);
-        if (random_bool_slow(possibility)) {
-            LOG(WARNING) << "VectorizedFnCall::execute sleep 30s";
-            sleep(30);
-        }
-    });
-
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
-                                       num_columns_without_result, block->rows()));
-    *result_column_id = num_columns_without_result;
-    RETURN_IF_ERROR(block->check_type_and_column());
-    return Status::OK();
-}
-
-size_t VectorizedFnCall::estimate_memory(const size_t rows) {
-    if (is_const_and_have_executed()) { // const have execute in open function
-        return 0;
-    }
-
-    size_t estimate_size = 0;
-    for (auto& child : _children) {
-        estimate_size += child->estimate_memory(rows);
-    }
-
-    if (_data_type->have_maximum_size_of_value()) {
-        estimate_size += rows * _data_type->get_size_of_value_in_memory();
-    } else {
-        estimate_size += rows * 512; /// FIXME: estimated value...
-    }
-    return estimate_size;
-}
-
-Status VectorizedFnCall::execute_runtime_filter(doris::vectorized::VExprContext* context,
-                                                doris::vectorized::Block* block,
-                                                int* result_column_id, ColumnNumbers& args) {
-    return _do_execute(context, block, result_column_id, args);
-}
-
-Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
-                                 int* result_column_id) const {
-    ColumnNumbers arguments;
-    return _do_execute(context, block, result_column_id, arguments);
-}
-
-Status VectorizedFnCall::execute(VExprContext* context, Block* block,
-                                 ColumnPtr& result_column) const {
+Status VectorizedFnCall::_do_execute(VExprContext* context, Block* block, ColumnPtr& result_column,
+                                     ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(block);
         return Status::OK();
@@ -305,11 +217,15 @@ Status VectorizedFnCall::execute(VExprContext* context, Block* block,
     ColumnNumbers args(_children.size());
 
     for (int i = 0; i < _children.size(); ++i) {
-        ColumnPtr arg_column;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, arg_column));
+        ColumnPtr tmp_arg_column;
+        RETURN_IF_ERROR(_children[i]->execute(context, block, tmp_arg_column));
         auto arg_type = _children[i]->execute_type(block);
-        temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
+        temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;
+
+        if (arg_column != nullptr && i == 0) {
+            *arg_column = tmp_arg_column;
+        }
     }
 
     uint32_t num_columns_without_result = temp_block.columns();
@@ -330,6 +246,44 @@ Status VectorizedFnCall::execute(VExprContext* context, Block* block,
     result_column = temp_block.get_by_position(num_columns_without_result).column;
     RETURN_IF_ERROR(block->check_type_and_column());
     return Status::OK();
+}
+
+size_t VectorizedFnCall::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 512; /// FIXME: estimated value...
+    }
+    return estimate_size;
+}
+
+Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, Block* block,
+                                                ColumnPtr& result_column,
+                                                ColumnPtr* arg_column) const {
+    return _do_execute(context, block, result_column, arg_column);
+}
+
+Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
+                                 int* result_column_id) const {
+    ColumnPtr result_column;
+    RETURN_IF_ERROR(execute(context, block, result_column));
+    block->insert({result_column, _data_type, ""});
+    *result_column_id = block->columns() - 1;
+    return Status::OK();
+}
+
+Status VectorizedFnCall::execute(VExprContext* context, Block* block,
+                                 ColumnPtr& result_column) const {
+    return _do_execute(context, block, result_column, nullptr);
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
