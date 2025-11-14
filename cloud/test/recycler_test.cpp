@@ -192,6 +192,20 @@ static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, in
     return rowset;
 }
 
+static int create_delete_bitmaps_v1(TxnKv* txn_kv, int64_t tablet_id, std::string rowset_id) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 0, 0});
+    txn->put(key, "delete_bitmap_data");
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
 static int create_delete_bitmaps_v2(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                     int64_t tablet_id, std::string rowset_id) {
     std::unique_ptr<Transaction> txn;
@@ -214,8 +228,8 @@ static int create_delete_bitmaps_v2(TxnKv* txn_kv, StorageVaultAccessor* accesso
 
 static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                  const doris::RowsetMetaCloudPB& rowset, RecycleRowsetPB::Type type,
-                                 bool write_schema_kv,
-                                 bool enable_create_delete_bitmaps_v2 = false) {
+                                 bool write_schema_kv, bool enable_create_delete_bitmaps_v2 = false,
+                                 bool enable_create_delete_bitmaps_v1 = false) {
     std::string key;
     std::string val;
 
@@ -265,8 +279,17 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         }
     }
     if (enable_create_delete_bitmaps_v2) {
-        return create_delete_bitmaps_v2(txn_kv, accessor, rowset.tablet_id(),
-                                        rowset.rowset_id_v2());
+        auto ret = create_delete_bitmaps_v2(txn_kv, accessor, rowset.tablet_id(),
+                                            rowset.rowset_id_v2());
+        if (ret != 0) {
+            return ret;
+        }
+    }
+    if (enable_create_delete_bitmaps_v1) {
+        auto ret = create_delete_bitmaps_v1(txn_kv, rowset.tablet_id(), rowset.rowset_id_v2());
+        if (ret != 0) {
+            return ret;
+        }
     }
     return 0;
 }
@@ -1186,8 +1209,32 @@ static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int 
         dbm_start_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
         dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
     }
-    ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
-    EXPECT_EQ(it->size(), expected_size);
+    int size = 0;
+    do {
+        ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
+        while (it->has_next()) {
+            it->next();
+            size++;
+        }
+        dbm_start_key = it->next_begin_key();
+    } while (it->more());
+    EXPECT_EQ(size, expected_size);
+}
+
+static void check_delete_bitmap_file_size(std::shared_ptr<StorageVaultAccessor> accessor,
+                                          int64_t tablet_id, int expected_size) {
+    int size = 0;
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+    while (list_iter->has_next()) {
+        auto file_info = list_iter->next();
+        ASSERT_TRUE(file_info.has_value());
+        std::string filename = file_info.value().path;
+        if (filename.ends_with("_delete_bitmap.db")) {
+            size++;
+        }
+    }
+    EXPECT_EQ(size, expected_size);
 }
 
 TEST(RecyclerTest, recycle_empty) {
@@ -1271,6 +1318,7 @@ TEST(RecyclerTest, recycle_rowsets) {
                               i < 500);
     }
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 1000);
+    check_delete_bitmap_file_size(accessor, tablet_id, 1000);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
 
@@ -1291,6 +1339,7 @@ TEST(RecyclerTest, recycle_rowsets) {
     EXPECT_EQ(insert_no_inverted_index, 1);
     // check all versioned delete bitmap kv have been deleted
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    check_delete_bitmap_file_size(accessor, tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
@@ -1343,8 +1392,12 @@ TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
 
         // Only DROP or COMPACT will delete the rowset data
         create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
-                              i % 2 == 0 ? RecycleRowsetPB::COMPACT : RecycleRowsetPB::DROP, i & 1);
+                              i % 2 == 0 ? RecycleRowsetPB::COMPACT : RecycleRowsetPB::DROP, i & 1,
+                              true, true);
     }
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 5, 1);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 5);
+    check_delete_bitmap_file_size(accessor, tablet_id, 5);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
 
@@ -1373,6 +1426,10 @@ TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
         ++total_ref_count_keys;
     }
     ASSERT_EQ(total_ref_count_keys, 3);
+
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 3, 1);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 3);
+    check_delete_bitmap_file_size(accessor, tablet_id, 3);
 }
 
 TEST(RecyclerTest, bench_recycle_rowsets) {
@@ -1435,7 +1492,8 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
                               i % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT,
                               i & 1, i < 1000);
     }
-    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 100);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 1000);
+    check_delete_bitmap_file_size(accessor, tablet_id, 1000);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.check_recycle_tasks(), false);
@@ -1453,6 +1511,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    check_delete_bitmap_file_size(accessor, tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_tmp_rowsets) {
@@ -1520,6 +1579,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     for (int j = 0; j < 20; ++j) {
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 50);
+        check_delete_bitmap_file_size(accessor, tablet_id_base + j, 50);
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 100, 1);
     }
 
@@ -1552,6 +1612,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(it->size(), 0);
     for (int j = 0; j < 20; ++j) {
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0);
+        check_delete_bitmap_file_size(accessor, tablet_id_base + j, 0);
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0, 1);
     }
 }
@@ -1605,6 +1666,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
         }
     }
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+    check_delete_bitmap_file_size(accessor, tablet_id, 10);
 
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     // check rowset does not exist on obj store
@@ -1625,6 +1687,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    check_delete_bitmap_file_size(accessor, tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_tablet) {
@@ -1671,6 +1734,7 @@ TEST(RecyclerTest, recycle_tablet) {
                                 index_id, 1, 1, i < 200);
     }
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 400);
+    check_delete_bitmap_file_size(accessor, tablet_id, 400);
 
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
 
@@ -1718,6 +1782,7 @@ TEST(RecyclerTest, recycle_tablet) {
     ASSERT_EQ(txn->get(idx_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
     ASSERT_EQ(txn->get(inverted_idx_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    check_delete_bitmap_file_size(accessor, tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_indexes) {
@@ -1781,6 +1846,7 @@ TEST(RecyclerTest, recycle_indexes) {
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+        check_delete_bitmap_file_size(accessor, tablet_id, 10);
     }
     ASSERT_EQ(recycler.recycle_indexes(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0); // Recycle tmp rowsets too, since
@@ -1856,6 +1922,7 @@ TEST(RecyclerTest, recycle_indexes) {
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+        check_delete_bitmap_file_size(accessor, tablet_id, 0);
     }
 }
 
@@ -1924,6 +1991,7 @@ TEST(RecyclerTest, recycle_partitions) {
     for (int i = 0; i < 20 * index_ids.size(); ++i) {
         int64_t tablet_id = tablet_id_base2 + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+        check_delete_bitmap_file_size(accessor, tablet_id, 10);
     }
     ASSERT_EQ(recycler.recycle_partitions(), 0);
 
@@ -1986,6 +2054,7 @@ TEST(RecyclerTest, recycle_partitions) {
     for (int i = 0; i < 20 * index_ids.size(); ++i) {
         int64_t tablet_id = tablet_id_base2 + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+        check_delete_bitmap_file_size(accessor, tablet_id, 0);
     }
 }
 
@@ -3002,6 +3071,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+        check_delete_bitmap_file_size(accessor, tablet_id, 10);
     }
 
     {
@@ -3094,6 +3164,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+        check_delete_bitmap_file_size(accessor, tablet_id, 0);
     }
 }
 
