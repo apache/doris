@@ -2961,7 +2961,7 @@ public:
                 {"c_datev2", FieldType::OLAP_FIELD_TYPE_DATEV2, 4, false},
                 {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false},
                 {"c_timestamptz", FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, 8, false},
-            };
+        };
 
         for (size_t i = 0; i < columns.size(); ++i) {
             TabletColumn column;
