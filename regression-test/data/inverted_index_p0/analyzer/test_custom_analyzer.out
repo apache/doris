@@ -87,7 +87,7 @@
 [{\n        "token": "d"\n    }, {\n        "token": "dj音乐家"\n    }, {\n        "token": "djyyj"\n    }, {\n        "token": "j"\n    }, {\n        "token": "yin"\n    }, {\n        "token": "yue"\n    }, {\n        "token": "jia"\n    }]
 
 -- !tokenize_pinyin13 --
-[{\n        "token": "liu"\n    }, {\n        "token": "刘德华abc123"\n    }, {\n        "token": "ldhabc123"\n    }, {\n        "token": "de"\n    }, {\n        "token": "hua"\n    }, {\n        "token": "a"\n    }, {\n        "token": "b"\n    }, {\n        "token": "c"\n    }, {\n        "token": "123"\n    }]
+[{\n        "token": "liu"\n    }, {\n        "token": "刘德华abc123"\n    }, {\n        "token": "ldhabc123"\n    }, {\n        "token": "de"\n    }, {\n        "token": "hua"\n    }, {\n        "token": "a"\n    }, {\n        "token": "b"\n    }, {\n        "token": "c"\n    }, {\n        "token": "1"\n    }, {\n        "token": "2"\n    }, {\n        "token": "3"\n    }]
 
 -- !sql --
 1	abcDEF
