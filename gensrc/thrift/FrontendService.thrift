@@ -831,6 +831,7 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
+  DATABASE_PROPERTIES = 13,
 }
 
 struct TMetadataTableRequestParams {
