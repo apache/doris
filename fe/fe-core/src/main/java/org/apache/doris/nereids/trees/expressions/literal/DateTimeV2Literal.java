@@ -25,10 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
-
-import com.google.common.base.Preconditions;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -62,35 +58,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
         super(dateType, year, month, day, hour, minute, second, microSecond);
         roundMicroSecond(dateType.getScale());
-    }
-
-    private void roundMicroSecond(int scale) {
-        Preconditions.checkArgument(scale >= 0 && scale <= DateTimeV2Type.MAX_SCALE,
-                "invalid datetime v2 scale: %s", scale);
-        double factor = Math.pow(10, 6 - scale);
-
-        this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
-
-        if (this.microSecond >= 1000000) {
-            LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
-                    getStringValue()).plusSeconds(1);
-            this.year = localDateTime.getYear();
-            this.month = localDateTime.getMonthValue();
-            this.day = localDateTime.getDayOfMonth();
-            this.hour = localDateTime.getHour();
-            this.minute = localDateTime.getMinute();
-            this.second = localDateTime.getSecond();
-            this.microSecond -= 1000000;
-        }
-        if (checkRange() || checkDate(year, month, day)) {
-            // may fallback to legacy planner. make sure the behaviour of rounding is same.
-            throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
-        }
-    }
-
-    public String getFullMicroSecondValue() {
-        return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d",
-                year, month, day, hour, minute, second, microSecond);
     }
 
     @Override
@@ -199,14 +166,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                     year, month, day, hour, minute, second, microSecond);
         }
         return super.uncheckedCastTo(targetType);
-    }
-
-    public String getMicrosecondString() {
-        if (microSecond == 0) {
-            return "0";
-        }
-        return String.format("%0" + getDataType().getScale() + "d",
-                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
     }
 
     public Expression plusDays(long days) {
