@@ -407,7 +407,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     && unboundFunction.child(0) instanceof UnboundSlot) {
                 SlotReference slotReference = new SlotReference(new ExprId(-1),
                         ((UnboundSlot) unboundFunction.child(0)).getName(),
-                        TinyIntType.INSTANCE, false, ImmutableList.of());
+                        TinyIntType.INSTANCE, false, ImmutableList.of(), true);
                 ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
                 newChildrenBuilder.add(slotReference);
                 for (int i = 1; i < unboundFunction.arity(); i++) {

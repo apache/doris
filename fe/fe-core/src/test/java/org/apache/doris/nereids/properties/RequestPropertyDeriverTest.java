@@ -193,7 +193,7 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testLocalAggregate() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
@@ -214,8 +214,8 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testGlobalAggregate() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference partition = new SlotReference("partition", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
+        SlotReference partition = new SlotReference("partition", IntegerType.INSTANCE, false);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
@@ -239,7 +239,7 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testGlobalAggregateWithoutPartition() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE, false);
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(),
                 Lists.newArrayList(key),
@@ -277,8 +277,8 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testWindowWithPartitionKeyAndOrderKey() {
-        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE, false);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE, false);
         Expression rowNumber = new RowNumber();
         WindowExpression windowExpression = new WindowExpression(rowNumber, ImmutableList.of(col1),
                 ImmutableList.of(new OrderExpression(new OrderKey(col2, true, false))),
@@ -302,7 +302,7 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testWindowWithPartitionKeyAndNoOrderKey() {
-        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE, false);
         Expression rowNumber = new RowNumber();
         WindowExpression windowExpression = new WindowExpression(rowNumber, ImmutableList.of(col1),
                 ImmutableList.of(),
@@ -326,7 +326,7 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testWindowWithNoPartitionKeyAndOrderKey() {
-        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE, false);
         Expression rowNumber = new RowNumber();
         WindowExpression windowExpression = new WindowExpression(rowNumber, ImmutableList.of(),
                 ImmutableList.of(new OrderExpression(new OrderKey(col2, true, false))),

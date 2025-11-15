@@ -101,7 +101,7 @@ public class ShowDataCommandTest {
             }
         };
 
-        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
+        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE, false);
         List<OrderKey> keys = ImmutableList.of(
                 new OrderKey(tableName, true, false)
         );
@@ -149,7 +149,7 @@ public class ShowDataCommandTest {
             }
         };
 
-        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
+        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE, false);
         List<OrderKey> keys = ImmutableList.of(
                 new OrderKey(tableName, true, false)
         );

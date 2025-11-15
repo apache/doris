@@ -427,7 +427,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // process prune all columns
             NamedExpression originSlot = originOutput.get(0);
             prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getExprId(), originSlot.getName(),
-                    TinyIntType.INSTANCE, false, originSlot.getQualifier()));
+                    TinyIntType.INSTANCE, false, originSlot.getQualifier(), originSlot.isNameFromChild()));
             regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
             children = Lists.newArrayListWithCapacity(children.size());
             for (int i = 0; i < union.getArity(); i++) {

@@ -83,9 +83,9 @@ public class PushDownFilterThroughProjectTest {
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
         List<Slot> t1Output = new ArrayList<>();
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, false);
         t1Output.add(a);
         t1Output.add(b);
         t1Output.add(c);
@@ -123,9 +123,9 @@ public class PushDownFilterThroughProjectTest {
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
         List<Slot> t1Output = new ArrayList<>();
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, false);
         t1Output.add(a);
         t1Output.add(b);
         t1Output.add(c);

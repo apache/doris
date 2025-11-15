@@ -40,7 +40,6 @@ public class Alias extends NamedExpression implements UnaryExpression {
     private final ExprId exprId;
     private final Supplier<String> name;
     private final List<String> qualifier;
-    private final boolean nameFromChild;
 
     /**
      * constructor of Alias.
@@ -83,11 +82,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     private Alias(ExprId exprId, List<Expression> child, Supplier<String> name,
             List<String> qualifier, boolean nameFromChild) {
-        super(child);
+        super(child, nameFromChild);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = qualifier;
-        this.nameFromChild = nameFromChild;
     }
 
     @Override
@@ -100,7 +98,8 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
                 slotReference != null ? ((SlotReference) child()).getOneLevelTable().orElse(null) : null,
                 slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
-                slotReference != null ? slotReference.getSubPath() : ImmutableList.of(), Optional.empty()
+                slotReference != null ? slotReference.getSubPath() : ImmutableList.of(), Optional.empty(),
+                nameFromChild
         );
     }
 
@@ -175,6 +174,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
         return visitor.visitAlias(this, context);
     }
 
+    @Override
     public boolean isNameFromChild() {
         return nameFromChild;
     }

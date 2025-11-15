@@ -32,8 +32,8 @@ class FuncDepsDGTest {
     @Test
     void testBasic() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s2));
         Assertions.assertEquals(1, res.size());
@@ -42,9 +42,9 @@ class FuncDepsDGTest {
     @Test
     void testTrans() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s3));
@@ -55,8 +55,8 @@ class FuncDepsDGTest {
     @Test
     void testCircle() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s1));
         FuncDeps res = dg.build().findValidFuncDeps(Sets.newHashSet(s1, s2));
@@ -66,10 +66,10 @@ class FuncDepsDGTest {
     @Test
     void testTree() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
-        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
+        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s4));
@@ -80,9 +80,9 @@ class FuncDepsDGTest {
     @Test
     void testPruneTrans() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         dg.removeNotContain(Sets.newHashSet(s1, s3));
@@ -94,9 +94,9 @@ class FuncDepsDGTest {
     @Test
     void testPruneCircle() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         dg.addDeps(Sets.newHashSet(s3), Sets.newHashSet(s1));
@@ -108,10 +108,10 @@ class FuncDepsDGTest {
     @Test
     void testPruneTree() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
-        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
+        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s4));
@@ -123,10 +123,10 @@ class FuncDepsDGTest {
     @Test
     void testReplaceTrans() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
-        Slot s5 = new SlotReference("s5", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
+        Slot s5 = new SlotReference("s5", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         Map<Slot, Slot> replaceMap = new HashMap<>();
@@ -140,9 +140,9 @@ class FuncDepsDGTest {
     @Test
     void testReplaceCircle() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s5 = new SlotReference("s5", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s5 = new SlotReference("s5", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s1));
         Map<Slot, Slot> replaceMap = new HashMap<>();
@@ -155,11 +155,11 @@ class FuncDepsDGTest {
     @Test
     void testReplaceTree() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
-        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
-        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
-        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
-        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE);
-        Slot s5 = new SlotReference("s5", IntegerType.INSTANCE);
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE, false);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE, false);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE, false);
+        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE, false);
+        Slot s5 = new SlotReference("s5", IntegerType.INSTANCE, false);
         dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s3));
         dg.addDeps(Sets.newHashSet(s2), Sets.newHashSet(s4));

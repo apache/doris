@@ -75,7 +75,7 @@ public class Lambda extends Expression {
                 throw new AnalysisException(String.format("lambda argument must be array but is %s", array));
             }
             String name = argumentNames.get(i);
-            builder.add(new ArrayItemReference(name, array));
+            builder.add(new ArrayItemReference(name, array, true));
         }
         return builder.build();
     }

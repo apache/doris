@@ -250,11 +250,11 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
 
     @Test
     void testReplaceMap() {
-        Slot a = new SlotReference("a", IntegerType.INSTANCE);
-        Slot b = new SlotReference("b", IntegerType.INSTANCE);
-        Slot x = new SlotReference("x", IntegerType.INSTANCE);
-        Slot y = new SlotReference("y", IntegerType.INSTANCE);
-        Slot z = new SlotReference("z", IntegerType.INSTANCE);
+        Slot a = new SlotReference("a", IntegerType.INSTANCE, false);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE, false);
+        Slot x = new SlotReference("x", IntegerType.INSTANCE, false);
+        Slot y = new SlotReference("y", IntegerType.INSTANCE, false);
+        Slot z = new SlotReference("z", IntegerType.INSTANCE, false);
         Map<Slot, Slot> outputToForeign = Maps.newHashMap();
         outputToForeign.put(a, x);
         outputToForeign.put(b, y);

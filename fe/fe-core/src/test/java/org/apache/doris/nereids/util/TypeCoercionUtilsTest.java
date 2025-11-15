@@ -190,7 +190,7 @@ public class TypeCoercionUtilsTest {
     public void testProcessInDowngrade() {
         // DecimalV2 slot vs DecimalV3 literal
         InPredicate decimalDowngrade = new InPredicate(
-                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6)),
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6), false),
                 ImmutableList.of(
                         new DecimalV3Literal(BigDecimal.valueOf(12345.1234567)),
                         new DecimalLiteral(BigDecimal.valueOf(12345.1234))));
@@ -199,7 +199,7 @@ public class TypeCoercionUtilsTest {
 
         // DateV1 slot vs DateV2 literal
         InPredicate dateDowngrade = new InPredicate(
-                new SlotReference("c1", DateType.INSTANCE),
+                new SlotReference("c1", DateType.INSTANCE, false),
                 ImmutableList.of(
                         new DateLiteral(2024, 4, 12),
                         new DateV2Literal(2024, 4, 12)));
@@ -208,7 +208,7 @@ public class TypeCoercionUtilsTest {
 
         // DatetimeV1 slot vs DateLike literal
         InPredicate datetimeDowngrade = new InPredicate(
-                new SlotReference("c1", DateTimeType.INSTANCE),
+                new SlotReference("c1", DateTimeType.INSTANCE, false),
                 ImmutableList.of(
                         new DateLiteral(2024, 4, 12),
                         new DateV2Literal(2024, 4, 12),
@@ -222,7 +222,7 @@ public class TypeCoercionUtilsTest {
     public void testProcessComparisonPredicateDowngrade() {
         // DecimalV2 slot vs DecimalV3 literal
         EqualTo decimalDowngrade = new EqualTo(
-                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6)),
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6), false),
                 new DecimalV3Literal(BigDecimal.valueOf(12345.1234567))
         );
         decimalDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalDowngrade);
@@ -231,14 +231,14 @@ public class TypeCoercionUtilsTest {
         // DateV1 slot vs DateV2 literal (this case cover right slot vs left literal)
         EqualTo dateDowngrade = new EqualTo(
                 new DateV2Literal(2024, 4, 12),
-                new SlotReference("c1", DateType.INSTANCE)
+                new SlotReference("c1", DateType.INSTANCE, false)
         );
         dateDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(dateDowngrade);
         Assertions.assertEquals(DateType.INSTANCE, dateDowngrade.left().getDataType());
 
         // DatetimeV1 slot vs DateLike literal
         EqualTo datetimeDowngrade = new EqualTo(
-                new SlotReference("c1", DateTimeType.INSTANCE),
+                new SlotReference("c1", DateTimeType.INSTANCE, false),
                 new DateTimeV2Literal(2024, 4, 12, 18, 25, 30, 0)
         );
         datetimeDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(datetimeDowngrade);
@@ -249,7 +249,7 @@ public class TypeCoercionUtilsTest {
     public void testProcessInStringCoercion() {
         // BigInt slot vs String literal
         InPredicate bigintString = new InPredicate(
-                new SlotReference("c1", BigIntType.INSTANCE),
+                new SlotReference("c1", BigIntType.INSTANCE, false),
                 ImmutableList.of(
                         new VarcharLiteral("200"),
                         new VarcharLiteral("922337203685477001")));
@@ -259,7 +259,7 @@ public class TypeCoercionUtilsTest {
 
         // SmallInt slot vs String literal
         InPredicate smallIntString = new InPredicate(
-                new SlotReference("c1", SmallIntType.INSTANCE),
+                new SlotReference("c1", SmallIntType.INSTANCE, false),
                 ImmutableList.of(
                         new DecimalLiteral(new BigDecimal("987654.321")),
                         new VarcharLiteral("922337203685477001")));

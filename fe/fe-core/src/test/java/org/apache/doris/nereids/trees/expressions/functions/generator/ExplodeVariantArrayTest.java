@@ -39,7 +39,8 @@ public class ExplodeVariantArrayTest {
     @Test
     public void testGetSignatures() {
         // build explode_variant_array(variant, variant) expression
-        Expression[] args = { SlotReference.of("int", VariantType.INSTANCE), SlotReference.of("int", VariantType.INSTANCE) };
+        Expression[] args = { SlotReference.of("int", VariantType.INSTANCE, false),
+                SlotReference.of("int", VariantType.INSTANCE, false) };
         ExplodeVariantArray explode = new ExplodeVariantArray(args);
 
         // check signature
@@ -59,7 +60,7 @@ public class ExplodeVariantArrayTest {
     @Test
     public void testGetSignaturesWithInvalidArgument() {
         // build explode_variant_array(int)
-        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
+        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE, false) };
         ExplodeVariantArray explode = new ExplodeVariantArray(args);
 
         Assertions.assertThrows(AnalysisException.class, explode::getSignatures);

@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 public class StatisticsTest {
     @Test
     public void testAvgSizeAbnormal() {
-        SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE);
+        SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE, false);
         ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder();
         colBuilder.setAvgSizeByte(Double.NaN);
         Statistics stats = new Statistics(1, 1, ImmutableMap.of(slot, colBuilder.build()));

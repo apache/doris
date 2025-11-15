@@ -15,35 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package infer_expr_name
-
 suite("nereids_test_create_blocked") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     def queryResult = sql """
 explain analyzed plan
-select  ca_zip
-       ,sum(cs_sales_price)
- from catalog_sales
-     ,customer
-     ,customer_address
-     ,date_dim
- where cs_bill_customer_sk = c_customer_sk
- 	and c_current_addr_sk = ca_address_sk
- 	and ( substr(ca_zip,1,5) in ('85669', '86197','88274','83405','86475',
-                                   '85392', '85460', '80348', '81792')
- 	      or ca_state in ('CA','WA','GA')
- 	      or cs_sales_price > 500)
- 	and cs_sold_date_sk = d_date_sk
- 	and d_qoy = 1 and d_year = 2001
- group by ca_zip
- order by ca_zip
- limit 100;
+select  dt.d_year
+ 	,item.i_category_id
+ 	,item.i_category
+ 	,sum(ss_ext_sales_price)
+ from 	date_dim dt
+ 	,store_sales
+ 	,item
+ where dt.d_date_sk = store_sales.ss_sold_date_sk
+ 	and store_sales.ss_item_sk = item.i_item_sk
+ 	and item.i_manager_id = 1  	
+ 	and dt.d_moy=11
+ 	and dt.d_year=2002
+ group by 	dt.d_year
+ 		,item.i_category_id
+ 		,item.i_category
+ order by       sum(ss_ext_sales_price) desc,dt.d_year
+ 		,item.i_category_id
+ 		,item.i_category
+limit 100 ;
 """
 
     def topPlan = queryResult[0][0].toString()
     assertTrue(topPlan.contains("LogicalResultSink"))
-    assertTrue(topPlan.contains("ca_zip"))
-    assertTrue(topPlan.contains("__sum_1"))
+    assertTrue(topPlan.contains("d_year"))
+    assertTrue(topPlan.contains("i_category_id"))
+    assertTrue(topPlan.contains("i_category"))
+    assertTrue(topPlan.contains("__sum_3"))
 }

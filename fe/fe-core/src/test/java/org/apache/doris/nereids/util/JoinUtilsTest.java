@@ -51,13 +51,13 @@ public class JoinUtilsTest {
                 1L, 1L, Collections.emptySet());
 
         Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
-                TinyIntType.INSTANCE, false, Lists.newArrayList());
+                TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
         Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
-                TinyIntType.INSTANCE, false, Lists.newArrayList());
+                TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
         Expression leftKey2 = new SlotReference(new ExprId(3), "c1",
-                TinyIntType.INSTANCE, false, Lists.newArrayList());
+                TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
         Expression rightKey2 = new SlotReference(new ExprId(4), "c1",
-                TinyIntType.INSTANCE, false, Lists.newArrayList());
+                TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
 
         List<Expression> conjuncts;
 
@@ -98,13 +98,13 @@ public class JoinUtilsTest {
                     ShuffleType.NATURAL, 2L, 2L, Collections.emptySet());
 
             Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression leftKey2 = new SlotReference(new ExprId(3), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey2 = new SlotReference(new ExprId(4), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
 
             List<Expression> conjuncts;
 
@@ -146,13 +146,13 @@ public class JoinUtilsTest {
                     ShuffleType.EXECUTION_BUCKETED, 2L, 2L, Collections.emptySet());
 
             Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression leftKey2 = new SlotReference(new ExprId(3), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey2 = new SlotReference(new ExprId(4), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
 
             List<Expression> conjuncts;
 
@@ -194,13 +194,13 @@ public class JoinUtilsTest {
                     ShuffleType.NATURAL, 2L, 2L, Collections.emptySet());
 
             Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression leftKey2 = new SlotReference(new ExprId(3), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey2 = new SlotReference(new ExprId(4), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
 
             List<Expression> conjuncts;
 
@@ -242,13 +242,13 @@ public class JoinUtilsTest {
                     2L, 2L, Collections.emptySet());
 
             Expression leftKey1 = new SlotReference(new ExprId(1), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey1 = new SlotReference(new ExprId(2), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression leftKey2 = new SlotReference(new ExprId(3), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
             Expression rightKey2 = new SlotReference(new ExprId(4), "c1",
-                    TinyIntType.INSTANCE, false, Lists.newArrayList());
+                    TinyIntType.INSTANCE, false, Lists.newArrayList(), false);
 
             List<Expression> conjuncts;
 

@@ -46,16 +46,16 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
     private final Function<GroupingSetShapes, List<Long>> computeLongValueMethod;
 
     public VirtualSlotReference(String name, DataType dataType, Optional<GroupingScalarFunction> originExpression,
-            Function<GroupingSetShapes, List<Long>> computeLongValueMethod) {
+            Function<GroupingSetShapes, List<Long>> computeLongValueMethod, boolean nameFromChild) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, false, ImmutableList.of(),
-                originExpression, computeLongValueMethod);
+                originExpression, computeLongValueMethod, nameFromChild);
     }
 
     /** VirtualSlotReference */
     public VirtualSlotReference(ExprId exprId, String name, DataType dataType,
             boolean nullable, List<String> qualifier, Optional<GroupingScalarFunction> originExpression,
-            Function<GroupingSetShapes, List<Long>> computeLongValueMethod) {
-        super(exprId, name, dataType, nullable, qualifier);
+            Function<GroupingSetShapes, List<Long>> computeLongValueMethod, boolean nameFromChild) {
+        super(exprId, name, dataType, nullable, qualifier, nameFromChild);
         this.originExpression = Objects.requireNonNull(originExpression, "originExpression can not be null");
         this.realExpressions = originExpression.isPresent()
                 ? ImmutableList.copyOf(originExpression.get().getArguments())
@@ -126,7 +126,7 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
             return this;
         }
         return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
-                originExpression, computeLongValueMethod);
+                originExpression, computeLongValueMethod, nameFromChild);
     }
 
     @Override
@@ -135,25 +135,25 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
             return this;
         }
         return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
-                originExpression, computeLongValueMethod);
+                originExpression, computeLongValueMethod, nameFromChild);
     }
 
     @Override
     public VirtualSlotReference withQualifier(List<String> qualifier) {
         return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
-                originExpression, computeLongValueMethod);
+                originExpression, computeLongValueMethod, nameFromChild);
     }
 
     @Override
     public VirtualSlotReference withName(String name) {
         return new VirtualSlotReference(exprId, name, dataType, nullable, qualifier,
-                originExpression, computeLongValueMethod);
+                originExpression, computeLongValueMethod, nameFromChild);
     }
 
     @Override
     public VirtualSlotReference withExprId(ExprId exprId) {
         return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
-                originExpression, computeLongValueMethod);
+                originExpression, computeLongValueMethod, nameFromChild);
     }
 
     public VirtualSlotReference withOriginExpressionAndComputeLongValueMethod(

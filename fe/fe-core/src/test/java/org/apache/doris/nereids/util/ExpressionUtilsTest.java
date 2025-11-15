@@ -203,9 +203,9 @@ public class ExpressionUtilsTest extends TestWithFeService {
 
     @Test
     public void testExtractUniformSlot() {
-        Slot a = new SlotReference("a", IntegerType.INSTANCE);
-        Slot b = new SlotReference("b", IntegerType.INSTANCE);
-        Slot c = new SlotReference("c", IntegerType.INSTANCE);
+        Slot a = new SlotReference("a", IntegerType.INSTANCE, false);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE, false);
+        Slot c = new SlotReference("c", IntegerType.INSTANCE, false);
         Expression va = Literal.of(1);
         Expression vb = Literal.of(2);
         Expression vc = Literal.of(3);

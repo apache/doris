@@ -36,8 +36,8 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     // (e.g. "col1", "t1.col1", "db1.t1.col1", "ctl1.db1.t1.col1")
     protected final Optional<Pair<Integer, Integer>> indexInSqlString;
 
-    protected Slot(Optional<Pair<Integer, Integer>> indexInSqlString) {
-        super(ImmutableList.of());
+    protected Slot(Optional<Pair<Integer, Integer>> indexInSqlString, boolean nameFromChild) {
+        super(ImmutableList.of(), nameFromChild);
         this.indexInSqlString = indexInSqlString;
     }
 

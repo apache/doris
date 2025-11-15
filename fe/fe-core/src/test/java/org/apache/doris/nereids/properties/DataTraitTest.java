@@ -32,10 +32,10 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class DataTraitTest extends TestWithFeService {
-    Slot slot1 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot2 = new SlotReference("2", IntegerType.INSTANCE, false);
-    Slot slot3 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot4 = new SlotReference("1", IntegerType.INSTANCE, false);
+    Slot slot1 = new SlotReference("1", IntegerType.INSTANCE, false, false);
+    Slot slot2 = new SlotReference("2", IntegerType.INSTANCE, false, false);
+    Slot slot3 = new SlotReference("1", IntegerType.INSTANCE, false, false);
+    Slot slot4 = new SlotReference("1", IntegerType.INSTANCE, false, false);
 
     @Override
     protected void runBeforeAll() throws Exception {
