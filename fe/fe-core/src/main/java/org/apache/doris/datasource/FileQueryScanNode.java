@@ -451,7 +451,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     }
                 }
             }
-        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL
+                || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }

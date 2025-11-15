@@ -491,6 +491,7 @@ Status NewJsonReader::_read_one_message(DorisUniqueBufferPtr<uint8_t>* file_buf,
     case TFileType::FILE_LOCAL:
         [[fallthrough]];
     case TFileType::FILE_HDFS:
+    case TFileType::FILE_HTTP:
         [[fallthrough]];
     case TFileType::FILE_S3: {
         size_t file_size = _file_reader->size();
