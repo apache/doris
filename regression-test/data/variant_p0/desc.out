@@ -2,94 +2,94 @@
 -- !sql_1 --
 k	bigint	Yes	true	\N	
 v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2")>	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_2 --
 k	bigint	Yes	true	\N	
 v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2")>	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
 
 -- !sql_3 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_6_1 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
-v.ddd.aaa	tinyint	Yes	false	\N	NONE
+v.ddd.aaa	bigint	Yes	false	\N	NONE
 v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
-v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_6_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_6_3 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 
 -- !sql_6 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
-v.ddd.aaa	tinyint	Yes	false	\N	NONE
+v.ddd.aaa	bigint	Yes	false	\N	NONE
 v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
-v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_7 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_7_1 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_7_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 
 -- !sql_7_3 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
@@ -98,16 +98,16 @@ k	bigint	Yes	true	\N
 v1	variant	Yes	false	\N	NONE
 v2	variant	Yes	false	\N	NONE
 v3	variant	Yes	false	\N	NONE
-v1.a	smallint	Yes	false	\N	NONE
+v1.a	bigint	Yes	false	\N	NONE
 v1.b	json	Yes	false	\N	NONE
-v1.c.c	smallint	Yes	false	\N	NONE
+v1.c.c	bigint	Yes	false	\N	NONE
 v1.c.e	double	Yes	false	\N	NONE
-v1.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
-v2.a	smallint	Yes	false	\N	NONE
+v1.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
+v2.a	bigint	Yes	false	\N	NONE
 v2.xxxx	text	Yes	false	\N	NONE
-v3.a	smallint	Yes	false	\N	NONE
+v3.a	bigint	Yes	false	\N	NONE
 v3.b	json	Yes	false	\N	NONE
-v3.c.c	smallint	Yes	false	\N	NONE
+v3.c.c	bigint	Yes	false	\N	NONE
 v3.c.e	double	Yes	false	\N	NONE
 
 -- !sql_9 --
@@ -117,18 +117,18 @@ v	variant	Yes	false	\N	NONE
 -- !sql_9_1 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
-v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
 
 -- !sql_10 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.k1	tinyint	Yes	false	\N	NONE
+v.k1	bigint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	\N	NONE
+v.k3	array<bigint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
 
@@ -136,60 +136,60 @@ v.k5	json	Yes	false	\N	NONE
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
 v2	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
-v.k1	tinyint	Yes	false	\N	NONE
+v.k1	bigint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	\N	NONE
+v.k3	array<bigint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
-v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
-v2.a	smallint	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
+v2.a	bigint	Yes	false	\N	NONE
 v2.b	json	Yes	false	\N	NONE
-v2.c.c	smallint	Yes	false	\N	NONE
+v2.c.c	bigint	Yes	false	\N	NONE
 v2.c.e	double	Yes	false	\N	NONE
-v2.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v2.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
 
 -- !sql_10_2 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
-v.k1	tinyint	Yes	false	\N	NONE
+v.k1	bigint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	\N	NONE
+v.k3	array<bigint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
-v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
-v2.a	smallint	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
+v2.a	bigint	Yes	false	\N	NONE
 v2.b	json	Yes	false	\N	NONE
-v2.c.c	smallint	Yes	false	\N	NONE
+v2.c.c	bigint	Yes	false	\N	NONE
 v2.c.e	double	Yes	false	\N	NONE
-v2.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v2.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
 
 -- !sql_10_3 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
 v3	variant	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.b	json	Yes	false	\N	NONE
-v.c.c	smallint	Yes	false	\N	NONE
+v.c.c	bigint	Yes	false	\N	NONE
 v.c.e	double	Yes	false	\N	NONE
-v.k1	tinyint	Yes	false	\N	NONE
+v.k1	bigint	Yes	false	\N	NONE
 v.k2	text	Yes	false	\N	NONE
-v.k3	array<smallint>	Yes	false	\N	NONE
+v.k3	array<bigint>	Yes	false	\N	NONE
 v.k4	double	Yes	false	\N	NONE
 v.k5	json	Yes	false	\N	NONE
-v.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
-v3.a	smallint	Yes	false	\N	NONE
+v.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
+v3.a	bigint	Yes	false	\N	NONE
 v3.b	json	Yes	false	\N	NONE
-v3.c.c	smallint	Yes	false	\N	NONE
+v3.c.c	bigint	Yes	false	\N	NONE
 v3.c.e	double	Yes	false	\N	NONE
-v3.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v3.oooo.xxxx.xxx	bigint	Yes	false	\N	NONE
 
 -- !sql_11 --
 k	bigint	Yes	true	\N	
@@ -198,7 +198,7 @@ v.!@#^&*()	text	Yes	false	\N	NONE
 v.名字	text	Yes	false	\N	NONE
 v.画像.丬文	text	Yes	false	\N	NONE
 v.画像.地址	text	Yes	false	\N	NONE
-v.金额	smallint	Yes	false	\N	NONE
+v.金额	bigint	Yes	false	\N	NONE
 
 -- !sql_12 --
 k	bigint	Yes	true	\N	
@@ -207,8 +207,8 @@ v	variant	Yes	false	\N	NONE
 -- !sql15 --
 k	bigint	Yes	true	\N	
 v	variant	Yes	false	\N	NONE
-v.a	tinyint	Yes	false	\N	NONE
-v.b	tinyint	Yes	false	\N	NONE
-v.c	tinyint	Yes	false	\N	NONE
-v.d	tinyint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
+v.b	bigint	Yes	false	\N	NONE
+v.c	bigint	Yes	false	\N	NONE
+v.d	bigint	Yes	false	\N	NONE
 

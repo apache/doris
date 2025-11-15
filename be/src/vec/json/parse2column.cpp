@@ -36,6 +36,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "util/jsonb_parser_simd.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
@@ -45,6 +46,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/flatten_jsonb_util.h"
 #include "vec/json/json_parser.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
@@ -221,10 +223,107 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
 #endif
 }
 
+// parse json string and insert to variant column
+// this function is not support for flattening nested jsonb
+void parse_json_string_to_variant(IColumn& column, const char* src, size_t length) {
+    // 1. parse json string to jsonb
+    JsonbWriter writer;
+    auto st = doris::JsonbParser::parse(src, length, writer);
+    FlattenResult result;
+
+    // 2.1 flatten jsonb to path and variant field
+    if (st.ok()) {
+        try {
+            FlattenJsonbUtil flatten_jsonb_util;
+            flatten_jsonb_util.flatten(writer.getOutput()->getBuffer(),
+                                       writer.getOutput()->getSize(), &result);
+        } catch (const doris::Exception& e) {
+            if (config::variant_throw_exeception_on_invalid_json) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to flatten jsonb: {}",
+                                       e.to_string());
+            } else {
+                PathInData root_path;
+                result = FlattenResult {
+                        {root_path},
+                        {FieldWithDataType {
+                                .field = Field::create_field<PrimitiveType::TYPE_STRING>(
+                                        String(src, length)),
+                                .base_scalar_type_id = PrimitiveType::TYPE_STRING}}};
+            }
+        }
+    }
+    // 2.2 parse jsonb failed
+    else {
+        if (config::variant_throw_exeception_on_invalid_json) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
+        } else {
+            PathInData root_path;
+            result = FlattenResult {
+                    {root_path},
+                    {FieldWithDataType {.field = Field::create_field<PrimitiveType::TYPE_STRING>(
+                                                String(src, length)),
+                                        .base_scalar_type_id = PrimitiveType::TYPE_STRING}}};
+        }
+    }
+
+    // 3. insert path and value to column
+    auto& column_variant = assert_cast<ColumnVariant&>(column);
+    auto& [paths, values] = result;
+    assert(paths.size() == values.size());
+    size_t old_num_rows = column_variant.rows();
+    for (size_t i = 0; i < paths.size(); ++i) {
+        if (values[i].base_scalar_type_id == PrimitiveType::INVALID_TYPE ||
+            values[i].base_scalar_type_id == PrimitiveType::TYPE_NULL) {
+            continue;
+        }
+        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
+            column_variant.add_sub_column(paths[i], old_num_rows);
+        }
+        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
+        if (!subcolumn) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
+                                   paths[i].get_path());
+        }
+        if (subcolumn->cur_num_of_defaults() > 0) {
+            subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
+            subcolumn->reset_current_num_of_defaults();
+        }
+        if (subcolumn->size() != old_num_rows) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "subcolumn {} size missmatched, may contains duplicated entry",
+                                   paths[i].get_path());
+        }
+        subcolumn->insert(std::move(values[i]));
+    }
+
+    // 4. insert default values to missed subcolumns.
+    const auto& subcolumns = column_variant.get_subcolumns();
+    for (const auto& entry : subcolumns) {
+        if (entry->data.size() == old_num_rows) {
+            entry->data.increment_default_counter();
+        }
+    }
+
+    // 5. insert default values to sparse column
+    auto sparse_column = column_variant.get_sparse_column();
+    if (sparse_column->size() == old_num_rows) {
+        sparse_column->assume_mutable()->insert_default();
+    }
+
+    column_variant.incr_num_rows();
+#ifndef NDEBUG
+    column_variant.check_consistency();
+#endif
+}
+
 // exposed interfaces
 void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser,
                            const ParseConfig& config) {
-    return parse_json_to_variant(column, json.data, json.size, parser, config);
+    if (config.enable_flatten_nested) {
+        parse_json_to_variant(column, json.data, json.size, parser, config);
+    } else {
+        parse_json_string_to_variant(column, json.data, json.size);
+    }
 }
 
 void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
@@ -232,7 +331,11 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
     auto parser = parsers_pool.get([] { return new JsonParser(); });
     for (size_t i = 0; i < raw_json_column.size(); ++i) {
         StringRef raw_json = raw_json_column.get_data_at(i);
-        parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
+        if (config.enable_flatten_nested) {
+            parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
+        } else {
+            parse_json_string_to_variant(column, raw_json.data, raw_json.size);
+        }
     }
     column.finalize();
 }
