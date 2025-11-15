@@ -34,6 +34,7 @@
 #include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
+#include "olap/delta_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
@@ -511,6 +512,11 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
         st.to_protobuf(pb->mutable_status());
     }
 
+    if (!success_tablet_ids.empty()) {
+        auto* tablet_load_infos = response.mutable_tablet_load_rowset_num_infos();
+        _collect_tablet_load_info_from_tablets(success_tablet_ids, tablet_load_infos);
+    }
+
     if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
@@ -557,6 +563,20 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     auto wst = _write_stream(stream, buf);
     if (!wst.ok()) {
         LOG(WARNING) << " report result failed with " << wst << ", " << *this;
+    }
+}
+
+void LoadStream::_collect_tablet_load_info_from_tablets(
+        const std::vector<int64_t>& tablet_ids,
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_load_infos) {
+    for (auto tablet_id : tablet_ids) {
+        BaseTabletSPtr tablet;
+        if (auto res = ExecEnv::get_tablet(tablet_id); res.has_value()) {
+            tablet = std::move(res).value();
+        } else {
+            continue;
+        }
+        BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(), tablet_load_infos);
     }
 }
 

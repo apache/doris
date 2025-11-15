@@ -970,6 +970,7 @@ message PLoadStreamResponse {
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
     optional bool eos = 6;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 7;
 }
 
 message PStreamHeader {
