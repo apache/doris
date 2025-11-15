@@ -258,7 +258,8 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         }
     });
 
-    if (!_is_doris_table || io_ctx->is_warmup || !doris::config::enable_cache_read_from_peer) {
+    if (!doris::config::is_cloud_mode() || !_is_doris_table || io_ctx->is_warmup ||
+        !doris::config::enable_cache_read_from_peer) {
         return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
     } else {
         // first try peer read, if peer failed, fallback to S3
