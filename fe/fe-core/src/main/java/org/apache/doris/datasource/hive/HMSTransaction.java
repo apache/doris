@@ -270,11 +270,16 @@ public class HMSTransaction implements Transaction {
                     case NEW:
                     case OVERWRITE:
                         StorageDescriptor sd = table.getSd();
+                        // For object storage (FILE_S3), use writePath to keep original scheme (oss://, cos://)
+                        // For HDFS, use targetPath which is the final path after rename
+                        String pathForHMS = this.fileType == TFileType.FILE_S3
+                                ? writePath
+                                : pu.getLocation().getTargetPath();
                         HivePartition hivePartition = new HivePartition(
                                 nameMapping,
                                 false,
                                 sd.getInputFormat(),
-                                pu.getLocation().getTargetPath(),
+                                pathForHMS,
                                 HiveUtil.toPartitionValues(pu.getName()),
                                 Maps.newHashMap(),
                                 sd.getOutputFormat(),
