@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -557,6 +558,7 @@ public class TypeCoercionUtils {
      */
     @Developing
     public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
+        LOG.warn("characterLiteralTypeCoercion: value={}, dataType={}", value, dataType);
         Expression ret = null;
         try {
             if (dataType instanceof BooleanType) {
@@ -623,6 +625,8 @@ public class TypeCoercionUtils {
                 ret = new VarcharLiteral(value, ((VarcharType) dataType).getLen());
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
+            } else if (dataType instanceof TimeV2Type) {
+                ret = new TimeV2Literal(value);
             } else if ((dataType.isDateTimeV2Type() || dataType.isDateTimeType())
                     && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);

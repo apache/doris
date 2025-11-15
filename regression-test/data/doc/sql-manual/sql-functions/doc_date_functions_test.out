@@ -831,7 +831,7 @@ gdaskpdp
 5
 
 -- !minute_3 --
-\N
+25
 
 -- !minute_4 --
 0
@@ -1200,10 +1200,10 @@ da fanadur
 -2.032258064516129
 
 -- !months_between_4 --
-1.0
+1
 
 -- !months_between_5 --
-2.0
+2
 
 -- !months_between_6 --
 0.96774194
