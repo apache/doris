@@ -22,6 +22,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <xxh3.h>
+#include <xxhash.h>
 #include <zlib.h>
 
 #include <bit>
@@ -360,6 +361,15 @@ public:
     static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
         static const int INT_VALUE = 0;
         return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
+
+    static xxh_u64 xxhash64_compat_with_seed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH64(reinterpret_cast<const void*>(s), len, seed);
+    }
+
+    static xxh_u64 xxhash64_compat_null_with_seed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH64(reinterpret_cast<const void*>(&INT_VALUE), sizeof(int), seed);
     }
 
 #if defined(__clang__)

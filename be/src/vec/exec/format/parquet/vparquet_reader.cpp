@@ -256,8 +256,8 @@ Status ParquetReader::_open_file() {
             const auto& file_meta_cache_key =
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
-                RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata_ptr, &meta_size,
-                                                    _io_ctx));
+                RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
+                                                    &meta_size, _io_ctx));
                 // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);
@@ -1083,9 +1083,40 @@ Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_
                                                                _t_metadata->created_by, stat)
                             .ok();
                 };
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    auto* slot = _tuple_descriptor->slots()[cid];
+                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        return false;
+                    }
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
+                    if (!meta_data.__isset.bloom_filter_offset) {
+                        return false;
+                    }
+                    auto primitive_type =
+                            remove_nullable(col_schema->data_type)->get_primitive_type();
+                    if (!ParquetPredicate::bloom_filter_supported(primitive_type)) {
+                        return false;
+                    }
+                    if (!stat->bloom_filter) {
+                        auto st = ParquetPredicate::read_bloom_filter(
+                                meta_data, _tracing_file_reader, _io_ctx, stat);
+                        if (!st.ok()) {
+                            stat->bloom_filter.reset();
+                            return false;
+                        }
+                    }
+                    return stat->bloom_filter != nullptr;
+                };
         ParquetPredicate::ColumnStat stat;
         stat.ctz = _ctz;
         stat.get_stat_func = &get_stat_func;
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
 
         if (!predicate->evaluate_and(&stat)) {
             *filter_group = true;
