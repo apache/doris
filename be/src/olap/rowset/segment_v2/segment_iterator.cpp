@@ -2894,6 +2894,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
             _common_expr_inverted_index_status, _score_runtime);
+    inverted_index_context->set_index_query_context(_index_query_context);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         // _ann_range_search_runtime will do deep copy.
