@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -1034,5 +1035,35 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
          * Except for COMPLETE and VIEW_PARTIAL and QUERY_PARTIAL
          */
         NOT_MATCH
+    }
+
+    protected boolean checkGenerate(LogicalGenerate<Plan> queryExplodeNode, LogicalGenerate<Plan> viewExplodeNode,
+            StructInfo queryStructInfo, StructInfo viewStructInfo, SlotMapping viewToQuerySlotMapping,
+            MaterializationContext materializationContext) {
+        if (queryExplodeNode == null || viewExplodeNode == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query explode rewrite fail, queryExplodeNode or viewExplodeNode is null",
+                    () -> String.format("queryExplodeNode = %s,\n viewExplodeNode = %s,\n",
+                            queryExplodeNode, viewExplodeNode));
+            return false;
+        }
+        List<? extends Expression> queryGenerateExpressions = queryExplodeNode.getGenerators();
+        List<? extends Expression> queryGenerateExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                queryGenerateExpressions, queryStructInfo.getTopPlan(), queryStructInfo.getTableBitSet());
+
+        List<? extends Expression> viewGenerateExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                viewExplodeNode.getGenerators(), viewStructInfo.getTopPlan(), new BitSet());
+        List<Expression> viewGenerateExpressionsQueryBasedSet = ExpressionUtils.replace(
+                viewGenerateExpressionsShuttled.stream().map(Expression.class::cast).collect(Collectors.toList()),
+                viewToQuerySlotMapping.toSlotReferenceMap());
+        if (!ImmutableSet.of(viewGenerateExpressionsQueryBasedSet).equals(
+                ImmutableSet.of(queryGenerateExpressionsShuttled))) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query explode expressions is not consistent with view explode expressions",
+                    () -> String.format("query explode expressions = %s,\n view explode expressions = %s,\n",
+                            queryGenerateExpressions, viewGenerateExpressionsQueryBasedSet));
+            return false;
+        }
+        return true;
     }
 }

@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Maps;
@@ -49,6 +53,20 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
                 "",
                 "",
                 "a = b and c + d = e or a > 7 and 10 > d");
+    }
+
+    @Test
+    public void testSplitPredicateWithStruct() {
+        Expression structElement
+                = new StructElement(new UnboundSlot("a"), new UnboundSlot("b"));
+        Map<String, Slot> mem = Maps.newLinkedHashMap();
+        Expression rangeExpression =
+                replaceUnboundSlot(new GreaterThan(structElement, new IntegerLiteral(10)), mem);
+        SplitPredicate splitPredicate = Predicates.splitPredicates(rangeExpression);
+
+        Assertions.assertNotNull(splitPredicate.getRangePredicateMap());
+        Assertions.assertEquals(ExpressionUtils.extractConjunctionToSet(rangeExpression),
+                splitPredicate.getRangePredicateMap().keySet());
     }
 
     private void assetEquals(String expression,
