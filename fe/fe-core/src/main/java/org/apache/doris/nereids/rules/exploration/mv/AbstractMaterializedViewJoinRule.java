@@ -81,6 +81,8 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
-                && !checkContext.isContainsTopAggregate() && !checkContext.isContainsTopWindow();
+                && !checkContext.isContainsTopAggregate()
+                && !checkContext.isContainsTopLimit() && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopWindow();
     }
 }
