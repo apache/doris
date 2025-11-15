@@ -17,6 +17,8 @@
 
 #include "geo/wkt_parse.h"
 
+#include <utility>
+
 #include "geo/wkt_parse_ctx.h"
 #include "geo/wkt_parse_type.h" // IWYU pragma: keep
 #include "geo/wkt_yacc.y.hpp"
@@ -28,7 +30,7 @@
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
-GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape) {
+GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, std::unique_ptr<GeoShape>* shape) {
     WktParseContext ctx;
     // initialize lexer
     wkt_lex_init_extra(&ctx, &ctx.scaninfo);
@@ -38,7 +40,9 @@ GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape
     auto res = wkt_parse(&ctx);
     wkt_lex_destroy(ctx.scaninfo);
     if (res == 0) {
-        *shape = ctx.shape;
+        if (shape != nullptr) {
+            *shape = std::move(ctx.shape);
+        }
     } else {
         if (ctx.parse_status == GEO_PARSE_OK) {
             ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;

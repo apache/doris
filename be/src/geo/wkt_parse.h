@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
+#include <memory>
 
 #include "geo/geo_common.h"
 
@@ -30,7 +31,7 @@ public:
     // Parse WKT(Well Known Text) to a GeoShape.
     // Return a valid GeoShape if input WKT is supported.
     // Return null if WKT is not supported or invalid
-    static GeoParseStatus parse_wkt(const char* str, size_t len, GeoShape** shape);
+    static GeoParseStatus parse_wkt(const char* str, size_t len, std::unique_ptr<GeoShape>* shape);
 };
 
 } // namespace doris
