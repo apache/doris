@@ -130,7 +130,8 @@ public abstract class ExternalCatalog
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
-            USE_META_CACHE);
+            USE_META_CACHE,
+            ENABLE_MAPPING_VARBINARY);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
