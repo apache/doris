@@ -26,6 +26,7 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,17 +52,31 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
             this.uri = this.httpProperties.validateAndGetUri(props);
 
             this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
-
-            this.fileStatuses.clear();
-            this.fileStatuses.add(new TBrokerFileStatus(this.uri, false, HttpUtils.getHttpFileSize(this.uri), true));
+            generateFileStatus();
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new AnalysisException("Failed check http storage props, " + e.getMessage(), e);
         }
+    }
 
-        // TFileFormatType t = fileFormatProperties.getFileFormatType();
-        // if (!Util.isCsvFormat(t) && t != TFileFormatType.FORMAT_JSON) {
-        //     throw new AnalysisException("http() only supports format 'csv' and 'json'");
-        // }
+    private void generateFileStatus() throws Exception {
+        this.fileStatuses.clear();
+        if (this.uri.startsWith("http://") || this.uri.startsWith("https://")) {
+            this.fileStatuses.add(new TBrokerFileStatus(this.uri, false,
+                    HttpUtils.getHttpFileSize(this.uri, this.httpProperties.getHeaders()), true));
+        } else if (this.uri.startsWith("hf://")) {
+            List<String> fileUrls = HFUtils.expandGlob(this.uri);
+            if (LOG.isDebugEnabled()) {
+                for (String fileUrl : fileUrls) {
+                    LOG.debug("HttpTableValuedFunction expand hf glob uri: {}", fileUrl);
+                }
+            }
+            for (String fileUrl : fileUrls) {
+                this.fileStatuses.add(new TBrokerFileStatus(fileUrl, false,
+                        HttpUtils.getHttpFileSize(fileUrl, this.httpProperties.getHeaders()), true));
+            }
+        } else {
+            throw new AnalysisException("HttpTableValuedFunction uri is invalid: " + this.uri);
+        }
     }
 
     @Override
