@@ -54,25 +54,23 @@ public:
 
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
-        MutableColumnPtr column_to;
 
         DataTypeSerDe::FormatOptions options;
         options.timezone = &context->state()->timezone_obj();
 
+        // by default framework, to_type is already unwrapped nullable
+        MutableColumnPtr column_to = to_type->create_column();
+        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
+                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
+
         if constexpr (CastMode == CastModeType::StrictMode) {
-            DCHECK(!to_type->is_nullable()) << "shouldn't be extra nullable here. if argument is "
-                                               "null, should be processed in framework.";
-            column_to = to_type->create_column();
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, options, null_map));
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
+                    *col_from, nullable_col_to->get_nested_column(), options, null_map));
         } else {
-            auto to_nullable_type = make_nullable(to_type);
-            column_to = to_nullable_type->create_column();
-            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, options));
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, options));
         }
 
-        block.get_by_position(result).column = std::move(column_to);
+        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
@@ -90,46 +88,42 @@ public:
         auto to_type = block.get_by_position(result).type;
         auto concrete_serde = std::dynamic_pointer_cast<typename ToDataType::SerDeType>(
                 remove_nullable(to_type)->get_serde());
-        MutableColumnPtr column_to;
 
+        // by default framework, to_type is already unwrapped nullable
+        MutableColumnPtr column_to = to_type->create_column();
+        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
+                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
+
+        // datelike types serde must have template functions for those types. but because of they need to be
+        // template functions, so we cannot make them virtual. that's why we assert_cast `serde` before.
         if constexpr (CastMode == CastModeType::StrictMode) {
-            DCHECK(!to_type->is_nullable()) << "shouldn't be extra nullable here. if argument is "
-                                               "null, should be processed in framework.";
-            column_to = to_type->create_column();
-
-            // datelike types serde must have template functions for those types. but because of they need to be
-            // template functions, so we cannot make them virtual. that's why we assert_cast `serde` before.
             if constexpr (IsDataTypeInt<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_int_strict_mode_batch<FromDataType>(
-                        *col_from, *column_to));
+                        *col_from, nullable_col_to->get_nested_column()));
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_float_strict_mode_batch<FromDataType>(
-                        *col_from, *column_to));
+                        *col_from, nullable_col_to->get_nested_column()));
             } else {
                 static_assert(IsDataTypeDecimal<FromDataType>);
                 RETURN_IF_ERROR(
                         concrete_serde->template from_decimal_strict_mode_batch<FromDataType>(
-                                *col_from, *column_to));
+                                *col_from, nullable_col_to->get_nested_column()));
             }
         } else {
-            auto to_nullable_type = make_nullable(to_type);
-            column_to = to_nullable_type->create_column();
-            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-
             if constexpr (IsDataTypeInt<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_int_batch<FromDataType>(
-                        *col_from, nullable_col_to));
+                        *col_from, *nullable_col_to));
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_float_batch<FromDataType>(
-                        *col_from, nullable_col_to));
+                        *col_from, *nullable_col_to));
             } else {
                 static_assert(IsDataTypeDecimal<FromDataType>);
                 RETURN_IF_ERROR(concrete_serde->template from_decimal_batch<FromDataType>(
-                        *col_from, nullable_col_to));
+                        *col_from, *nullable_col_to));
             }
         }
 
-        block.get_by_position(result).column = std::move(column_to);
+        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
@@ -141,19 +135,10 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        constexpr bool Nullable =
-                std::is_same_v<FromDataType, ToDataType> &&
-                (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>)&&CastMode ==
-                        CastModeType::NonStrictMode;
-
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
-        ColumnUInt8::MutablePtr col_nullmap;
-
-        if constexpr (Nullable) {
-            col_nullmap = ColumnUInt8::create(input_rows_count, 0);
-        }
+        ColumnUInt8::MutablePtr col_nullmap = ColumnUInt8::create(input_rows_count, 0);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map && null_map[i]) {
@@ -295,7 +280,7 @@ public:
                     uint32_t microseconds = dtmv2.microsecond();
                     DCHECK(to_scale <= 6)
                             << "to_scale should be in range [0, 6], but got " << to_scale;
-                    uint32_t divisor = (uint32_t)common::exp10_i64(6 - to_scale);
+                    auto divisor = (uint32_t)common::exp10_i64(6 - to_scale);
                     uint32_t remainder = microseconds % divisor;
 
                     if (remainder >= divisor / 2) { // need to round up
@@ -400,7 +385,7 @@ public:
                     // 999956: 56 > 100/2, then round up to 1000000
                     DCHECK(to_scale <= 6)
                             << "to_scale should be in range [0, 6], but got " << to_scale;
-                    uint32_t divisor = (uint32_t)common::exp10_i64(6 - to_scale);
+                    auto divisor = (uint32_t)common::exp10_i64(6 - to_scale);
                     uint32_t remainder = microseconds % divisor;
                     microseconds = (microseconds / divisor) * divisor;
                     if (remainder >= divisor / 2) {
@@ -434,12 +419,8 @@ public:
             }
         }
 
-        if constexpr (Nullable) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
-        } else {
-            block.get_by_position(result).column = std::move(col_to);
-        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
         return Status::OK();
     }
 };

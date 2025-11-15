@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cmath>
 #include <type_traits>
 
 #include "cast_to_basic_number_common.h"
@@ -67,13 +66,8 @@ public:
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
         auto& vec_to = col_to->get_data();
-        constexpr bool result_is_nullable = (CastMode == CastModeType::NonStrictMode);
-        ColumnUInt8::MutablePtr col_null_map_to;
-        NullMap::value_type* vec_null_map_to = nullptr;
-        if constexpr (result_is_nullable) {
-            col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-            vec_null_map_to = col_null_map_to->get_data().data();
-        }
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
+        NullMap::value_type* vec_null_map_to = col_null_map_to->get_data().data();
 
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
@@ -111,12 +105,8 @@ public:
                                                          type_to_string(ToDataType::PType)));
             }
         }
-        if constexpr (result_is_nullable) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
-        } else {
-            block.get_by_position(result).column = std::move(col_to);
-        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
 
         return Status::OK();
     }
@@ -167,8 +157,8 @@ public:
         bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
 
         // may overflow if integer part of decimal is larger than to_max_digits
+        // in strict mode we also decide nullable on this.
         bool may_overflow = (from_precision - from_scale) >= to_max_digits;
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && may_overflow;
 
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
@@ -178,7 +168,7 @@ public:
 
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (may_overflow) {
             col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -193,7 +183,7 @@ public:
                                           typename ToDataType::FieldType>(
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i],
                         scale_multiplier, narrow_integral, params)) {
-                if (result_is_nullable) {
+                if (may_overflow) {
                     null_map_data[i] = 1;
                 } else {
                     return params.status;
@@ -201,7 +191,7 @@ public:
             }
         }
 
-        if (result_is_nullable) {
+        if (may_overflow) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
