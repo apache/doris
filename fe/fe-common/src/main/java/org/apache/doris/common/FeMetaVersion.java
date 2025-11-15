@@ -24,6 +24,8 @@ public final class FeMetaVersion {
     public static final int VERSION_101 = 101;
     // add data encrypt
     public static final int VERSION_102 = 102;
+    // support sync job
+    public static final int VERSION_103 = 103;
     // add sql block rule to deny specified sql
     public static final int VERSION_104 = 104;
     // change replica to replica allocation

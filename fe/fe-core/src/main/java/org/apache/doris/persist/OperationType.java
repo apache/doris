@@ -233,6 +233,12 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
+    // Note: The features related to 234 and 235 (SYNC JOB) have been removed from the kernel code.
+    // These operation types are kept for compatibility, but the corresponding functionality no longer exists.
+    @Deprecated
+    public static final short OP_CREATE_SYNC_JOB = 234;
+    @Deprecated
+    public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
