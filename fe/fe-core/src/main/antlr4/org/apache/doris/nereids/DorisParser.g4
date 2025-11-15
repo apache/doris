@@ -1676,6 +1676,7 @@ functionNameIdentifier
     | CURRENT_CATALOG
     | CURRENT_USER
     | DATABASE
+    | DEFAULT
     | IF
     | LEFT
     | LIKE
