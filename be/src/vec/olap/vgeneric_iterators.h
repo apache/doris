@@ -110,8 +110,11 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const;
 
     // `advanced = false` when current block finished
+    // when input argument type is block, we do not process same_bit,
+    // this case we only need merge and return ordered data (VCollectIterator::_topn_next), data mode is dup/mow can guarantee all rows are different
+    // todo: we can reduce same_bit processing in this case to improve performance
+    Status copy_rows(Block* block, bool advanced = true);
     Status copy_rows(BlockWithSameBit* block, bool advanced = true);
-
     Status copy_rows(BlockView* view, bool advanced = true);
 
     RowLocation current_row_location() {
@@ -200,6 +203,7 @@ public:
 
     Status init(const StorageReadOptions& opts) override;
 
+    Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_batch(BlockWithSameBit* block_with_same_bit) override {
         return _next_batch(block_with_same_bit);
     }
@@ -224,6 +228,7 @@ private:
         return cast_set<int>(block_with_same_bit->block->rows());
     }
     int _get_size(BlockView* block_view) { return cast_set<int>(block_view->size()); }
+    int _get_size(Block* block) { return cast_set<int>(block->rows()); }
 
     template <typename T>
     Status _next_batch(T* block) {

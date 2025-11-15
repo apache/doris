@@ -24,7 +24,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import com.aliyun.odps.table.utils.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;

@@ -44,10 +44,9 @@ suite("ann_index_only_scan") {
     sql "set profile_level=2;"
     sql "set enable_profile=true;"
     sql "set experimental_enable_virtual_slot_for_cse=true;"
-	// disable lazy materialization since it will break index-only scan.
-    sql "set experimental_topn_lazy_materialization_threshold=0;"
     sql "set parallel_pipeline_task_num=1;"
     sql "set enable_sql_cache=false;"
+    sql "set enable_condition_cache=false;"
     
     sql """
         create table ann_index_only_scan (
@@ -104,7 +103,8 @@ suite("ann_index_only_scan") {
         def lines = profileText.split("\n")
         for (def line : lines) {
             if (line.contains("ScanBytes:")) {
-                def m = (line =~ /ScanBytes:\s*([0-9]+(?:\.[0-9]+)?)\s*[A-Za-z]+/)
+                // allow optional unit (e.g. "B"); sometimes profile prints no unit for 0 bytes
+                def m = (line =~ /ScanBytes:\s*([0-9]+(?:\.[0-9]+)?)(?:\s*([A-Za-z]+))?/) 
                 if (m.find()) {
                     return m.group(1)
                 }

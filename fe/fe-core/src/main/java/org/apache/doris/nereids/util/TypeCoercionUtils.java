@@ -1920,7 +1920,7 @@ public class TypeCoercionUtils {
      */
     @VisibleForTesting
     @Deprecated
-    protected static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
+    public static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
         if (!(t1 instanceof PrimitiveType) || !(t2 instanceof PrimitiveType)) {
             return Optional.empty();
         }
@@ -1955,18 +1955,18 @@ public class TypeCoercionUtils {
             return Optional.of(StringType.INSTANCE);
         }
 
-        // forbidden decimal with date
+        // decimal with date should return double
         if ((t1.isDecimalV2Type() && t2.isDateType()) || (t2.isDecimalV2Type() && t1.isDateType())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
         if ((t1.isDecimalV2Type() && t2.isDateV2Type()) || (t2.isDecimalV2Type() && t1.isDateV2Type())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
         if ((t1.isDecimalV3Type() && t2.isDateType()) || (t2.isDecimalV3Type() && t1.isDateType())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
         if ((t1.isDecimalV3Type() && t2.isDateV2Type()) || (t2.isDecimalV3Type() && t1.isDateV2Type())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
 
         // decimalv3 and floating type

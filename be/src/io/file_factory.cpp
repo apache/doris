@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "fs/http_file_reader.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
@@ -35,6 +36,7 @@
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/hdfs_file_writer.h"
+#include "io/fs/http_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
 #include "io/fs/s3_file_reader.h"
@@ -121,6 +123,14 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
         std::string fs_name = _get_fs_name(file_description);
         return io::HdfsFileSystem::create(*fs_properties.properties, fs_name,
                                           io::FileSystem::TMP_FS_ID, nullptr);
+    }
+    case TFileType::FILE_HTTP: {
+        const auto& kv = *fs_properties.properties;
+        auto it = kv.find("uri");
+        if (it == kv.end() || it->second.empty()) {
+            return ResultError(Status::InternalError("http fs must set uri property"));
+        }
+        return io::HttpFileSystem::create(it->second, io::FileSystem::TMP_FS_ID, kv);
     }
     default:
         return ResultError(Status::InternalError("unsupported fs type: {}",
@@ -246,6 +256,13 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                     RETURN_IF_ERROR_RESULT(
                             fs->open_file(file_description.path, &file_reader, &reader_options));
                     return file_reader;
+                });
+    }
+    case TFileType::FILE_HTTP: {
+        return io::HttpFileReader::create(file_description.path, system_properties.properties,
+                                          reader_options, profile)
+                .and_then([&](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), reader_options);
                 });
     }
     default:

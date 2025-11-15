@@ -58,7 +58,7 @@ public class PushTask extends AgentTask {
     private TPushType pushType;
     private List<Predicate> conditions;
     // for synchronous delete
-    private MarkedCountDownLatch latch;
+    private MarkedCountDownLatch<Long, Long> latch;
 
     // lzop decompress or not
     private boolean needDecompress;

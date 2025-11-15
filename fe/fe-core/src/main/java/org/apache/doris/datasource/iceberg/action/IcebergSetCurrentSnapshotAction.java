@@ -48,9 +48,8 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
 
     public IcebergSetCurrentSnapshotAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
-        super("set_current_snapshot", properties, partitionNamesInfo, whereCondition, icebergTable);
+            Optional<Expression> whereCondition) {
+        super("set_current_snapshot", properties, partitionNamesInfo, whereCondition);
     }
 
     @Override

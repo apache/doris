@@ -102,7 +102,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -2458,6 +2458,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
                                             Long.valueOf(ttlSeconds).toString());
         tableProperty.buildTTLSeconds();
+    }
+
+    public long getPartitionRetentionCount() {
+        if (tableProperty != null) {
+            return tableProperty.getPartitionRetentionCount();
+        }
+        return -1;
+    }
+
+    public void setPartitionRetentionCount(long partitionRetentionCount) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT,
+                                            Long.valueOf(partitionRetentionCount).toString());
+        tableProperty.buildPartitionRetentionCount();
     }
 
     public boolean getEnableLightSchemaChange() {

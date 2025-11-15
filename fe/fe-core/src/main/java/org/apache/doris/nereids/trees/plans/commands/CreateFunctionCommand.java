@@ -89,7 +89,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;

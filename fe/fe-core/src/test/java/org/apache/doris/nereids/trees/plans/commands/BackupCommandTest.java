@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
 import mockit.Mocked;
-import org.apache.commons.collections.map.HashedMap;
+import org.apache.commons.collections4.map.HashedMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

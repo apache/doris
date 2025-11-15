@@ -37,6 +37,7 @@ suite("test_dateadd_with_other_timeunit") {
         """
     sql """ insert into ${tableName} values ("2025-10-29 10:10:10", "2025-10-29"), ("2025-10-24 01:02:03.4567", "2025-10-24"); """
     
+    // DAY_SECOND
     testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1:1:1" DAY_SECOND); """
     testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1:1:1" DAY_SECOND); """
     testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1:-1:1" DAY_SECOND); """
@@ -111,6 +112,63 @@ suite("test_dateadd_with_other_timeunit") {
     test {
         sql """ select date_add(test_datetime, INTERVAL '1 00:00:xx' DAY_SECOND) result from ${tableName}; """
         exception "Invalid seconds format"
+    }
+
+
+    // DAY_HOUR
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 -1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1 -10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 -1" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 10" DAY_HOUR); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1 -10" DAY_HOUR); """
+
+    qt_sql """ select date_add(test_datetime, INTERVAL "1 1" DAY_HOUR) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL " 1    1" DAY_HOUR) result from ${tableName}; """
+
+    qt_sql """ select date_add(test_date, INTERVAL "-1 1" DAY_HOUR) result from ${tableName}; """
+    qt_sql """ select date_add(test_date, INTERVAL " -1  -1" DAY_HOUR) result from ${tableName}; """
+
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1 10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1 -10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1 -10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1 1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1 -1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1 10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1 -10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -1" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 10" DAY_HOUR); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1 -10" DAY_HOUR); """
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1' DAY_HOUR) result from ${tableName}; """
+        exception "Invalid time format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL 'xx 10' DAY_HOUR) result from ${tableName}; """
+        exception "Invalid days format"
+    }
+
+    test {
+        sql """ select date_add(test_datetime, INTERVAL '1 xx' DAY_HOUR) result from ${tableName}; """
+        exception "Invalid hours format"
     }
 
 }

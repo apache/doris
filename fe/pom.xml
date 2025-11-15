@@ -265,7 +265,7 @@ under the License.
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
-        <junit.version>5.8.2</junit.version>
+        <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
@@ -297,7 +297,6 @@ under the License.
         <snappy-java.version>1.1.10.5</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
-        <fabric8.kubernetes.version>7.4.0</fabric8.kubernetes.version>
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <logging-interceptor.version>4.12.0</logging-interceptor.version>
         <okhttp.version>4.9.3</okhttp.version>
@@ -333,7 +332,7 @@ under the License.
         <lakesoul.version>2.6.2</lakesoul.version>
 
 
-        <commons-collections.version>3.2.2</commons-collections.version>
+        <commons-collections.version>4.5.0</commons-collections.version>
         <commons-compress.version>1.27.1</commons-compress.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
@@ -466,6 +465,13 @@ under the License.
                 <groupId>org.ini4j</groupId>
                 <artifactId>ini4j</artifactId>
                 <version>${ini4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
@@ -878,27 +884,6 @@ under the License.
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
-            <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter-engine</artifactId>
-                <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
-            <dependency>
-                <groupId>org.junit.vintage</groupId>
-                <artifactId>junit-vintage-engine</artifactId>
-                <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-params -->
-            <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter-params</artifactId>
-                <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
             <dependency>
                 <groupId>org.apache.thrift</groupId>
@@ -1069,18 +1054,6 @@ under the License.
                 <groupId>com.github.mifmif</groupId>
                 <artifactId>generex</artifactId>
                 <version>${generex.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-client -->
-            <dependency>
-                <groupId>io.fabric8</groupId>
-                <artifactId>kubernetes-client</artifactId>
-                <version>${fabric8.kubernetes.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-model -->
-            <dependency>
-                <groupId>io.fabric8</groupId>
-                <artifactId>kubernetes-model-core</artifactId>
-                <version>${fabric8.kubernetes.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/logging-interceptor -->
             <dependency>
@@ -1455,8 +1428,8 @@ under the License.
                 <version>${parquet.version}</version>
             </dependency>
             <dependency>
-                <groupId>commons-collections</groupId>
-                <artifactId>commons-collections</artifactId>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-collections4</artifactId>
                 <version>${commons-collections.version}</version>
             </dependency>
             <dependency>
@@ -1774,6 +1747,10 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-params</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
         </dependency>
         <dependency>
             <groupId>org.jmockit</groupId>

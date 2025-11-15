@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -38,7 +38,7 @@ import java.util.List;
  */
 public class DaySecondAdd extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
                 VarcharType.SYSTEM_DEFAULT));

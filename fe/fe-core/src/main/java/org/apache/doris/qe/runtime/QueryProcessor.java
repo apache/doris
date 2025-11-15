@@ -118,6 +118,28 @@ public class QueryProcessor extends AbstractJobProcessor {
     }
 
     public RowBatch getNext() throws UserException, InterruptedException, TException, RpcException, ExecutionException {
+        try {
+            RowBatch resultBatch = doGetNext();
+
+            // if reached limit rows, cancel this query immediately
+            // to avoid BE from reading more data.
+            // ATTN: if change here, also need to change the same logic in Coordinator.getNext();
+            boolean reachedLimit = LimitUtils.cancelIfReachLimit(
+                    resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
+            if (reachedLimit) {
+                resultBatch.setEos(true);
+            } else if (resultBatch.isEos()) {
+                tryFinishSchedule();
+            }
+            return resultBatch;
+        } catch (Throwable t) {
+            tryFinishSchedule();
+            throw t;
+        }
+    }
+
+    private RowBatch doGetNext()
+            throws UserException, InterruptedException, TException, RpcException, ExecutionException {
         Status status = new Status();
         RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
@@ -132,8 +154,10 @@ public class QueryProcessor extends AbstractJobProcessor {
                 copyStatus.rewriteErrorMsg();
             }
             if (copyStatus.isRpcError()) {
+                tryFinishSchedule();
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
+                tryFinishSchedule();
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
                 throw new UserException(errMsg);
@@ -149,16 +173,6 @@ public class QueryProcessor extends AbstractJobProcessor {
             numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
-        }
-
-        // if reached limit rows, cancel this query immediately
-        // to avoid BE from reading more data.
-        // ATTN: if change here, also need to change the same logic in Coordinator.getNext();
-        boolean reachedLimit = LimitUtils.cancelIfReachLimit(
-                resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
-
-        if (reachedLimit) {
-            resultBatch.setEos(true);
         }
         return resultBatch;
     }

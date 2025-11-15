@@ -22,17 +22,14 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -56,18 +53,11 @@ public class AnalyticEvalNode extends PlanNode {
     private final AnalyticWindow analyticWindow;
 
     // Physical tuples used/produced by this analytic node.
-    private final TupleDescriptor intermediateTupleDesc;
     private final TupleDescriptor outputTupleDesc;
-
-    // maps from the logical output slots in logicalTupleDesc_ to their corresponding
-    // physical output slots in outputTupleDesc_
-    private final ExprSubstitutionMap logicalToPhysicalSmap;
-
     // predicates constructed from partitionExprs_/orderingExprs_ to
     // compare input to buffered tuples
     private final Expr partitionByEq;
     private final Expr orderByEq;
-    private final TupleDescriptor bufferedTupleDesc;
 
     private boolean isColocate = false;
 
@@ -75,12 +65,9 @@ public class AnalyticEvalNode extends PlanNode {
     public AnalyticEvalNode(
             PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
             List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-            TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
-            TupleDescriptor bufferedTupleDesc) {
-        super(id,
-                input.getOutputTupleIds(),
-                "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
+            AnalyticWindow analyticWindow, TupleDescriptor outputTupleDesc,
+            Expr partitionByEq, Expr orderByEq) {
+        super(id, input.getOutputTupleIds(), "ANALYTIC");
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
         tupleIds.add(outputTupleDesc.getId());
@@ -89,12 +76,9 @@ public class AnalyticEvalNode extends PlanNode {
         this.substitutedPartitionExprs = partitionExprs;
         this.orderByElements = orderByElements;
         this.analyticWindow = analyticWindow;
-        this.intermediateTupleDesc = intermediateTupleDesc;
         this.outputTupleDesc = outputTupleDesc;
-        this.logicalToPhysicalSmap = new ExprSubstitutionMap();
         this.partitionByEq = partitionByEq;
         this.orderByEq = orderByEq;
-        this.bufferedTupleDesc = bufferedTupleDesc;
         children.add(input);
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
@@ -104,48 +88,17 @@ public class AnalyticEvalNode extends PlanNode {
     }
 
     @Override
-    protected String debugString() {
-        List<String> orderByElementStrs = Lists.newArrayList();
-
-        for (OrderByElement element : orderByElements) {
-            orderByElementStrs.add(element.toSql());
-        }
-
-        return MoreObjects.toStringHelper(this)
-               .add("analyticFnCalls", Expr.debugString(analyticFnCalls))
-               .add("partitionExprs", Expr.debugString(partitionExprs))
-               .add("substitutedPartitionExprs", Expr.debugString(substitutedPartitionExprs))
-               .add("orderByElements", Joiner.on(", ").join(orderByElementStrs))
-               .add("window", analyticWindow)
-               .add("intermediateTid", intermediateTupleDesc.getId())
-               .add("intermediateTid", outputTupleDesc.getId())
-               .add("outputTid", outputTupleDesc.getId())
-               .add("partitionByEq",
-                    partitionByEq != null ? partitionByEq.debugString() : "null")
-               .add("orderByEq",
-                    orderByEq != null ? orderByEq.debugString() : "null")
-               .addValue(super.debugString())
-               .toString();
-    }
-
-    @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.ANALYTIC_EVAL_NODE;
         msg.analytic_node = new TAnalyticNode();
-        msg.analytic_node.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
+        msg.analytic_node.setIntermediateTupleId(outputTupleDesc.getId().asInt());
         msg.analytic_node.setOutputTupleId(outputTupleDesc.getId().asInt());
         msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
         msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
         msg.analytic_node.setIsColocate(isColocate);
-        if (analyticWindow == null) {
-            if (!orderByElements.isEmpty()) {
-                msg.analytic_node.setWindow(AnalyticWindow.DEFAULT_WINDOW.toThrift());
-            }
-        } else {
-            // TODO: Window boundaries should have range_offset_predicate set
-            msg.analytic_node.setWindow(analyticWindow.toThrift());
-        }
+        // TODO: Window boundaries should have range_offset_predicate set
+        msg.analytic_node.setWindow(analyticWindow.toThrift());
 
         if (partitionByEq != null) {
             msg.analytic_node.setPartitionByEq(partitionByEq.treeToThrift());
@@ -153,10 +106,6 @@ public class AnalyticEvalNode extends PlanNode {
 
         if (orderByEq != null) {
             msg.analytic_node.setOrderByEq(orderByEq.treeToThrift());
-        }
-
-        if (bufferedTupleDesc != null) {
-            msg.analytic_node.setBufferedTupleId(bufferedTupleDesc.getId().asInt());
         }
     }
 

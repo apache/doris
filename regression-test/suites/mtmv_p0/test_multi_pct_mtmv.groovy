@@ -172,4 +172,31 @@ suite("test_multi_pct_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_partitions_4 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+
+    sql """
+        alter table ${tableName2} add partition p201704 VALUES [("2017-04-01"),("2017-05-01"));
+        """
+    order_qt_partitions_5 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20170401_20170501);
+        """
+     waitingMTMVTaskFinishedByMvName(mvName)
+     order_qt_partitions_6 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+
+     sql """
+         insert into ${tableName2} values("2017-04-01",10);
+         """
+      sql """
+         REFRESH MATERIALIZED VIEW ${mvName} AUTO
+         """
+     waitingMTMVTaskFinishedByMvName(mvName)
+     order_qt_refresh_mode_overwrite "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
+
+     test {
+         sql """
+             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20180501_20180601);
+             """
+         exception "exist"
+     }
 }

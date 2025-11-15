@@ -110,6 +110,9 @@ enum TStatusCode {
 
     SNAPSHOT_EXPIRED = 75,
 
+    // Signal to finish fragments on BE by FE.
+    FINISHED = 76,
+
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
     // Not be larger than 200, see status.h

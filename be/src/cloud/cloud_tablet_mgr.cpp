@@ -92,7 +92,8 @@ private:
     std::unordered_map<Key, std::shared_ptr<Call>> _call_map;
 };
 
-SingleFlight<int64_t /* tablet_id */, std::shared_ptr<CloudTablet>> s_singleflight_load_tablet;
+// tablet_id -> load tablet function
+SingleFlight<int64_t, Result<std::shared_ptr<CloudTablet>>> s_singleflight_load_tablet;
 
 } // namespace
 
@@ -192,7 +193,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             ++sync_stats->tablet_meta_cache_miss;
         }
         auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap,
-                            sync_stats](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
+                            sync_stats](int64_t tablet_id) -> Result<std::shared_ptr<CloudTablet>> {
             TabletMetaSharedPtr tablet_meta;
             auto start = std::chrono::steady_clock::now();
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
@@ -203,7 +204,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             }
             if (!st.ok()) {
                 LOG(WARNING) << "failed to tablet " << tablet_id << ": " << st;
-                return nullptr;
+                return ResultError(st);
             }
 
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
@@ -215,7 +216,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options, sync_stats);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
-                return nullptr;
+                return ResultError(st);
             }
 
             auto* handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
@@ -229,10 +230,12 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             return ret;
         };
 
-        auto tablet = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
-        if (tablet == nullptr) {
-            return ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
+        auto load_result = s_singleflight_load_tablet.load(tablet_id, std::move(load_tablet));
+        if (!load_result.has_value()) {
+            return ResultError(Status::InternalError("failed to get tablet {}, msg={}", tablet_id,
+                                                     load_result.error()));
         }
+        auto tablet = load_result.value();
         set_tablet_access_time_ms(tablet.get());
         return tablet;
     }

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
@@ -146,6 +147,18 @@ public class MTMVPartitionDefinition {
                         MvccUtil.getSnapshotFromContext(pctTable));
                 if (!partitionType.equals(relatedTablePartitionType)) {
                     throw new AnalysisException("partition type of multi pctTables must be same, pctInfos:" + pctInfos);
+                }
+            }
+        }
+        if (relatedTablePartitionType.equals(PartitionType.RANGE)) {
+            for (BaseColInfo baseColInfo : pctInfos) {
+                MTMVRelatedTableIf pctTable = MTMVUtil.getRelatedTable(baseColInfo.getTableInfo());
+                List<Column> partitionColumns = pctTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(pctTable));
+                if (partitionColumns.size() != 1) {
+                    throw new AnalysisException(String.format(
+                            "only List PartitionType support multi columns partition, "
+                                    + "but [%s] have [%s] partitionColumns.",
+                            baseColInfo.getTableInfo(), partitionColumns.size()));
                 }
             }
         }

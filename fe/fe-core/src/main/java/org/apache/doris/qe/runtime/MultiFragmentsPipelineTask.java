@@ -109,7 +109,7 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         }
 
         if (this.hasCancelled.get() || this.cancelInProcess.get()) {
-            LOG.info("Frangment has already been cancelled. Query {} backend: {}",
+            LOG.info("Fragment has already been cancelled. Query {} backend: {}",
                     DebugUtil.printId(queryId), backend);
             return;
         }
@@ -121,18 +121,21 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
                                 brpcAddress, queryId, cancelReason);
                 Futures.addCallback(cancelResult, new FutureCallback<PCancelPlanFragmentResult>() {
                     public void onSuccess(InternalService.PCancelPlanFragmentResult result) {
-                        cancelInProcess.set(false);
-                        if (result.hasStatus()) {
-                            Status status = new Status(result.getStatus());
-                            if (status.getErrorCode() == TStatusCode.OK) {
-                                hasCancelled.set(true);
+                        try {
+                            if (result.hasStatus()) {
+                                Status status = new Status(result.getStatus());
+                                if (status.getErrorCode() == TStatusCode.OK) {
+                                    hasCancelled.set(true);
+                                } else {
+                                    LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
+                                            DebugUtil.printId(queryId), backend, status.toString());
+                                }
                             } else {
-                                LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
-                                        DebugUtil.printId(queryId), backend, status.toString());
+                                LOG.warn("Failed to cancel query {} backend: {} reason: {}",
+                                        DebugUtil.printId(queryId), backend, "without status");
                             }
-                        } else {
-                            LOG.warn("Failed to cancel query {} backend: {} reason: {}",
-                                    DebugUtil.printId(queryId), backend, "without status");
+                        } finally {
+                            cancelInProcess.set(false);
                         }
                     }
 

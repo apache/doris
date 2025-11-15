@@ -74,6 +74,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        tableNameInfo.analyze(ctx);
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
         if (catalog == null) {
             throw new AnalysisException("Catalog " + tableNameInfo.getCtl() + " does not exist");
