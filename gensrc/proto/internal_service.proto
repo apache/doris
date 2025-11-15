@@ -226,6 +226,7 @@ message PTabletWriterCancelRequest {
     required PUniqueId id = 1;
     required int64 index_id = 2;
     required int32 sender_id = 3;
+    optional string cancel_reason = 4;
 };
 
 message PTabletWriterCancelResult {
