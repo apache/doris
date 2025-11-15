@@ -224,7 +224,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
                 size_t cache_capacity = cancel_reason_ptr->_cancel_reason.capacity();
                 auto* handle =
                         _load_state_channels->insert(load_id.to_string(), cancel_reason_ptr.get(),
-                                                      cache_capacity, cache_capacity);
+                                                    cache_capacity, cache_capacity);
                 cancel_reason_ptr.release();
                 _load_state_channels->release(handle);
             } else {
