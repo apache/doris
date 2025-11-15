@@ -122,6 +122,22 @@ public class MTMVService implements EventListener {
         }
     }
 
+    public void dropView(BaseTableInfo baseViewInfo) {
+        Objects.requireNonNull(baseViewInfo, "baseViewInfo can not be null");
+        LOG.info("dropView, view: {}", baseViewInfo);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.dropView(baseViewInfo);
+        }
+    }
+
+    public void alterView(BaseTableInfo baseViewInfo) {
+        Objects.requireNonNull(baseViewInfo, "baseViewInfo can not be null");
+        LOG.info("alterView, view: {}", baseViewInfo);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.alterView(baseViewInfo);
+        }
+    }
+
     public void refreshComplete(MTMV mtmv, MTMVRelation cache, MTMVTask task) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         Objects.requireNonNull(task, "task can not be null");
@@ -180,7 +196,7 @@ public class MTMVService implements EventListener {
         } catch (AnalysisException e) {
             throw new EventException(e);
         }
-        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
+        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevelAndFromView(
                 new BaseTableInfo(table));
         for (BaseTableInfo baseTableInfo : mtmvs) {
             try {

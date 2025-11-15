@@ -26,6 +26,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * MTMVPartitionInfo
@@ -129,6 +130,22 @@ public class MTMVPartitionInfo {
                         partitionColumns));
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        MTMVPartitionInfo that = (MTMVPartitionInfo) o;
+        return partitionType == that.partitionType && Objects.equals(relatedTable, that.relatedTable)
+                && Objects.equals(relatedCol, that.relatedCol) && Objects.equals(partitionCol,
+                that.partitionCol) && Objects.equals(expr, that.expr);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(partitionType, relatedTable, relatedCol, partitionCol, expr);
+    }
+
     // toString() is not easy to find where to call the method
     public String toInfoString() {
         return "MTMVPartitionInfo{"
@@ -136,6 +153,7 @@ public class MTMVPartitionInfo {
                 + ", relatedTable=" + relatedTable
                 + ", relatedCol='" + relatedCol + '\''
                 + ", partitionCol='" + partitionCol + '\''
+                + ", expr='" + expr + '\''
                 + '}';
     }
 
@@ -150,6 +168,7 @@ public class MTMVPartitionInfo {
                     + ", relatedTable=" + relatedTable.getTableName()
                     + ", relatedCol='" + relatedCol + '\''
                     + ", partitionCol='" + partitionCol + '\''
+                    + ", expr='" + expr + '\''
                     + '}';
         }
     }
