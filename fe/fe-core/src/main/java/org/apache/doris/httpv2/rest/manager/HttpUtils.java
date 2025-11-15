@@ -39,6 +39,8 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -133,5 +135,63 @@ public class HttpUtils {
 
     public static String getBody(HttpServletRequest request) throws IOException {
         return IOUtils.toString(request.getInputStream(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Get the file size of the HTTP resource by sending a HEAD request.
+     * This method uses HTTP HEAD request to get the Content-Length header
+     * without downloading the entire file content.
+     * @param uri the HTTP URI to get file size for
+     * @return the file size in bytes, or -1 if the size cannot be determined
+     * @throws IOException if there's an error connecting to the HTTP resource
+     * @throws IllegalArgumentException if the URI is null or invalid
+     */
+    public static long getHttpFileSize(String uri) throws IOException {
+        if (uri == null || uri.trim().isEmpty()) {
+            throw new IllegalArgumentException("HTTP URI is null or empty");
+        }
+
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(uri);
+            connection = (HttpURLConnection) url.openConnection();
+
+            // Use HEAD request to get headers without downloading content
+            connection.setRequestMethod("HEAD");
+            connection.setConnectTimeout(10000); // 10 seconds connection timeout
+            connection.setReadTimeout(30000);    // 30 seconds read timeout
+
+            // Set common headers
+            connection.setRequestProperty("User-Agent", "Doris-HttpUtils/1.0");
+            connection.setRequestProperty("Accept", "*/*");
+
+            // Connect and get response
+            connection.connect();
+            int responseCode = connection.getResponseCode();
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // Try to get Content-Length header
+                String contentLengthStr = connection.getHeaderField("Content-Length");
+                if (contentLengthStr != null && !contentLengthStr.trim().isEmpty()) {
+                    try {
+                        return Long.parseLong(contentLengthStr.trim());
+                    } catch (NumberFormatException e) {
+                        throw new IOException("Invalid Content-Length header: " + contentLengthStr, e);
+                    }
+                } else {
+                    // Content-Length header not available
+                    return -1;
+                }
+            } else {
+                throw new IOException("HTTP request failed with response code: " + responseCode
+                        + ", message: " + connection.getResponseMessage());
+            }
+        } catch (IOException e) {
+            throw new IOException("Failed to get file size for URI: " + uri, e);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 }
