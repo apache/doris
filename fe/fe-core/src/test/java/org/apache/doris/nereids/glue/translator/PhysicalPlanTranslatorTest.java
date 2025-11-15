@@ -84,6 +84,6 @@ public class PhysicalPlanTranslatorTest {
         PlanNode planNode = fragment.getPlanRoot();
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class::isInstance, scanNodeList);
-        Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getMaterializedSlots().size());
+        Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getSlots().size());
     }
 }

@@ -15,25 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.datasource.property.storage.exception;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-
-import java.util.List;
-
-/**
- * some function PropagateNullable when args are datev2 or datetimev2 or time like
- * and AlwaysNullable when other type parameters
- */
-public interface PropagateNullableOnDateOrTimeLikeV2Args extends PropagateNullable, AlwaysNullable {
-    @Override
-    default boolean nullable() {
-        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType() || e.getDataType().isTimeType())) {
-            return PropagateNullable.super.nullable();
-        } else {
-            return AlwaysNullable.super.nullable();
-        }
-    }
-
-    List<Expression> children();
+public enum AzureAuthType {
+    OAuth2,
+    SharedKey;
 }

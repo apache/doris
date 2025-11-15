@@ -148,9 +148,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<Column> columns = desc.getTable().getBaseSchema(false);
         params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
@@ -165,10 +162,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     private void updateRequiredSlots() throws UserException {
         params.unsetRequiredSlots();
         for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
@@ -454,7 +447,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     }
                 }
             }
-        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL
+                || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }
