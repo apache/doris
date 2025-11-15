@@ -246,6 +246,19 @@ message SegmentFooterPB {
 
     // Primary key index meta
     optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
+
+    // Externalized ColumnMetaPB layout (optional; presence indicates v2 meta layout available)
+    // Start offset of the contiguous per-column ColumnMetaPB region (absolute file offset)
+    optional uint64 col_meta_region_start = 11;
+    // Start offset of the Column Metadata Offset table (CMO), with N entries of 16 bytes each:
+    // [u64 pos_le][u64 size_le], pos is absolute file offset of ColumnMetaPB bytes
+    optional uint64 column_meta_offsets_start = 12;
+    // Number of top-level columns in this segment for CMO addressing (col_id in [0, N))
+    optional uint32 num_columns = 13;
+    // Top-level column unique-ids in col_id order (length must equal num_columns)
+    // Used to build a mapping from unique-id to col_id without scanning Footer.columns.
+    // Only includes top-level physical columns (including variant roots), not any subcolumns.
+    repeated int32 top_level_column_uids = 14;
 }
 
 message BTreeMetaPB {

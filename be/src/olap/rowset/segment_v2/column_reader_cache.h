@@ -65,6 +65,9 @@ private:
                    const SegmentFooterPB& footer, int32_t column_id,
                    const io::FileReaderSPtr& file_reader, size_t num_rows,
                    std::shared_ptr<ColumnReader>* column_reader);
+    // Insert an already-created reader directly into cache
+    void _insert_direct(const ColumnReaderCacheKey& key,
+                        const std::shared_ptr<ColumnReader>& column_reader);
     // keep _lru_list and _cache_map thread safe
     std::mutex _cache_mutex;
     // Doubly-linked list to maintain LRU order

@@ -1106,6 +1106,9 @@ DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 
+// Externalize ColumnMetaPB for all columns: write per-column meta region + CMO, and read via col_id addressing
+DEFINE_mBool(enable_segment_external_col_meta, "true");
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
@@ -1231,7 +1234,6 @@ DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 DEFINE_mBool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
-
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
@@ -2092,6 +2094,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
+    fuzzy_field_and_value["enable_segment_external_col_meta"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     if (config::enable_fuzzy_storage_encoding) {
         fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
                 ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
