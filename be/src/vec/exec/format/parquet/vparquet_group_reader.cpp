@@ -101,7 +101,7 @@ RowGroupReader::~RowGroupReader() {
 }
 
 Status RowGroupReader::init(
-        const FieldDescriptor& schema, std::vector<RowRange>& row_ranges,
+        const FieldDescriptor& schema, RowRanges& row_ranges,
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -111,7 +111,9 @@ Status RowGroupReader::init(
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _merge_read_ranges(row_ranges);
+    _read_ranges = row_ranges;
+    _remaining_rows = row_ranges.count();
+
     if (_read_table_columns.empty()) {
         // Query task that only select columns in path.
         return Status::OK();
@@ -375,14 +377,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         }
         *read_rows = block->rows();
         return Status::OK();
-    }
-}
-
-void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
-    _read_ranges = row_ranges;
-    _remaining_rows = 0;
-    for (auto& range : row_ranges) {
-        _remaining_rows += range.last_row - range.first_row;
     }
 }
 
@@ -785,14 +779,15 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
 
     int64_t idx = 0;
     int64_t read_range_rows = 0;
-    for (auto& range : _read_ranges) {
+    for (size_t range_idx = 0; range_idx < _read_ranges.range_size(); range_idx++) {
+        auto range = _read_ranges.get_range(range_idx);
         if (read_rows == 0) {
             break;
         }
-        if (read_range_rows + (range.last_row - range.first_row) > _total_read_rows) {
+        if (read_range_rows + (range.to() - range.from()) > _total_read_rows) {
             int64_t fi =
-                    std::max(_total_read_rows, read_range_rows) - read_range_rows + range.first_row;
-            size_t len = std::min(read_rows, (size_t)(std::max(range.last_row, fi) - fi));
+                    std::max(_total_read_rows, read_range_rows) - read_range_rows + range.from();
+            size_t len = std::min(read_rows, (size_t)(std::max(range.to(), fi) - fi));
 
             read_rows -= len;
 
@@ -801,7 +796,7 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
                         (rowid_t)(fi + i + _current_row_group_idx.first_row);
             }
         }
-        read_range_rows += range.last_row - range.first_row;
+        read_range_rows += range.to() - range.from();
     }
     return Status::OK();
 }
@@ -835,13 +830,14 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
                 _position_delete_ctx.first_row_id;
         int64_t read_range_rows = 0;
         size_t remaining_read_rows = _total_read_rows + read_rows;
-        for (auto& range : _read_ranges) {
-            if (delete_row_index_in_row_group < range.first_row) {
+        for (size_t range_idx = 0; range_idx < _read_ranges.range_size(); range_idx++) {
+            auto range = _read_ranges.get_range(range_idx);
+            if (delete_row_index_in_row_group < range.from()) {
                 ++_position_delete_ctx.index;
                 break;
-            } else if (delete_row_index_in_row_group < range.last_row) {
-                int64_t index = (delete_row_index_in_row_group - range.first_row) +
-                                read_range_rows - _total_read_rows;
+            } else if (delete_row_index_in_row_group < range.to()) {
+                int64_t index = (delete_row_index_in_row_group - range.from()) + read_range_rows -
+                                _total_read_rows;
                 if (index > read_rows - 1) {
                     _total_read_rows += read_rows;
                     return Status::OK();
@@ -852,7 +848,7 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
             } else { // delete_row >= range.last_row
             }
 
-            int64_t range_size = range.last_row - range.first_row;
+            int64_t range_size = range.to() - range.from();
             // Don't search next range when there is no remaining_read_rows.
             if (remaining_read_rows <= range_size) {
                 _total_read_rows += read_rows;
