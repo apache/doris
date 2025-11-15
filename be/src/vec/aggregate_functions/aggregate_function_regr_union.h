@@ -35,63 +35,100 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 struct AggregateFunctionRegrData {
     static constexpr PrimitiveType Type = T;
-    UInt64 count = 0;
-    Float64 sum_x {};
-    Float64 sum_y {};
-    Float64 sum_of_x_mul_y {};
-    Float64 sum_of_x_squared {};
+    UInt64 n {};
+    Float64 sx {};
+    Float64 sy {};
+    Float64 sxx {};
+    Float64 syy {};
+    Float64 sxy {};
 
     void write(BufferWritable& buf) const {
-        buf.write_binary(sum_x);
-        buf.write_binary(sum_y);
-        buf.write_binary(sum_of_x_mul_y);
-        buf.write_binary(sum_of_x_squared);
-        buf.write_binary(count);
+        buf.write_binary(sx);
+        buf.write_binary(sy);
+        buf.write_binary(sxx);
+        buf.write_binary(syy);
+        buf.write_binary(sxy);
+        buf.write_binary(n);
     }
 
     void read(BufferReadable& buf) {
-        buf.read_binary(sum_x);
-        buf.read_binary(sum_y);
-        buf.read_binary(sum_of_x_mul_y);
-        buf.read_binary(sum_of_x_squared);
-        buf.read_binary(count);
+        buf.read_binary(sx);
+        buf.read_binary(sy);
+        buf.read_binary(sxx);
+        buf.read_binary(syy);
+        buf.read_binary(sxy);
+        buf.read_binary(n);
     }
 
     void reset() {
-        sum_x = {};
-        sum_y = {};
-        sum_of_x_mul_y = {};
-        sum_of_x_squared = {};
-        count = 0;
+        sx = {};
+        sy = {};
+        sxx = {};
+        syy = {};
+        sxy = {};
+        n = {};
     }
 
+    /**
+     * The merge function uses the Youngs–Cramer algorithm:
+     * N   = N1 + N2
+     * Sx  = Sx1 + Sx2
+     * Sy  = Sy1 + Sy2
+     * Sxx = Sxx1 + Sxx2 + N1 * N2 * (Sx1/N1 - Sx2/N2)^2 / N
+     * Syy = Syy1 + Syy2 + N1 * N2 * (Sy1/N1 - Sy2/N2)^2 / N
+     * Sxy = Sxy1 + Sxy2 + N1 * N2 * (Sx1/N1 - Sx2/N2) * (Sy1/N1 - Sy2/N2) / N
+     */
     void merge(const AggregateFunctionRegrData& rhs) {
-        if (rhs.count == 0) {
+        if (rhs.n == 0) {
             return;
         }
-        sum_x += rhs.sum_x;
-        sum_y += rhs.sum_y;
-        sum_of_x_mul_y += rhs.sum_of_x_mul_y;
-        sum_of_x_squared += rhs.sum_of_x_squared;
-        count += rhs.count;
+        if (n == 0) {
+            *this = rhs;
+            return;
+        }
+        const auto n1 = static_cast<Float64>(n);
+        const auto n2 = static_cast<Float64>(rhs.n);
+        const auto nsum = n1 + n2;
+
+        const auto dx = sx / n1 - rhs.sx / n2;
+        const auto dy = sy / n1 - rhs.sy / n2;
+
+        n += rhs.n;
+        sx += rhs.sx;
+        sy += rhs.sy;
+        sxx += rhs.sxx + n1 * n2 * dx * dx / nsum;
+        syy += rhs.syy + n1 * n2 * dy * dy / nsum;
+        sxy += rhs.sxy + n1 * n2 * dx * dy / nsum;
     }
 
+    /**
+     * N
+     * Sx  = sum(X)
+     * Sy  = sum(Y)
+     * Sxx = sum((X-Sx/N)^2)
+     * Syy = sum((Y-Sy/N)^2)
+     * Sxy = sum((X-Sx/N)*(Y-Sy/N))
+     */
     void add(typename PrimitiveTypeTraits<T>::ColumnItemType value_y,
              typename PrimitiveTypeTraits<T>::ColumnItemType value_x) {
-        sum_x += (double)value_x;
-        sum_y += (double)value_y;
-        sum_of_x_mul_y += (double)value_x * (double)value_y;
-        sum_of_x_squared += (double)value_x * (double)value_x;
-        count += 1;
-    }
+        const auto x = static_cast<Float64>(value_x);
+        const auto y = static_cast<Float64>(value_y);
+        sx += x;
+        sy += y;
 
-    Float64 get_slope() const {
-        Float64 denominator = (double)count * sum_of_x_squared - sum_x * sum_x;
-        if (count < 2 || denominator == 0.0) {
-            return std::numeric_limits<Float64>::quiet_NaN();
+        if (n == 0) [[unlikely]] {
+            n = 1;
+            return;
         }
-        Float64 slope = ((double)count * sum_of_x_mul_y - sum_x * sum_y) / denominator;
-        return slope;
+        const auto tmp_n = static_cast<Float64>(n + 1);
+        const auto tmp_x = x * tmp_n - sx;
+        const auto tmp_y = y * tmp_n - sy;
+        const auto scale = 1.0 / (tmp_n * static_cast<Float64>(n));
+
+        n += 1;
+        sxx += tmp_x * tmp_x * scale;
+        syy += tmp_y * tmp_y * scale;
+        sxy += tmp_x * tmp_y * scale;
     }
 };
 
@@ -99,7 +136,12 @@ template <PrimitiveType T>
 struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_slope";
 
-    Float64 get_result() const { return this->get_slope(); }
+    Float64 get_result() const {
+        if (this->n < 1 || this->sxx == 0.0) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sxy / this->sxx;
+    }
 };
 
 template <PrimitiveType T>
@@ -107,13 +149,10 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_intercept";
 
     Float64 get_result() const {
-        auto slope = this->get_slope();
-        if (std::isnan(slope)) {
-            return slope;
-        } else {
-            Float64 intercept = (this->sum_y - slope * this->sum_x) / (double)this->count;
-            return intercept;
+        if (this->n < 1 || this->sxx == 0.0) {
+            return std::numeric_limits<Float64>::quiet_NaN();
         }
+        return (this->sy - this->sx * this->sxy / this->sxx) / static_cast<Float64>(this->n);
     }
 };
 
@@ -147,7 +186,7 @@ public:
         const XInputCol* x_nested_column = nullptr;
 
         if constexpr (y_nullable) {
-            const ColumnNullable& y_column_nullable =
+            const auto& y_column_nullable =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             y_null = y_column_nullable.is_null_at(row_num);
             y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
@@ -158,7 +197,7 @@ public:
         }
 
         if constexpr (x_nullable) {
-            const ColumnNullable& x_column_nullable =
+            const auto& x_column_nullable =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
             x_null = x_column_nullable.is_null_at(row_num);
             x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(

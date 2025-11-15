@@ -51,9 +51,9 @@ suite("test_regr_intercept") {
     
     // no value
     // agg function without group by should return null
-    qt_sql_empty_1 "select regr_intercept(y,x) from test_regr_intercept_int"
+    qt_sql_empty_1 "select regr_intercept(y, x) from test_regr_intercept_int"
     // agg function with group by should return empty set
-    qt_sql_empty_2 "select regr_intercept(y,x) from test_regr_intercept_int group by id"
+    qt_sql_empty_2 "select regr_intercept(y, x) from test_regr_intercept_int group by id"
 
     sql """ TRUNCATE TABLE test_regr_intercept_int """
 
@@ -83,7 +83,7 @@ suite("test_regr_intercept") {
     qt_sql_int_2 "select regr_intercept(x, 4) from test_regr_intercept_int"
 
     // int value
-    qt_sql_int_3 "select regr_intercept(y,x) from test_regr_intercept_int"
+    qt_sql_int_3 "select regr_intercept(y, x) from test_regr_intercept_int"
 
     // qt_sql_int_3 tests Nullable input column, qt_sql_int_4 test non-Nullable input column
     qt_sql_int_4 "select regr_intercept(non_nullable(y), non_nullable(x)) from test_regr_intercept_int"
@@ -122,8 +122,8 @@ suite("test_regr_intercept") {
     qt_sql_int_7 "select regr_intercept(x, 4) from test_regr_intercept_int"
 
     // int value
-    qt_sql_int_8 "select regr_intercept(y,x) from test_regr_intercept_int"
-    qt_sql_int_8 "select regr_intercept(y,x) from test_regr_intercept_int group by id order by id"
+    qt_sql_int_8 "select regr_intercept(y, x) from test_regr_intercept_int"
+    qt_sql_int_8 "select regr_intercept(y, x) from test_regr_intercept_int group by id order by id"
 
     // qt_sql_int_3 tests Nullable input column, qt_sql_int_4 test non-Nullable input column
     qt_sql_int_9 "select regr_intercept(non_nullable(y), non_nullable(x)) from test_regr_intercept_int where id >= 3"
@@ -142,8 +142,8 @@ suite("test_regr_intercept") {
     qt_sql_double_2 "select regr_intercept(x, 4) from test_regr_intercept_double"
 
     // int value
-    qt_sql_double_3 "select regr_intercept(y,x) from test_regr_intercept_double"
-    qt_sql_double_3 "select regr_intercept(y,x) from test_regr_intercept_double group by id order by id"
+    qt_sql_double_3 "select regr_intercept(y, x) from test_regr_intercept_double"
+    qt_sql_double_3 "select regr_intercept(y, x) from test_regr_intercept_double group by id order by id"
 
     // qt_sql_int_3 tests Nullable input column, qt_sql_int_4 test non-Nullable input column
     qt_sql_double_4 "select regr_intercept(non_nullable(y), non_nullable(x)) from test_regr_intercept_double"
@@ -183,8 +183,8 @@ suite("test_regr_intercept") {
     qt_sql_double_7 "select regr_intercept(x, 4) from test_regr_intercept_double"
 
     // int value
-    qt_sql_double_8 "select regr_intercept(y,x) from test_regr_intercept_double"
-    qt_sql_double_8 "select regr_intercept(y,x) from test_regr_intercept_double group by id order by id"
+    qt_sql_double_8 "select regr_intercept(y, x) from test_regr_intercept_double"
+    qt_sql_double_8 "select regr_intercept(y, x) from test_regr_intercept_double group by id order by id"
     
     // qt_sql_int_3 tests Nullable input column, qt_sql_int_4 test non-Nullable input column
     qt_sql_double_9 "select regr_intercept(non_nullable(y), non_nullable(x)) from test_regr_intercept_double where id >= 3"
