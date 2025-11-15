@@ -132,4 +132,34 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     EXPECT_EQ(count.load(), 3);
 }
 
+TEST(TaskWorkerPoolTest, ReportTabletCallbackWithDebugPoint) {
+    bool original_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+
+    ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
+
+    ClusterInfo cluster_info;
+    cluster_info.master_fe_addr.__set_port(9030);
+
+    Defer defer {[] { ExecEnv::GetInstance()->set_storage_engine(nullptr); }};
+
+    {
+        // debug point is enabled
+        DebugPoints::instance()->add("WorkPoolReportTablet.report_tablet_callback.skip");
+        EXPECT_TRUE(DebugPoints::instance()->is_enable(
+                "WorkPoolReportTablet.report_tablet_callback.skip"));
+        report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
+    }
+
+    {
+        // debug point is removed
+        DebugPoints::instance()->remove("WorkPoolReportTablet.report_tablet_callback.skip");
+        EXPECT_FALSE(DebugPoints::instance()->is_enable(
+                "WorkPoolReportTablet.report_tablet_callback.skip"));
+        report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
+    }
+
+    config::enable_debug_points = original_enable_debug_points;
+}
+
 } // namespace doris
