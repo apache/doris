@@ -345,21 +345,10 @@ bool PinyinFilter::processCurrentToken() {
                         }
                     }
                 }
-            } else if (!is_ascii && pinyin.empty() && chinese.empty()) {
-                // Handle non-ASCII, non-Chinese characters (e.g., emoji, symbols)
-                // These should be preserved as-is (similar to ES pinyin filter behavior)
-                position_++;
-
-                // Convert codepoint back to UTF-8 string
-                std::string unicode_char;
-                char utf8_buffer[4];
-                int32_t utf8_len = 0;
-                U8_APPEND_UNSAFE(utf8_buffer, utf8_len, codepoint);
-                unicode_char.append(utf8_buffer, utf8_len);
-
-                addCandidate(TermItem(unicode_char, static_cast<int>(i), static_cast<int>(i + 1),
-                                      position_));
             }
+            // For non-ASCII, non-Chinese characters (e.g., emoji, symbols),
+            // we don't add them to candidate. They will only be kept if the fallback
+            // mechanism is triggered (when candidate_ is empty).
         }
     }
 
