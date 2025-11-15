@@ -75,6 +75,11 @@ uint64_t FileBlock::get_caller_id() {
     return id;
 }
 
+void FileBlock::set_cache_type(FileCacheType new_type) {
+    std::lock_guard block_lock(_mutex);
+    _key.meta.type = new_type;
+}
+
 uint64_t FileBlock::get_or_set_downloader() {
     std::lock_guard block_lock(_mutex);
 

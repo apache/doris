@@ -114,7 +114,7 @@ TEST_F(CacheLRUDumperTest, test_finalize_dump_and_parse_dump_footer) {
 
 TEST_F(CacheLRUDumperTest, test_remove_lru_dump_files) {
     // Create test files
-    std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
+    std::vector<std::string> queue_names = {"cold_normal", "disposable", "index", "normal", "ttl"};
     for (const auto& name : queue_names) {
         std::ofstream(fmt::format("{}lru_dump_{}.tail", test_dir, name));
     }

@@ -53,6 +53,7 @@ public:
         _lru_queue_update_cnt_from_last_dump[FileCacheType::NORMAL] = 0;
         _lru_queue_update_cnt_from_last_dump[FileCacheType::INDEX] = 0;
         _lru_queue_update_cnt_from_last_dump[FileCacheType::TTL] = 0;
+        _lru_queue_update_cnt_from_last_dump[FileCacheType::COLD_NORMAL] = 0;
     }
     void record_queue_event(FileCacheType type, CacheLRULogType log_type, const UInt128Wrapper hash,
                             const size_t offset, const size_t size);
@@ -73,11 +74,13 @@ private:
     LRUQueue _shadow_normal_queue;
     LRUQueue _shadow_disposable_queue;
     LRUQueue _shadow_ttl_queue;
+    LRUQueue _shadow_cold_normal_queue;
 
     CacheLRULogQueue _ttl_lru_log_queue;
     CacheLRULogQueue _index_lru_log_queue;
     CacheLRULogQueue _normal_lru_log_queue;
     CacheLRULogQueue _disposable_lru_log_queue;
+    CacheLRULogQueue _cold_normal_lru_log_queue;
 
     std::unordered_map<FileCacheType, size_t> _lru_queue_update_cnt_from_last_dump;
 
