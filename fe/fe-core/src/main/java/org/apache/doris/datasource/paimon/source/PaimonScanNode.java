@@ -189,6 +189,14 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
+    @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        // Set paimon_predicate at ScanNode level to avoid redundant serialization in each split
+        String serializedPredicate = PaimonUtil.encodeObjectToString(predicates);
+        params.setPaimonPredicate(serializedPredicate);
+    }
+
     private void putHistorySchemaInfo(Long schemaId) {
         if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
             PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
@@ -224,10 +232,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
         }
         fileDesc.setFileFormat(fileFormat);
-        fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
-        // The hadoop conf should be same with
-        // PaimonExternalCatalog.createCatalog()#getConfiguration()
-        fileDesc.setHadoopConf(backendStorageProperties);
+        // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
+        // no need to set it for each split to avoid redundant configuration
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
