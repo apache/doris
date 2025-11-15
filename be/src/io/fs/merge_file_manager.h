@@ -113,11 +113,12 @@ private:
 
     // Internal structure to track merge file state
     enum class MergeFileStateEnum {
-        INIT,      // Initial state, no files written yet
-        ACTIVE,    // Has files but doesn't meet upload conditions
-        UPLOADING, // Ready for upload, updating meta service
-        UPLOADED,  // Upload completed
-        FAILED     // Upload failed
+        INIT,               // Initial state, no files written yet
+        ACTIVE,             // Has files but doesn't meet upload conditions
+        READY_TO_UPLOADING, // Ready for upload, metadata still being prepared
+        UPLOADING,          // Upload triggered, waiting for writer close to finish
+        UPLOADED,           // Upload completed
+        FAILED              // Upload failed
     };
 
     struct MergeFileState {
@@ -133,7 +134,6 @@ private:
         std::condition_variable upload_cv;
         std::mutex upload_mutex;
         std::string last_error;
-        std::atomic<bool> processing {false};
         std::string resource_id;
         FileSystemSPtr file_system;
     };

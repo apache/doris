@@ -368,7 +368,7 @@ Status MergeFileManager::mark_current_merge_file_for_upload_locked(const std::st
     auto& current = it->second;
 
     // Mark as ready for upload
-    current->state = MergeFileStateEnum::UPLOADING;
+    current->state = MergeFileStateEnum::READY_TO_UPLOADING;
 
     // Move to uploading files list
     {
@@ -444,27 +444,60 @@ void MergeFileManager::background_manager() {
 }
 
 void MergeFileManager::process_uploading_files() {
-    std::vector<std::shared_ptr<MergeFileState>> files_to_process;
+    std::vector<std::shared_ptr<MergeFileState>> files_ready;
+    std::vector<std::shared_ptr<MergeFileState>> files_uploading;
 
-    // Take snapshots of uploading files that are not already being processed
     {
         std::lock_guard<std::mutex> lock(_merge_files_mutex);
         for (auto& [merge_file_path, merge_file] : _uploading_merge_files) {
-            if (merge_file->state != MergeFileStateEnum::UPLOADING) {
+            auto state = merge_file->state.load(std::memory_order_acquire);
+            if (state != MergeFileStateEnum::READY_TO_UPLOADING &&
+                state != MergeFileStateEnum::UPLOADING) {
                 continue;
             }
-            bool expected = false;
-            if (!merge_file->processing.compare_exchange_strong(expected, true)) {
-                continue; // already being processed by another iteration
+            if (state == MergeFileStateEnum::READY_TO_UPLOADING) {
+                files_ready.emplace_back(merge_file);
+            } else {
+                files_uploading.emplace_back(merge_file);
             }
-            files_to_process.emplace_back(merge_file);
         }
     }
 
-    for (auto& merge_file : files_to_process) {
+    auto handle_success = [&](const std::shared_ptr<MergeFileState>& merge_file) {
+        VLOG_DEBUG << "Merge file upload completed: " << merge_file->merge_file_path;
+        {
+            std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
+            merge_file->state = MergeFileStateEnum::UPLOADED;
+            merge_file->upload_time = std::time(nullptr);
+        }
+        merge_file->upload_cv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(_merge_files_mutex);
+            _uploading_merge_files.erase(merge_file->merge_file_path);
+            _uploaded_merge_files[merge_file->merge_file_path] = merge_file;
+        }
+    };
+
+    auto handle_failure = [&](const std::shared_ptr<MergeFileState>& merge_file,
+                              const Status& status) {
+        LOG(WARNING) << "Failed to upload merge file: " << merge_file->merge_file_path
+                     << ", error: " << status.to_string();
+        {
+            std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
+            merge_file->state = MergeFileStateEnum::FAILED;
+            merge_file->last_error = status.to_string();
+            merge_file->upload_time = std::time(nullptr);
+        }
+        merge_file->upload_cv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(_merge_files_mutex);
+            _uploading_merge_files.erase(merge_file->merge_file_path);
+            _uploaded_merge_files[merge_file->merge_file_path] = merge_file;
+        }
+    };
+
+    for (auto& merge_file : files_ready) {
         const std::string& merge_file_path = merge_file->merge_file_path;
-        // Update meta service reference count BEFORE file upload
-        // Prepare merge file info for meta service
         cloud::MergedFileInfoPB merge_file_info;
         merge_file_info.set_ref_cnt(merge_file->index_map.size());
         merge_file_info.set_total_file_num(merge_file->index_map.size());
@@ -476,7 +509,6 @@ void MergeFileManager::process_uploading_files() {
         merge_file_info.set_state(doris::cloud::MergedFileInfoPB::NORMAL);
         merge_file_info.set_resource_id(merge_file->resource_id);
 
-        // Add small file information
         for (const auto& [small_file_path, index] : merge_file->index_map) {
             auto* small_file = merge_file_info.add_small_files();
             small_file->set_path(small_file_path);
@@ -498,18 +530,7 @@ void MergeFileManager::process_uploading_files() {
         if (!meta_status.ok()) {
             LOG(WARNING) << "Failed to update meta service for merge file: "
                          << merge_file->merge_file_path << ", error: " << meta_status.to_string();
-            {
-                std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
-                merge_file->state = MergeFileStateEnum::FAILED;
-                merge_file->last_error = meta_status.to_string();
-                merge_file->upload_time = std::time(nullptr);
-            }
-            merge_file->upload_cv.notify_all();
-            {
-                std::lock_guard<std::mutex> lock(_merge_files_mutex);
-                _uploading_merge_files.erase(merge_file_path);
-                _uploaded_merge_files[merge_file->merge_file_path] = merge_file;
-            }
+            handle_failure(merge_file, meta_status);
             continue;
         }
 
@@ -538,37 +559,40 @@ void MergeFileManager::process_uploading_files() {
         Status upload_status =
                 upload_merge_file(merge_file->merge_file_path, merge_file->writer.get());
 
-        if (upload_status.ok()) {
-            // Mark as uploaded and move to uploaded list
-            {
-                std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
-                merge_file->state = MergeFileStateEnum::UPLOADED;
-                merge_file->upload_time = std::time(nullptr);
-            }
-            merge_file->upload_cv.notify_all();
-
-            // Move to uploaded files list for retention period
-            {
-                std::lock_guard<std::mutex> lock(_merge_files_mutex);
-                _uploading_merge_files.erase(merge_file_path);
-                _uploaded_merge_files[merge_file->merge_file_path] = merge_file;
-            }
-        } else {
-            LOG(WARNING) << "Failed to upload merge file: " << merge_file->merge_file_path
-                         << ", error: " << upload_status.to_string();
-            {
-                std::lock_guard<std::mutex> upload_lock(merge_file->upload_mutex);
-                merge_file->state = MergeFileStateEnum::FAILED;
-                merge_file->last_error = upload_status.to_string();
-                merge_file->upload_time = std::time(nullptr);
-            }
-            merge_file->upload_cv.notify_all();
-            {
-                std::lock_guard<std::mutex> lock(_merge_files_mutex);
-                _uploading_merge_files.erase(merge_file_path);
-                _uploaded_merge_files[merge_file->merge_file_path] = merge_file;
-            }
+        if (upload_status.is<ErrorCode::ALREADY_CLOSED>()) {
+            handle_success(merge_file);
+            continue;
         }
+        if (!upload_status.ok()) {
+            handle_failure(merge_file, upload_status);
+            continue;
+        }
+
+        merge_file->state = MergeFileStateEnum::UPLOADING;
+    }
+
+    for (auto& merge_file : files_uploading) {
+        if (!merge_file->writer) {
+            handle_failure(merge_file,
+                           Status::InternalError("File writer is null for merge file: {}",
+                                                 merge_file->merge_file_path));
+            continue;
+        }
+
+        if (merge_file->writer->state() != FileWriter::State::CLOSED) {
+            continue;
+        }
+
+        Status status = merge_file->writer->close(true);
+        if (status.is<ErrorCode::ALREADY_CLOSED>()) {
+            handle_success(merge_file);
+            continue;
+        }
+        if (status.ok()) {
+            continue;
+        }
+
+        handle_failure(merge_file, status);
     }
 }
 
@@ -577,11 +601,7 @@ Status MergeFileManager::upload_merge_file(const std::string& merge_file_path, F
         return Status::InternalError("File writer is null for merge file: " + merge_file_path);
     }
 
-    // Close the file writer to trigger upload
-    RETURN_IF_ERROR(writer->close());
-
-    VLOG_DEBUG << "Merge file upload completed: " << merge_file_path;
-    return Status::OK();
+    return writer->close(true);
 }
 
 Status MergeFileManager::update_meta_service(const std::string& merge_file_path,

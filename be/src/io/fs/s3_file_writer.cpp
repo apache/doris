@@ -121,9 +121,21 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 
 Status S3FileWriter::close(bool non_block) {
     if (state() == State::CLOSED) {
-        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
-                                     _obj_storage_path_opts.path.native(),
-                                     _obj_storage_path_opts.key);
+        if (_async_close_pack != nullptr) {
+            _st = _async_close_pack->future.get();
+            _async_close_pack = nullptr;
+        }
+        if (non_block) {
+            if (_st.ok()) {
+                return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                        "S3FileWriter already closed, file path {}, file key {}",
+                        _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
+            }
+            return _st;
+        }
+        return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                "S3FileWriter already closed, file path {}, file key {}",
+                _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
     }
     if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
@@ -146,7 +158,9 @@ Status S3FileWriter::close(bool non_block) {
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
             s3_file_writer_async_close_queuing << -1;
             s3_file_writer_async_close_processing << 1;
-            _async_close_pack->promise.set_value(_close_impl());
+            _st = _close_impl();
+            _state = State::CLOSED;
+            _async_close_pack->promise.set_value(_st);
             s3_file_writer_async_close_processing << -1;
         });
     }

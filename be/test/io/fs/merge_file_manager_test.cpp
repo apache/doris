@@ -40,26 +40,52 @@
 namespace doris::io {
 
 using doris::Status;
-using std::chrono::seconds;
-
 class MockFileWriter : public FileWriter {
 public:
     explicit MockFileWriter(std::string path) : _path(std::move(path)) {}
 
     void set_append_status(Status st) { _append_status = std::move(st); }
     void set_close_status(Status st) { _close_status = std::move(st); }
+    void set_start_close_status(Status st) { _start_close_status = std::move(st); }
+    void complete_async_close() {
+        if (_state == State::ASYNC_CLOSING) {
+            _state = State::CLOSED;
+        }
+    }
 
     size_t append_calls() const { return _append_calls; }
     bool closed() const { return _state == State::CLOSED; }
     size_t bytes_appended() const override { return _bytes_appended; }
     const std::string& written_data() const { return _written; }
 
-    Status close(bool /*non_block*/ = false) override {
-        if (!_close_status.ok()) {
-            return _close_status;
+    Status close(bool non_block = false) override {
+        if (_state == State::CLOSED) {
+            if (non_block) {
+                if (_close_status.ok()) {
+                    return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                            "MockFileWriter already closed: {}", _path.native());
+                }
+                return _close_status;
+            }
+            return Status::Error<ErrorCode::ALREADY_CLOSED>("MockFileWriter already closed: {}",
+                                                            _path.native());
         }
+
+        if (!_start_close_status.ok()) {
+            return _start_close_status;
+        }
+
+        if (_state == State::ASYNC_CLOSING) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+
+        if (non_block) {
+            _state = State::ASYNC_CLOSING;
+            return Status::OK();
+        }
+
         _state = State::CLOSED;
-        return Status::OK();
+        return _close_status;
     }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
@@ -83,6 +109,7 @@ private:
     size_t _bytes_appended = 0;
     size_t _append_calls = 0;
     std::string _written;
+    Status _start_close_status = Status::OK();
     Status _append_status = Status::OK();
     Status _close_status = Status::OK();
     State _state = State::OPENED;
@@ -315,7 +342,7 @@ TEST_F(MergeFileManagerTest, MarkCurrentMergeFileForUploadMovesState) {
     ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
     auto uploading = manager->_uploading_merge_files.begin()->second;
     EXPECT_EQ(uploading->merge_file_path, current_path);
-    EXPECT_EQ(uploading->state.load(), MergeFileManager::MergeFileStateEnum::UPLOADING);
+    EXPECT_EQ(uploading->state.load(), MergeFileManager::MergeFileStateEnum::READY_TO_UPLOADING);
     auto* new_state = manager->_current_merge_files[_resource_id].get();
     EXPECT_NE(new_state, nullptr);
     EXPECT_NE(new_state->merge_file_path, current_path);
@@ -432,7 +459,7 @@ TEST_F(MergeFileManagerTest, UploadMergeFileReturnsErrorWhenWriterNull) {
 TEST_F(MergeFileManagerTest, UploadMergeFilePropagatesWriterCloseFailure) {
     auto writer = file_system->last_writer();
     ASSERT_NE(writer, nullptr);
-    writer->set_close_status(Status::IOError("close fail"));
+    writer->set_start_close_status(Status::IOError("close fail"));
     auto status = manager->upload_merge_file(writer->path().native(), writer);
     EXPECT_FALSE(status.ok());
 }
@@ -442,7 +469,7 @@ TEST_F(MergeFileManagerTest, UploadMergeFileSucceedsWhenWriterCloses) {
     ASSERT_NE(writer, nullptr);
     auto status = manager->upload_merge_file(writer->path().native(), writer);
     EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(writer->closed());
+    EXPECT_EQ(writer->state(), FileWriter::State::ASYNC_CLOSING);
 }
 
 TEST_F(MergeFileManagerTest, ProcessUploadingFilesSetsFailedWhenMetaUpdateFails) {
@@ -460,6 +487,59 @@ TEST_F(MergeFileManagerTest, ProcessUploadingFilesSetsFailedWhenMetaUpdateFails)
     auto uploaded = manager->_uploaded_merge_files.begin()->second;
     EXPECT_EQ(uploaded->state.load(), MergeFileManager::MergeFileStateEnum::FAILED);
     EXPECT_FALSE(uploaded->last_error.empty());
+}
+
+TEST_F(MergeFileManagerTest, ProcessUploadingFilesCompletesAsyncUpload) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("async_success", slice, info).ok());
+    ASSERT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
+    ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
+
+    auto uploading = manager->_uploading_merge_files.begin()->second;
+    auto* writer = dynamic_cast<MockFileWriter*>(uploading->writer.get());
+    ASSERT_NE(writer, nullptr);
+    uploading->state = MergeFileManager::MergeFileStateEnum::UPLOADING;
+    ASSERT_TRUE(writer->close(true).ok());
+
+    manager->process_uploading_files();
+    EXPECT_EQ(uploading->state.load(), MergeFileManager::MergeFileStateEnum::UPLOADING);
+    EXPECT_EQ(manager->_uploaded_merge_files.size(), 0);
+
+    writer->complete_async_close();
+    manager->process_uploading_files();
+    EXPECT_EQ(manager->_uploading_merge_files.size(), 0);
+    ASSERT_EQ(manager->_uploaded_merge_files.size(), 1);
+    auto uploaded = manager->_uploaded_merge_files.begin()->second;
+    EXPECT_EQ(uploaded->state.load(), MergeFileManager::MergeFileStateEnum::UPLOADED);
+}
+
+TEST_F(MergeFileManagerTest, ProcessUploadingFilesSetsFailedWhenAsyncCloseFails) {
+    std::string payload = "abc";
+    Slice slice(payload);
+    auto info = default_append_info();
+    ASSERT_TRUE(manager->append("async_fail", slice, info).ok());
+    ASSERT_TRUE(manager->mark_current_merge_file_for_upload(_resource_id).ok());
+    ASSERT_EQ(manager->_uploading_merge_files.size(), 1);
+
+    auto uploading = manager->_uploading_merge_files.begin()->second;
+    auto* writer = dynamic_cast<MockFileWriter*>(uploading->writer.get());
+    ASSERT_NE(writer, nullptr);
+    uploading->state = MergeFileManager::MergeFileStateEnum::UPLOADING;
+    writer->set_close_status(Status::IOError("async close fail"));
+    ASSERT_TRUE(writer->close(true).ok());
+
+    manager->process_uploading_files();
+    EXPECT_EQ(uploading->state.load(), MergeFileManager::MergeFileStateEnum::UPLOADING);
+
+    writer->complete_async_close();
+    manager->process_uploading_files();
+    EXPECT_EQ(manager->_uploading_merge_files.size(), 0);
+    ASSERT_EQ(manager->_uploaded_merge_files.size(), 1);
+    auto failed = manager->_uploaded_merge_files.begin()->second;
+    EXPECT_EQ(failed->state.load(), MergeFileManager::MergeFileStateEnum::FAILED);
+    EXPECT_NE(failed->last_error.find("async close fail"), std::string::npos);
 }
 
 TEST_F(MergeFileManagerTest, CleanupExpiredDataRemovesOldEntries) {
