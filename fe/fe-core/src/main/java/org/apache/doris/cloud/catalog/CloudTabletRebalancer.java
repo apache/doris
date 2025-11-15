@@ -163,7 +163,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
-        super("cloud tablet rebalancer", Config.cloud_tablet_rebalancer_interval_second * 1000);
+        super("cloud tablet rebalancer", 10L);
         this.cloudSystemInfoService = cloudSystemInfoService;
     }
 
@@ -317,6 +317,78 @@ public class CloudTabletRebalancer extends MasterDaemon {
         checkDecommissionState(clusterToBes);
         inited = true;
         LOG.info("finished to rebalancer. cost: {} ms", (System.currentTimeMillis() - start));
+
+        long sleepSeconds = Config.cloud_tablet_rebalancer_interval_second;
+        if (sleepSeconds < 0L) {
+            LOG.warn("cloud tablet rebalance interval second is negative, change it to default 20s");
+            sleepSeconds = 20L;
+        }
+
+        if (!Config.cloud_tablet_rebalancer_fixed_interval) {
+            // compute adaptive rebalance interval seconds
+            sleepSeconds = computeAdaptiveRebalanceIntervalSeconds(sleepSeconds);
+        }
+        try {
+            Thread.sleep(sleepSeconds * 1000L);
+        } catch (InterruptedException e) {
+            LOG.warn("sleep interrupted", e);
+        }
+    }
+
+    // clac adaptive rebalance interval seconds based on cpu load and memory pressure
+    private long computeAdaptiveRebalanceIntervalSeconds(long baseSeconds) {
+        // Default to base if metrics are unavailable
+        double cpuLoad = 0.5; // 0.0 ~ 1.0
+        double memPressure = 0.5; // 0.0 ~ 1.0
+
+        try {
+            java.lang.management.MemoryMXBean memoryMXBean = java.lang.management.ManagementFactory.getMemoryMXBean();
+            java.lang.management.MemoryUsage heap = memoryMXBean.getHeapMemoryUsage();
+            if (heap.getMax() > 0) {
+                memPressure = Math.max(0.0, Math.min(1.0, (double) heap.getUsed() / (double) heap.getMax()));
+            }
+        } catch (Throwable t) {
+            // ignore and use defaults
+        }
+
+        try {
+            java.lang.management.OperatingSystemMXBean osBean = java.lang.management
+                    .ManagementFactory.getOperatingSystemMXBean();
+            if (osBean instanceof com.sun.management.OperatingSystemMXBean) {
+                com.sun.management.OperatingSystemMXBean sx = (com.sun.management.OperatingSystemMXBean) osBean;
+                double proc = sx.getProcessCpuLoad(); // may return <0 if not available
+                double sys = sx.getSystemCpuLoad();
+                double max = Math.max(proc, sys);
+                if (max >= 0.0) {
+                    cpuLoad = Math.max(0.0, Math.min(1.0, max));
+                }
+            }
+        } catch (Throwable t) {
+            // ignore and use defaults
+        }
+
+        // Linear uniform mapping: load in [0,1] -> sleep in [1s, 20s]
+        /*
+        (0.00, 0.00) → 1s
+        (0.10, 0.20) → round(1 + 190.20) = 5s
+        (0.30, 0.30) → round(1 + 190.30) = 7s
+        (0.50, 0.40) → round(1 + 190.50) = 11s
+        (0.70, 0.60) → round(1 + 190.70) = 14s
+        (0.85, 0.40) → round(1 + 190.85) = 17s
+        (1.00, 0.30) → 20s
+        */
+        double load = Math.max(cpuLoad, memPressure);
+        load = Math.max(0.0, Math.min(1.0, load));
+        double minSeconds = 1.0;
+        double maxSeconds = baseSeconds;
+        double sleep = minSeconds + (maxSeconds - minSeconds) * load;
+        long adaptive = Math.round(sleep);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("adaptive rebalance sleep: base={}s, cpuLoad={}, memPressure={}, load={}, final={}s",
+                    baseSeconds, String.format("%.2f", cpuLoad), String.format("%.2f", memPressure),
+                    String.format("%.2f", load), adaptive);
+        }
+        return adaptive;
     }
 
     private void buildClusterToBackendMap() {
