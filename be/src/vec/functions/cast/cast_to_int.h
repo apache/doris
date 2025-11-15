@@ -64,6 +64,11 @@ public:
                                 type_to_string(FromDataType::PType),
                                 block.get_by_position(arguments[0]).column->get_name()));
         }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
         auto& vec_to = col_to->get_data();
@@ -158,6 +163,11 @@ public:
             return Status::InternalError(fmt::format("Column type mismatch: expected {}, got {}",
                                                      type_to_string(FromDataType::PType),
                                                      named_from.column->get_name()));
+        }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
         }
         const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
         UInt32 from_precision = from_decimal_type.get_precision();
