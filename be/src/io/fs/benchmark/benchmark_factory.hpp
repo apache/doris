@@ -104,7 +104,7 @@ public:
         Status status = Status::OK();
         if (doris::config::enable_java_support) {
             // Init jni
-            status = doris::JniUtil::Init();
+            status = doris::Jni::Util::Init();
             if (!status.ok()) {
                 LOG(WARNING) << "Failed to initialize JNI: " << status;
                 exit(1);
