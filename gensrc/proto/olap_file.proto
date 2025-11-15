@@ -65,6 +65,12 @@ message SplitSchemaPB {
     optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
 }
 
+message MergeFileSegmentIndexPB {
+    optional string merge_file_path = 1;
+    optional int64 offset = 2;
+    optional int64 size = 3;
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -151,6 +157,7 @@ message RowsetMetaPB {
 
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
+    map<string, MergeFileSegmentIndexPB> merge_file_segment_index = 1012;
 }
 
 message SchemaDictKeyList {
@@ -249,6 +256,7 @@ message RowsetMetaCloudPB {
 
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
+    map<string, MergeFileSegmentIndexPB> merge_file_segment_index = 111;
 }
 
 message SegmentStatisticsPB {

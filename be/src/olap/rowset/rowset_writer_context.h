@@ -22,11 +22,15 @@
 
 #include <functional>
 #include <optional>
+#include <string_view>
+#include <unordered_map>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/merge_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"
@@ -114,6 +118,8 @@ struct RowsetWriterContext {
 
     bool is_transient_rowset_writer = false;
 
+    bool enable_merge_file = true;
+
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
 
@@ -163,9 +169,41 @@ struct RowsetWriterContext {
 #else
             encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 #endif
-            return fs;
         }
-        return io::make_file_system(fs, encrypt_algorithm.value());
+
+        // Apply encryption if needed
+        if (encrypt_algorithm.has_value()) {
+            fs = io::make_file_system(fs, encrypt_algorithm.value());
+        }
+
+        // Apply merge file system for write path if enabled
+        // Create empty index_map for write path
+        // Index information will be populated after write completes
+        bool has_v1_inverted_index = tablet_schema != nullptr &&
+                                     tablet_schema->has_inverted_index() &&
+                                     tablet_schema->get_inverted_index_storage_format() ==
+                                             InvertedIndexStorageFormatPB::V1;
+
+        if (has_v1_inverted_index && enable_merge_file && config::enable_merge_file) {
+            static constexpr std::string_view kMsg =
+                    "Disable merge file for V1 inverted index tablet to avoid missing index "
+                    "metadata (temporary workaround)";
+            LOG(INFO) << kMsg << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id;
+        }
+
+        bool should_wrap_with_merge_fs = enable_merge_file && config::is_cloud_mode() &&
+                                         config::enable_merge_file && !has_v1_inverted_index;
+
+        if (should_wrap_with_merge_fs) {
+            std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
+            io::MergeFileAppendInfo append_info;
+            append_info.tablet_id = tablet_id;
+            append_info.rowset_id = rowset_id.to_string();
+            append_info.txn_id = txn_id;
+            fs = std::make_shared<io::MergeFileSystem>(fs, index_map, append_info);
+        }
+
+        return fs;
     }
 
     io::FileSystem& fs_ref() { return *fs(); }

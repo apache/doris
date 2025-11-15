@@ -700,6 +700,7 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
     context.tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    context.enable_merge_file = false;
     std::unique_ptr<RowsetWriter> rowset_writer;
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
@@ -728,6 +729,7 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     context.tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    context.enable_merge_file = false;
     std::unique_ptr<RowsetWriter> rowset_writer;
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
@@ -1243,6 +1245,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
+        context.enable_merge_file = false;
 
         if (!rs_reader->rowset()->is_local()) {
             auto maybe_resource = rs_reader->rowset()->rowset_meta()->remote_storage_resource();
