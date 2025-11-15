@@ -245,6 +245,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -2302,6 +2303,31 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
             setOperationNode.setColocate(true);
+        }
+
+        if (setOperation instanceof PhysicalUnion) {
+            boolean isInplaceUnion = false;
+            if (setOperation.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecExecutionAny) {
+                IdentityHashMap<PlanNode, PlanNode> p2pChildRoot = new IdentityHashMap<>();
+                for (PlanNode child : setOperationNode.getChildren()) {
+                    if (child instanceof ExchangeNode) {
+                        p2pChildRoot.put(child.getChild(0), child.getChild(0));
+                        ((ExchangeNode) child).setPartitionType(TPartitionType.POINT_TO_POINT);
+                        isInplaceUnion = true;
+                    }
+                }
+
+                for (PlanFragment childFragment : setOperationFragment.getChildren()) {
+                    PlanNode child = childFragment.getPlanRoot();
+                    if (p2pChildRoot.containsKey(child)) {
+                        DataStreamSink sink = (DataStreamSink) childFragment.getSink();
+                        DataPartition p2pPartition = new DataPartition(TPartitionType.POINT_TO_POINT);
+                        sink.setOutputPartition(p2pPartition);
+                        childFragment.setOutputPartition(p2pPartition);
+                    }
+                }
+            }
+            ((UnionNode) setOperationNode).setInplaceUnion(isInplaceUnion);
         }
 
         return setOperationFragment;
