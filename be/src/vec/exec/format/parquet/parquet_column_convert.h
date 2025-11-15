@@ -353,6 +353,42 @@ public:
     }
 };
 
+class VarBinaryConverter : public PhysicalToLogicalConverter {
+public:
+    VarBinaryConverter() = default;
+
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
+        DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
+
+        const ColumnString* string_col = nullptr;
+        if (is_column_nullable(*src_physical_col)) {
+            const auto& nullable =
+                    assert_cast<const vectorized::ColumnNullable*>(src_physical_col.get());
+            string_col = &assert_cast<const ColumnString&>(nullable->get_nested_column());
+        } else {
+            string_col = &assert_cast<const ColumnString&>(*src_physical_col);
+        }
+
+        MutableColumnPtr to_col = nullptr;
+        // nullmap flag seems have been handled in upper level
+        if (src_logical_column->is_nullable()) {
+            const auto* nullable =
+                    assert_cast<const vectorized::ColumnNullable*>(src_logical_column.get());
+            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+        } else {
+            to_col = src_logical_column->assume_mutable();
+        }
+        auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col.get());
+
+        for (size_t i = 0; i < string_col->size(); ++i) {
+            auto string_ref = string_col->get_data_at(i);
+            to_varbinary_column->insert_data(string_ref.data, string_ref.size);
+        }
+        return Status::OK();
+    }
+};
+
 template <PrimitiveType DecimalPType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
