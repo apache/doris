@@ -15,28 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 
+/**
+ * StageProperties
+ */
 public class StageProperties extends CopyProperties {
-    private static final Logger LOG = LogManager.getLogger(StageProperties.class);
-    private static final String KEY_PREFIX = "default.";
-
     // properties for object storage
     public static final String ENDPOINT = "endpoint";
     public static final String REGION = "region";
@@ -54,6 +51,7 @@ public class StageProperties extends CopyProperties {
     private static final String ACCESS_BY_IAM = "iam";
     private static final String ACCESS_BY_BUCKET_ACL = "bucket_acl";
     private static final String DRY_RUN = "dry_run";
+    private static final String KEY_PREFIX = "default.";
 
     private static final ImmutableSet<String> STORAGE_REQUIRED_PROPERTIES = new ImmutableSet.Builder<String>().add(
             ENDPOINT).add(REGION).add(BUCKET).add(PROVIDER).add(ACCESS_TYPE).build();
@@ -73,24 +71,27 @@ public class StageProperties extends CopyProperties {
         super(properties, KEY_PREFIX);
     }
 
-    public void analyze() throws AnalysisException {
-        analyzeStorageProperties();
-        analyzeTypeAndCompression();
-        analyzeSizeLimit();
-        analyzeOnError();
-        analyzeAsync();
-        analyzeStrictMode();
-        analyzeLoadParallelism();
-        analyzeAccessType();
-        analyzeDryRun();
-        for (Entry<String, String> entry : properties.entrySet()) {
+    /**
+     * validate
+     */
+    public void validate() throws AnalysisException {
+        validateStorageProperties();
+        validateTypeAndCompression();
+        validateSizeLimit();
+        validateOnError();
+        validateAsync();
+        validateStrictMode();
+        validateLoadParallelism();
+        validateAccessType();
+        validateDryRun();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!STAGE_PROPERTIES.contains(entry.getKey())) {
                 throw new AnalysisException("Property '" + entry.getKey() + "' is invalid");
             }
         }
     }
 
-    private void analyzeAccessType() throws AnalysisException {
+    private void validateAccessType() throws AnalysisException {
         String accessType = properties.get(ACCESS_TYPE);
         if (accessType.equalsIgnoreCase(ACCESS_BY_AKSK)) {
             if (StringUtils.isEmpty(properties.get(AK))) {
@@ -113,7 +114,7 @@ public class StageProperties extends CopyProperties {
         }
     }
 
-    private void analyzeStorageProperties() throws AnalysisException {
+    private void validateStorageProperties() throws AnalysisException {
         for (String prop : STORAGE_REQUIRED_PROPERTIES) {
             if (!properties.containsKey(prop)) {
                 throw new AnalysisException("Property " + prop + " is required for ExternalStage");
@@ -142,14 +143,17 @@ public class StageProperties extends CopyProperties {
         }
     }
 
-    protected void analyzeDryRun() throws AnalysisException {
-        analyzeBooleanProperty(DRY_RUN);
+    protected void validateDryRun() throws AnalysisException {
+        validateBooleanProperty(DRY_RUN);
     }
 
     public boolean isDryRun() {
         return properties.containsKey(DRY_RUN) ? Boolean.parseBoolean(properties.get(DRY_RUN)) : false;
     }
 
+    /**
+     * getObjectStoreInfoPB
+     */
     public ObjectStoreInfoPB getObjectStoreInfoPB() {
         ObjectStoreInfoPB.Builder builder = ObjectStoreInfoPB.newBuilder().setEndpoint(properties.get(ENDPOINT))
                 .setRegion(properties.get(REGION)).setBucket(properties.get(BUCKET)).setPrefix(properties.get(PREFIX))
@@ -176,6 +180,9 @@ public class StageProperties extends CopyProperties {
         return properties.get(ARN);
     }
 
+    /**
+     * getAccessType
+     */
     public StageAccessType getAccessType() {
         String accessType = properties.get(ACCESS_TYPE);
         if (accessType.equalsIgnoreCase(ACCESS_BY_AKSK)) {
@@ -188,9 +195,12 @@ public class StageProperties extends CopyProperties {
         return StageAccessType.UNKNOWN;
     }
 
+    /**
+     * getDefaultProperties
+     */
     public Map<String, String> getDefaultProperties() {
         Map<String, String> otherProperties = new HashMap<>();
-        for (Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!STORAGE_PROPERTIES.contains(entry.getKey())) {
                 otherProperties.put(entry.getKey(), entry.getValue());
             }
@@ -198,9 +208,12 @@ public class StageProperties extends CopyProperties {
         return otherProperties;
     }
 
+    /**
+     * getDefaultPropertiesWithoutPrefix
+     */
     public Map<String, String> getDefaultPropertiesWithoutPrefix() {
         Map<String, String> otherProperties = new HashMap<>();
-        for (Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!STORAGE_PROPERTIES.contains(entry.getKey())) {
                 otherProperties.put(removeKeyPrefix(entry.getKey()), entry.getValue());
             }
@@ -208,9 +221,12 @@ public class StageProperties extends CopyProperties {
         return otherProperties;
     }
 
+    /**
+     * getStageTvfProperties
+     */
     public Map<String, String> getStageTvfProperties() {
         Map<String, String> otherProperties = new HashMap<>();
-        for (Entry<String, String> entry : getDefaultPropertiesWithoutPrefix().entrySet()) {
+        for (Map.Entry<String, String> entry : getDefaultPropertiesWithoutPrefix().entrySet()) {
             if (entry.getKey().startsWith(COPY_PREFIX)) {
                 continue;
             }
