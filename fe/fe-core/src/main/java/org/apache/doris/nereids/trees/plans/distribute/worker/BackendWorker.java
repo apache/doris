@@ -24,13 +24,20 @@ import java.util.Objects;
 /** BackendWorker */
 public class BackendWorker implements DistributedPlanWorker {
     private final Backend backend;
+    private final long catalogId;
 
-    public BackendWorker(Backend backend) {
+    public BackendWorker(long catalogId, Backend backend) {
         this.backend = Objects.requireNonNull(backend, "backend can not be null");
+        this.catalogId = catalogId;
     }
 
     public Backend getBackend() {
         return backend;
+    }
+
+    @Override
+    public long getCatalogId() {
+        return catalogId;
     }
 
     @Override
