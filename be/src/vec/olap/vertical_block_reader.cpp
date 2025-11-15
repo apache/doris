@@ -515,7 +515,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             RETURN_IF_ERROR(
                     Block::filter_block(block, target_columns.size(), target_columns.size()));
             _stats.rows_del_filtered += block_rows - block->rows();
-            DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
             if (UNLIKELY(_reader_context.record_rowids)) {
                 DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
             }

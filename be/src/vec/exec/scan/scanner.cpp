@@ -113,8 +113,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
-                    // clear TEMP columns to avoid column align problem
-                    block->erase_tmp_columns();
                     break;
                 }
                 _num_rows_read += block->rows();
@@ -145,11 +143,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status Scanner::_filter_output_block(Block* block) {
-    Defer clear_tmp_block([&]() { block->erase_tmp_columns(); });
-    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
-        // scanner filter_block is already done (only by _topn_next currently), just skip it
-        return Status::OK();
-    }
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
