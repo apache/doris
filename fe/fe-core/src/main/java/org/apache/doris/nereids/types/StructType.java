@@ -69,6 +69,10 @@ public class StructType extends DataType implements ComplexDataType {
         return fields;
     }
 
+    public StructField getField(String fieldName) {
+        return nameToFields.get(fieldName.toLowerCase());
+    }
+
     public Map<String, StructField> getNameToFields() {
         return nameToFields;
     }

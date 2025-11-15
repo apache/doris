@@ -1604,7 +1604,7 @@ primaryExpression
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
-    | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
+    | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                          #tryCast
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
@@ -2054,6 +2054,7 @@ nonReserved
     | JOBS
     | JSON
     | JSONB
+    | KEYS
     | LABEL
     | LAST
     | LDAP
@@ -2182,6 +2183,7 @@ nonReserved
     | SESSION
     | SESSION_USER
     | SHAPE
+    | SIZE
     | SKEW
     | SNAPSHOT
     | SNAPSHOTS
@@ -2225,6 +2227,7 @@ nonReserved
     | UP
     | USER
     | VALUE
+    | VALUES
     | VARBINARY
     | VARCHAR
     | VARIABLE
