@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
+#include "util/stack_util.h"
 
 namespace doris {
 uint64_t g_tablet_report_inactive_duration_ms = 0;
@@ -173,6 +174,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         std::shared_ptr<CloudTablet> tablet;
         TabletMap& tablet_map;
     };
+
+    VLOG_DEBUG << "get_tablet tablet_id=" << tablet_id << " stack: " << get_stack_trace();
 
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str);
