@@ -48,12 +48,13 @@ suite ("query_in_different_db") {
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"
 
+    sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='12');"""
+
     create_sync_mv(db, "d_table", "mv_in_${db}", """
     select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1
     """)
 
-    sql "analyze table d_table with sync;"
-    sql """alter table d_table modify column k1 set stats ('row_count'='12');"""
     // use another db, mv rewrite should be correct
     sql """drop database IF EXISTS test_query_in_different_db"""
 
