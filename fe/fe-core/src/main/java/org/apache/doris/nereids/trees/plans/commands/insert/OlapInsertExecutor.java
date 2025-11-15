@@ -135,6 +135,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         try {
             // TODO refactor this to avoid call legacy planner's function
             long timeout = getTimeout();
+            // TODO: For Insert Into with S3/HDFS TVF, need to get load_to_single_tablet from TVF properties
+            // Currently hardcoded to false, which bypasses the check in OlapTableSink.init()
             olapTableSink.init(ctx.queryId(), txnId, database.getId(),
                     timeout,
                     ctx.getSessionVariable().getSendBatchParallelism(),
