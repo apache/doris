@@ -30,7 +30,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
-/** EliminateAssertNumRows */
+/**
+ PushDownAssertNumRowsJoin depends on AssertNumRows operator.
+ EliminateAssertNumRows should be applied after PushDownAssertNumRowsJoin
+ */
 public class EliminateAssertNumRows extends OneRewriteRuleFactory {
 
     @Override

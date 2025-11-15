@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -311,5 +312,61 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
     @Override
     public Optional<Plan> processProject(List<NamedExpression> parentProjects) {
         return Optional.of(PushProjectThroughUnion.doPushProject(parentProjects, this));
+    }
+
+    /**
+     * Push down expression past SetOperation to a specific child.
+     *
+     * This method maps the expression from the SetOperation's output slots
+     * to the corresponding child's output slots.
+     *
+     * Example:
+     * SetOperation outputs: [x, y]
+     * Child 0 outputs (regularChildrenOutputs[0]): [a, b]
+     * Child 1 outputs (regularChildrenOutputs[1]): [c, d]
+     *
+     * If expression is "x + 1":
+     * - For childIdx=0, return "a + 1"
+     * - For childIdx=1, return "c + 1"
+     *
+     * @param expression the expression to push down
+     * @param childIdx   the index of the child to push down to
+     * @return the rewritten expression for the child, or null if childIdx is out of
+     *         bounds
+     */
+    public Expression pushDownExpressionPastSetOperator(Expression expression, int childIdx) {
+        // Check if childIdx is valid
+        if (childIdx < 0 || childIdx >= regularChildrenOutputs.size()) {
+            return null;
+        }
+
+        // Build mapping from SetOperation output slots to child output slots
+        java.util.HashMap<Slot, Expression> slotMapping = new java.util.HashMap<>();
+        List<SlotReference> childOutputs = regularChildrenOutputs.get(childIdx);
+
+        // Map each output slot to the corresponding child slot
+        for (int i = 0; i < outputs.size() && i < childOutputs.size(); i++) {
+            Slot outputSlot = outputs.get(i).toSlot();
+            SlotReference childSlot = childOutputs.get(i);
+            slotMapping.put(outputSlot, childSlot);
+        }
+
+        // Replace slots in the expression using the mapping
+        return ExpressionUtils.replace(expression, slotMapping);
+    }
+
+    /**
+     * the non-const child count
+     * @return the non-const child count
+     */
+    public int getNonConstChildrenCount() {
+        int regularChildrenCount = regularChildrenOutputs.size();
+        int oneRowChildCount = 0;
+        for (Plan child : children) {
+            if (child instanceof LogicalOneRowRelation) {
+                oneRowChildCount++;
+            }
+        }
+        return regularChildrenCount - oneRowChildCount;
     }
 }
