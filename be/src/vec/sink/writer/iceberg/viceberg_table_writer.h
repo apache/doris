@@ -28,7 +28,7 @@
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
 #include "vec/exec/format/table/iceberg/schema_parser.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "vec/sink/writer/blocking_writer.h"
 #include "vec/sink/writer/iceberg/partition_data.h"
 #include "vec/sink/writer/iceberg/partition_transformers.h"
 
@@ -43,11 +43,9 @@ class IColumn;
 class VIcebergPartitionWriter;
 struct ColumnWithTypeAndName;
 
-class VIcebergTableWriter final : public AsyncResultWriter {
+class VIcebergTableWriter final : public BlockingWriter {
 public:
-    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                        std::shared_ptr<pipeline::Dependency> dep,
-                        std::shared_ptr<pipeline::Dependency> fin_dep);
+    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     ~VIcebergTableWriter() = default;
 

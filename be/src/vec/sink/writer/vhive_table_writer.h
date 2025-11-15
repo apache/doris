@@ -22,7 +22,7 @@
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "vec/sink/writer/blocking_writer.h"
 
 namespace doris {
 
@@ -36,11 +36,9 @@ class Block;
 class VHivePartitionWriter;
 struct ColumnWithTypeAndName;
 
-class VHiveTableWriter final : public AsyncResultWriter {
+class VHiveTableWriter final : public BlockingWriter {
 public:
-    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                     std::shared_ptr<pipeline::Dependency> dep,
-                     std::shared_ptr<pipeline::Dependency> fin_dep);
+    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     ~VHiveTableWriter() override = default;
 
