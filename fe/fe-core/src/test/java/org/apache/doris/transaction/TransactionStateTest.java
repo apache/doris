@@ -19,6 +19,7 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -29,7 +30,6 @@ import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -46,7 +46,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.UUID;
 import java.util.function.Consumer;
 
 public class TransactionStateTest {
@@ -85,9 +84,8 @@ public class TransactionStateTest {
 
     @Test
     public void testSerDe() throws IOException {
-        UUID uuid = UUID.randomUUID();
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L),
-                3000, "label123", new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
+                3000, "label123", UUIDUtil.genTUniqueId(),
                 LoadJobSourceType.BACKEND_STREAMING,
                 new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
                 50000L, 60 * 1000L);
@@ -98,7 +96,6 @@ public class TransactionStateTest {
 
     @Test
     public void testSerDeForBatchLoad() throws IOException {
-        UUID uuid = UUID.randomUUID();
         // EtlStatus
         EtlStatus etlStatus = new EtlStatus();
         etlStatus.setState(TEtlState.FINISHED);
@@ -112,7 +109,7 @@ public class TransactionStateTest {
                 JobState.FINISHED, failMsg);
         // TransactionState
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L), 3000,
-                "label123", new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
+                "label123", UUIDUtil.genTUniqueId(),
                 LoadJobSourceType.BACKEND_STREAMING,
                 new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
                 TransactionStatus.COMMITTED, "", 100, 50000L, loadJobFinalOperation, 100, 200, 300, 400);
@@ -135,7 +132,6 @@ public class TransactionStateTest {
 
     @Test
     public void testSerDeForRoutineLoad() throws IOException {
-        UUID uuid = UUID.randomUUID();
         // create a RLTaskTxnCommitAttachment
         RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
@@ -145,7 +141,7 @@ public class TransactionStateTest {
         Deencapsulation.setField(attachment, "progress", kafkaProgress);
         // TransactionState
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L),
-                3000, "label123", new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
+                3000, "label123", UUIDUtil.genTUniqueId(),
                 LoadJobSourceType.BACKEND_STREAMING,
                 new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
                 TransactionStatus.COMMITTED, "", 100, 50000L,

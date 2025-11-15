@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.thrift.TUniqueId;
@@ -31,13 +32,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
-public class SqlCacheTest extends TestWithFeService {
+public class SqlCacheTest {
     @Test
     public void testCacheKey() {
-        TUniqueId queryId = new TUniqueId();
-        UUID uuid = UUID.randomUUID();
-        queryId.setHi(uuid.getMostSignificantBits());
-        queryId.setLo(uuid.getLeastSignificantBits());
+        TUniqueId queryId = UUIDUtil.genTUniqueId();
         UserIdentity admin = new UserIdentity("admin", "127.0.0.1");
 
         SessionVariable sessionVariable = new SessionVariable();
