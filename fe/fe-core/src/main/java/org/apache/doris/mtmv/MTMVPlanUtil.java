@@ -145,6 +145,7 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().skipStorageEngineMerge = false;
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+        ctx.getSessionVariable().skipPrunePredicate = true;
         ctx.getSessionVariable().setDisableNereidsRules(
                 disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
         ctx.setStartTime();

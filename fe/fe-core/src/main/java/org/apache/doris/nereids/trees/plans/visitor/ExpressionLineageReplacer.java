@@ -21,6 +21,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -35,6 +37,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -116,6 +119,18 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
             }
             return hasNewChildren ? expr.withChildren(newChildren) : expr;
         }
+
+        @Override
+        public Expression visitVirtualReference(VirtualSlotReference virtualSlotReference,
+                                                Map<ExprId, Expression> context) {
+            Optional<GroupingScalarFunction> replacedExpression = virtualSlotReference.getOriginExpression().map(
+                    expression -> (GroupingScalarFunction) expression.accept(this, context));
+            if (replacedExpression.isPresent()) {
+                return super.visit(virtualSlotReference.withOriginExpressionAndComputeLongValueMethod(
+                        replacedExpression, replacedExpression.get()::computeVirtualSlotValue), context);
+            }
+            return super.visitVirtualReference(virtualSlotReference, context);
+        }
     }
 
     /**
@@ -140,6 +155,13 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
                 context.getExprIdExpressionMap().put(alias.getExprId(), alias.child());
             }
             return super.visitAlias(alias, context);
+        }
+
+        @Override
+        public Void visitVirtualReference(VirtualSlotReference virtualSlotReference, ExpressionReplaceContext context) {
+            virtualSlotReference.getOriginExpression().ifPresent(
+                    expression -> expression.accept(this, context));
+            return super.visitVirtualReference(virtualSlotReference, context);
         }
     }
 

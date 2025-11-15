@@ -423,7 +423,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 rewrittenPlanOutput, queryPlan.getOutput()));
                 continue;
             }
-            // Merge project
+            // Merge project if contains mult same project
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getCteChildrenRewriter(childContext,
@@ -641,11 +641,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     expressionShuttledToRewrite.collectToSet(expression -> expression instanceof SlotReference
                             && ((SlotReference) expression).getDataType() instanceof VariantType);
             extendMappingByVariant(variants, targetToTargetReplacementMappingQueryBased);
-            Expression replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
+
+            MaterializedViewExprReplacer materializedViewExprReplacer = new MaterializedViewExprReplacer(
                     targetToTargetReplacementMappingQueryBased);
-            Set<Expression> replacedExpressionSlotQueryUsed = replacedExpression.collect(slotsToRewrite::contains);
-            if (!replacedExpressionSlotQueryUsed.isEmpty()) {
-                // if contains any slot to rewrite, which means could not be rewritten by target,
+            Expression replacedExpression =
+                    expressionShuttledToRewrite.accept(materializedViewExprReplacer, null);
+            if (!materializedViewExprReplacer.isReplaceSuccess()) {
+                // if contains any slot to rewrite, which means can not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
                 if (viewExprParamToDateTruncMap.isEmpty()
