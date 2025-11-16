@@ -353,21 +353,23 @@ public:
     }
 };
 
+template <PrimitiveType FromPtype, PrimitiveType ToPtype>
 class VarBinaryConverter : public PhysicalToLogicalConverter {
 public:
     VarBinaryConverter() = default;
-
+    using FromColumnType = typename PrimitiveTypeTraits<FromPtype>::ColumnType;
+    using ToColumnType = typename PrimitiveTypeTraits<ToPtype>::ColumnType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
         DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
 
-        const ColumnString* string_col = nullptr;
+        const FromColumnType* from_col = nullptr;
         if (is_column_nullable(*src_physical_col)) {
             const auto& nullable =
                     assert_cast<const vectorized::ColumnNullable*>(src_physical_col.get());
-            string_col = &assert_cast<const ColumnString&>(nullable->get_nested_column());
+            from_col = &assert_cast<const FromColumnType&>(nullable->get_nested_column());
         } else {
-            string_col = &assert_cast<const ColumnString&>(*src_physical_col);
+            from_col = &assert_cast<const FromColumnType&>(*src_physical_col);
         }
 
         MutableColumnPtr to_col = nullptr;
@@ -379,11 +381,11 @@ public:
         } else {
             to_col = src_logical_column->assume_mutable();
         }
-        auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col.get());
+        auto* to_dst_column = assert_cast<ToColumnType*>(to_col.get());
 
-        for (size_t i = 0; i < string_col->size(); ++i) {
-            auto string_ref = string_col->get_data_at(i);
-            to_varbinary_column->insert_data(string_ref.data, string_ref.size);
+        for (size_t i = 0; i < from_col->size(); ++i) {
+            auto string_ref = from_col->get_data_at(i);
+            to_dst_column->insert_data(string_ref.data, string_ref.size);
         }
         return Status::OK();
     }
