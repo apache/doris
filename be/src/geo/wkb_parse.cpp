@@ -76,13 +76,13 @@ unsigned char ASCIIHexToUChar(char val) {
     }
 }
 
-GeoParseStatus WkbParse::parse_wkb(std::istream& is, std::unique_ptr<GeoShape>* shape) {
+GeoParseStatus WkbParse::parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape) {
     WkbParseContext ctx;
 
     WkbParse::read_hex(is, ctx);
     if (ctx.parse_status == GEO_PARSE_OK) {
         if (shape != nullptr) {
-            *shape = std::move(ctx.shape);
+            shape = std::move(ctx.shape);
         }
     } else {
         ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;

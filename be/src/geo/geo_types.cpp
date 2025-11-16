@@ -404,14 +404,14 @@ void GeoShape::encode_to(std::string* buf) {
 }
 
 std::unique_ptr<GeoShape> GeoShape::from_wkt(const char* data, size_t size,
-                                             GeoParseStatus* status) {
+                                             GeoParseStatus& status) {
     std::unique_ptr<GeoShape> shape;
-    *status = WktParse::parse_wkt(data, size, &shape);
+    status = WktParse::parse_wkt(data, size, shape);
     return shape;
 }
 
 std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
-                                             GeoParseStatus* status) {
+                                             GeoParseStatus& status) {
     std::stringstream wkb;
 
     for (int i = 0; i < size; ++i) {
@@ -422,7 +422,7 @@ std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
         data++;
     }
     std::unique_ptr<GeoShape> shape;
-    *status = WkbParse::parse_wkb(wkb, &shape);
+    status = WkbParse::parse_wkb(wkb, shape);
     return shape;
 }
 

@@ -52,10 +52,10 @@ public:
     // be returned, and the client should delete it when don't need it.
     // return nullptr if convert failed, and reason will be set in status
     static std::unique_ptr<GeoShape> from_wkt(const char* data, size_t size,
-                                              GeoParseStatus* status);
+                                              GeoParseStatus& status);
 
     static std::unique_ptr<GeoShape> from_wkb(const char* data, size_t size,
-                                              GeoParseStatus* status);
+                                              GeoParseStatus& status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
