@@ -124,6 +124,9 @@ Status S3FileWriter::close(bool non_block) {
         if (_async_close_pack != nullptr) {
             _st = _async_close_pack->future.get();
             _async_close_pack = nullptr;
+            // Return the final close status so that a blocking close issued after
+            // an async close observes the real result just like the legacy behavior.
+            return _st;
         }
         if (non_block) {
             if (_st.ok()) {
