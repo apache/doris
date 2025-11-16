@@ -232,7 +232,9 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                     std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
         } else if (is_string_logical_type && src_physical_type == tparquet::Type::BYTE_ARRAY &&
                    is_varbinary(remove_nullable(dst_logical_type)->get_primitive_type())) {
-            physical_converter = std::make_unique<VarBinaryConverter>();
+            // src_physical_type is string and dst_logical_type is varbinary
+            physical_converter =
+                    std::make_unique<VarBinaryConverter<TYPE_STRING, TYPE_VARBINARY>>();
         } else {
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
@@ -258,7 +260,13 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (src_logical_primitive == TYPE_VARBINARY) {
-        physical_converter = std::make_unique<ConsistentPhysicalConverter>();
+        // src_physical_type is varbinary and dst_logical_type is string
+        if (is_string_type(remove_nullable(dst_logical_type)->get_primitive_type())) {
+            physical_converter =
+                    std::make_unique<VarBinaryConverter<TYPE_VARBINARY, TYPE_STRING>>();
+        } else {
+            physical_converter = std::make_unique<ConsistentPhysicalConverter>();
+        }
     } else {
         physical_converter =
                 std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
