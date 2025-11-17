@@ -92,7 +92,7 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
          """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_recreate_auto "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_recreate_auto "select * from ${mvName}"
 
     // t2 should not trigger refresh
