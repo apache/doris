@@ -1549,7 +1549,11 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
-        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setKeyType(olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType().toThrift());
+        } else {
+            msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        }
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
             tableName = tableName + "(" + getSelectedIndexName() + ")";
