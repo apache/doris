@@ -1059,8 +1059,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (isView()) {
             return null;
         }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) catalog);
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(this);
         List<Type> partitionColumnTypes = getPartitionColumnTypes(snapshot);
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
