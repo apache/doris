@@ -137,6 +137,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             return Status::InternalError("Function {} is not endwith '_state'", _fn.signature);
         }
     } else {
+        LOG(WARNING)<<"mytest "<<_fn.name.function_name<<" "<<state->enable_decimal256()<<' '<<_data_type->get_name();
         // get the function. won't prepare function.
         _function = SimpleFunctionFactory::instance().get_function(
                 _fn.name.function_name, argument_template, _data_type,

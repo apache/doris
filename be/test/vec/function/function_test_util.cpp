@@ -600,7 +600,7 @@ static Block* process_table_function(TableFunction* fn, Block* input_block,
         return nullptr;
     }
 
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     // process table function init
     if (fn->process_init(input_block, &runtime_state) != Status::OK()) {
         LOG(WARNING) << "TableFunction process_init failed";

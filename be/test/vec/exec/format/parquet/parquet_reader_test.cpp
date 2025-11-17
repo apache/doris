@@ -146,7 +146,7 @@ TEST_F(ParquetReaderTest, normal) {
     auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr,
                                       &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,

@@ -40,8 +40,7 @@ public:
         TQueryOptions query_options;
         query_options.inverted_index_conjunction_opt_threshold = 1000;
 
-        _runtime_state = std::make_shared<RuntimeState>(query_globals);
-        _runtime_state->set_query_options(query_options);
+        _runtime_state = std::make_shared<RuntimeState>(query_options, query_globals);
 
         _context = std::make_shared<IndexQueryContext>();
         _context->runtime_state = _runtime_state.get();

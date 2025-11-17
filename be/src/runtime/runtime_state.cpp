@@ -44,7 +44,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
