@@ -1603,7 +1603,7 @@ public class CreateTableInfo {
                     }
                 }
             } else if (expr instanceof UnboundSlot) {
-                if (partitionTableInfo.isAutoPartition() || Objects.equals(partitionTableInfo.getPartitionType(),
+                if (partitionTableInfo.isAutoPartition() && Objects.equals(partitionTableInfo.getPartitionType(),
                         PartitionType.RANGE.name())) {
                     throw new AnalysisException("Auto Range Partition need UnboundFunction");
                 }
