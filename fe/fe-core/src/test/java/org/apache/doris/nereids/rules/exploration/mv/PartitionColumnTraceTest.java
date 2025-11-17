@@ -177,6 +177,20 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                 + "    PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + "    )");
+
+        createView("CREATE VIEW lineitem_daily_summary_view AS\n"
+                + "SELECT \n"
+                + "    DATE_TRUNC('day', L_SHIPDATE) AS ship_date,\n"
+                + "    L_RETURNFLAG,\n"
+                + "    L_LINESTATUS,\n"
+                + "    COUNT(*) AS order_count,\n"
+                + "    SUM(L_QUANTITY) AS total_quantity,\n"
+                + "    SUM(L_EXTENDEDPRICE) AS total_price,\n"
+                + "    AVG(L_DISCOUNT) AS avg_discount\n"
+                + "FROM lineitem\n"
+                + "WHERE L_SHIPDATE IS NOT NULL\n"
+                + "GROUP BY ship_date, L_RETURNFLAG, L_LINESTATUS;");
+
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
@@ -1165,6 +1179,31 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                         });
     }
 
+    // test with view which contains date_trunc
+    @Test
+    public void test42() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT\n"
+                                + "    ship_date,\n"
+                                + "    L_RETURNFLAG,\n"
+                                + "    SUM(order_count) AS total_orders,\n"
+                                + "    SUM(total_quantity) AS sum_quantity,\n"
+                                + "    SUM(total_price) AS sum_price,\n"
+                                + "    AVG(avg_discount) AS average_discount\n"
+                                + "FROM lineitem_daily_summary_view\n"
+                                + "GROUP BY ship_date, L_RETURNFLAG\n"
+                                + "ORDER BY ship_date, L_RETURNFLAG, total_orders, sum_quantity, sum_price;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("ship_date", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfo,
+                                    ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true")),
+                                    "day");
+                        });
+    }
+
     private static void successWith(RelatedTableInfo relatedTableInfo,
             Set<List<String>> expectTableColumnPairSet, String timeUnit) {
         Assertions.assertFalse(relatedTableInfo.getTableColumnInfos().isEmpty());
@@ -1180,9 +1219,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
             }
             if (StringUtils.isNotEmpty(timeUnit) && partitionExpression.isPresent()) {
                 List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
-                anyFoundDateTrunc = anyFoundDateTrunc
-                        || (dateTruncs.size() == 1
-                        && Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(1).toString().toLowerCase()));
+                anyFoundDateTrunc = anyFoundDateTrunc || (dateTruncs.size() == 1
+                        && (Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(0).toString().toLowerCase())
+                        || Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(1).toString().toLowerCase())));
             }
             try {
                 relatedTableColumnPairs.add(
