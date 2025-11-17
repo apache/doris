@@ -165,6 +165,8 @@ BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
 BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
+BUILD_OBS_DEPENDENCIES=1
+BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -245,6 +247,14 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
+        --exclude-obs-dependencies)
+            BUILD_OBS_DEPENDENCIES=0
+            shift
+            ;; 
+        --exclude-cos-dependencies)
+            BUILD_COS_DEPENDENCIES=0
+            shift
+            ;;           
         --clean)
             CLEAN=1
             shift
@@ -725,18 +735,26 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
+    DEPENDENCIES_MVN_OPTS=" "
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
+    fi
+    
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     fi
     cd "${DORIS_HOME}"
