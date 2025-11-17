@@ -3,10 +3,10 @@
 1	1
 
 -- !rename --
-test_base_rename_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
+test_base_rename_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS	false
 
 -- !rename --
-test_base_rename_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
+test_base_rename_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS	false
 
 -- !select_rename --
 1	1
