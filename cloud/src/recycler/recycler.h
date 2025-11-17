@@ -426,7 +426,8 @@ private:
     //
     // The log_key is constructed from the log_version and instance_id.
     // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
-    int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
+    int recycle_operation_log(Versionstamp log_version, const std::vector<std::string>& raw_keys,
+                              OperationLogPB operation_log);
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
