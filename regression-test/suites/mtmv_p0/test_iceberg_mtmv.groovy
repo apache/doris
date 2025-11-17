@@ -52,7 +52,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * except(col_binary) FROM ${catalog_name}.${icebergDb}.${icebergTable};
+                SELECT * FROM ${catalog_name}.${icebergDb}.${icebergTable};
             """
 
         sql """

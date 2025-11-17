@@ -68,6 +68,15 @@
 -- !bucket_decimal_4_select1 --
 3	p3	10.50
 
+-- !bucket_binary_4_cnt1 --
+1
+
+-- !bucket_binary_4_cnt2 --
+2
+
+-- !bucket_binary_4_select1 --
+3	b3	abc
+
 -- !truncate_string_3_cnt1 --
 1
 
@@ -76,6 +85,15 @@
 
 -- !truncate_string_3_select1 --
 5	long	abcdef
+
+-- !truncate_binary_4_cnt1 --
+1
+
+-- !truncate_binary_4_cnt2 --
+2
+
+-- !truncate_binary_4_select1 --
+4	b3	abcdef
 
 -- !truncate_int_10_cnt1 --
 1
