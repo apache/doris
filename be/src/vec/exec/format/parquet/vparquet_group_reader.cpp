@@ -400,7 +400,12 @@ Status RowGroupReader::_read_column_data(Block* block,
         for (auto& _dict_filter_col : _dict_filter_cols) {
             if (_dict_filter_col.first == read_col_name) {
                 MutableColumnPtr dict_column = ColumnInt32::create();
-                size_t pos = block->get_position_by_name(read_col_name);
+                int pos = block->get_position_by_name(read_col_name);
+                if (pos == -1) {
+                    return Status::InternalError(
+                            "Wrong read column '{}' in parquet file, block: {}", read_col_name,
+                            block->dump_structure());
+                }
                 if (column_type->is_nullable()) {
                     block->get_by_position(pos).type =
                             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
@@ -713,9 +718,14 @@ Status RowGroupReader::_fill_missing_columns(
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = block->get_by_name(kv.first).type;
                 bool is_nullable = origin_column_type->is_nullable();
+                int pos = block->get_position_by_name(kv.first);
+                if (pos == -1) {
+                    return Status::InternalError(
+                            "Wrong missing column '{}' in parquet file, block: {}", kv.first,
+                            block->dump_structure());
+                }
                 block->replace_by_position(
-                        block->get_position_by_name(kv.first),
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                        pos, is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 block->erase(result_column_id);
             }
         }
@@ -1072,7 +1082,12 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
 
 void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     for (auto& dict_filter_cols : _dict_filter_cols) {
-        size_t pos = block->get_position_by_name(dict_filter_cols.first);
+        int pos = block->get_position_by_name(dict_filter_cols.first);
+        if (pos == -1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Wrong read column '{}' in parquet file, block: {}",
+                            dict_filter_cols.first, block->dump_structure());
+        }
         ColumnWithTypeAndName& column_with_type_and_name = block->get_by_position(pos);
         const ColumnPtr& column = column_with_type_and_name.column;
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {

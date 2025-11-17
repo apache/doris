@@ -691,9 +691,13 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = _src_block_ptr->get_by_name(kv.first).type;
                 bool is_nullable = origin_column_type->is_nullable();
+                int pos = _src_block_ptr->get_position_by_name(kv.first);
+                if (pos == -1) {
+                    return Status::InternalError("Column {} not found in src block {}", kv.first,
+                                                 _src_block_ptr->dump_structure());
+                }
                 _src_block_ptr->replace_by_position(
-                        _src_block_ptr->get_position_by_name(kv.first),
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                        pos, is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 _src_block_ptr->erase(result_column_id);
             }
         }

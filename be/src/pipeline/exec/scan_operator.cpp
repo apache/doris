@@ -1318,13 +1318,6 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    // in inverted index apply logic, in order to optimize query performance,
-    // we built some temporary columns into block, these columns only used in scan node level,
-    // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
-    Defer drop_block_temp_column {[&]() {
-        std::unique_lock l(local_state._block_lock);
-        block->erase_tmp_columns();
-    }};
 
     if (state->is_cancelled()) {
         if (local_state._scanner_ctx) {
