@@ -27,19 +27,21 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "gen_cpp/types.pb.h"
-#include "testutil/test_util.h"
+#include "util/mysql_row_buffer.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_varbinary.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/string_container.h"
-#include "vec/common/string_ref.h"
+#include "vec/common/string_view.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 
@@ -87,7 +89,7 @@ TEST_F(DataTypeVarbinaryTest, CreateColumnAndCheckColumn) {
 TEST_F(DataTypeVarbinaryTest, GetDefaultField) {
     DataTypeVarbinary dt;
     Field def = dt.get_default();
-    const auto& sv = get<const doris::StringContainer&>(def);
+    const auto& sv = get<const doris::StringView&>(def);
     EXPECT_EQ(sv.size(), 0U);
 }
 
@@ -110,7 +112,7 @@ TEST_F(DataTypeVarbinaryTest, ToStringAndToStringBufferWritable) {
     auto out_col = ColumnString::create();
     for (size_t i = 0; i < vals.size(); ++i) {
         BufferWritable bw(*out_col);
-        dt.to_string(*col, i, bw);
+        dt.get_serde()->to_string(*col, i, bw);
         bw.commit();
     }
     ASSERT_EQ(out_col->size(), vals.size());
@@ -175,7 +177,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataType) {
 
     auto fwd = dt.get_field_with_data_type(*col, 0);
     EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
-    const auto& sv = get<const doris::StringContainer&>(fwd.field);
+    const auto& sv = get<const doris::StringView&>(fwd.field);
     ASSERT_EQ(sv.size(), v.size());
     ASSERT_EQ(memcmp(sv.data(), v.data(), sv.size()), 0);
 }
@@ -188,18 +190,126 @@ TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNode) {
     node.__isset.varbinary_literal = true;
 
     Field f = dt.get_field(node);
-    const auto& sv = get<const doris::StringContainer&>(f);
+    const auto& sv = get<const doris::StringView&>(f);
     ASSERT_EQ(sv.size(), 5U);
     ASSERT_EQ(memcmp(sv.data(), "hello", 5), 0);
 }
 
-TEST_F(DataTypeVarbinaryTest, ToProtobufLen) {
-    DataTypeVarbinary dt(123);
+TEST_F(DataTypeVarbinaryTest, CheckColumnOnConstColumn) {
+    DataTypeVarbinary dt;
+    auto col = dt.create_column();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    std::string v = make_bytes(4, 0x12);
+    vb->insert_data(v.data(), v.size());
+
+    // Wrap as const column
+    auto cconst = ColumnConst::create(col->get_ptr(), /*size=*/5);
+    EXPECT_TRUE(dt.check_column(*cconst).ok());
+}
+
+TEST_F(DataTypeVarbinaryTest, SerializeDeserializeConstColumn) {
+    DataTypeVarbinary dt;
+    auto base = dt.create_column();
+    auto* vb = assert_cast<ColumnVarbinary*>(base.get());
+    std::string val = make_bytes(3, 0x7A);
+    vb->insert_data(val.data(), val.size());
+
+    // Make it const with logical row_num=5
+    ColumnPtr const_col = ColumnConst::create(base->get_ptr(), /*size=*/5);
+
+    int ver = BeExecVersionManager::get_newest_version();
+    // Expect: bool + size_t(row_num) + size_t(real_need_copy_num=1) + one size + payload
+    size_t expected = sizeof(bool) + sizeof(size_t) + sizeof(size_t) + sizeof(size_t) + val.size();
+    auto sz = dt.get_uncompressed_serialized_bytes(*const_col, ver);
+    EXPECT_EQ(static_cast<size_t>(sz), expected);
+
+    std::string buf;
+    buf.resize(expected);
+    char* p = buf.data();
+    char* end = dt.serialize(*const_col, p, ver);
+    ASSERT_EQ(static_cast<size_t>(end - p), expected);
+
+    MutableColumnPtr deser = dt.create_column();
+    const char* p2 = buf.data();
+    const char* end2 = dt.deserialize(p2, &deser, ver);
+    ASSERT_EQ(static_cast<size_t>(end2 - p2), expected);
+
+    // After deserialize, the output is a ColumnConst wrapping the data column.
+    ColumnPtr out = deser->get_ptr();
+    ASSERT_TRUE(is_column_const(*out));
+    const auto& cconst = assert_cast<const ColumnConst&>(*out);
+    EXPECT_EQ(cconst.size(), 5U); // logical row num retained
+    const auto& inner = assert_cast<const ColumnVarbinary&>(*cconst.get_data_column_ptr());
+    ASSERT_EQ(inner.size(), 1U);
+    auto r = inner.get_data_at(0);
+    ASSERT_EQ(r.size, val.size());
+    ASSERT_EQ(memcmp(r.data, val.data(), r.size), 0);
+}
+
+TEST_F(DataTypeVarbinaryTest, SerDeWriteColumnToMysql) {
+    DataTypeVarbinary dt;
+    auto col = dt.create_column();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    std::string v1 = make_bytes(2, 0x10);
+    vb->insert_data(v1.data(), v1.size());
+
+    auto serde = dt.get_serde();
+    // text protocol
+    doris::MysqlRowBuffer<false> rb_text;
+    DataTypeSerDe::FormatOptions fmt_opts;
+    auto st1 = serde->write_column_to_mysql(*col, rb_text, /*row_idx=*/0, /*col_const=*/false,
+                                            fmt_opts);
+    EXPECT_TRUE(st1.ok());
+    EXPECT_GT(rb_text.length(), 0);
+
+    // binary protocol
+    doris::MysqlRowBuffer<true> rb_bin;
+    auto st2 = serde->write_column_to_mysql(*col, rb_bin, /*row_idx=*/0, /*col_const=*/false,
+                                            fmt_opts);
+    EXPECT_TRUE(st2.ok());
+    EXPECT_GT(rb_bin.length(), 0);
+}
+
+TEST_F(DataTypeVarbinaryTest, GetStorageFieldTypeThrows) {
+    DataTypeVarbinary dt;
+    EXPECT_THROW({ (void)dt.get_storage_field_type(); }, doris::Exception);
+}
+
+TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNodeWithEmbeddedNull) {
+    DataTypeVarbinary dt;
+    TExprNode node;
+    node.node_type = TExprNodeType::VARBINARY_LITERAL;
+    std::string raw = std::string("a\0b", 3);
+    node.varbinary_literal.value = raw;
+    node.__isset.varbinary_literal = true;
+
+    Field f = dt.get_field(node);
+    const auto& sv = get<const doris::StringView&>(f);
+    ASSERT_EQ(sv.size(), raw.size());
+    ASSERT_EQ(memcmp(sv.data(), raw.data(), sv.size()), 0);
+}
+
+TEST_F(DataTypeVarbinaryTest, ToProtobufDefaultLen) {
+    DataTypeVarbinary dt; // default len = -1
     PTypeDesc ptype;
     PTypeNode pnode;
     PScalarType scalar;
     dt.to_protobuf(&ptype, &pnode, &scalar);
-    EXPECT_EQ(scalar.len(), 123);
+    EXPECT_EQ(scalar.len(), -1);
+}
+
+TEST_F(DataTypeVarbinaryTest, GetFieldWithDataTypeNonInline) {
+    DataTypeVarbinary dt;
+    auto col = dt.create_column();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+    std::string big = make_bytes(doris::StringView::kInlineSize + 6, 0x55);
+    vb->insert_data(big.data(), big.size());
+
+    auto fwd = dt.get_field_with_data_type(*col, 0);
+    EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
+    const auto& sv = get<const doris::StringView&>(fwd.field);
+    ASSERT_EQ(sv.size(), big.size());
+    ASSERT_EQ(memcmp(sv.data(), big.data(), sv.size()), 0);
 }
 
 } // namespace doris::vectorized

@@ -917,8 +917,9 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        int64_t compressed_time = 0;
         Status st = block.serialize(state->be_exec_version(), request->mutable_block(),
-                                    &uncompressed_bytes, &compressed_bytes,
+                                    &uncompressed_bytes, &compressed_bytes, &compressed_time,
                                     state->fragement_transmission_compression_type(),
                                     _parent->_transfer_large_data_by_brpc);
         TEST_INJECTION_POINT_CALLBACK("VNodeChannel::try_send_block", &st);
@@ -1333,7 +1334,7 @@ void VTabletWriter::_send_batch_process() {
 
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
-        std::unique_lock<std::mutex> l(_stop_check_channel);
+        std::unique_lock<bthread::Mutex> l(_stop_check_channel);
 
         int running_channels_num = 0;
         int opened_nodes = 0;
@@ -1637,7 +1638,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
 Status VTabletWriter::_incremental_open_node_channel(
         const std::vector<TOlapTablePartition>& partitions) {
     // do what we did in prepare() for partitions. indexes which don't change when we create new partition is orthogonal to partitions.
-    std::unique_lock<std::mutex> _l(_stop_check_channel);
+    std::unique_lock<bthread::Mutex> _l(_stop_check_channel);
     for (int i = 0; i < _schema->indexes().size(); ++i) {
         const OlapTableIndexSchema* index = _schema->indexes()[i];
         std::vector<TTabletWithPartition> tablets;

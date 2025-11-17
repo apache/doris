@@ -64,6 +64,8 @@ run() {
         echo "hwYunSk='${hwYunSk:-}'"
         echo "txYunAk='${txYunAk:-}'"
         echo "txYunSk='${txYunSk:-}'"
+        echo "regressionAliyunStsRegion='${regressionAliyunStsRegion:-cn-hongkong}'"
+        echo "regressionAliyunStsRoleArn='${regressionAliyunStsRoleArn:-}'"
     } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/

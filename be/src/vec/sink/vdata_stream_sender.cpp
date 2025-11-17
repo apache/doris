@@ -347,12 +347,13 @@ Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t n
     SCOPED_TIMER(_parent->_serialize_batch_timer);
     dest->Clear();
     size_t uncompressed_bytes = 0, compressed_bytes = 0;
+    int64_t compress_time = 0;
     RETURN_IF_ERROR(src->serialize(_parent->_state->be_exec_version(), dest, &uncompressed_bytes,
-                                   &compressed_bytes, _parent->compression_type(),
+                                   &compressed_bytes, &compress_time, _parent->compression_type(),
                                    _parent->transfer_large_data_by_brpc()));
     COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
     COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
-    COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
+    COUNTER_UPDATE(_parent->_compress_timer, compress_time);
 #ifndef BE_TEST
     _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_bytes(
             compressed_bytes * num_receivers);

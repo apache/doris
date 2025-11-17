@@ -201,6 +201,26 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                         });
     }
 
+    // with sort
+    @Test
+    public void test101() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l1.l_shipdate, l2.L_ORDERKEY\n"
+                                + "        from lineitem l1\n"
+                                + "        inner join lineitem l2\n"
+                                + "        on l1.l_shipdate = l2.l_shipdate\n"
+                                + "        order by l1.l_shipdate, l2.L_ORDERKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfo, ImmutableSet.of(
+                                            ImmutableList.of("lineitem", "l_shipdate", "true", "true")),
+                                    "");
+                        });
+    }
+
     @Test
     public void test100() {
         PlanChecker.from(connectContext)
@@ -330,7 +350,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo,
-                                    ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true")), "");
+                                    ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
+                                            ImmutableList.of("orders", "o_orderdate", "true", "true")), "");
                         });
     }
 
@@ -342,6 +363,26 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                 + "        inner join (select date_trunc(o_orderdate, 'day') o_orderdate_alias from orders) o\n"
                                 + "        on l_shipdate = o.o_orderdate_alias\n"
                                 + "        group by l_shipdate, o.o_orderdate_alias",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("o_orderdate_alias", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            successWith(relatedTableInfo,
+                                    ImmutableSet.of(ImmutableList.of("orders", "o_orderdate", "true", "true"),
+                                            ImmutableList.of("lineitem", "l_shipdate", "true", "true")), "day");
+                        });
+    }
+
+    // test with date_trunc with alias
+    @Test
+    public void test5001() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l_shipdate, date_trunc(o_orderdate, 'day') o_orderdate_alias, count(l_shipdate) \n"
+                                + "        from lineitem\n"
+                                + "        inner join orders o\n"
+                                + "        on l_shipdate = o.o_orderdate\n"
+                                + "        group by l_shipdate, o.o_orderdate",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             RelatedTableInfo relatedTableInfo =

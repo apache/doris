@@ -31,12 +31,10 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -72,9 +70,8 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
-    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
-            boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
@@ -215,15 +212,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
-                if (column.getDefaultValueExprDef() != null) {
-                    expression = new NereidsParser().parseExpression(
-                            column.getDefaultValueExpr().toSqlWithoutTbl());
-                    ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
-                            null, new Scope(ImmutableList.of()), null, true, true);
-                    expression = analyzer.analyze(expression);
-                } else {
-                    expression = new StringLiteral(column.getDefaultValue());
-                }
+                expression = new NereidsParser().parseExpression(
+                        column.getDefaultValueSql());
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                        null, new Scope(ImmutableList.of()), null, true, true);
+                expression = analyzer.analyze(expression);
             } else {
                 if (column.isAllowNull()) {
                     // For load, use Varchar as Null, for query, use column type.

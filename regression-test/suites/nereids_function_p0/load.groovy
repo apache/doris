@@ -808,6 +808,11 @@ suite("load") {
     assertEquals(sql_res_not_null_array.size(), sql_res_not_null_rowstore_array.size())
     for (int i = 0; i < sql_res_not_null_array.size(); i++) {
         for (int j = 0; j < sql_res_not_null_array[i].size(); j++) {
+            if (sql_res_not_null_array[i][j] != sql_res_not_null_rowstore_array[i][j]) {
+                def plan_sql_res_not_null_array = sql "explain verbose select * from fn_test_not_nullable_array order by id;"
+                def plan_sql_res_not_null_rowstore_array = sql "explain verbose select * from fn_test_not_nullable_rowstore_array order by id;"
+                log.info("i: ${i}, j: ${j}, array plan: ${plan_sql_res_not_null_array}, rowstore_array: ${plan_sql_res_not_null_rowstore_array}".toString())
+            }
             assertEquals(sql_res_not_null_array[i][j], sql_res_not_null_rowstore_array[i][j])
         }
     }

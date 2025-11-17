@@ -22,8 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -37,28 +35,6 @@ import com.google.gson.annotations.SerializedName;
 public class IsNullPredicate extends Predicate {
     private static final String IS_NULL = "is_null_pred";
     private static final String IS_NOT_NULL = "is_not_null_pred";
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getSupportedTypes()) {
-            if (t.isNull()) {
-                continue;
-            }
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
-                    Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                    null, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-        }
-        // for array type
-        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
-                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL, null,
-                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-        }
-    }
 
     @SerializedName("inn")
     private boolean isNotNull;
@@ -120,11 +96,6 @@ public class IsNullPredicate extends Predicate {
                 : " IS NULL");
     }
 
-    @Override
-    public String toDigestImpl() {
-        return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
-    }
-
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
     }
@@ -132,14 +103,6 @@ public class IsNullPredicate extends Predicate {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
-    }
-
-    /**
-     * Negates an IsNullPredicate.
-     */
-    @Override
-    public Expr negate() {
-        return new IsNullPredicate(getChild(0), !isNotNull);
     }
 
     @Override

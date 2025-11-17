@@ -284,6 +284,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
                                 .expiration_time = meta.expiration_time(),
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                .is_warmup = true,
                         },
                 .download_done = std::move(download_done),
         };
@@ -317,6 +318,14 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     size_t task_num = (download_size + one_single_task_size - 1) / one_single_task_size;
 
     std::unique_ptr<char[]> buffer(new char[one_single_task_size]);
+
+    DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file_sleep", {
+        auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "FileCacheBlockDownloader::download_segment_file_sleep", "sleep_time", 3);
+        LOG(INFO) << "FileCacheBlockDownloader::download_segment_file_sleep: sleep_time="
+                  << sleep_time;
+        sleep(sleep_time);
+    });
 
     size_t task_offset = 0;
     for (size_t i = 0; i < task_num; i++) {

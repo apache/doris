@@ -62,6 +62,15 @@ namespace doris::cloud {
 using namespace std::chrono;
 
 int OperationLogRecycleChecker::init() {
+    source_snapshot_versionstamp_ = Versionstamp::min();
+    if (instance_info_.has_source_snapshot_id() &&
+        !SnapshotManager::parse_snapshot_versionstamp(instance_info_.source_snapshot_id(),
+                                                      &source_snapshot_versionstamp_)) {
+        LOG_WARNING("failed to parse versionstamp from source snapshot id")
+                .tag("source_snapshot_id", instance_info_.source_snapshot_id());
+        return -1;
+    }
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -99,6 +108,11 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
     Versionstamp log_min_read_timestamp(log_min_timestamp, 0);
     if (log_versionstamp > max_versionstamp_) {
         // Not recycleable.
+        return false;
+    }
+
+    // Do not recycle operation logs referenced by active snapshots.
+    if (log_min_read_timestamp < source_snapshot_versionstamp_) {
         return false;
     }
 
@@ -316,7 +330,6 @@ int OperationLogRecycler::recycle_schema_change_log(const SchemaChangeLogPB& sch
     MetaReader meta_reader(instance_id_, log_version_);
     int64_t new_tablet_id = schema_change_log.new_tablet_id();
     RETURN_ON_FAILURE(recycle_tablet_meta(new_tablet_id));
-    RETURN_ON_FAILURE(recycle_tablet_load_stats(new_tablet_id));
     RETURN_ON_FAILURE(recycle_tablet_compact_stats(new_tablet_id));
 
     for (const RecycleRowsetPB& recycle_rowset_pb : schema_change_log.recycle_rowsets()) {
@@ -582,10 +595,9 @@ static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, in
 int InstanceRecycler::recycle_operation_logs() {
     if (!instance_info_.has_multi_version_status() ||
         (instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_ENABLED &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE &&
-         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_WRITE_ONLY)) {
-        LOG_INFO("instance {} is not multi-version enabled, skip recycling operation logs",
-                 instance_id_);
+         instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_READ_WRITE)) {
+        VLOG_DEBUG << "instance " << instance_id_
+                   << " is not multi-version enabled, skip recycling operation logs.";
         return 0;
     }
 
@@ -609,7 +621,7 @@ int InstanceRecycler::recycle_operation_logs() {
                 .tag("recycled_operation_log_data_size", recycled_operation_log_data_size);
     };
 
-    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get());
+    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get(), instance_info_);
     int init_res = recycle_checker.init();
     if (init_res != 0) {
         LOG_WARNING("failed to initialize recycle checker").tag("error_code", init_res);
@@ -631,15 +643,6 @@ int InstanceRecycler::recycle_operation_logs() {
             LOG_WARNING("failed to parse OperationLogPB from operation log key")
                     .tag("key", hex(key));
             return -1;
-        }
-
-        if (!operation_log.has_min_timestamp()) {
-            LOG_WARNING("operation log has not set the min_timestamp")
-                    .tag("key", hex(key))
-                    .tag("version", log_versionstamp.version())
-                    .tag("order", log_versionstamp.order())
-                    .tag("log", operation_log.ShortDebugString());
-            return 0;
         }
 
         if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp())) {

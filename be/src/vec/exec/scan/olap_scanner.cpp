@@ -340,7 +340,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
-            ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
@@ -428,8 +428,8 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        TOlapScanNode& olap_scan_node =
-                ((pipeline::OlapScanLocalState*)_local_state)->olap_scan_node();
+        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
         // order by table keys optimization for topn
         // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
@@ -441,16 +441,20 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
             _tablet_reader_params.read_orderby_key_limit = _limit;
-            _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+
+            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
+                olap_scan_local_state->_storage_no_merge()) {
+                _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+                _conjuncts.clear();
+            }
         }
 
         // set push down topn filter
         _tablet_reader_params.topn_filter_source_node_ids =
-                ((pipeline::OlapScanLocalState*)_local_state)
-                        ->get_topn_filter_source_node_ids(_state, true);
+                olap_scan_local_state->get_topn_filter_source_node_ids(_state, true);
         if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
             _tablet_reader_params.topn_filter_target_node_id =
-                    ((pipeline::OlapScanLocalState*)_local_state)->parent()->node_id();
+                    olap_scan_local_state->parent()->node_id();
         }
     }
 
@@ -594,7 +598,7 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
 }
 
 Status OlapScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
     RETURN_IF_ERROR(Scanner::close(state));

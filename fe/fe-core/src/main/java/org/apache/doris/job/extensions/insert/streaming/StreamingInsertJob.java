@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -73,7 +74,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataOutput;
@@ -262,6 +263,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    public void resetFailureInfo(FailureReason reason) {
+        this.setFailureReason(reason);
+        // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
+        this.setJobRuntimeMsg("");
+    }
+
     @Override
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         lock.writeLock().lock();
@@ -355,11 +362,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.fetchRemoteMeta(originTvfProps);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
+            failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to fetch meta, " + ex.getMessage());
         }
     }
 
     public boolean needScheduleTask() {
-        return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
+        readLock();
+        try {
+            return (getJobStatus().equals(JobStatus.RUNNING)
+                    || getJobStatus().equals(JobStatus.PENDING));
+        } finally {
+            readUnlock();
+        }
     }
 
     public void clearRunningStreamTask(JobStatus newJobStatus) {
@@ -709,6 +724,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (AnalysisException e) {
                 log.warn("failed to get db id for streaming insert job {}, db name: {}, msg: {}",
                         getJobId(), getCurrentDbName(), e.getMessage());
+                failureReason = new FailureReason(InternalErrorCode.DB_ERR, "Failed to get db id, " + e.getMessage());
             }
         }
         return dbId;

@@ -48,6 +48,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,8 +66,6 @@ import java.net.URI;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class LoadAction extends RestBaseController {
@@ -561,7 +561,8 @@ public class LoadAction extends RestBaseController {
                     && publicHostPort != null && reqHost.equalsIgnoreCase(publicHostPort.first)) {
                 return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
             } else if (privateHostPort != null) {
-                return new TNetworkAddress(privateHostPort.first, privateHostPort.second);
+                // use request host here, because private endpoint may be unknown for cloud mode
+                return new TNetworkAddress(reqHost, privateHostPort.second);
             } else {
                 return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
             }

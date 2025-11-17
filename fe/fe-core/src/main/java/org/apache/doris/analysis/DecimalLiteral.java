@@ -313,37 +313,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimalV2() && type.isDecimalV2()) {
-            setType(targetType);
-            return this;
-        } else if ((targetType.isDecimalV3() && type.isDecimalV3()
-                && (((ScalarType) targetType).decimalPrecision() >= value.precision())
-                && (((ScalarType) targetType).decimalScale() >= value.scale()))
-                || (targetType.isDecimalV3() && type.isDecimalV2()
-                && (((ScalarType) targetType).decimalScale() >= value.scale()))) {
-            // If target type is DECIMALV3, we should set type for literal
-            setType(targetType);
-            return this;
-        } else if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(value.doubleValue(), targetType);
-        } else if (targetType.isIntegerType()) {
-            // If the integer part of BigDecimal is too big to fit into long,
-            // longValue() will only return the low-order 64-bit value.
-            if (value.compareTo(BigDecimal.valueOf(Long.MAX_VALUE)) > 0
-                    || value.compareTo(BigDecimal.valueOf(Long.MIN_VALUE)) < 0) {
-                throw new AnalysisException("Integer part of " + value + " exceeds storage range of Long Type.");
-            }
-            return new IntLiteral(value.longValue(), targetType);
-        } else if (targetType.isStringType()) {
-            return new StringLiteral(value.toString());
-        } else if (targetType.isLargeIntType()) {
-            return new LargeIntLiteral(value.toBigInteger().toString());
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }

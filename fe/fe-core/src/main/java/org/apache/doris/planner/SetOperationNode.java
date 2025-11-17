@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -31,7 +30,7 @@ import org.apache.doris.thrift.TUnionNode;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,9 +58,6 @@ public abstract class SetOperationNode extends PlanNode {
     protected List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
     protected List<List<Expr>> materializedConstExprLists = Lists.newArrayList();
 
-    // Indicates if this UnionNode is inside a subplan.
-    protected boolean isInSubplan;
-
     // Index of the first non-passthrough child.
     protected int firstMaterializedChildIdx;
 
@@ -69,26 +65,10 @@ public abstract class SetOperationNode extends PlanNode {
 
     private boolean isColocate = false;
 
-    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, StatisticalType statisticalType) {
-        super(id, tupleId.asList(), planNodeName, statisticalType);
-        this.setOpResultExprs = Lists.newArrayList();
-        this.tupleId = tupleId;
-        this.isInSubplan = false;
-    }
-
-    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
-                               List<Expr> setOpResultExprs, boolean isInSubplan, StatisticalType statisticalType) {
-        super(id, tupleId.asList(), planNodeName, statisticalType);
-        this.setOpResultExprs = setOpResultExprs;
-        this.tupleId = tupleId;
-        this.isInSubplan = isInSubplan;
-    }
-
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName, StatisticalType.SET_OPERATION_NODE);
+        super(id, tupleId.asList(), planNodeName);
         this.setOpResultExprs = Lists.newArrayList();
         this.tupleId = tupleId;
-        this.isInSubplan = false;
     }
 
     public void setMaterializedConstExprLists(List<List<Expr>> exprs) {

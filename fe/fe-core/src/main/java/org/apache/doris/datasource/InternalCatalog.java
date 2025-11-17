@@ -54,7 +54,6 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -168,7 +167,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import lombok.Getter;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -2315,16 +2314,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                             "partition expr %s has unrecognized parameter in slot %d", func.getExprName(), i));
                     }
                 }
-                Function fn = null;
-                try {
-                    fn = func.getBuiltinFunction(func.getFnName().getFunction(), childTypes,
-                        Function.CompareMode.IS_INDISTINGUISHABLE); // only for test
-                } catch (Exception e) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
-                }
-                if (fn == null) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
-                }
             } else if (expr instanceof SlotRef) {
                 if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {
                     throw new AnalysisException("Auto Range Partition need FunctionCallExpr");
@@ -2822,6 +2811,21 @@ public class InternalCatalog implements CatalogIf<Database> {
         Long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
         olapTable.setTTLSeconds(ttlSeconds);
 
+        int retentionCount = -1;
+        try {
+            retentionCount = PropertyAnalyzer.analyzePartitionRetentionCount(properties);
+            if ((partitionDesc == null || !partitionDesc.isAutoCreatePartitions()
+                    || partitionDesc.getType() != PartitionType.RANGE) && retentionCount > 0) {
+                throw new DdlException("Only AUTO RANGE PARTITION table could set "
+                        + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (retentionCount > 0) {
+            olapTable.setPartitionRetentionCount(retentionCount);
+        }
+
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
@@ -3101,6 +3105,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                         // check same interval. fail will leading to AnalysisException
                         DynamicPartitionUtil.partitionIntervalCompatible(dynamicUnit, autoExprs);
                     }
+                    // only support one in the same time
+                    if (dynamicProperty.isExist() && dynamicProperty.getEnable()
+                            && olapTable.getPartitionRetentionCount() > 0) {
+                        throw new DdlException(
+                                "Please remove dynamic_partition properties when partition.retention_count enabled");
+                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
@@ -3175,7 +3185,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
 
-            if (result.second) {
+            if (result.second) { // table already exists
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                     // if this is a colocate table, its table id is already added to colocate group
                     // so we should remove the tableId here
