@@ -260,7 +260,7 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -374,7 +374,7 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -476,7 +476,7 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -544,7 +544,6 @@ suite("mtmv_with_sql_cache") {
                             assertHasCache nested_mtmv_sql1
                         }
                     }),
-
                     extraThread("testRefreshCompleteMtmv", {
                         retryTestSqlCache(3, 1000) {
                             def prefix_str = "test_refresh_complete_mtmv_"
@@ -629,6 +628,7 @@ suite("mtmv_with_sql_cache") {
 
                             // refresh mtmv complete
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} complete;"
+                            waitingMTMVTaskFinishedByMvName(mv_name1)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -667,7 +667,7 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -774,7 +774,7 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -876,13 +876,13 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql3 = """
-                                    select t2.id as id, t1.value as value1 
+                                    select t2.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     right join ${tb_name2} as t2
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -961,7 +961,6 @@ suite("mtmv_with_sql_cache") {
                             assertHasCache nested_mtmv_sql1
                         }
                     })
-
             ).get()
         }
 
