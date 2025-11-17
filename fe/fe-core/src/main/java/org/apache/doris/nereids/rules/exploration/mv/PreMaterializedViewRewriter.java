@@ -24,6 +24,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
@@ -40,9 +41,11 @@ import java.util.Map;
  */
 public class PreMaterializedViewRewriter {
     public static BitSet NEED_PRE_REWRITE_RULE_TYPES = new BitSet();
+    public static BitSet NEED_PRE_REWRITE_EXPRESSION_RULE_TYPES = new BitSet();
     private static final Logger LOG = LogManager.getLogger(PreMaterializedViewRewriter.class);
 
     static {
+        // Add plan rewrite rule types
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_PROJECT_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN.ordinal());
@@ -72,6 +75,9 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SALT_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION.ordinal());
+
+        // Add expression rewrite rule types
+        NEED_PRE_REWRITE_EXPRESSION_RULE_TYPES.set(ExpressionRuleType.CASE_WHEN_TO_IF.ordinal());
     }
 
     /**
@@ -108,6 +114,10 @@ public class PreMaterializedViewRewriter {
 
     public static BitSet getNeedPreRewriteRule() {
         return NEED_PRE_REWRITE_RULE_TYPES;
+    }
+
+    public static BitSet getNeedPreRewriteExpressionRule() {
+        return NEED_PRE_REWRITE_EXPRESSION_RULE_TYPES;
     }
 
     /**
@@ -165,13 +175,16 @@ public class PreMaterializedViewRewriter {
             }
             return false;
         }
-        // if rewrite success rule not in NeedPreRewriteRule, should not be written in rbo
-        BitSet appliedRules = statementContext.getNeedPreMvRewriteRuleMasks();
+        // if rewrite success rule is in NeedPreRewriteRule, should be written in rbo
         BitSet needPreRewriteRuleSet = (BitSet) getNeedPreRewriteRule().clone();
-        needPreRewriteRuleSet.and(appliedRules);
+        needPreRewriteRuleSet.and(statementContext.getNeedPreMvRewriteRuleMasks());
+
+        BitSet needPreRewriteExpressionRuleSet = (BitSet) getNeedPreRewriteExpressionRule().clone();
+        needPreRewriteExpressionRuleSet.and(statementContext.getNeedPreMvRewriteExpressionRuleMasks());
+
         PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
                 statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
-        boolean shouldPreRewrite = !needPreRewriteRuleSet.isEmpty()
+        boolean shouldPreRewrite = !needPreRewriteRuleSet.isEmpty() || !needPreRewriteExpressionRuleSet.isEmpty()
                 || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);
         if (!shouldPreRewrite && LOG.isDebugEnabled()) {
             LOG.debug("does not need pre rewrite, because needPreRewriteRuleSet is empty or "

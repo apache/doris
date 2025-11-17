@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -129,6 +130,7 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
                 : Operand.of(true, getAddOrMultiply(isAddOrSub, x, y))
         );
         if (result.isPresent()) {
+            ConnectContext.get().getStatementContext().expressionRuleSetApplied(ExpressionRuleType.SIMPLIFY_ARITHMETIC);
             return TypeCoercionUtils.castIfNotSameType(result.get().expression, arithmetic.getDataType());
         } else {
             return arithmetic;

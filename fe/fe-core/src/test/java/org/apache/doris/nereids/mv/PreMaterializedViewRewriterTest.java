@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -47,6 +49,7 @@ import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
@@ -57,6 +60,37 @@ import java.util.stream.Collectors;
  * The test for pre materialized view rewrite
  */
 public class PreMaterializedViewRewriterTest extends SqlTestBase {
+
+    @Test
+    public void testContainExpressionRuleMask() throws IOException {
+        ConnectContext connectContext = createDefaultCtx();
+        connectContext.getSessionVariable().feDebug = true;
+        connectContext.setDatabase("test");
+
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(
+                PreRewriteStrategy.FORCE_IN_RBO.name());
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1 where id > 1 + 3 - 2",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .setIsQuery()
+                .analyze()
+                .rewrite();
+        // because no mv exists, should not record tmp plan for mv
+        Assertions.assertTrue(connectContext.getStatementContext().getNeedPreMvRewriteExpressionRuleMasks().get(
+                ExpressionRuleType.SIMPLIFY_ARITHMETIC.ordinal()));
+    }
 
     @Test
     public void testShouldNotRecordTmpPlanWhenNoMv() {
@@ -2951,6 +2985,17 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
         statementContext.setForceRecordTmpPlan(true);
         statementContext.ruleSetApplied(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM);
+        statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
+        statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
+        Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+    }
+
+    @Test
+    public void testNeedPreRewriteWhenExpressionRule() {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext("select T1.id from T1");
+        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+        statementContext.setForceRecordTmpPlan(true);
+        statementContext.expressionRuleSetApplied(ExpressionRuleType.CASE_WHEN_TO_IF);
         statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
         statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
         Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
