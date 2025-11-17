@@ -69,7 +69,8 @@ class OlapBlockDataConvertor;
 
 class BlockChanger {
 public:
-    BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl, std::shared_ptr<RuntimeState> state);
+    BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl,
+                 std::shared_ptr<RuntimeState> state);
 
     ~BlockChanger();
 
