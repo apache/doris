@@ -919,7 +919,6 @@ void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
         if (_nesting_level > 1) {
             bw.write('"');
         }
-
     } else {
         value_to_string<T>(data[row_num], bw, get_scale());
     }

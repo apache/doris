@@ -177,10 +177,10 @@ bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, Buff
                                                      int64_t row_idx) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
-        BitmapValue bitmapValue = data_column.get_element(row_idx);
-        size_t size = bitmapValue.getSizeInBytes();
+        BitmapValue bitmap_value = data_column.get_element(row_idx);
+        size_t size = bitmap_value.getSizeInBytes();
         std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
-        bitmapValue.write_to(buf.get());
+        bitmap_value.write_to(buf.get());
         bw.write(buf.get(), size);
         return true;
     } else {
