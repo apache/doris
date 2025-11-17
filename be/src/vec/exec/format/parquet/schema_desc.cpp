@@ -135,7 +135,7 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     if (t_schemas.size() == 0 || !is_group_node(t_schemas[0])) {
         return Status::InvalidArgument("Wrong parquet root schema element");
     }
-    auto& root_schema = t_schemas[0];
+    const auto& root_schema = t_schemas[0];
     _fields.resize(root_schema.num_children);
     _next_schema_pos = 1;
 
@@ -242,9 +242,13 @@ std::pair<DataTypePtr, bool> FieldDescriptor::get_doris_type(
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, nullable);
             break;
         case tparquet::Type::BYTE_ARRAY:
-            // if physical_schema not set logicalType and converted_type,
-            // we treat BYTE_ARRAY as VARBINARY by default, so that we can read all data directly.
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable);
+            if (_enable_mapping_varbinary) {
+                // if physical_schema not set logicalType and converted_type,
+                // we treat BYTE_ARRAY as VARBINARY by default, so that we can read all data directly.
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable);
+            } else {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+            }
             break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);

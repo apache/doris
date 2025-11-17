@@ -243,12 +243,14 @@ Status ParquetReader::_open_file() {
                                      _scan_range.path, _tracing_file_reader->size());
         }
         size_t meta_size = 0;
+        bool enable_mapping_varbinary = _scan_params.__isset.enable_mapping_varbinary
+                                                ? _scan_params.enable_mapping_varbinary
+                                                : false;
         if (_meta_cache == nullptr) {
             // wrap _file_metadata with unique ptr, so that it can be released finally.
             RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
-                                                &meta_size, _io_ctx));
+                                                &meta_size, _io_ctx, enable_mapping_varbinary));
             _file_metadata = _file_metadata_ptr.get();
-
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
             _statistics.file_footer_read_calls += 1;
@@ -257,7 +259,7 @@ Status ParquetReader::_open_file() {
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
                 RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata_ptr, &meta_size,
-                                                    _io_ctx));
+                                                    _io_ctx, enable_mapping_varbinary));
                 // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);

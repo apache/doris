@@ -370,9 +370,11 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
         return std::make_unique<ConsistentConverter>();
     }
 
-    // src: string/varbinary -> dst: varbinary should be converted in physical level directly
-    if ((is_string_type(src_primitive_type) || is_varbinary(src_primitive_type)) &&
-        is_varbinary(dst_primitive_type)) {
+    // src: varbinary -> dst: string/varbinary should be converted in physical level directly
+    // src: string -> dst: varbinary should be converted in physical level directly
+    if ((is_varbinary(src_primitive_type) &&
+         (is_string_type(dst_primitive_type) || is_varbinary(dst_primitive_type))) ||
+        (is_string_type(src_primitive_type) && is_varbinary(dst_primitive_type))) {
         return std::make_unique<ConsistentConverter>();
     }
 
