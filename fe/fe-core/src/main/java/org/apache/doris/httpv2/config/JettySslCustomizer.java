@@ -198,7 +198,7 @@ public class JettySslCustomizer implements WebServerFactoryCustomizer<JettyServl
             sslContextFactory.setSniRequired(false);
             sslContextFactory.setExcludeCipherSuites(
                     ".*_WITH_AES_.*_CBC_.*",
-                    ".*_RSA_.*"
+                    "^TLS_RSA_WITH_.*"
             );
 
             LOG.info("SSL Context Factory configured successfully");

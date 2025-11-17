@@ -238,7 +238,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
             TSocket clientSocket;
             if (Config.enable_tls) {
                 // Use global shared TLS managers for certificate hot-reload
-                SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
                 sslContext.init(new KeyManager[]{ sharedKeyManager },
                                 new TrustManager[]{ sharedTrustManager },
                                 null);

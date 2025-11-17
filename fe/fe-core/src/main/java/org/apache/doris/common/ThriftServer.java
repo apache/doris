@@ -151,7 +151,7 @@ public class ThriftServer {
                         })
                 );
 
-                SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
                 sslContext.init(new KeyManager[]{ keyManager },
                         new TrustManager[]{ trustManager }, null);
 
@@ -250,7 +250,7 @@ public class ThriftServer {
                         })
                 );
 
-                SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
                 sslContext.init(new KeyManager[]{ keyManager },
                                 new TrustManager[]{ trustManager },
                                 null);

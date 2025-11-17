@@ -69,7 +69,7 @@ public class HttpURLUtil {
                 }
 
                 try {
-                    sslContext = SSLContexts.custom().setProtocol("TLSv1.2").setKeyStoreType("PKCS12")
+                    sslContext = SSLContexts.custom().setProtocol("TLSv1.3").setKeyStoreType("PKCS12")
                         .loadKeyMaterial(keyStore, Config.tls_private_key_password.toCharArray())
                         .loadTrustMaterial(trustStore, null)
                         .build();
