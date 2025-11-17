@@ -20,6 +20,9 @@
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -122,18 +125,53 @@ public:
                 }
                 case PrimitiveType::TYPE_BOOLEAN: { // boolean for AI_FILTER
 #ifdef BE_TEST
-                    string_result = "0";
-#endif
-                    if (string_result != "1" && string_result != "0") {
-                        return Status::RuntimeError("Failed to parse boolean value: " +
-                                                    string_result);
+                    const char* test_result = std::getenv("AI_TEST_RESULT");
+                    if (test_result != nullptr) {
+                        string_result = test_result;
+                    } else {
+                        string_result = "0";
                     }
+#endif
+                    trim_string(string_result);
+
+                    // Support multiple boolean formats: "1"/"0", "true"/"false", "yes"/"no" (case insensitive)
+                    bool bool_value = false;
+                    std::string lower_result = string_result;
+                    std::transform(lower_result.begin(), lower_result.end(), lower_result.begin(),
+                                   [](unsigned char c) { return std::tolower(c); });
+
+                    if (lower_result == "1" || lower_result == "true" || lower_result == "yes") {
+                        bool_value = true;
+                    } else if (lower_result == "0" || lower_result == "false" ||
+                               lower_result == "no") {
+                        bool_value = false;
+                    } else {
+                        return Status::RuntimeError(
+                                "Failed to parse boolean value: " + string_result +
+                                " (expected: 0, 1, true, false, yes, or no)");
+                    }
+
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(string_result == "1"));
+                            .insert_value(static_cast<UInt8>(bool_value));
                     break;
                 }
                 case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY
-                    assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(string_result));
+#ifdef BE_TEST
+                    const char* test_result = std::getenv("AI_TEST_RESULT");
+                    if (test_result != nullptr) {
+                        string_result = test_result;
+                    } else {
+                        string_result = "0.0";
+                    }
+#endif
+                    trim_string(string_result);
+                    try {
+                        float float_value = std::stof(string_result);
+                        assert_cast<ColumnFloat32&>(*col_result).insert_value(float_value);
+                    } catch (...) {
+                        return Status::RuntimeError("Failed to parse float value: " +
+                                                    string_result);
+                    }
                     break;
                 }
                 default:
@@ -147,6 +185,16 @@ public:
     }
 
 private:
+    // Trim whitespace and newlines from string
+    static void trim_string(std::string& str) {
+        str.erase(str.begin(), std::find_if(str.begin(), str.end(),
+                                            [](unsigned char ch) { return !std::isspace(ch); }));
+        str.erase(std::find_if(str.rbegin(), str.rend(),
+                               [](unsigned char ch) { return !std::isspace(ch); })
+                          .base(),
+                  str.end());
+    }
+
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
                                const ColumnNumbers& arguments, TAIResource& config,
