@@ -26,7 +26,7 @@ class VSearchExpr : public VExpr {
 public:
     VSearchExpr(const TExprNode& node);
     ~VSearchExpr() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     const std::string& expr_name() const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
 

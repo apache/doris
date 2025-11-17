@@ -208,9 +208,13 @@ std::string prettify_key(std::string_view key_hex, bool unicode) {
     fields_pos.push_back(0);
 
     for (auto& i : fields) {
-        fields_str.emplace_back(std::get<1>(i) == EncodingTag::BYTES_TAG
-                                        ? std::get<std::string>(std::get<0>(i))
-                                        : std::to_string(std::get<int64_t>(std::get<0>(i))));
+        if (std::get<1>(i) == EncodingTag::BYTES_TAG) {
+            fields_str.emplace_back(std::get<std::string>(std::get<0>(i)));
+        } else if (std::get<1>(i) == EncodingTag::VERSIONSTAMP_TAG) {
+            fields_str.emplace_back("versionstamp: " + std::get<std::string>(std::get<0>(i)));
+        } else {
+            fields_str.emplace_back(std::to_string(std::get<int64_t>(std::get<0>(i))));
+        }
         fields_pos.push_back((std::get<2>(i) + 1) * 2);
     }
 

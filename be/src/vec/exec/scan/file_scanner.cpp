@@ -70,6 +70,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
+#include "vec/exec/format/table/remote_doris_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/text/text_reader.h"
@@ -1126,9 +1127,17 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {
-            _cur_reader = ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,
-                                                           range, _file_slot_descs, _io_ctx.get());
-            init_status = ((ArrowStreamReader*)(_cur_reader.get()))->init_reader();
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "remote_doris") {
+                _cur_reader =
+                        RemoteDorisReader::create_unique(_file_slot_descs, _state, _profile, range);
+                init_status = ((RemoteDorisReader*)(_cur_reader.get()))->init_reader();
+            } else {
+                _cur_reader =
+                        ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,
+                                                         range, _file_slot_descs, _io_ctx.get());
+                init_status = ((ArrowStreamReader*)(_cur_reader.get()))->init_reader();
+            }
             break;
         }
         default:
@@ -1171,7 +1180,13 @@ Status FileScanner::_get_next_reader() {
             // to filter the row group. But if this is count push down, the offset is undefined,
             // causing incorrect row group filter and may return empty result.
         } else {
-            RETURN_IF_ERROR(_set_fill_or_truncate_columns(need_to_get_parsed_schema));
+            Status status = _set_fill_or_truncate_columns(need_to_get_parsed_schema);
+            if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
+                continue;
+            } else if (!status.ok()) {
+                return Status::InternalError("failed to set_fill_or_truncate_columns, err: {}",
+                                             status.to_string());
+            }
         }
         _cur_reader_eof = false;
         break;
@@ -1714,7 +1729,7 @@ Status FileScanner::_init_expr_ctxes() {
 }
 
 Status FileScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
 

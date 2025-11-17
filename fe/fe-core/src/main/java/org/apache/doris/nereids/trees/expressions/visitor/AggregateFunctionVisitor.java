@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
@@ -202,6 +204,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(groupArrayIntersect, context);
     }
 
+    default R visitGroupArrayUnion(GroupArrayUnion groupArrayUnion, C context) {
+        return visitAggregateFunction(groupArrayUnion, context);
+    }
+
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
         return visitNullableAggregateFunction(groupBitAnd, context);
     }
@@ -324,6 +330,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitRetention(Retention retention, C context) {
         return visitNullableAggregateFunction(retention, context);
+    }
+
+    default R visitSem(Sem sem, C context) {
+        return visitNullableAggregateFunction(sem, context);
     }
 
     default R visitSequenceCount(SequenceCount sequenceCount, C context) {

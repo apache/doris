@@ -102,7 +102,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -2460,6 +2460,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildTTLSeconds();
     }
 
+    public long getPartitionRetentionCount() {
+        if (tableProperty != null) {
+            return tableProperty.getPartitionRetentionCount();
+        }
+        return -1;
+    }
+
+    public void setPartitionRetentionCount(long partitionRetentionCount) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT,
+                                            Long.valueOf(partitionRetentionCount).toString());
+        tableProperty.buildPartitionRetentionCount();
+    }
+
     public boolean getEnableLightSchemaChange() {
         if (tableProperty != null) {
             return tableProperty.getUseSchemaLightChange();
@@ -3642,21 +3658,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // subPath is not empty, means it is a variant column, find the field pattern from children
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
-        for (Column child : column.getChildren()) {
-            String childName = child.getName();
-            if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
-                try {
-                    java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                            .getPathMatcher("glob:" + childName);
-                    if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+        if (column.getChildren() != null) {
+            for (Column child : column.getChildren()) {
+                String childName = child.getName();
+                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                    try {
+                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
+                                .getPathMatcher("glob:" + childName);
+                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                            fieldPattern = childName;
+                        }
+                    } catch (Exception e) {
+                        continue;
+                    }
+                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                    if (childName.equals(subPathString)) {
                         fieldPattern = childName;
                     }
-                } catch (Exception e) {
-                    continue;
-                }
-            } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
-                if (childName.equals(subPathString)) {
-                    fieldPattern = childName;
                 }
             }
         }

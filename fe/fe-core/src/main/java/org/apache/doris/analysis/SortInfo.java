@@ -24,8 +24,6 @@ import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -37,40 +35,17 @@ import java.util.List;
  * particular input row (materialize all row slots)
  */
 public class SortInfo {
-    private static final Logger LOG = LogManager.getLogger(SortInfo.class);
-    // All ordering exprs with cost greater than this will be materialized. Since we don't
-    // currently have any information about actual function costs, this value is intended to
-    // ensure that all expensive functions will be materialized while still leaving simple
-    // operations unmaterialized, for example 'SlotRef + SlotRef' should have a cost below
-    // this threshold.
-    // TODO: rethink this when we have a better cost model.
-    private static final float SORT_MATERIALIZATION_COST_THRESHOLD = Expr.FUNCTION_CALL_COST;
 
     private List<Expr> orderingExprs;
-    private List<Expr> origOrderingExprs;
     private final List<Boolean> isAscOrder;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
-    // Subset of ordering exprs that are materialized. Populated in
-    // createMaterializedOrderExprs(), used for EXPLAIN output.
-    private List<Expr> materializedOrderingExprs;
     // The single tuple that is materialized, sorted, and output by a sort operator
     // (i.e. SortNode or TopNNode)
     private TupleDescriptor sortTupleDesc;
     // Input expressions materialized into sortTupleDesc_. One expr per slot in
     // sortTupleDesc_.
-    private List<Expr> sortTupleSlotExprs;
     private boolean useTwoPhaseRead = false;
-
-    public SortInfo(List<Expr> orderingExprs, List<Boolean> isAscOrder,
-                    List<Boolean> nullsFirstParams) {
-        Preconditions.checkArgument(orderingExprs.size() == isAscOrder.size());
-        Preconditions.checkArgument(orderingExprs.size() == nullsFirstParams.size());
-        this.orderingExprs = orderingExprs;
-        this.isAscOrder = isAscOrder;
-        this.nullsFirstParams = nullsFirstParams;
-        materializedOrderingExprs = Lists.newArrayList();
-    }
 
     /**
      * Used by new optimizer.
@@ -92,35 +67,11 @@ public class SortInfo {
         orderingExprs = Expr.cloneList(other.orderingExprs);
         isAscOrder = Lists.newArrayList(other.isAscOrder);
         nullsFirstParams = Lists.newArrayList(other.nullsFirstParams);
-        materializedOrderingExprs = Expr.cloneList(other.materializedOrderingExprs);
         sortTupleDesc = other.sortTupleDesc;
-        if (other.sortTupleSlotExprs != null) {
-            sortTupleSlotExprs = Expr.cloneList(other.sortTupleSlotExprs);
-        }
-    }
-
-    /**
-     * Sets sortTupleDesc_, which is the internal row representation to be materialized and
-     * sorted. The source exprs of the slots in sortTupleDesc_ are changed to those in
-     * tupleSlotExprs.
-     */
-    public void setMaterializedTupleInfo(
-            TupleDescriptor tupleDesc, List<Expr> tupleSlotExprs) {
-        Preconditions.checkState(tupleDesc.getSlots().size() == tupleSlotExprs.size());
-        sortTupleDesc = tupleDesc;
-        sortTupleSlotExprs = tupleSlotExprs;
-        for (int i = 0; i < sortTupleDesc.getSlots().size(); ++i) {
-            SlotDescriptor slotDesc = sortTupleDesc.getSlots().get(i);
-            slotDesc.setSourceExpr(sortTupleSlotExprs.get(i));
-        }
     }
 
     public List<Expr> getOrderingExprs() {
         return orderingExprs;
-    }
-
-    public List<Expr> getOrigOrderingExprs() {
-        return origOrderingExprs;
     }
 
     public List<Boolean> getIsAscOrder() {
@@ -131,35 +82,8 @@ public class SortInfo {
         return nullsFirstParams;
     }
 
-    public List<Expr> getMaterializedOrderingExprs() {
-        return materializedOrderingExprs;
-    }
-
-    public void addMaterializedOrderingExpr(Expr expr) {
-        if (materializedOrderingExprs == null) {
-            materializedOrderingExprs = Lists.newArrayList();
-        }
-        materializedOrderingExprs.add(expr);
-    }
-
-    public List<Expr> getSortTupleSlotExprs() {
-        return sortTupleSlotExprs;
-    }
-
-    public void setSortTupleSlotExprs(List<Expr> sortTupleSlotExprs) {
-        this.sortTupleSlotExprs = sortTupleSlotExprs;
-    }
-
-    public void setSortTupleDesc(TupleDescriptor tupleDesc) {
-        sortTupleDesc = tupleDesc;
-    }
-
     public void setUseTwoPhaseRead() {
         useTwoPhaseRead = true;
-    }
-
-    public boolean useTwoPhaseRead() {
-        return useTwoPhaseRead;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {

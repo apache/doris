@@ -125,16 +125,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public String toDigestImpl() {
-        return "?";
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
-    }
-
-    @Override
     public boolean isNullable() {
         return this.lExpr instanceof NullLiteral;
     }
@@ -160,13 +150,6 @@ public class PlaceHolderExpr extends LiteralExpr {
             return "?";
         }
         return "_placeholder_(" + this.lExpr.toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")";
-    }
-
-    // @Override
-    public Expr reset() {
-        this.lExpr = null;
-        this.type = Type.UNSUPPORTED;
-        return this;
     }
 
     @Override

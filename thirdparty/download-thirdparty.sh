@@ -344,10 +344,10 @@ fi
 
 # patch librdkafka to avoid crash
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
-    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.9.2" ]]; then
+    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.9.2.patch"
+            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.11.0.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -548,7 +548,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     if [[ "${THRIFT_SOURCE}" == 'thrift-0.16.0' ]]; then
         cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            for patch_file in "${TP_PATCH_DIR}"/thrift-0.16*; do
+            for patch_file in "${TP_PATCH_DIR}"/thrift-*; do
                 echo "patch ${patch_file}"
                 patch -p1 --ignore-whitespace <"${patch_file}"
             done
@@ -584,6 +584,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     fi
     cd -
     echo "Finished patching ${AZURE_SOURCE}"
+fi
+
+if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
+    cd $TP_SOURCE_DIR/$CCTZ_SOURCE
+    if [[ ! -f "$PATCHED_MARK" ]] ; then
+        for patch_file in "${TP_PATCH_DIR}"/cctz-*; do
+            echo "patch ${patch_file}"
+            patch -p1 --ignore-whitespace <"${patch_file}"
+        done
+        touch "$PATCHED_MARK"
+    fi
+    cd -
+    echo "Finished patching ${CCTZ_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

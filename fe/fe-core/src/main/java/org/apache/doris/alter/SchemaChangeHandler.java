@@ -116,6 +116,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -392,11 +393,10 @@ public class SchemaChangeHandler extends AlterHandler {
         if (null == targetIndexName) {
             if (nameToColumn.containsKey(dropColName)) {
                 Column column = nameToColumn.get(dropColName);
-                Set<String> generatedColumnsThatReferToThis = column.getGeneratedColumnsThatReferToThis();
-                if (!generatedColumnsThatReferToThis.isEmpty()) {
+                if (CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis())) {
                     throw new DdlException(
                             "Column '" + dropColName + "' has a generated column dependency on :"
-                                    + generatedColumnsThatReferToThis);
+                                    + column.getGeneratedColumnsThatReferToThis());
                 }
             }
         }
@@ -1974,6 +1974,7 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<String, String> propertyMap = new HashMap<>();
             for (AlterClause alterClause : alterClauses) {
                 Map<String, String> properties = alterClause.getProperties();
+                // alter table properties
                 if (properties != null) {
                     if (propertyMap.isEmpty()) {
                         propertyMap.putAll(properties);
@@ -2004,6 +2005,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                         DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
+                        if (olapTable.getPartitionRetentionCount() > 0) {
+                            throw new DdlException("Can not use partition.retention_count and "
+                                    + "dynamic_partition properties at the same time");
+                        }
                         if (!olapTable.dynamicPartitionExists()) {
                             try {
                                 DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties,
@@ -2352,6 +2357,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -2370,6 +2376,13 @@ public class SchemaChangeHandler extends AlterHandler {
             partitions.addAll(olapTable.getPartitions());
         } finally {
             olapTable.readUnlock();
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
+                && !(olapTable.getPartitionInfo().enableAutomaticPartition()
+                        && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
         }
 
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
@@ -2442,7 +2455,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             LOG.info("Properties already up-to-date");
             return;
         }
@@ -2489,6 +2503,9 @@ public class SchemaChangeHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
+
+        // after modifyTableProperties, buildPartitionRetentionCount has been done.
+        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
     }
 
     /**
@@ -3474,8 +3491,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
             Column c = nameToColumn.get(name);
-            Set<String> sets = c.getGeneratedColumnsThatReferToThis();
-            sets.remove(dropColName);
+            if (CollectionUtils.isNotEmpty(c.getGeneratedColumnsThatReferToThis())) {
+                c.getGeneratedColumnsThatReferToThis().remove(dropColName);
+            }
         }
     }
 

@@ -32,7 +32,7 @@ import java.util.Map;
 
 public abstract class TableValuedFunctionIf {
     private FunctionGenTable table = null;
-    public static final String TVF_TABLE_PREFIX = "_table_valued_function_";
+    public static final String TVF_TABLE_PREFIX = "_tvf_";
 
     public FunctionGenTable getTable() throws AnalysisException {
         if (table == null) {
@@ -86,6 +86,8 @@ public abstract class TableValuedFunctionIf {
                 return new PartitionValuesTableValuedFunction(params);
             case FileTableValuedFunction.NAME:
                 return new FileTableValuedFunction(params);
+            case HttpTableValuedFunction.NAME:
+                return new HttpTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

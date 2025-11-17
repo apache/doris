@@ -87,7 +87,6 @@ import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.MysqlDBTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcCatalogResource;
@@ -132,6 +131,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalTable;
@@ -297,7 +297,6 @@ public class GsonUtils {
             .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
             .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())
             .registerSubtype(AnyType.class, AnyType.class.getSimpleName())
-            .registerSubtype(MultiRowType.class, MultiRowType.class.getSimpleName())
             .registerSubtype(TemplateType.class, TemplateType.class.getSimpleName())
             .registerSubtype(VariantType.class, VariantType.class.getSimpleName());
 
@@ -422,7 +421,8 @@ public class GsonUtils {
                             TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
-                .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName());
+                .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName())
+                .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName());
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());

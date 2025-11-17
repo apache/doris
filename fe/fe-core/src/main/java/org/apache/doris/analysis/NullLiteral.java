@@ -30,8 +30,6 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Preconditions;
-
 import java.nio.ByteBuffer;
 
 public class NullLiteral extends LiteralExpr {
@@ -59,12 +57,6 @@ public class NullLiteral extends LiteralExpr {
 
     protected NullLiteral(NullLiteral other) {
         super(other);
-    }
-
-    @Override
-    protected void resetAnalysisState() {
-        super.resetAnalysisState();
-        type = Type.NULL;
     }
 
     @Override
@@ -146,17 +138,6 @@ public class NullLiteral extends LiteralExpr {
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
         return INT_EXPR.getHashValue(PrimitiveType.INT);
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        Preconditions.checkState(targetType.isValid());
-        if (!type.equals(targetType)) {
-            NullLiteral nullLiteral = new NullLiteral(this);
-            nullLiteral.setType(targetType);
-            return nullLiteral;
-        }
-        return this;
     }
 
     @Override

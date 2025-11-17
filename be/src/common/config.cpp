@@ -317,7 +317,7 @@ DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int co
     return true;
 });
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "false");
+DEFINE_Bool(enable_task_executor_in_internal_table, "true");
 // Enable task executor in external table scan.
 DEFINE_Bool(enable_task_executor_in_external_table, "true");
 
@@ -1152,6 +1152,8 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
+// if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
+DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
@@ -1315,6 +1317,7 @@ DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
+DEFINE_Int32(grace_shutdown_post_delay_seconds, "30");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
@@ -1633,6 +1636,8 @@ DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& confi
 });
 
 DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
+
+DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2087,8 +2092,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-            ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
+    if (config::enable_fuzzy_storage_encoding) {
+        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
+                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
+    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

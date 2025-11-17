@@ -22,9 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -37,7 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -47,46 +43,10 @@ import java.util.List;
  */
 public class InPredicate extends Predicate {
 
-    private static final String IN_SET_LOOKUP = "in_set_lookup";
-    private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
     private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     @SerializedName("ini")
     private boolean isNotIn;
-
-    private static final NullLiteral NULL_LITERAL = new NullLiteral();
-
-    public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getSupportedTypes()) {
-            if (t.isNull()) {
-                continue;
-            }
-            // TODO we do not support codegen for CHAR and the In predicate must be
-            // codegened
-            // because it has variable number of arguments. This will force CHARs to be
-            // cast up to strings; meaning that "in" comparisons will not have CHAR
-            // comparison
-            // semantics.
-            if (t.getPrimitiveType() == PrimitiveType.CHAR) {
-                continue;
-            }
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(IN_ITERATE,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    null, null, null, false));
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    null, null, null, false));
-
-            functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    null, null, null, false));
-            functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    null, null, null, false));
-
-        }
-    }
 
     private InPredicate() {
         // use for serde only
@@ -140,14 +100,6 @@ public class InPredicate extends Predicate {
         this.isNotIn = isNotIn;
     }
 
-    /**
-     * Negates an InPredicate.
-     */
-    @Override
-    public Expr negate() {
-        return new InPredicate(getChild(0), children.subList(1, children.size()), !isNotIn);
-    }
-
     public List<Expr> getListChildren() {
         return children.subList(1, children.size());
     }
@@ -163,27 +115,6 @@ public class InPredicate extends Predicate {
             }
         }
         return true;
-    }
-
-    public InPredicate union(InPredicate inPredicate) {
-        Preconditions.checkState(inPredicate.isLiteralChildren());
-        Preconditions.checkState(this.isLiteralChildren());
-        Preconditions.checkState(getChild(0).equals(inPredicate.getChild(0)));
-        List<Expr> unionChildren = new ArrayList<>(getListChildren());
-        unionChildren.removeAll(inPredicate.getListChildren());
-        unionChildren.addAll(inPredicate.getListChildren());
-        InPredicate union = new InPredicate(getChild(0), unionChildren, isNotIn);
-        return union;
-    }
-
-    public InPredicate intersection(InPredicate inPredicate) {
-        Preconditions.checkState(inPredicate.isLiteralChildren());
-        Preconditions.checkState(this.isLiteralChildren());
-        Preconditions.checkState(getChild(0).equals(inPredicate.getChild(0)));
-        List<Expr> intersectChildren = new ArrayList<>(getListChildren());
-        intersectChildren.retainAll(inPredicate.getListChildren());
-        InPredicate intersection = new InPredicate(getChild(0), intersectChildren, isNotIn);
-        return intersection;
     }
 
     @Override
@@ -215,19 +146,6 @@ public class InPredicate extends Predicate {
                 getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "IN (");
         for (int i = 1; i < children.size(); ++i) {
             strBuilder.append(getChild(i).toSql(disableTableName, needExternalSql, tableType, table));
-            strBuilder.append((i + 1 != children.size()) ? ", " : "");
-        }
-        strBuilder.append(")");
-        return strBuilder.toString();
-    }
-
-    @Override
-    public String toDigestImpl() {
-        StringBuilder strBuilder = new StringBuilder();
-        String notStr = (isNotIn) ? "NOT " : "";
-        strBuilder.append(getChild(0).toDigest() + " " + notStr + "IN (");
-        for (int i = 1; i < children.size(); ++i) {
-            strBuilder.append(getChild(i).toDigest());
             strBuilder.append((i + 1 != children.size()) ? ", " : "");
         }
         strBuilder.append(")");

@@ -517,6 +517,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         column->set_variant_max_sparse_column_statistics_size(
                 tcolumn.variant_max_sparse_column_statistics_size);
     }
+    if (tcolumn.__isset.variant_sparse_hash_shard_count) {
+        column->set_variant_sparse_hash_shard_count(tcolumn.variant_sparse_hash_shard_count);
+    }
 }
 
 void TabletMeta::remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version) {
@@ -1176,7 +1179,7 @@ static void decode_agg_cache_key(const std::string& key_str, int64_t& tablet_id,
     const char* ptr = key_str.data();
     tablet_id = *reinterpret_cast<const int64_t*>(ptr);
     ptr += sizeof(tablet_id);
-    auto* t = reinterpret_cast<DeleteBitmap::BitmapKey*>(const_cast<char*>(ptr));
+    const auto* t = reinterpret_cast<const DeleteBitmap::BitmapKey*>(ptr);
     std::get<RowsetId>(bmk).version = std::get<RowsetId>(*t).version;
     std::get<RowsetId>(bmk).hi = std::get<RowsetId>(*t).hi;
     std::get<RowsetId>(bmk).mi = std::get<RowsetId>(*t).mi;

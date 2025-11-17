@@ -1,0 +1,119 @@
+diff --git a/include/cctz/civil_time_detail.h b/include/cctz/civil_time_detail.h
+index c94daaf..a06ada7 100644
+--- a/include/cctz/civil_time_detail.h
++++ b/include/cctz/civil_time_detail.h
+@@ -212,13 +212,13 @@ CONSTEXPR_F fields n_min(year_t y, diff_t m, diff_t d, diff_t hh, diff_t ch,
+ CONSTEXPR_F fields n_sec(year_t y, diff_t m, diff_t d, diff_t hh, diff_t mm,
+                          diff_t ss) noexcept {
+   // Optimization for when (non-constexpr) fields are already normalized.
+-  if (0 <= ss && ss < 60) {
++  if (__builtin_expect(0 <= ss && ss < 60, 1)) {
+     const second_t nss = static_cast<second_t>(ss);
+-    if (0 <= mm && mm < 60) {
++    if (__builtin_expect(0 <= mm && mm < 60, 1)) {
+       const minute_t nmm = static_cast<minute_t>(mm);
+-      if (0 <= hh && hh < 24) {
++      if (__builtin_expect(0 <= hh && hh < 24, 1)) {
+         const hour_t nhh = static_cast<hour_t>(hh);
+-        if (1 <= d && d <= 28 && 1 <= m && m <= 12) {
++        if (__builtin_expect(1 <= d && d <= 28 && 1 <= m && m <= 12, 1)) {
+           const day_t nd = static_cast<day_t>(d);
+           const month_t nm = static_cast<month_t>(m);
+           return fields(y, nm, nd, nhh, nmm, nss);
+diff --git a/src/time_zone_info.cc b/src/time_zone_info.cc
+index cc4b001..b1eaea0 100644
+--- a/src/time_zone_info.cc
++++ b/src/time_zone_info.cc
+@@ -42,6 +42,7 @@
+ #include <fstream>
+ #include <functional>
+ #include <memory>
++#include <mutex>
+ #include <sstream>
+ #include <string>
+ #include <utility>
+@@ -49,6 +50,7 @@
+ 
+ #include "cctz/civil_time.h"
+ #include "time_zone_fixed.h"
++#include "time_zone_if.h"
+ #include "time_zone_posix.h"
+ 
+ namespace cctz {
+@@ -102,6 +104,20 @@ inline int ToPosixWeekday(weekday wd) {
+   return 0; /*NOTREACHED*/
+ }
+ 
++static constexpr int kCivilCacheDays = 200 * 365;
++static civil_day gCivilCache[kCivilCacheDays];
++static std::once_flag gCivilCacheInit;
++
++static void InitCivilDaysCache() {
++  std::call_once(gCivilCacheInit, [&]() {
++    civil_day epoch;
++    for (int i = 0; i < kCivilCacheDays; i++) {
++      gCivilCache[i] = epoch;
++      epoch++;
++    }
++  });
++}
++
+ // Single-byte, unsigned numeric values are encoded directly.
+ inline std::uint_fast8_t Decode8(const char* cp) {
+   return static_cast<std::uint_fast8_t>(*cp) & 0xff;
+@@ -861,14 +877,48 @@ time_zone::absolute_lookup TimeZoneInfo::LocalTime(
+           tt.utc_offset, tt.is_dst, &abbreviations_[tt.abbr_index]};
+ }
+ 
++static inline int64_t floor_div(int64_t n, int64_t d) {
++  int64_t q = n / d;
++  int64_t r = n % d;
++  return (r < 0) ? q - 1 : q;
++}
++
+ // BreakTime() translation for a particular transition.
+-time_zone::absolute_lookup TimeZoneInfo::LocalTime(
+-    std::int_fast64_t unix_time, const Transition& tr) const {
+-  const TransitionType& tt = transition_types_[tr.type_index];
+-  // Note: (unix_time - tr.unix_time) will never overflow as we
+-  // have ensured that there is always a "nearby" transition.
+-  return {tr.civil_sec + (unix_time - tr.unix_time),  // TODO: Optimize.
+-          tt.utc_offset, tt.is_dst, &abbreviations_[tt.abbr_index]};
++time_zone::absolute_lookup TimeZoneInfo::LocalTime(std::int_fast64_t unix_time,
++                                                   const Transition &tr) const {
++  const TransitionType &tt = transition_types_[tr.type_index];
++  // Baseline
++  // return {tr.civil_sec + (unix_time-tr.unix_time), tt.utc_offset, tt.is_dst,
++  // &abbreviations_[tt.abbr_index]};
++
++  std::int_fast64_t local_unix = unix_time + tt.utc_offset;
++  if (local_unix < unix_time) {
++    // Handle overflow case
++    return {tr.civil_sec + (unix_time - tr.unix_time), tt.utc_offset, tt.is_dst,
++            &abbreviations_[tt.abbr_index]};
++  }
++
++  constexpr int64_t SECS_PER_DAY = 86400;
++  std::int_fast64_t days = floor_div(local_unix, SECS_PER_DAY);
++  std::int_fast64_t sod = local_unix - days * SECS_PER_DAY;
++  if (sod < 0) {
++    sod += SECS_PER_DAY;
++  }
++
++  if (0 <= days && days < kCivilCacheDays) {
++    InitCivilDaysCache();
++    civil_day local_civil_day = gCivilCache[days];
++    civil_second local_civil(local_civil_day.year(), local_civil_day.month(),
++                             local_civil_day.day(), sod / (3600),
++                             sod % 3600 / 60, sod % 60);
++    return {local_civil, tt.utc_offset, tt.is_dst,
++            &abbreviations_[tt.abbr_index]};
++  } else {
++    // Note: (unix_time - tr.unix_time) will never overflow as we
++    // have ensured that there is always a "nearby" transition.
++    return {tr.civil_sec + (unix_time - tr.unix_time), tt.utc_offset, tt.is_dst,
++            &abbreviations_[tt.abbr_index]};
++  }
+ }
+ 
+ // MakeTime() translation with a conversion-preserving +N * 400-year shift.

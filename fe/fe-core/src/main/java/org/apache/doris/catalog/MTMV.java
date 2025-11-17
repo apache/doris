@@ -49,7 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -216,8 +216,9 @@ public class MTMV extends OlapTable {
                 if (!isReplay) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                            true, currentContext);
+                    mtmvCache = MTMVCache.from(this.getQuerySql(),
+                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                            true, true, currentContext);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -336,6 +337,25 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
+        readMvLock();
+        try {
+            String stillRewrittenTables
+                    = mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES);
+            if (StringUtils.isEmpty(stillRewrittenTables)) {
+                return res;
+            }
+            String[] split = stillRewrittenTables.split(",");
+            for (String alias : split) {
+                res.add(new TableNameInfo(alias));
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     /**
      * Called when in query, Should use one connection context in query
      */
@@ -351,8 +371,9 @@ public class MTMV extends OlapTable {
         }
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                false, connectionContext);
+        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(),
+                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                true, false, connectionContext);
         writeMvLock();
         try {
             this.cache = mtmvCache;

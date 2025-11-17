@@ -574,6 +574,10 @@ public class SchemaTable extends Table {
                                     .column("DISTRIBUTE_TYPE", ScalarType.createStringType())
                                     .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("PARTITION_METHOD", ScalarType.createVarchar(13))
+                                    .column("PARTITION_EXPRESSION", ScalarType.createVarchar(2048))
+                                    .column("PARTITION_KEY", ScalarType.createStringType())
+                                    .column("RANGE", ScalarType.createStringType())
                                     .build()))
             .put("workload_group_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_group_privileges", TableType.SCHEMA,
@@ -696,6 +700,17 @@ public class SchemaTable extends Table {
                                     .column("USER", ScalarType.createStringType())
                                     .column("COMMENT", ScalarType.createStringType())
                                     .column("FIRST_ERROR_MSG", ScalarType.createStringType())
+                                    .build())
+            )
+            .put("file_cache_info",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
+                            builder().column("HASH", ScalarType.createStringType())
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("REMOTE_PATH", ScalarType.createStringType())
+                                    .column("CACHE_PATH", ScalarType.createStringType())
+                                    .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
