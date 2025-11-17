@@ -67,12 +67,12 @@ namespace doris::segment_v2 {
 // Read (brief): VariantExternalMetaReader uses keys' value index to locate the path,
 // then reads values at the same ordinal to get ColumnMetaPB bytes and parses it.
 //
-// Interop with external column meta (CMO):
-//   - Variant root ColumnMetaPB is externalized via CMO (addressed by col_id)
+// Interop with external column meta (column_meta_entries):
+//   - Variant root ColumnMetaPB is externalized via column_meta_entries (addressed by col_id)
 //   - Variant subcolumn ColumnMetaPB:
 //       • non-sparse: externalized via this path-based meta (VariantExternalMetaReader)
 //       • sparse (including buckets): embedded into root's ColumnMetaPB.children_columns and
-//         loaded together with root meta via CMO
+//         loaded together with root meta via column_meta_entries
 
 // Aggregate all externalized non-sparse subcolumn metas and flush them as two
 // IndexedColumns' metas (keys/values) into footer.file_meta_datas, and prune these

@@ -674,14 +674,14 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     // init sub columns
     _subcolumns_meta_info = std::make_unique<SubcolumnColumnMetaInfo>();
     _statistics = std::make_unique<VariantStatistics>();
-    // Prefer external root ColumnMetaPB via CMO if available (on-demand meta)
+    // Prefer external root ColumnMetaPB via column_meta_entries if available (on-demand meta)
     ColumnMetaPB self_column_pb;
     {
         ExternalColMetaUtil::ExternalMetaPointers ptrs;
         if (ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
             column_id < ptrs.num_columns) {
-            RETURN_IF_ERROR(ExternalColMetaUtil::read_col_meta_from_cmo(
-                    file_reader, ptrs, column_id, &self_column_pb));
+            RETURN_IF_ERROR(ExternalColMetaUtil::read_col_meta(file_reader, footer, ptrs, column_id,
+                                                               &self_column_pb));
         } else {
             // fallback
             self_column_pb = footer.columns(column_id);

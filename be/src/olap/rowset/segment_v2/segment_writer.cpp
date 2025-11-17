@@ -1144,12 +1144,15 @@ Status SegmentWriter::_write_primary_key_index() {
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
-
-    // External ColumnMetaPB writing (optional, controlled by enable_segment_external_col_meta)
-    RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
-            config::enable_segment_external_col_meta, _file_writer, &_footer,
-            _opts.compression_type,
-            [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
+    if (_tablet_schema->is_external_segment_meta_used_default()) {
+        _footer.set_version(kSegmentFooterVersionV3_ExtColMeta);
+        VLOG_DEBUG << "use external column meta";
+        // External ColumnMetaPB writing (optional)
+        RETURN_IF_ERROR(ExternalColMetaUtil::write_external_column_meta(
+                _file_writer, &_footer, _opts.compression_type,
+                [this](const std::vector<Slice>& slices) { return _write_raw_data(slices); }));
+    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;

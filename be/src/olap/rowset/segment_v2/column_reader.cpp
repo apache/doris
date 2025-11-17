@@ -250,13 +250,13 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const SegmentFooter
                             uint32_t column_id, uint64_t num_rows,
                             const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
-    // Prefer external ColumnMetaPB via CMO [pos,size] addressing if available (on-demand meta)
+    // Prefer external ColumnMetaPB via footer column_meta_entries (on-demand meta)
     ExternalColMetaUtil::ExternalMetaPointers ptrs;
     if (ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
         column_id < ptrs.num_columns) {
         ColumnMetaPB meta;
         RETURN_IF_ERROR(
-                ExternalColMetaUtil::read_col_meta_from_cmo(file_reader, ptrs, column_id, &meta));
+                ExternalColMetaUtil::read_col_meta(file_reader, footer, ptrs, column_id, &meta));
         // return ColumnReader::create(opts, meta, num_rows, file_reader, reader);
         if ((FieldType)meta.type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
             return ColumnReader::create(opts, meta, num_rows, file_reader, reader);

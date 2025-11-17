@@ -50,18 +50,18 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
         """
         sql """insert into query_subcolumns values (1, '{"a" : 1, "b" : "2"}')"""
-        set_be_config("enable_segment_external_col_meta", "false")
+        // legacy V2 write
         sql """insert into query_subcolumns values (2, '{"a" : 1, "b" : "2", "c" : 3}')"""
-        set_be_config("enable_segment_external_col_meta", "true")
+        // switch to V2.1
         sql """insert into query_subcolumns values (3, '{"a" : 1, "b" : "2", "c" : 3, "d" : 4}')"""
-        set_be_config("enable_segment_external_col_meta", "true")
+        // keep V2.1
         sql """insert into query_subcolumns values (4, '{"a" : 1}')"""
-        set_be_config("enable_segment_external_col_meta", "false")
+        // switch back to V2
         sql """insert into query_subcolumns values (5, '{"e" : "hello, world"}')"""
-        set_be_config("enable_segment_external_col_meta", "true")
+        // and again V2.1
         sql """insert into query_subcolumns values (6, '{"f" : "make it work"}')"""
 
         qt_sql "select v['a'] from query_subcolumns where cast(v['a'] as int) is not null order by k"
@@ -73,11 +73,11 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
             sql "select v['f'] from query_subcolumns where v['f'] match 'make' order by k"
         }
 
-        if (max_subcolumns_count % 2) {
-            set_be_config("enable_segment_external_col_meta", "true")
-        } else {
-            set_be_config("enable_segment_external_col_meta", "false")
-        }
+        // if (max_subcolumns_count % 2) {
+        //     // sql """alter table query_subcolumns set ("storage_format" = "V3")"""
+        // } else {
+        //     // sql """alter table query_subcolumns set ("storage_format" = "V2")"""
+        // }
 
         // triger compaction
         trigger_and_wait_compaction("query_subcolumns", "full")        

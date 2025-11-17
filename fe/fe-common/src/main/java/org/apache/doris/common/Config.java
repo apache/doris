@@ -627,6 +627,11 @@ public class Config extends ConfigBase {
     public static boolean random_add_cluster_keys_for_mow = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "在 fuzzy 测试中随机选择部分表使用 V3 storage_format（ext_meta），用于增强覆盖",
+            "Randomly use V3 storage_format (ext_meta) for some tables in fuzzy tests to increase coverage"})
+    public static boolean random_use_v3_storage_format = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "等内部攒批真正写入完成才返回；insert into和stream load默认开启攒批",
             "Wait for the internal batch to be written before returning; "
                     + "insert into and stream load use group commit by default."})

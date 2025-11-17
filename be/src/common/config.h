@@ -1329,9 +1329,6 @@ DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 
-// Enable externalized ColumnMetaPB region + CMO table for all columns in segment
-DECLARE_mBool(enable_segment_external_col_meta);
-
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table

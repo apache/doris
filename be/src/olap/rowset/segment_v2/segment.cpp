@@ -698,11 +698,16 @@ Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
     // 2) fallback: scan footer.columns() (old or mixed format)
     // 3) both missing -> treat as no columns resolvable in this segment (return NOT_FOUND on lookup)
     _column_uid_to_footer_ordinal.clear();
+    // Decide path by footer version: V3 and above uses externalized ColumnMeta region
+    const bool use_external_meta = footer.version() >= kSegmentFooterVersionV3_ExtColMeta;
     // 1) Prefer uid->col_id blob (external meta mode). If corrupted or missing, fall back.
     ExternalColMetaUtil::ExternalMetaPointers ptrs;
-    bool loaded = ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
-                  ExternalColMetaUtil::parse_uid_to_colid_map(footer, ptrs,
-                                                              &_column_uid_to_footer_ordinal);
+    bool loaded = false;
+    if (use_external_meta) {
+        loaded = ExternalColMetaUtil::parse_external_meta_pointers(footer, &ptrs) &&
+                 ExternalColMetaUtil::parse_uid_to_colid_map(footer, ptrs,
+                                                             &_column_uid_to_footer_ordinal);
+    }
     // 2) Fallback: inline footer columns (old or mixed format)
     if (!loaded && footer.columns_size() > 0) {
         uint32_t ordinal = 0;
@@ -824,12 +829,13 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, nullptr));
-    // Prefer externalized meta path when available: reduce syscalls by prefetching the whole region.
+    // Prefer externalized meta path when version indicates V3 or higher.
     ExternalColMetaUtil::ExternalMetaPointers ptrs;
-    if (ExternalColMetaUtil::parse_external_meta_pointers(*footer_pb_shared, &ptrs) &&
+    if (footer_pb_shared->version() >= kSegmentFooterVersionV3_ExtColMeta &&
+        ExternalColMetaUtil::parse_external_meta_pointers(*footer_pb_shared, &ptrs) &&
         ptrs.num_columns > 0) {
         const uint64_t region_size =
-                (ptrs.cmo_offset > ptrs.region_start) ? (ptrs.cmo_offset - ptrs.region_start) : 0;
+                (ptrs.region_end > ptrs.region_start) ? (ptrs.region_end - ptrs.region_start) : 0;
         if (region_size == 0) {
             return Status::Corruption("invalid external meta region size");
         }
@@ -842,20 +848,17 @@ Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMe
         if (br != region_size) {
             return Status::Corruption("short read on meta region");
         }
-        // Walk CMO entries and parse metas
+        // Walk footer.column_meta_entries and parse metas
+        if (footer_pb_shared->column_meta_entries_size() != ptrs.num_columns) {
+            return Status::Corruption("column_meta_entries size mismatch");
+        }
+        uint64_t offset = ptrs.region_start;
         for (uint32_t i = 0; i < ptrs.num_columns; ++i) {
-            uint8_t entry[16];
-            size_t er = 0;
-            const uint64_t entry_off = ptrs.cmo_offset + static_cast<uint64_t>(i) * 16ULL;
-            RETURN_IF_ERROR(
-                    _file_reader->read_at(entry_off, Slice(entry, sizeof(entry)), &er, &io_ctx));
-            if (er != sizeof(entry)) {
-                return Status::Corruption("short read CMO entry");
-            }
-            const uint64_t pos = decode_fixed64_le(entry);
-            const uint64_t sz = decode_fixed64_le(entry + 8);
+            const auto& entry = footer_pb_shared->column_meta_entries(i);
+            const uint64_t sz = static_cast<uint64_t>(entry.length());
+            const uint64_t pos = offset;
             if (!ExternalColMetaUtil::is_valid_meta_slice(pos, sz, ptrs)) {
-                return Status::Corruption("CMO entry out of region bounds");
+                return Status::Corruption("external meta entry out of region bounds");
             }
             const uint64_t rel = pos - ptrs.region_start;
             ColumnMetaPB meta;
@@ -863,6 +866,7 @@ Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMe
                 return Status::Corruption("failed parse ColumnMetaPB from region");
             }
             visitor(meta);
+            offset += sz;
         }
         return Status::OK();
     }
