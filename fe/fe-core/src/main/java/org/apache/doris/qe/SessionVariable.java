@@ -984,8 +984,8 @@ public class SessionVariable implements Serializable, Writable {
     public int numScannerThreads = 0;
 
     @VariableMgr.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
-                "FileScanNode 扫描数据的最大并发",
-                "The max threads to read data of FileScanNode"})
+            "FileScanNode 扫描数据的最大并发",
+            "The max threads to read data of FileScanNode"})
     public int maxFileScannersConcurrency = 16;
 
     @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
