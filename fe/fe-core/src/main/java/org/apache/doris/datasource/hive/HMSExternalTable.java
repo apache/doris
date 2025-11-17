@@ -416,7 +416,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
             return Collections.emptyMap();
         }
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(Optional.empty());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
         // transfer id to name
         BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
@@ -1060,14 +1061,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) catalog);
-        List<Type> partitionColumnTypes = getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this));
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(this);
+        List<Type> partitionColumnTypes = getPartitionColumnTypes(snapshot);
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
             // It is ok to get partition values from cache,
             // no need to worry that this call will invalid or refresh the cache.
             // because it has enough space to keep partition info of all tables in cache.
-            partitionValues = getHivePartitionValues(Optional.empty());
+            partitionValues = getHivePartitionValues(snapshot);
             if (partitionValues == null || partitionValues.getPartitionNameToIdMap() == null) {
                 LOG.warn("Partition values for hive table {} is null", name);
             } else {
