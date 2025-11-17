@@ -1470,7 +1470,13 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY, true);
+        if (_scan_params.__isset.enable_mapping_varbinary &&
+            _scan_params.enable_mapping_varbinary) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
+                                                                true);
+        } else {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        }
     case orc::TypeKind::TIMESTAMP:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
