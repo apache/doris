@@ -189,7 +189,6 @@ public class PartitionExprUtilTest extends TestWithFeService {
         request.setDbId(db.getId());
         request.setTableId(table.getId());
         request.setPartitionValues(partitionValues);
-        request.setIsStreamLoad(false);
         TCreatePartitionResult result = impl.createPartition(request);
         Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
 
