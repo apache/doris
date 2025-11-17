@@ -73,8 +73,11 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 }
 
 int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) {
-    return std::max(state->num_scanner_threads(), 1) *
-           (_parent->is_serial_operator() ? 1 : _parent->query_parallel_instance_num(state));
+    return (state->num_scanner_threads()
+                    ? state->num_scanner_threads()
+                    : _state->get_query_ctx()->get_scan_scheduler()->get_max_threads() * 2 /
+                              _parent->parallelism(state)) *
+           _parent->parallelism(state);
 }
 
 template <typename Derived>
