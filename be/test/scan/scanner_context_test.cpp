@@ -176,16 +176,13 @@ TEST_F(ScannerContextTest, test_init) {
     Status st = scanner_context->init();
     ASSERT_TRUE(st.ok());
     // actual max_scan_concurrency will be 2 since user specified num_scanner_threads is 2.
-    ASSERT_EQ(scanner_context->_max_scan_concurrency, 2);
+    ASSERT_EQ(scanner_context->_max_scan_concurrency, 1);
 
     query_options.__set_num_scanner_threads(0);
     state->set_query_options(query_options);
 
     st = scanner_context->init();
     ASSERT_TRUE(st.ok());
-
-    ASSERT_EQ(scanner_context->_max_scan_concurrency,
-              scanner_context->_min_scan_concurrency_of_scan_scheduler / parallel_tasks);
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {

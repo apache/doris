@@ -123,7 +123,12 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency);
+                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency
+#ifdef BE_TEST
+                   ,
+                   int num_parallel_instances
+#endif
+    );
 
     ~ScannerContext() override;
     Status init();

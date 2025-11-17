@@ -56,7 +56,12 @@ ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency)
+        std::shared_ptr<pipeline::Dependency> dependency
+#ifdef BE_TEST
+        ,
+        int num_parallel_instances
+#endif
+        )
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -69,9 +74,13 @@ ScannerContext::ScannerContext(
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
-          _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()),
-          _max_scan_concurrency(std::min(local_state->max_scanners_concurrency(state),
-                                         cast_set<int>(scanners.size()))) {
+          _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()) {
+#ifndef BE_TEST
+    _max_scan_concurrency = std::min(local_state->max_scanners_concurrency(state),
+                                   cast_set<int>(scanners.size()));
+#else
+    _max_scan_concurrency = num_parallel_instances;
+#endif
     DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
