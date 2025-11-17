@@ -701,8 +701,10 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
     }
     for (size_t i = 0; i < _local_channels_dependency.size(); i++) {
-        COUNTER_UPDATE(_wait_channel_timer[i],
-                       _local_channels_dependency[i]->watcher_elapse_time());
+        if (_wait_channel_timer[i] && _local_channels_dependency[i]) {
+            COUNTER_UPDATE(_wait_channel_timer[i],
+                           _local_channels_dependency[i]->watcher_elapse_time());
+        }
     }
     if (_sink_buffer) {
         _sink_buffer->update_profile(profile());
