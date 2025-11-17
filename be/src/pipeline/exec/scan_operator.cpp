@@ -72,6 +72,11 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) {
+    return std::max(state->num_scanner_threads(), 1) *
+           (_parent->is_serial_operator() ? 1 : _parent->query_parallel_instance_num(state));
+}
+
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
@@ -1052,19 +1057,9 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    // If scan operator is serial operator(like topn), its real parallelism is 1.
-    // Otherwise, its real parallelism is query_parallel_instance_num.
-    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
-    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
-    // Related pr:
-    // https://github.com/apache/doris/pull/42460
-    // https://github.com/apache/doris/pull/44635
-    const int parallism_of_scan_operator =
-            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
-
-    _scanner_ctx = vectorized::ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, parallism_of_scan_operator);
+    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
+                                                             p.output_row_descriptor(), scanners,
+                                                             p.limit(), _scan_dependency);
     return Status::OK();
 }
 
@@ -1272,8 +1267,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
             }
         }
     }
-
-    _query_parallel_instance_num = state->query_parallel_instance_num();
 
     return Status::OK();
 }
