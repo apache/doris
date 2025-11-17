@@ -43,12 +43,10 @@ public class MCProperties extends BaseProperties {
     public static final String QUOTA = "mc.quota";
     public static final String DEFAULT_QUOTA = "pay-as-you-go";
 
-
     public static final String SPLIT_STRATEGY = "mc.split_strategy";
     public static final String SPLIT_BY_BYTE_SIZE_STRATEGY = "byte_size";
     public static final String SPLIT_BY_ROW_COUNT_STRATEGY = "row_count";
     public static final String DEFAULT_SPLIT_STRATEGY = SPLIT_BY_BYTE_SIZE_STRATEGY;
-
 
     public static final String SPLIT_BYTE_SIZE = "mc.split_byte_size";
     public static final String DEFAULT_SPLIT_BYTE_SIZE = "268435456"; //256 * 1024L * 1024L = 256MB

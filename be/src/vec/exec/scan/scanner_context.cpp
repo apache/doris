@@ -78,7 +78,7 @@ ScannerContext::ScannerContext(
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
     ctx_id = UniqueId::gen_uid().to_string();
     for (auto& scanner : _all_scanners) {
-        _pending_scanners.push(scanner);
+        _pending_scanners.push(std::make_shared<ScanTask>(scanner));
     };
     if (limit < 0) {
         limit = -1;
@@ -542,7 +542,7 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
         // We need to add it back to task queue to make sure it could be resubmitted.
         if (current_scan_task) {
             // This usually happens when we should downgrade the concurrency.
-            _pending_scanners.push(current_scan_task->scanner);
+            _pending_scanners.push(current_scan_task);
             VLOG_DEBUG << fmt::format(
                     "{} push back scanner to task queue, because diff <= 0, task_queue size "
                     "{}, _num_scheduled_scanners {}",
@@ -586,7 +586,7 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
                     }
                     // Current scan task is not eos, but we can not resubmit it.
                     // Add current_scan_task back to task queue, so that we have chance to resubmit it in the future.
-                    _pending_scanners.push(current_scan_task->scanner);
+                    _pending_scanners.push(current_scan_task);
                 }
             }
             first_pull = false;
@@ -640,10 +640,10 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_scanners.empty()) {
-        std::weak_ptr<ScannerDelegate> next_scan_task;
+        std::shared_ptr<ScanTask> next_scan_task;
         next_scan_task = _pending_scanners.top();
         _pending_scanners.pop();
-        return std::make_shared<ScanTask>(next_scan_task);
+        return next_scan_task;
     } else {
         return nullptr;
     }

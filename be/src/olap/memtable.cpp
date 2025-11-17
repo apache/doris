@@ -104,6 +104,10 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
+    if (_num_columns > _column_offset.size()) [[unlikely]] {
+        throw std::runtime_error(fmt::format("num_columns {} is greater than block columns {}",
+                                             _num_columns, _column_offset.size()));
+    }
     for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {

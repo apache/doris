@@ -20,29 +20,20 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.Objects;
 import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
-    private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
-
     public LiteralExpr() {
-        numDistinctValues = 1;
     }
 
     protected LiteralExpr(LiteralExpr other) {
@@ -183,11 +174,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    public String toDigestImpl() {
-        return " ? ";
-    }
-
-    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -216,134 +202,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return getStringValue();
     }
 
-    public static LiteralExpr getLiteralByMysqlType(int mysqlType, boolean isUnsigned) throws AnalysisException {
-        LiteralExpr literalExpr = null;
-
-        // If this is an unsigned numeric type, we convert it by using larger data types. For example, we can use
-        // small int to represent unsigned tiny int (0-255), big int to represent unsigned ints (0-2 ^ 32-1),
-        // and so on.
-        switch (mysqlType & MysqlColType.MYSQL_CODE_MASK) {
-            case 1: // MYSQL_TYPE_TINY
-                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.TINYINT : Type.SMALLINT);
-                break;
-            case 2: // MYSQL_TYPE_SHORT
-                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.SMALLINT : Type.INT);
-                break;
-            case 3: // MYSQL_TYPE_LONG
-                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.INT : Type.BIGINT);
-                break;
-            case 8: // MYSQL_TYPE_LONGLONG
-                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.BIGINT : Type.LARGEINT);
-                break;
-            case 4: // MYSQL_TYPE_FLOAT
-                literalExpr = LiteralExpr.create("0", Type.FLOAT);
-                break;
-            case 5: // MYSQL_TYPE_DOUBLE
-                literalExpr = LiteralExpr.create("0", Type.DOUBLE);
-                literalExpr.setType(Type.DOUBLE);
-                break;
-            case 0: // MYSQL_TYPE_DECIMAL
-            case 246: // MYSQL_TYPE_NEWDECIMAL
-                literalExpr = LiteralExpr.create("0", Type.DECIMAL32);
-                break;
-            case 11: // MYSQL_TYPE_TIME
-                literalExpr = LiteralExpr.create("", Type.TIMEV2);
-                break;
-            case 10: // MYSQL_TYPE_DATE
-                literalExpr = LiteralExpr.create("1970-01-01", Type.DATE);
-                break;
-            case 12: // MYSQL_TYPE_DATETIME
-            case 7: // MYSQL_TYPE_TIMESTAMP
-            case 17: // MYSQL_TYPE_TIMESTAMP2
-                literalExpr = LiteralExpr.create("1970-01-01 00:00:00", Type.DATETIME);
-                break;
-            case 254: // MYSQL_TYPE_STRING
-            case 253: // MYSQL_TYPE_VAR_STRING
-                literalExpr = LiteralExpr.create("", Type.STRING);
-                break;
-            case 15: // MYSQL_TYPE_VARCHAR
-                literalExpr = LiteralExpr.create("", Type.VARCHAR);
-                break;
-            default:
-                throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
-        }
-        return literalExpr;
-    }
-
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of("literal");
         }
         return this.exprName.get();
-    }
-
-    // Port from mysql get_param_length
-    public static int getParmLen(ByteBuffer data) {
-        int maxLen = data.remaining();
-        if (maxLen < 1) {
-            return 0;
-        }
-        // get and advance 1 byte
-        int len = MysqlProto.readInt1(data);
-        if (len == 252) {
-            if (maxLen < 3) {
-                return 0;
-            }
-            // get and advance 2 bytes
-            return MysqlProto.readInt2(data);
-        } else if (len == 253) {
-            if (maxLen < 4) {
-                return 0;
-            }
-            // get and advance 3 bytes
-            return MysqlProto.readInt3(data);
-        } else if (len == 254) {
-            /*
-            In our client-server protocol all numbers bigger than 2^24
-            stored as 8 bytes with uint8korr. Here we always know that
-            parameter length is less than 2^4 so we don't look at the second
-            4 bytes. But still we need to obey the protocol hence 9 in the
-            assignment below.
-            */
-            if (maxLen < 9) {
-                return 0;
-            }
-            len = MysqlProto.readInt4(data);
-            MysqlProto.readFixedString(data, 4);
-            return len;
-        } else if (len == 255) {
-            return 0;
-        } else {
-            return len;
-        }
-    }
-
-    /** whether is ZERO value **/
-    public boolean isZero() {
-        boolean isZero = false;
-        switch (type.getPrimitiveType()) {
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-            case LARGEINT:
-                isZero = this.getLongValue() == 0;
-                break;
-            case FLOAT:
-            case DOUBLE:
-                isZero = this.getDoubleValue() == 0.0f;
-                break;
-            case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
-            case DECIMAL256:
-                isZero = Objects.equals(((DecimalLiteral) this).getValue(), BigDecimal.ZERO);
-                break;
-            default:
-        }
-        return isZero;
     }
 
     public static LiteralExpr getLiteralExprFromThrift(TExprNode node) throws AnalysisException {

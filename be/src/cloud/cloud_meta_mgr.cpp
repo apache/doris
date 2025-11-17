@@ -944,6 +944,17 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
         *delete_bitmap = *new_delete_bitmap;
     }
+
+    if (read_version == 2 && config::delete_bitmap_store_write_version == 1) {
+        return Status::InternalError(
+                "please set delete_bitmap_store_read_version to 1 or 3 because "
+                "delete_bitmap_store_write_version is 1");
+    } else if (read_version == 1 && config::delete_bitmap_store_write_version == 2) {
+        return Status::InternalError(
+                "please set delete_bitmap_store_read_version to 2 or 3 because "
+                "delete_bitmap_store_write_version is 2");
+    }
+
     int64_t new_max_version = std::max(old_max_version, rs_metas.rbegin()->end_version());
     // When there are many delete bitmaps that need to be synchronized, it
     // may take a longer time, especially when loading the tablet for the
@@ -1637,6 +1648,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     if (next_visible_version > 0) {
         req.set_next_visible_version(next_visible_version);
     }
+    req.set_store_version(store_version);
 
     bool write_v1 = store_version == 1 || store_version == 3;
     bool write_v2 = store_version == 2 || store_version == 3;
@@ -1784,6 +1796,10 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
         const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
         std::map<std::string, int64_t>& rowset_to_versions, int64_t pre_rowset_agg_start_version,
         int64_t pre_rowset_agg_end_version) {
+    if (config::delete_bitmap_store_write_version == 2) {
+        VLOG_DEBUG << "no need to agg delete bitmap v1 in ms because use v2";
+        return Status::OK();
+    }
     LOG(INFO) << "cloud_update_delete_bitmap_without_lock, tablet_id: " << tablet.tablet_id()
               << ", delete_bitmap size: " << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;

@@ -15,25 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+#pragma once
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+#include <vector>
 
-import java.util.List;
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
-/**
- * some function PropagateNullable when args are datev2 or datetimev2 or time like
- * and AlwaysNullable when other type parameters
- */
-public interface PropagateNullableOnDateOrTimeLikeV2Args extends PropagateNullable, AlwaysNullable {
-    @Override
-    default boolean nullable() {
-        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType() || e.getDataType().isTimeType())) {
-            return PropagateNullable.super.nullable();
-        } else {
-            return AlwaysNullable.super.nullable();
-        }
-    }
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-    List<Expression> children();
-}
+class SchemaFileCacheInfoScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaFileCacheInfoScanner);
+
+public:
+    SchemaFileCacheInfoScanner();
+    ~SchemaFileCacheInfoScanner() override;
+
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+
+private:
+    Status _fill_block_impl(vectorized::Block* block);
+};
+
+} // namespace doris
