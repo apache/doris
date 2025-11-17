@@ -111,7 +111,7 @@ public:
         ColumnsWithTypeAndName arguments(children.size() - 1);
         for (int i = 1; i < children.size(); ++i) {
             ColumnPtr column;
-            RETURN_IF_ERROR(children[i]->execute(context, block, column));
+            RETURN_IF_ERROR(children[i]->execute_column(context, block, column));
             arguments[i - 1].column = column;
             arguments[i - 1].type = children[i]->execute_type(block);
             arguments[i - 1].name = children[i]->expr_name();
@@ -283,7 +283,7 @@ public:
             //3. child[0]->execute(new_block)
 
             ColumnPtr res_col;
-            RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, res_col));
+            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, res_col));
             res_col = res_col->convert_to_full_column_if_const();
             res_type = children[0]->execute_type(&lambda_block);
 

@@ -133,22 +133,15 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
-        RETURN_IF_ERROR(execute(context, block, result_column));
+        RETURN_IF_ERROR(execute_column(context, block, result_column));
         *result_column_id = block->columns();
         block->insert({result_column, execute_type(block), expr_name()});
         return Status::OK();
     }
-#ifdef BE_TEST
-    /// TODO: mark this pure virtual after all VExpr subclasses have been mocked in beut.
-    virtual Status execute(VExprContext* context, const Block* block,
-                           ColumnPtr& result_column) const {
-        return Status::NotSupported("Not implemented VExpr::execute");
-    }
-#else
-    virtual Status execute(VExprContext* context, const Block* block,
-                           ColumnPtr& result_column) const = 0;
 
-#endif
+    // execute current expr and return result column
+    virtual Status execute_column(VExprContext* context, const Block* block,
+                                  ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
@@ -174,7 +167,7 @@ public:
     // interface
     virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        return execute(context, block, result_column);
+        return execute_column(context, block, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().

@@ -114,8 +114,8 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::execute(VExprContext* context, const Block* block,
-                             ColumnPtr& result_column) const {
+Status VInPredicate::execute_column(VExprContext* context, const Block* block,
+                                    ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(block);
         return Status::OK();
@@ -135,7 +135,7 @@ Status VInPredicate::execute(VExprContext* context, const Block* block,
     Block temp_block;
     for (int i = 0; i < args_size; ++i) {
         ColumnPtr column;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, column));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, column));
         arguments.push_back(i);
         temp_block.insert({column, _children[i]->execute_type(block), _children[i]->expr_name()});
     }

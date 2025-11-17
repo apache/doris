@@ -140,6 +140,18 @@ public:
         return Status::OK();
     }
 
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override {
+        auto int_type = std::make_shared<DataTypeInt32>();
+        auto int_column = int_type->create_column();
+        for (int i = 0; i < 3; i++) {
+            Int32 x = i;
+            int_column->insert_data((const char*)&x, sizeof(Int32));
+        }
+        result_column = std::move(int_column);
+        return Status::OK();
+    }
+
     DataTypePtr execute_type(const Block* block) const override {
         return std::make_shared<DataTypeInt32>();
     }

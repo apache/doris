@@ -52,7 +52,7 @@ public:
     VectorizedFnCall() = default;
 #endif
     VectorizedFnCall(const TExprNode& node);
-    Status execute(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block,
                    ColumnPtr& result_column) const override;
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;

@@ -70,13 +70,13 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
-Status VBloomPredicate::execute(VExprContext* context, const Block* block,
-                                ColumnPtr& result_column) const {
+Status VBloomPredicate::execute_column(VExprContext* context, const Block* block,
+                                       ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
-    RETURN_IF_ERROR(_children[0]->execute(context, block, argument_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
     argument_column = argument_column->convert_to_full_column_if_const();
 
     auto res_data_column = ColumnUInt8::create(block->rows());

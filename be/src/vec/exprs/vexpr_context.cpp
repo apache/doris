@@ -75,7 +75,7 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
 
 Status VExprContext::execute(Block* block, ColumnPtr& result_column) {
     Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->execute(this, block, result_column); });
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->execute_column(this, block, result_column); });
     return st;
 }
 

@@ -218,7 +218,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
 
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr tmp_arg_column;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, tmp_arg_column));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, tmp_arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;
@@ -272,8 +272,8 @@ Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Blo
     return _do_execute(context, block, result_column, arg_column);
 }
 
-Status VectorizedFnCall::execute(VExprContext* context, const Block* block,
-                                 ColumnPtr& result_column) const {
+Status VectorizedFnCall::execute_column(VExprContext* context, const Block* block,
+                                        ColumnPtr& result_column) const {
     return _do_execute(context, block, result_column, nullptr);
 }
 

@@ -54,8 +54,8 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, const Block* block,
-                   ColumnPtr& result_column) const override {
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override {
         return _do_execute(context, block, result_column, nullptr);
     }
 
@@ -114,7 +114,7 @@ private:
         DCHECK(_open_finished || _getting_const_col);
 
         ColumnPtr argument_column;
-        RETURN_IF_ERROR(_children[0]->execute(context, block, argument_column));
+        RETURN_IF_ERROR(_children[0]->execute_column(context, block, argument_column));
         argument_column = argument_column->convert_to_full_column_if_const();
 
         if (arg_column != nullptr) {

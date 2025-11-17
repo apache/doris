@@ -61,9 +61,9 @@ public:
 
         DCHECK_EQ(children.size(), 2);
         ColumnPtr column_ptr_0;
-        RETURN_IF_ERROR(children[0]->execute(context, block, column_ptr_0));
+        RETURN_IF_ERROR(children[0]->execute_column(context, block, column_ptr_0));
         ColumnPtr column_ptr_1;
-        RETURN_IF_ERROR(children[1]->execute(context, block, column_ptr_1));
+        RETURN_IF_ERROR(children[1]->execute_column(context, block, column_ptr_1));
 
         //2. get first and second array column
         auto first_column = column_ptr_0->convert_to_full_column_if_const();

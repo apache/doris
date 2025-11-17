@@ -105,8 +105,8 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCastExpr::execute(VExprContext* context, const Block* block,
-                          ColumnPtr& result_column) const {
+Status VCastExpr::execute_column(VExprContext* context, const Block* block,
+                                 ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
@@ -116,7 +116,7 @@ Status VCastExpr::execute(VExprContext* context, const Block* block,
     // for each child call execute
 
     ColumnPtr from_column;
-    RETURN_IF_ERROR(_children[0]->execute(context, block, from_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, from_column));
 
     Block temp_block;
     temp_block.insert({from_column, _children[0]->execute_type(block), _children[0]->expr_name()});
@@ -145,8 +145,8 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
     }
 }
 
-Status TryCastExpr::execute(VExprContext* context, const Block* block,
-                            ColumnPtr& result_column) const {
+Status TryCastExpr::execute_column(VExprContext* context, const Block* block,
+                                   ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
@@ -159,7 +159,7 @@ Status TryCastExpr::execute(VExprContext* context, const Block* block,
     // execute child first
 
     ColumnPtr from_column;
-    RETURN_IF_ERROR(_children[0]->execute(context, block, from_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, from_column));
     auto from_type = _children[0]->execute_type(block);
 
     // prepare block
