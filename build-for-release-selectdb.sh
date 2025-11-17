@@ -147,8 +147,6 @@ else
     exit 1
 fi
 
-bash install-enterprise-dependencies.sh
-
 ORI_OUTPUT="${ROOT}/output"
 
 FE="fe"
