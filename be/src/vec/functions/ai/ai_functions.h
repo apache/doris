@@ -133,26 +133,12 @@ public:
                     }
 #endif
                     trim_string(string_result);
-
-                    // Support multiple boolean formats: "1"/"0", "true"/"false", "yes"/"no" (case insensitive)
-                    bool bool_value = false;
-                    std::string lower_result = string_result;
-                    std::transform(lower_result.begin(), lower_result.end(), lower_result.begin(),
-                                   [](unsigned char c) { return std::tolower(c); });
-
-                    if (lower_result == "1" || lower_result == "true" || lower_result == "yes") {
-                        bool_value = true;
-                    } else if (lower_result == "0" || lower_result == "false" ||
-                               lower_result == "no") {
-                        bool_value = false;
-                    } else {
-                        return Status::RuntimeError(
-                                "Failed to parse boolean value: " + string_result +
-                                " (expected: 0, 1, true, false, yes, or no)");
+                    if (string_result != "1" && string_result != "0") {
+                        return Status::RuntimeError("Failed to parse boolean value: " +
+                                                    string_result);
                     }
-
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(bool_value));
+                            .insert_value(static_cast<UInt8>(string_result == "1"));
                     break;
                 }
                 case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY

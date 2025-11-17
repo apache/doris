@@ -421,16 +421,9 @@ TEST(AIFunctionTest, AIFilterTrimWhitespace) {
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::pair<std::string, UInt8>> test_cases = {
-            {"0", 0},         {"1", 1},           {"false", 0},      {"true", 1},
-            {"yes", 1},       {"no", 0},          {"FALSE", 0},      {"TRUE", 1},
-            {"YES", 1},       {"NO", 0},          {"False", 0},      {"True", 1},
-            {"Yes", 1},       {"No", 0},          {"fAlSe", 0},      {"tRuE", 1},
-            {"yEs", 1},       {"nO", 0},          {" 0", 0},         {"0 ", 0},
-            {" 0 ", 0},       {"\n0", 0},         {"0\n", 0},        {"\n0\n", 0},
-            {"\t1\t", 1},     {" \n\t1 \n\t", 1}, {"  1  ", 1},      {"\r\n0\r\n", 0},
-            {" true ", 1},    {"\nfalse\n", 0},   {"\t TRUE \t", 1}, {" \n FALSE \n ", 0},
-            {" True ", 1},    {"\n False \n", 0}, {" yes ", 1},      {"\n no \n", 0},
-            {"\t YES \t", 1}, {" \n NO \n ", 0}};
+            {"0", 0},     {"1", 1},           {" 0", 0},    {"0 ", 0},
+            {" 0 ", 0},   {"\n0", 0},         {"0\n", 0},   {"\n0\n", 0},
+            {"\t1\t", 1}, {" \n\t1 \n\t", 1}, {"  1  ", 1}, {"\r\n0\r\n", 0}};
 
     for (const auto& test_case : test_cases) {
         setenv("AI_TEST_RESULT", test_case.first.c_str(), 1);
@@ -469,8 +462,9 @@ TEST(AIFunctionTest, AIFilterInvalidValue) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
-    std::vector<std::string> invalid_cases = {"2",   "maybe", "ok",    "",       "   ",  "01",
-                                              "0.5", "sure",  "truee", "falsee", "yess", "noo"};
+    std::vector<std::string> invalid_cases = {
+            "2",    "maybe", "ok",   "",      "   ", "01", "0.5",  "sure",  "truee", "falsee",
+            "yess", "noo",   "true", "false", "yes", "no", "TRUE", "FALSE", "YES",   "NO"};
 
     for (const auto& invalid_value : invalid_cases) {
         setenv("AI_TEST_RESULT", invalid_value.c_str(), 1);
