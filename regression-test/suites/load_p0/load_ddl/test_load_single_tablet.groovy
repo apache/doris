@@ -40,6 +40,7 @@ suite("test_load_single_tablet", "p0") {
         PROPERTIES("replication_num" = "1");
         """
 
+    // Test Broker Load with load_to_single_tablet on HASH distribution table (should fail)
     try {
         def label1 = "test_load_single_tablet_" + System.currentTimeMillis()
         sql """
@@ -62,7 +63,9 @@ suite("test_load_single_tablet", "p0") {
             );
             """
 
+        // Wait for the load job to be processed and check if it fails
         def max_try_milli_secs = 60000
+        def foundExpectedError = false
         while (max_try_milli_secs > 0) {
             def result = sql "SHOW LOAD WHERE LABEL = '${label1}'"
             if (result.size() > 0) {
@@ -75,6 +78,7 @@ suite("test_load_single_tablet", "p0") {
                     // assertTrue(e.message.contains("if load_to_single_tablet set to true, the olap table must be with random distribution"),
                     // "Expected error message: 'if load_to_single_tablet set to true, the olap table must be with random distribution', but got: ${e.message}")
                     logger.info("Broker load failed as expected with error: ${errorMsg}")
+                    foundExpectedError = true
                     break
                 } else if (state == "FINISHED") {
                     assertTrue(false, "Broker load should fail but succeeded")
@@ -87,8 +91,14 @@ suite("test_load_single_tablet", "p0") {
                 assertTrue(false, "test_load_single_tablet broker load timeout: ${label1}")
             }
         }
+        
+        assertTrue(foundExpectedError, "Broker load should have failed with expected error")
     } catch (Exception e) {
-        assertTrue(false, "Broker load failed at creation: ${e.message}")
+        // It's also acceptable if the load fails at creation time
+        logger.info("Broker load failed at creation as expected: ${e.message}")
+        assertTrue(e.message.contains("if load_to_single_tablet set to true") || 
+                  e.message.contains("the olap table must be with random distribution"),
+                  "Expected error message about random distribution, but got: ${e.message}")
     }
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
