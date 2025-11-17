@@ -137,13 +137,7 @@ public class MTMVCache {
                 SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(
                         ConnectContextUtil.getAffectQueryResultSessionVariables(createCacheContext),
                         cascadesContext);
-                rewritePlan = rewritePlan.accept(new DefaultPlanRewriter<Void>() {
-                    @Override
-                    public Plan visit(Plan plan, Void ctx) {
-                        plan = super.visit(plan, ctx);
-                        return exprRewriter.rewriteExpr(plan);
-                    }
-                }, null);
+                rewritePlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, rewritePlan);
             }
 
             Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(

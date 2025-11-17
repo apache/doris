@@ -95,7 +95,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
@@ -595,14 +594,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
             analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
-            SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
-            analyzedPlan = analyzedPlan.accept(new DefaultPlanRewriter<Void>() {
-                @Override
-                public Plan visit(Plan plan, Void ctx) {
-                    plan = super.visit(plan, ctx);
-                    return exprRewriter.rewriteExpr(plan);
-                }
-            }, null);
+            if (viewInfo.second != null && !viewInfo.second.isEmpty()) {
+                SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
+                analyzedPlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, analyzedPlan);
+            }
         }
         return analyzedPlan;
     }

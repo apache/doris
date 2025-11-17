@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import com.google.common.collect.ImmutableList;
 
@@ -38,7 +39,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 这个类的作用是：对一个plan node中，所有需要guard的expression，添加session var guard
+ * The purpose of this class is to add session var guards to all expressions that require guarding
+ * The purpose of the `rewritePlanTree()` method is to add session variable guards to all expressions
+ * in a plan tree that require guarding
+ * If you need to traverse and add to an expression, use AddSessionVarGuardRewriter
+ * If you need to add a guard to the plan tree, use rewritePlanTree()
  * */
 public class SessionVarGuardRewriter extends ExpressionRewrite {
     private final List<Rule> rules;
@@ -51,8 +56,8 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         cascadesContext = ctx;
     }
 
-    /**rewriteExpr*/
-    public Plan rewriteExpr(Plan plan) {
+    /**rewrite all exprs in one plan node */
+    private Plan rewritePlanNode(Plan plan) {
         for (Rule rule : rules) {
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
             if (pattern.matchPlanTree(plan)) {
@@ -103,6 +108,9 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
                 if (rewritten instanceof SessionVarGuardExpr) {
                     return rewritten;
                 }
+                if (sessionVar == null) {
+                    return expr;
+                }
                 return new SessionVarGuardExpr(rewritten, sessionVar);
             }
             return rewritten;
@@ -116,5 +124,16 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             }
             return expr;
         }
+    }
+
+    /** rewrite plan tree */
+    public static Plan rewritePlanTree(SessionVarGuardRewriter exprRewriter, Plan plan) {
+        return plan.accept(new DefaultPlanRewriter<Void>() {
+            @Override
+            public Plan visit(Plan plan, Void ctx) {
+                plan = super.visit(plan, ctx);
+                return exprRewriter.rewritePlanNode(plan);
+            }
+        }, null);
     }
 }
