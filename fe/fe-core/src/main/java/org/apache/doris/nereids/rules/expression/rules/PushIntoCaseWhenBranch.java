@@ -172,7 +172,7 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
     private boolean pushIntoBranches(Expression parent, int childIndex,
             List<Expression> branchValues, ExpressionRewriteContext context) {
         List<Expression> newChildren = Lists.newArrayList(parent.children());
-        final int MAX_NON_LIT_NUM = 1;
+        final int MAX_NON_LIT_NUM = PlanUtils.isConditionExpressionPlan(context.plan.orElse(null)) ? 1 : 0;
         int nonLiteralBranchNum = 0;
         for (int i = 0; i < branchValues.size(); i++) {
             Expression oldValue = branchValues.get(i);
