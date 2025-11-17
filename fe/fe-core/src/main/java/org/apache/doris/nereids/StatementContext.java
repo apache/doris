@@ -999,6 +999,7 @@ public class StatementContext implements Closeable {
     public boolean isSkipPrunePredicate() {
         return skipPrunePredicate;
     }
+
     public void setSkipPrunePredicate(boolean skipPrunePredicate) {
         this.skipPrunePredicate = skipPrunePredicate;
     }
