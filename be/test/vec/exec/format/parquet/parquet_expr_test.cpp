@@ -278,7 +278,7 @@ public:
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
-                                              &meta_size, nullptr));
+                                              &meta_size, nullptr, false));
         doris_metadata = doris_file_metadata->to_thrift();
 
         p_reader->_ctz = &ctz;

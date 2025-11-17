@@ -80,7 +80,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
 
     std::unique_ptr<FileMetaData> meta_data;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -113,7 +113,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
     static_cast<void>(schemaDescriptor.parse_from_thrift(t_metadata.schema));
@@ -400,7 +400,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
-    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr, true));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
     static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));
