@@ -31,8 +31,9 @@ namespace doris::vectorized {
 // TODO: use result type got from FE plan
 template <PrimitiveType T>
 struct Avg {
+    static constexpr PrimitiveType ResultPType = T == TYPE_DECIMALV2 ? T : TYPE_DOUBLE;
     using Function = AggregateFunctionAvg<
-            T, PrimitiveTypeTraits<T>::AvgNearestPrimitiveType,
+            T, ResultPType,
             AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType>>;
 };
 
