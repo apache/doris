@@ -48,9 +48,7 @@ public class UnassignedInplaceUnionJob extends AbstractUnassignedJob {
         List<AssignedJob> unionInstances = Lists.newArrayListWithCapacity(inputJobs.size());
         int id = 0;
         for (Entry<ExchangeNode, Collection<AssignedJob>> exchangeNodeToSources : inputJobs.asMap().entrySet()) {
-            // ExchangeNode exchangeNode = exchangeNodeToSources.getKey();
-            List<AssignedJob> inputInstances = new ArrayList<>(exchangeNodeToSources.getValue());
-            for (AssignedJob inputInstance : inputInstances) {
+            for (AssignedJob inputInstance : exchangeNodeToSources.getValue()) {
                 StaticAssignedJob unionInstance = new StaticAssignedJob(
                         id++, connectContext.nextInstanceId(), this,
                         inputInstance.getAssignedWorker(), noScanSource
