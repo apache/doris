@@ -26,7 +26,6 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LockTable;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
@@ -2138,7 +2137,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment =
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
-        return new LoadCommand(new LabelName(labelDbName, labelName), dataDescriptions, brokerDesc,
+        return new LoadCommand(new LabelNameInfo(labelDbName, labelName), dataDescriptions, brokerDesc,
                 resourceDesc, mutableProperties, comment);
     }
 
@@ -4792,7 +4791,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .map(dt -> dt.second)
                     .collect(ImmutableList.toImmutableList());
             String functionName = ctx.functionNameIdentifier().getText();
-            if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNames.contains(functionName)) {
+            if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.containsKey(functionName)) {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
             }

@@ -646,7 +646,8 @@ enum TTableType {
     MAX_COMPUTE_TABLE = 12,
     LAKESOUL_TABLE = 13,
     TRINO_CONNECTOR_TABLE = 14,
-    DICTIONARY_TABLE = 15
+    DICTIONARY_TABLE = 15,
+    REMOTE_DORIS_TABLE = 16
 }
 
 enum TKeysType {
@@ -692,6 +693,7 @@ enum TFileType {
     FILE_S3 = 3,
     FILE_HDFS = 4,
     FILE_NET = 5,       // read file by network, such as http
+    FILE_HTTP = 6,
 }
 
 struct TTabletCommitInfo {

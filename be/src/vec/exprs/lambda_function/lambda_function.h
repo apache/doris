@@ -38,7 +38,7 @@ public:
 
     virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                                   int* result_column_id, const DataTypePtr& result_type,
-                                  const VExprSPtrs& children) = 0;
+                                  const VExprSPtrs& children) const = 0;
 
     int batch_size;
 };

@@ -185,6 +185,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
@@ -508,6 +509,9 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    // Target file size in bytes for Iceberg write operations
+    public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
@@ -728,6 +732,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+    public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
@@ -1286,6 +1292,16 @@ public class SessionVariable implements Serializable, Writable {
             }
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VariableMgr.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
+            description = {
+                    "是否跳过“在分区裁剪后删除恒真谓词”的优化。默认为OFF（即执行此优化）。",
+                    "Skips the removal of always-true predicates after partition pruning. "
+                            + "Defaults to OFF (optimization is active)."
+            }
+    )
+    public boolean skipPrunePredicate = false;
+
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = true;
@@ -2118,6 +2134,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
+    // Target file size for Iceberg write operations
+    // Default 0 means use config::iceberg_sink_max_file_size
+    @VariableMgr.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
+    public long icebergWriteTargetFileSizeBytes = 0L;
+
     @VariableMgr.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
             fuzzy = true,
@@ -2293,6 +2314,7 @@ public class SessionVariable implements Serializable, Writable {
     public int invertedIndexConjunctionOptThreshold = 1000;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
+            affectQueryResult = true,
             description = {"这个参数用来限制查询时扩展的词项（terms）的数量，以此来控制查询的性能",
                     "This parameter is used to limit the number of term expansions during a query,"
                     + " thereby controlling query performance"})
@@ -3093,6 +3115,11 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
+
+    @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResult = true,
+            description = {"是否启用扩展的正则表达式, 支持如 look-around 类的零宽断言",
+                    "Enable extended regular expressions, support look-around zero-width assertions"})
+    public boolean enableExtendedRegex = false;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
@@ -4127,6 +4154,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fileSplitSize = fileSplitSize;
     }
 
+    public long getIcebergWriteTargetFileSizeBytes() {
+        return icebergWriteTargetFileSizeBytes;
+    }
+
+    public void setIcebergWriteTargetFileSizeBytes(long icebergWriteTargetFileSizeBytes) {
+        this.icebergWriteTargetFileSizeBytes = icebergWriteTargetFileSizeBytes;
+    }
+
     public int getNumPartitionsInBatchMode() {
         return numPartitionsInBatchMode;
     }
@@ -4861,6 +4896,11 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
+        tResult.setEnableExtendedRegex(enableExtendedRegex);
+
+        // Set Iceberg write target file size
+        tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
+
         return tResult;
     }
 

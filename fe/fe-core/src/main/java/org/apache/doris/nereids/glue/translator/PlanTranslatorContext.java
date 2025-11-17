@@ -100,7 +100,6 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
-    private TupleDescriptor bufferedTupleForWindow = null;
 
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
@@ -286,10 +285,6 @@ public class PlanTranslatorContext {
         return bufferedSlotRefForWindow;
     }
 
-    public TupleDescriptor getBufferedTupleForWindow() {
-        return bufferedTupleForWindow;
-    }
-
     /**
      * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
@@ -304,7 +299,6 @@ public class PlanTranslatorContext {
             slotDescriptor.setCaptionAndNormalize(slotReference.toString());
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
-        slotDescriptor.setIsMaterialized(true);
         SlotRef slotRef;
         if (slotReference instanceof VirtualSlotReference) {
             slotRef = new VirtualSlotRef(slotDescriptor);
@@ -322,7 +316,6 @@ public class PlanTranslatorContext {
                             + "." + String.join(".", slotReference.getSubPath()));
             }
         }
-        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         if (column.isPresent()) {
             slotDescriptor.setAutoInc(column.get().isAutoInc());

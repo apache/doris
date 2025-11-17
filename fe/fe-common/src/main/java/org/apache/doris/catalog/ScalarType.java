@@ -30,7 +30,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.math.BigDecimal;
 import java.util.Objects;
 
 /**
@@ -222,8 +221,6 @@ public class ScalarType extends Type {
                 return IPV6;
             case VARBINARY:
                 return VARBINARY;
-            case ALL:
-                return ALL;
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false, "type.name()=" + type.name());
@@ -805,11 +802,6 @@ public class ScalarType extends Type {
         return len;
     }
 
-    @Override
-    public int getRawLength() {
-        return len;
-    }
-
     public void setLength(int len) {
         this.len = len;
     }
@@ -963,197 +955,6 @@ public class ScalarType extends Type {
             return precision == other.precision && scale == other.scale;
         }
         return true;
-    }
-
-    /**
-     * Return type t such that values from both t1 and t2 can be assigned to t.
-     * If strict, only return types when there will be no loss of precision.
-     * Returns INVALID_TYPE if there is no such type or if any of t1 and t2
-     * is INVALID_TYPE.
-     */
-    public static ScalarType getAssignmentCompatibleType(
-            ScalarType t1, ScalarType t2, boolean strict, boolean enableDecimal256) {
-        if (!t1.isValid() || !t2.isValid()) {
-            return INVALID;
-        }
-        if (t1.equals(t2)) {
-            return t1;
-        }
-        if (t1.isNull()) {
-            return t2;
-        }
-        if (t2.isNull()) {
-            return t1;
-        }
-
-        boolean t1IsHLL = t1.type == PrimitiveType.HLL;
-        boolean t2IsHLL = t2.type == PrimitiveType.HLL;
-        if (t1IsHLL || t2IsHLL) {
-            if (t1IsHLL && t2IsHLL) {
-                return createHllType();
-            }
-            return INVALID;
-        }
-
-        boolean t1IsBitMap = t1.type == PrimitiveType.BITMAP;
-        boolean t2IsBitMap = t2.type == PrimitiveType.BITMAP;
-        if (t1IsBitMap || t2IsBitMap) {
-            if (t1IsBitMap && t2IsBitMap) {
-                return BITMAP;
-            }
-            return INVALID;
-        }
-
-        // for cast all type
-        if (t1.type == PrimitiveType.ALL || t2.type == PrimitiveType.ALL) {
-            return Type.ALL;
-        }
-
-        if (t1.isStringType() || t2.isStringType()) {
-            if (t1.type == PrimitiveType.STRING || t2.type == PrimitiveType.STRING) {
-                return createStringType();
-            }
-            int minLength = Math.min(t1.len, t2.len);
-            if (minLength < 0) {
-                // If < 0 which means max length, use firstly
-                return createVarcharType(minLength);
-            }
-            int length = Math.max(t1.len, t2.len);
-            return createVarcharType(length == 0 ? MAX_VARCHAR_LENGTH : length);
-        }
-
-        if (((t1.isDecimalV3() || t1.isDecimalV2()) && (t2.isDateV2() || t2.isDate()))
-                || ((t2.isDecimalV3() || t2.isDecimalV2()) && (t1.isDateV2() || t1.isDate()))) {
-            return Type.DOUBLE;
-        }
-
-        if (t1.isDecimalV2() && t2.isDecimalV2()) {
-            return getAssignmentCompatibleDecimalV2Type(t1, t2);
-        }
-
-        if ((t1.isDecimalV3() && t2.isDecimalV2()) || (t2.isDecimalV3() && t1.isDecimalV2())) {
-            int scale = Math.max(t1.scale, t2.scale);
-            int integerPart = Math.max(t1.precision - t1.scale, t2.precision - t2.scale);
-            return ScalarType.createDecimalV3Type(integerPart + scale, scale);
-        }
-
-        if (t1.isDecimalV2() || t2.isDecimalV2()) {
-            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return Type.DOUBLE;
-            }
-            return t1.isDecimalV2() ? t1 : t2;
-        }
-
-        if (t1.isDecimalV3() || t2.isDecimalV3()) {
-            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return t1.isFloatingPointType() ? t1 : t2;
-            } else if (t1.isBoolean() || t2.isBoolean()) {
-                return t1.isDecimalV3()
-                        ? ScalarType.createDecimalV3Type(
-                        Math.max(t1.precision - t1.scale, 1) + Math.max(t1.scale, 0),
-                        Math.max(t1.scale, 0)) :
-                        ScalarType.createDecimalV3Type(
-                        Math.max(t2.precision - t2.scale, 1) + Math.max(t2.scale, 0),
-                        Math.max(t2.scale, 0));
-            }
-        }
-
-        if ((t1.isDecimalV3() && t2.isFixedPointType())
-                || (t2.isDecimalV3() && t1.isFixedPointType())) {
-            int precision;
-            int scale;
-            ScalarType intType;
-            if (t1.isDecimalV3()) {
-                precision = t1.precision;
-                scale = t1.scale;
-                intType = t2;
-            } else {
-                precision = t2.precision;
-                scale = t2.scale;
-                intType = t1;
-            }
-            int integerPart = precision - scale;
-            if (intType.isScalarType(PrimitiveType.TINYINT)
-                    || intType.isScalarType(PrimitiveType.SMALLINT)) {
-                integerPart = Math.max(integerPart, new BigDecimal(Short.MAX_VALUE).precision());
-            } else if (intType.isScalarType(PrimitiveType.INT)) {
-                integerPart = Math.max(integerPart, new BigDecimal(Integer.MAX_VALUE).precision());
-            } else {
-                integerPart = ScalarType.MAX_DECIMAL128_PRECISION - scale;
-            }
-            if (scale + integerPart <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                return ScalarType.createDecimalV3Type(scale + integerPart, scale);
-            } else {
-                if (enableDecimal256) {
-                    return ScalarType.createDecimalV3Type(scale + integerPart, scale);
-                } else {
-                    return Type.DOUBLE;
-                }
-            }
-        }
-
-        if (t1.isDecimalV3() && t2.isDecimalV3()) {
-            ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
-                    t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
-                    t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
-            if (finalType.getPrecision() > MAX_PRECISION) {
-                finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
-            }
-            return finalType;
-        }
-
-        if (t1.isVariantType() && t2.isVariantType()) {
-            if (t1.equals(t2)) {
-                return t1;
-            } else {
-                return Type.UNSUPPORTED;
-            }
-        }
-
-        PrimitiveType smallerType =
-                (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
-        PrimitiveType largerType =
-                (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
-        PrimitiveType result = null;
-        if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
-            return t1.scale > t2.scale ? t1 : t2;
-        }
-        if ((t1.isDatetimeV2() || t1.isDateV2()) && (t2.isDatetimeV2() || t2.isDateV2())) {
-            return t1.isDatetimeV2() ? t1 : t2;
-        }
-        if (strict) {
-            result = strictCompatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
-        }
-        if (result == null) {
-            result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
-        }
-        Preconditions.checkNotNull(result,
-                "data type %s and %s is not compatible", t1, t2);
-        if (result == PrimitiveType.DECIMALV2) {
-            return Type.MAX_DECIMALV2_TYPE;
-        }
-        return createType(result);
-    }
-
-    public static ScalarType getAssignmentCompatibleDecimalV2Type(ScalarType t1, ScalarType t2) {
-        int targetScale = Math.max(t1.decimalScale(), t2.decimalScale());
-        int targetPrecision = Math.max(t1.decimalPrecision() - t1.decimalScale(), t2.decimalPrecision()
-                - t2.decimalScale()) + targetScale;
-        return ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
-                targetPrecision, targetScale);
-    }
-
-    /**
-     * Returns true t1 can be implicitly cast to t2, false otherwise.
-     * If strict is true, only consider casts that result in no loss of precision.
-     */
-    public static boolean isImplicitlyCastable(
-            ScalarType t1, ScalarType t2, boolean strict, boolean enableDecimal256) {
-        return getAssignmentCompatibleType(t1, t2, strict, enableDecimal256).matchesType(t2);
-    }
-
-    public static boolean canCastTo(ScalarType type, ScalarType targetType) {
-        return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
     }
 
     @Override

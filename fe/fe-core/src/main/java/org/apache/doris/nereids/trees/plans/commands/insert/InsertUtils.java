@@ -90,7 +90,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -323,7 +323,7 @@ public class InsertUtils {
                                     throw new AnalysisException("Partial update should include all key columns,"
                                             + " missing: " + col.getName());
                                 }
-                                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                                if (CollectionUtils.isNotEmpty(col.getGeneratedColumnsThatReferToThis())
                                         && col.getGeneratedColumnInfo() == null && !insertCol.isPresent()) {
                                     throw new AnalysisException("Partial update should include"
                                             + " all ordinary columns referenced"

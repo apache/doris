@@ -70,6 +70,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
+#include "vec/exec/format/table/remote_doris_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/text/text_reader.h"
@@ -692,9 +693,13 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = _src_block_ptr->get_by_name(kv.first).type;
                 bool is_nullable = origin_column_type->is_nullable();
+                int pos = _src_block_ptr->get_position_by_name(kv.first);
+                if (pos == -1) {
+                    return Status::InternalError("Column {} not found in src block {}", kv.first,
+                                                 _src_block_ptr->dump_structure());
+                }
                 _src_block_ptr->replace_by_position(
-                        _src_block_ptr->get_position_by_name(kv.first),
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                        pos, is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 _src_block_ptr->erase(result_column_id);
             }
         }
@@ -1126,9 +1131,17 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {
-            _cur_reader = ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,
-                                                           range, _file_slot_descs, _io_ctx.get());
-            init_status = ((ArrowStreamReader*)(_cur_reader.get()))->init_reader();
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "remote_doris") {
+                _cur_reader =
+                        RemoteDorisReader::create_unique(_file_slot_descs, _state, _profile, range);
+                init_status = ((RemoteDorisReader*)(_cur_reader.get()))->init_reader();
+            } else {
+                _cur_reader =
+                        ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,
+                                                         range, _file_slot_descs, _io_ctx.get());
+                init_status = ((ArrowStreamReader*)(_cur_reader.get()))->init_reader();
+            }
             break;
         }
         default:

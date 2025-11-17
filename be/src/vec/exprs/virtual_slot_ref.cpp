@@ -110,7 +110,7 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,

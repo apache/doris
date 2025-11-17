@@ -22,7 +22,6 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TDataGenScanNode;
@@ -46,7 +45,7 @@ public class DataGenScanNode extends ExternalScanNode {
     private DataGenTableValuedFunction tvf;
 
     public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf) {
-        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE, false);
+        super(id, desc, "DataGenScanNode", false);
         this.tvf = tvf;
     }
 

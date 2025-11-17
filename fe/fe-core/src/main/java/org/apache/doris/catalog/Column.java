@@ -20,12 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
@@ -40,6 +40,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -107,8 +108,6 @@ public class Column implements GsonPostProcessable {
     private String defaultValue;
     @SerializedName(value = "comment")
     private String comment;
-    @SerializedName(value = "stats")
-    private ColumnStats stats;     // cardinality and selectivity etc.
     @SerializedName(value = "children")
     private List<Column> children;
     /**
@@ -150,7 +149,7 @@ public class Column implements GsonPostProcessable {
     private GeneratedColumnInfo generatedColumnInfo;
 
     @SerializedName(value = "gctt")
-    private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+    private Set<String> generatedColumnsThatReferToThis;
 
     // used for variant sub-field pattern type
     @SerializedName(value = "fpt")
@@ -166,10 +165,9 @@ public class Column implements GsonPostProcessable {
         this.type = Type.NULL;
         this.isAggregationTypeImplicit = false;
         this.isKey = false;
-        this.stats = new ColumnStats();
         this.visible = true;
         this.defineExpr = null;
-        this.children = new ArrayList<>();
+        this.children = null;
         this.uniqueId = -1;
     }
 
@@ -259,16 +257,17 @@ public class Column implements GsonPostProcessable {
         this.defaultValue = defaultValue;
         this.realDefaultValue = realDefaultValue;
         this.defaultValueExprDef = defaultValueExprDef;
-        this.comment = comment;
-        this.stats = new ColumnStats();
+        this.comment = StringUtils.isBlank(comment) ? null : comment;
         this.visible = visible;
-        this.children = new ArrayList<>();
+        this.children = null;
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
         this.hasOnUpdateDefaultValue = hasOnUpdateDefaultValue;
         this.onUpdateDefaultValueExprDef = onUpdateDefaultValueExprDef;
         this.generatedColumnInfo = generatedColumnInfo;
-        this.generatedColumnsThatReferToThis.addAll(generatedColumnsThatReferToThis);
+        if (CollectionUtils.isNotEmpty(generatedColumnsThatReferToThis)) {
+            this.generatedColumnsThatReferToThis = new HashSet<>(generatedColumnsThatReferToThis);
+        }
 
         if (type.isAggStateType()) {
             AggStateType aggState = (AggStateType) type;
@@ -318,7 +317,6 @@ public class Column implements GsonPostProcessable {
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
-        this.stats = column.getStats();
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
@@ -367,6 +365,9 @@ public class Column implements GsonPostProcessable {
     }
 
     private void addChildrenColumn(Column column) {
+        if (this.children == null) {
+            this.children = Lists.newArrayListWithExpectedSize(2);
+        }
         this.children.add(column);
     }
 
@@ -569,17 +570,8 @@ public class Column implements GsonPostProcessable {
         }
     }
 
-
-    public void setStats(ColumnStats stats) {
-        this.stats = stats;
-    }
-
-    public ColumnStats getStats() {
-        return this.stats;
-    }
-
     public void setComment(String comment) {
-        this.comment = comment;
+        this.comment = StringUtils.isBlank(comment) ? null : comment;
     }
 
     public String getComment() {
@@ -587,6 +579,7 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getComment(boolean escapeQuota) {
+        String comment = this.comment == null ? "" : this.comment;
         if (!escapeQuota) {
             return comment;
         }
@@ -645,8 +638,10 @@ public class Column implements GsonPostProcessable {
             AggStateType aggState = (AggStateType) type;
             tColumn.setAggregation(aggState.getFunctionName());
             tColumn.setResultIsNullable(aggState.getResultIsNullable());
-            for (Column column : children) {
-                tColumn.addToChildrenColumn(column.toThrift());
+            if (children != null) {
+                for (Column column : children) {
+                    tColumn.addToChildrenColumn(column.toThrift());
+                }
             }
             tColumn.setBeExecVersion(Config.be_exec_version);
         }
@@ -693,17 +688,21 @@ public class Column implements GsonPostProcessable {
     }
 
     private void addChildren(Column column, TColumn tColumn) {
-        List<Column> childrenColumns = column.getChildren();
-        tColumn.setChildrenColumn(new ArrayList<>());
-        for (Column c : childrenColumns) {
-            setChildrenTColumn(c, tColumn);
+        if (column.getChildren() != null) {
+            List<Column> childrenColumns = column.getChildren();
+            tColumn.setChildrenColumn(new ArrayList<>());
+            for (Column c : childrenColumns) {
+                setChildrenTColumn(c, tColumn);
+            }
         }
     }
 
     private void addChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
-        List<Column> childrenColumns = this.getChildren();
-        for (Column c : childrenColumns) {
-            builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        if (this.getChildren() != null) {
+            List<Column> childrenColumns = this.getChildren();
+            for (Column c : childrenColumns) {
+                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
+            }
         }
     }
 
@@ -821,8 +820,10 @@ public class Column implements GsonPostProcessable {
                 builder.setAggregation(aggState.getFunctionName());
                 builder.setResultIsNullable(aggState.getResultIsNullable());
                 builder.setBeExecVersion(Config.be_exec_version);
-                for (Column column : children) {
-                    builder.addChildrenColumns(column.toPb(Sets.newHashSet(), Lists.newArrayList()));
+                if (children != null) {
+                    for (Column column : children) {
+                        builder.addChildrenColumns(column.toPb(Sets.newHashSet(), Lists.newArrayList()));
+                    }
                 }
             } else {
                 builder.setAggregation(this.aggregationType.toString());
@@ -855,7 +856,7 @@ public class Column implements GsonPostProcessable {
 
         if (indexes != null) {
             for (Index index : indexes) {
-                if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
+                if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
                     List<String> columns = index.getColumns();
                     if (this.name.equalsIgnoreCase(columns.get(0))) {
                         builder.setHasBitmapIndex(true);
@@ -965,7 +966,7 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
                 throw new DdlException("Can not change variant sparse bucket num");
             }
-            if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
+            if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
             }
         }
@@ -1098,7 +1099,7 @@ public class Column implements GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
-                isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, comment, children, visible,
+                isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
                 realDefaultValue, clusterKeyId);
     }
 
@@ -1121,7 +1122,7 @@ public class Column implements GsonPostProcessable {
                 && isAllowNull == other.isAllowNull
                 && isAutoInc == other.isAutoInc
                 && Objects.equals(type, other.type)
-                && Objects.equals(comment, other.comment)
+                && Objects.equals(getComment(), other.getComment())
                 && visible == other.visible
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
@@ -1223,7 +1224,7 @@ public class Column implements GsonPostProcessable {
     public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
         List<Index> indexes = olapTable.getIndexes();
         for (Index index : indexes) {
-            if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
+            if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
                 List<String> columns = index.getColumns();
                 if (tColumn.getColumnName().equals(columns.get(0))) {
                     tColumn.setHasBitmapIndex(true);
@@ -1257,6 +1258,15 @@ public class Column implements GsonPostProcessable {
         if (type.isScalarType() && type.getPrimitiveType() == PrimitiveType.STRING
                 && type.getLength() != ScalarType.MAX_STRING_LENGTH) {
             ((ScalarType) type).setLength(ScalarType.MAX_STRING_LENGTH);
+        }
+        if (CollectionUtils.isEmpty(generatedColumnsThatReferToThis)) {
+            generatedColumnsThatReferToThis = null;
+        }
+        if (StringUtils.isBlank(comment)) {
+            comment = null;
+        }
+        if (CollectionUtils.isEmpty(children)) {
+            children = null;
         }
     }
 

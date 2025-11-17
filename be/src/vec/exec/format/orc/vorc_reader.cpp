@@ -1337,9 +1337,13 @@ Status OrcReader::_fill_missing_columns(
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = block->get_by_name(kv.first).type;
                 bool is_nullable = origin_column_type->is_nullable();
+                int pos = block->get_position_by_name(kv.first);
+                if (pos == -1) {
+                    return Status::InternalError("Failed to find column: {}, block: {}", kv.first,
+                                                 block->dump_structure());
+                }
                 block->replace_by_position(
-                        block->get_position_by_name(kv.first),
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                        pos, is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 block->erase(result_column_id);
             }
         }
@@ -2054,7 +2058,12 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         if (!_dict_cols_has_converted && !_dict_filter_cols.empty()) {
             for (auto& dict_filter_cols : _dict_filter_cols) {
                 MutableColumnPtr dict_col_ptr = ColumnInt32::create();
-                size_t pos = block->get_position_by_name(dict_filter_cols.first);
+                int pos = block->get_position_by_name(dict_filter_cols.first);
+                if (pos == -1) {
+                    return Status::InternalError(
+                            "Failed to find dict filter column '{}' in block {}",
+                            dict_filter_cols.first, block->dump_structure());
+                }
                 auto& column_with_type_and_name = block->get_by_position(pos);
                 auto& column_type = column_with_type_and_name.type;
                 if (column_type->is_nullable()) {
@@ -2215,7 +2224,11 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     if (!_dict_cols_has_converted && !_dict_filter_cols.empty()) {
         for (auto& dict_filter_cols : _dict_filter_cols) {
             MutableColumnPtr dict_col_ptr = ColumnInt32::create();
-            size_t pos = block->get_position_by_name(dict_filter_cols.first);
+            int pos = block->get_position_by_name(dict_filter_cols.first);
+            if (pos == -1) {
+                return Status::InternalError("Wrong read column '{}' in orc file, block: {}",
+                                             dict_filter_cols.first, block->dump_structure());
+            }
             auto& column_with_type_and_name = block->get_by_position(pos);
             auto& column_type = column_with_type_and_name.type;
             if (column_type->is_nullable()) {
@@ -2615,7 +2628,11 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
     }
     if (!_dict_filter_cols.empty()) {
         for (auto& dict_filter_cols : _dict_filter_cols) {
-            size_t pos = block->get_position_by_name(dict_filter_cols.first);
+            int pos = block->get_position_by_name(dict_filter_cols.first);
+            if (pos == -1) {
+                return Status::InternalError("Wrong read column '{}' in orc file, block: {}",
+                                             dict_filter_cols.first, block->dump_structure());
+            }
             ColumnWithTypeAndName& column_with_type_and_name = block->get_by_position(pos);
             const ColumnPtr& column = column_with_type_and_name.column;
 

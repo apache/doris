@@ -182,7 +182,11 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
         }
         // Merge partial blocks
         vectorized::Block partial_block;
-        RETURN_IF_ERROR(partial_block.deserialize(resp.block()));
+        [[maybe_unused]] size_t uncompressed_size = 0;
+        [[maybe_unused]] int64_t uncompressed_time = 0;
+
+        RETURN_IF_ERROR(
+                partial_block.deserialize(resp.block(), &uncompressed_size, &uncompressed_time));
         if (partial_block.is_empty_column()) {
             return Status::OK();
         }
@@ -493,9 +497,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                    << ", be_exec_version:" << request.be_exec_version();
         [[maybe_unused]] size_t compressed_size = 0;
         [[maybe_unused]] size_t uncompressed_size = 0;
+        [[maybe_unused]] int64_t compress_time = 0;
         int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
         RETURN_IF_ERROR(result_block.serialize(be_exec_version, response->mutable_block(),
-                                               &uncompressed_size, &compressed_size,
+                                               &uncompressed_size, &compressed_size, &compress_time,
                                                segment_v2::CompressionTypePB::LZ4));
     }
 
@@ -519,6 +524,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
         auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
+        // todo: use mutableBlock instead of block
         std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
 
         OlapReaderStatistics stats;
@@ -599,10 +605,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
             [[maybe_unused]] size_t compressed_size = 0;
             [[maybe_unused]] size_t uncompressed_size = 0;
+            [[maybe_unused]] int64_t compress_time = 0;
             int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-            RETURN_IF_ERROR(result_blocks[i].serialize(be_exec_version, pblock->mutable_block(),
-                                                       &uncompressed_size, &compressed_size,
-                                                       segment_v2::CompressionTypePB::LZ4));
+            RETURN_IF_ERROR(result_blocks[i].serialize(
+                    be_exec_version, pblock->mutable_block(), &uncompressed_size, &compressed_size,
+                    &compress_time, segment_v2::CompressionTypePB::LZ4));
         }
 
         // Build file type statistics string
@@ -949,6 +956,8 @@ Status RowIdStorageReader::read_batch_external_row(
 
     // Insert the read data into result_block.
     for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+        // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
+        // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
         auto dst_col =
                 const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
 
