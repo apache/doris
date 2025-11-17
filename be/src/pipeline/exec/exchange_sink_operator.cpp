@@ -376,25 +376,27 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         set_low_memory_mode(state);
     }
 
+    if (block->empty() && !eos) {
+        return Status::OK();
+    }
+
     if (_part_type == TPartitionType::UNPARTITIONED) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
         if (local_state._only_local_exchange) {
-            if (!block->empty()) {
-                Status status;
-                size_t idx = 0;
-                for (auto& channel : local_state.channels) {
-                    if (!channel->is_receiver_eof()) {
-                        // If this channel is the last, we can move this block to downstream pipeline.
-                        // Otherwise, this block also need to be broadcasted to other channels so should be copied.
-                        DCHECK_GE(local_state._last_local_channel_idx, 0);
-                        status = channel->send_local_block(
-                                block, eos, idx == local_state._last_local_channel_idx);
-                        HANDLE_CHANNEL_STATUS(state, channel, status);
-                    }
-                    idx++;
+            Status status;
+            size_t idx = 0;
+            for (auto& channel : local_state.channels) {
+                if (!channel->is_receiver_eof()) {
+                    // If this channel is the last, we can move this block to downstream pipeline.
+                    // Otherwise, this block also need to be broadcasted to other channels so should be copied.
+                    DCHECK_GE(local_state._last_local_channel_idx, 0);
+                    status = channel->send_local_block(block, eos,
+                                                       idx == local_state._last_local_channel_idx);
+                    HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
+                idx++;
             }
         } else {
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
