@@ -56,8 +56,22 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             }
             _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
+        int64_t rows_in_read_options = _segment->num_rows();
+        if (opts.row_ranges.empty()) {
+            // Not in parallel read, so that all segment rows belong to one iterator
+            rows_in_read_options = _segment->num_rows();
+        } else {
+            // Even if in parallel read, the row range should equal to 1, because every scanner can
+            // only include the segment once.
+            if (opts.row_ranges.range_size() != 1) {
+                return Status::RuntimeError("invalid row ranges size");
+            }
+            rows_in_read_options = opts.row_ranges.get_range_count(0);
+        }
 
-        _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
+        // If TPushAggOp == MIX, then the result row num == segment.rows.
+        // we will fill the column with max value,min value and the rest fill with min value.
+        _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : rows_in_read_options;
         _init = true;
     }
 

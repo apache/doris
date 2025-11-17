@@ -453,7 +453,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
             auto sv = (StringRef*)min_value->cell_ptr();
             dst->insert_data_repeatedly(sv->data, sv->size, size);
         } else {
-            // TODO: the work may cause performance problem, opt latter
+            // If TPushAggOp==MIX, then the first 2 rows is min and max, and the rest are min
             for (int i = 0; i < size; ++i) {
                 dst->insert_many_fix_len_data(static_cast<const char*>(min_value->cell_ptr()), 1);
             }
