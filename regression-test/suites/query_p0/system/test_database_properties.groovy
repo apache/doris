@@ -23,16 +23,17 @@ suite("test_database_properties") {
 
     sql """
         ALTER DATABASE ${dbName} SET PROPERTIES (
-            "replication_num" = "1",
-            "compression" = "zstd"
+            "replication_allocation" = "tag.location.default:1",
+            "binlog.enable" = "true",
+            "binlog.ttl_seconds" = "3600"
         );
     """
 
     def prop_count = sql """
         select count(*) from information_schema.database_properties
-        where schema_name = "${dbName}" and property_name in ("replication_num","compression")
+        where schema_name = "${dbName}" and property_name in ("replication_allocation","binlog.enable","binlog.ttl_seconds")
     """;
-    assert prop_count.first()[0] == 2;
+    assert prop_count.first()[0] == 3;
 
     qt_select_check_1 """
         select * from information_schema.database_properties
@@ -42,7 +43,7 @@ suite("test_database_properties") {
 
     sql """
         ALTER DATABASE ${dbName} SET PROPERTIES (
-            "compression" = "lz4"
+            "replication_allocation" = "tag.location.default:1"
         );
     """
     qt_select_check_2 """
