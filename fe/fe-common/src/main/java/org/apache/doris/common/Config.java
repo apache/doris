@@ -3431,6 +3431,9 @@ public class Config extends ConfigBase {
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static long cloud_warm_up_rpc_batch_size = 30;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 
