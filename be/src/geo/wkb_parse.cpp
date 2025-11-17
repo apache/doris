@@ -81,7 +81,7 @@ GeoParseStatus WkbParse::parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& 
 
     WkbParse::read_hex(is, ctx);
     if (ctx.parse_status == GEO_PARSE_OK) {
-        if (shape != nullptr) {
+        if (ctx.shape != nullptr) {
             shape = std::move(ctx.shape);
         }
     } else {

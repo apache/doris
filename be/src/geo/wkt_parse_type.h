@@ -41,13 +41,8 @@ struct GeoCoordinateListList {
     GeoCoordinateListList(const GeoCoordinateListList&) = delete;
     GeoCoordinateListList& operator=(const GeoCoordinateListList&) = delete;
 
-    void add(std::unique_ptr<GeoCoordinateList> coordinates) {
+    void add(std::unique_ptr<GeoCoordinateList>&& coordinates) {
         list.emplace_back(std::move(coordinates));
-    }
-
-    void add(GeoCoordinateList*& coordinates) {
-        list.emplace_back(std::unique_ptr<GeoCoordinateList>(coordinates));
-        coordinates = nullptr;
     }
 
     std::vector<std::unique_ptr<GeoCoordinateList>> list;

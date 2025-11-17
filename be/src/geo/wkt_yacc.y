@@ -44,8 +44,6 @@
 #include "geo/geo_types.h"
 
 struct WktParseContext;
-
-void wkt_error(WktParseContext* ctx, const char* msg);
 }
 
 /* ------------------------------
@@ -121,7 +119,6 @@ point:
         }
         std::unique_ptr<doris::GeoShape> shape = std::move(point);
         yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
-        //$$ = std::move(point);
      }
      ;
 
@@ -137,7 +134,6 @@ linestring:
         }
         std::unique_ptr<doris::GeoShape> shape = std::move(line);
         yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
-        // $$ = std::move(line);
     }
     ;
 
@@ -153,7 +149,6 @@ polygon:
         }
         std::unique_ptr<doris::GeoShape> shape = std::move(polygon);
         yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
-        //$$ = std::move(polygon);
     }
     ;
 
@@ -169,7 +164,6 @@ multi_polygon:
         }
         std::unique_ptr<doris::GeoShape> shape = std::move(multi_polygon);
         yylhs.value.emplace<std::unique_ptr<doris::GeoShape>>(std::move(shape));
-        //$$ = std::move(multi_polygon);
     }
     ;
 
