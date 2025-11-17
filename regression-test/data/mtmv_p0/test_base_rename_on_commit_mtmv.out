@@ -12,7 +12,7 @@ test_base_rename_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS	false
 1	1
 
 -- !recreate_auto --
-test_base_rename_on_commit_mtmv_mv	NORMAL	SUCCESS
+test_base_rename_on_commit_mtmv_mv	NORMAL	SUCCESS	true
 
 -- !select_recreate_auto --
 10	10
