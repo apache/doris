@@ -89,7 +89,7 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
                 .rewrite();
         // because no mv exists, should not record tmp plan for mv
         Assertions.assertTrue(connectContext.getStatementContext().getNeedPreMvRewriteExpressionRuleMasks().get(
-                ExpressionRuleType.SIMPLIFY_ARITHMETIC.ordinal()));
+                ExpressionRuleType.FOLD_CONSTANT_ON_FE.type()));
     }
 
     @Test
