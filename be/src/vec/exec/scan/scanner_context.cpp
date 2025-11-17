@@ -76,8 +76,8 @@ ScannerContext::ScannerContext(
           _min_scan_concurrency_of_scan_scheduler(_state->min_scan_concurrency_of_scan_scheduler()),
           _min_scan_concurrency(_state->min_scan_concurrency_of_scanner()) {
 #ifndef BE_TEST
-    _max_scan_concurrency = std::min(local_state->max_scanners_concurrency(state),
-                                   cast_set<int>(scanners.size()));
+    _max_scan_concurrency =
+            std::min(local_state->max_scanners_concurrency(state), cast_set<int>(scanners.size()));
 #else
     _max_scan_concurrency = num_parallel_instances;
 #endif
