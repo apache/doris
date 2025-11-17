@@ -151,7 +151,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
 
     @Override
     public String toString() {
-        return child().toString() + " AS `" + name.get() + "`#" + exprId + "___" + getDataType();
+        return child().toString() + " AS `" + name.get() + "`#" + exprId;
     }
 
     @Override

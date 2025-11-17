@@ -35,6 +35,7 @@ import java.util.List;
  * binary arithmetic operator. Such as +, -, *, /.
  */
 public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable {
+
     private final Operator legacyOperator;
 
     public BinaryArithmetic(List<Expression> children, Operator legacyOperator) {

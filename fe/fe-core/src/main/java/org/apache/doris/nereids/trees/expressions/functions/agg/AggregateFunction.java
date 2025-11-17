@@ -159,8 +159,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
                 .stream()
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
-        return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")" + "___" + getDataType()
-                + "___sig:" + getSignature();
+        return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
     }
 
     @Override
