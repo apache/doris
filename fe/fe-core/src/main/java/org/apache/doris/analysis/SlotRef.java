@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
@@ -499,7 +500,13 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public boolean hasAggregateSlot() {
+    public boolean hasAggregateSlot(KeysType keysType) {
+        if (KeysType.UNIQUE_KEYS.equals(keysType)) {
+            Column column = getColumn();
+            if (column != null && !column.isKey()) {
+                return true;
+            }
+        }
         return desc.getColumn().isAggregated();
     }
 

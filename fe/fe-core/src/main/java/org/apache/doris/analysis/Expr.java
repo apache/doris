@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
@@ -2271,9 +2272,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    public boolean hasAggregateSlot() {
+    public boolean hasAggregateSlot(KeysType keysType) {
         for (Expr expr : children) {
-            if (expr.hasAggregateSlot()) {
+            if (expr.hasAggregateSlot(keysType)) {
                 return true;
             }
         }
