@@ -102,7 +102,7 @@ public:
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
-    RuntimeState(const TQueryGlobals& query_globals);
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals);
 
     // for job task only
     RuntimeState();
