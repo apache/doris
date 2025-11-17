@@ -650,7 +650,7 @@ std::pair<bool, orc::Literal> OrcReader::_make_orc_literal(const VSlotRef* slot_
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
     auto primitive_type = slot_type->get_primitive_type();
-    auto src_type = OrcReader::convert_to_doris_type(orc_type)->get_primitive_type();
+    auto src_type = convert_to_doris_type(orc_type)->get_primitive_type();
     // should not down predicate for string type change from other type
     if (src_type != primitive_type && !is_string_type(src_type) && is_string_type(primitive_type)) {
         LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << primitive_type << " to "
@@ -1409,7 +1409,13 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY, true);
+        if (_scan_params.__isset.enable_mapping_varbinary &&
+            _scan_params.enable_mapping_varbinary) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
+                                                                true);
+        } else {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        }
     case orc::TypeKind::TIMESTAMP:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
