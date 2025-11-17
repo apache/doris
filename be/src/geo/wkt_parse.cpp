@@ -38,6 +38,8 @@ GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, std::unique_ptr<
     if (st == GEO_PARSE_OK) {
         if (ctx.shape != nullptr) {
             shape = std::move(ctx.shape);
+        } else [[unlikely]] {
+            ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
         }
     } else {
         if (ctx.parse_status == GEO_PARSE_OK) {
