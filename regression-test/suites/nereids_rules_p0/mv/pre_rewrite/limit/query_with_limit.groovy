@@ -961,7 +961,7 @@ suite("query_with_limit") {
                   orders on l_orderkey = o_orderkey
                 limit 2 offset 1;
             """
-    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1", [TRY_IN_RBO, FORCE_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
