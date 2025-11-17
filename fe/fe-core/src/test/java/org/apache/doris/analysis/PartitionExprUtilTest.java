@@ -92,7 +92,6 @@ public class PartitionExprUtilTest extends TestWithFeService {
             request.setDbId(db.getId());
             request.setTableId(table.getId());
             request.setPartitionValues(partitionValues);
-            request.setIsStreamLoad(false);
             TCreatePartitionResult result = impl.createPartition(request);
             Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
         }
@@ -151,7 +150,6 @@ public class PartitionExprUtilTest extends TestWithFeService {
         request4.setDbId(db.getId());
         request4.setTableId(table.getId());
         request4.setPartitionValues(partitionValues4);
-        request4.setIsStreamLoad(false);
         TCreatePartitionResult result4 = impl.createPartition(request4);
         Assertions.assertEquals(TStatusCode.OK, result4.getStatus().getStatusCode());
 
@@ -216,7 +214,6 @@ public class PartitionExprUtilTest extends TestWithFeService {
         request2.setDbId(db.getId());
         request2.setTableId(table.getId());
         request2.setPartitionValues(partitionValues2);
-        request2.setIsStreamLoad(false);
         TCreatePartitionResult result2 = impl.createPartition(request2);
         Assertions.assertEquals(TStatusCode.OK, result2.getStatus().getStatusCode());
 

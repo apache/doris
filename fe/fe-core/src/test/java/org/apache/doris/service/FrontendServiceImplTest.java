@@ -135,7 +135,6 @@ public class FrontendServiceImplTest {
         request.setDbId(db.getId());
         request.setTableId(table.getId());
         request.setPartitionValues(partitionValues);
-        request.setIsStreamLoad(false);
         TCreatePartitionResult partition = impl.createPartition(request);
 
         Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
@@ -175,7 +174,6 @@ public class FrontendServiceImplTest {
         request.setDbId(db.getId());
         request.setTableId(table.getId());
         request.setPartitionValues(partitionValues);
-        request.setIsStreamLoad(false);
         TCreatePartitionResult partition = impl.createPartition(request);
 
         Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
