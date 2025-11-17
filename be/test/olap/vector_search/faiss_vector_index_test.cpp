@@ -957,8 +957,13 @@ TEST_F(VectorSearchTest, TestIdSelectorRoaringHandlesUInt32Max) {
 
     ASSERT_TRUE(sel->is_member(static_cast<faiss::idx_t>(kMax)))
             << "Expected uint32_t max to be present";
-    ASSERT_FALSE(sel->is_member(static_cast<faiss::idx_t>(kMax) + 1))
-            << "Value beyond uint32_t max should be absent";
+    bool exception_thrown = false;
+    try {
+        sel->is_member(static_cast<faiss::idx_t>(kMax) + 1);
+    } catch (const std::exception& e) {
+        exception_thrown = true;
+    }
+    ASSERT_TRUE(exception_thrown) << "Expected exception for value beyond uint32_t max";
 }
 
 // New tests: radius == 0 or < 0
