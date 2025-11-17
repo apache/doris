@@ -478,8 +478,8 @@ public class BindSink implements AnalysisRuleFactory {
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
                 if (column.getSessionVariables() != null && !column.getSessionVariables().isEmpty()) {
-                    boundExpression = boundExpression.accept(new AddSessionVarGuardRewriter(column.getSessionVariables()),
-                            Boolean.FALSE);
+                    boundExpression = boundExpression.accept(
+                            new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
                 Alias output = new Alias(boundExpression, info.getExprSql());
                 columnToOutput.put(column.getName(), output);
