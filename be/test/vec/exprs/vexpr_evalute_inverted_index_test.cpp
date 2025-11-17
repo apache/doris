@@ -168,8 +168,7 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
     doris::RowDescriptor row_desc;
     EXPECT_TRUE(in_expr->prepare(&state, row_desc, &expr_ctx).ok());
     EXPECT_TRUE(in_expr->evaluate_inverted_index(&expr_ctx, 100).ok());
-    EXPECT_FALSE(expr_ctx.get_index_context()->has_index_result_for_expr(
-            in_expr.get()));
+    EXPECT_FALSE(expr_ctx.get_index_context()->has_index_result_for_expr(in_expr.get()));
     EXPECT_TRUE(expr_ctx.get_index_context()->_index_result_bitmap.empty());
     EXPECT_TRUE(expr_ctx.get_index_context()->_expr_index_status.empty());
 }
