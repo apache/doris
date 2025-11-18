@@ -26,7 +26,7 @@
 namespace doris::io {
 
 std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
-    std::shared_ptr<AtomicStatistics> output_stats = std::make_shared<AtomicStatistics>();
+    std::shared_ptr<AtomicStatistics> stats = std::make_shared<AtomicStatistics>();
     std::lock_guard lock(_mtx);
     stats->num_io_bytes_read_from_cache += _profile->num_io_bytes_read_from_cache;
     stats->num_io_bytes_read_from_remote += _profile->num_io_bytes_read_from_remote;
@@ -34,7 +34,7 @@ std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     return stats;
 }
 
-void FileCacheMetrics::update(FileCacheStatistics* input_stats) {
+void FileCacheMetrics::update(FileCacheStatistics* stats) {
     if (_statistics == nullptr) {
         std::lock_guard<std::mutex> lock(_mtx);
         if (_statistics == nullptr) {
