@@ -309,7 +309,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         String type = properties.getOrDefault(BINARY_TYPE, "JAVA_UDF");
         binaryType = getFunctionBinaryType(type);
         if (binaryType == null) {
-            throw new AnalysisException("unknown function type");
+            throw new AnalysisException("Unknown function type: '" + type + "'");
         }
         if (type.equals("NATIVE")) {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
@@ -454,9 +454,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("No 'symbol' in properties");
         }
         if (!returnType.isArrayType()) {
-            throw new AnalysisException("JAVA_UDF OF UDTF return type must be array type");
+            throw new AnalysisException("JAVA_UDTF OR PYTHON_UDTF return type must be array type");
         }
-        analyzeJavaUdf(symbol);
+        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            analyzeJavaUdf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            analyzePythonUdtf(symbol);
+        }
         URI location;
         if (!Strings.isNullOrEmpty(originalUserFile)) {
             location = URI.create(originalUserFile);
@@ -470,6 +474,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
         function.setUDTFunction(true);
+        function.setRuntimeVersion(runtimeVersion);
+        function.setFunctionCode(functionCode);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
     }
@@ -488,15 +494,18 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 .location(location);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.PYTHON_UDF
                 || binaryType == TFunctionBinaryType.RPC)) {
             throw new AnalysisException("No 'init_fn' in properties");
         }
         String updateFnSymbol = properties.get(UPDATE_KEY);
-        if (updateFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
+        if (updateFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.PYTHON_UDF)) {
             throw new AnalysisException("No 'update_fn' in properties");
         }
         String mergeFnSymbol = properties.get(MERGE_KEY);
-        if (mergeFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF)) {
+        if (mergeFnSymbol == null && !(binaryType == TFunctionBinaryType.JAVA_UDF
+                || binaryType == TFunctionBinaryType.PYTHON_UDF)) {
             throw new AnalysisException("No 'merge_fn' in properties");
         }
         String serializeFnSymbol = properties.get(SERIALIZE_KEY);
@@ -527,6 +536,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 throw new AnalysisException("No 'symbol' in properties of java-udaf");
             }
             analyzeJavaUdaf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            analyzePythonUdaf(symbol);
         }
         function = builder.initFnSymbol(initFnSymbol).updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
                 .serializeFnSymbol(serializeFnSymbol).finalizeFnSymbol(finalizeFnSymbol)
@@ -537,6 +548,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setNullableMode(returnNullMode);
         function.setStaticLoad(isStaticLoad);
         function.setExpirationTime(expirationTime);
+        function.setRuntimeVersion(runtimeVersion);
+        function.setFunctionCode(functionCode);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -600,6 +613,26 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
+        }
+    }
+
+    private void analyzePythonUdaf(String clazz) throws AnalysisException {
+        if (Strings.isNullOrEmpty(clazz)) {
+            throw new AnalysisException("No symbol class name provided for Python UDAF");
+        }
+
+        if (Strings.isNullOrEmpty(this.functionCode)) {
+            return;
+        }
+
+        this.functionCode = this.functionCode.trim();
+        if (!(this.functionCode.startsWith("$$") && this.functionCode.endsWith("$$"))) {
+            throw new AnalysisException("Inline Python UDAF code must be start with $$ and end with $$");
+        }
+
+        this.functionCode = this.functionCode.substring(2, this.functionCode.length() - 2);
+        if (this.functionCode.isEmpty()) {
+            throw new AnalysisException("Inline Python UDAF is empty");
         }
     }
 
@@ -863,6 +896,26 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                             "UDF class '%s' of method '%s' %s is [%s] type, but create function command type is %s.",
                             clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName(),
                             expType.getPrimitiveType().toString()));
+        }
+    }
+
+    private void analyzePythonUdtf(String clazz) throws AnalysisException {
+        if (Strings.isNullOrEmpty(clazz)) {
+            throw new AnalysisException("No symbol class name provided for Python UDTF");
+        }
+
+        if (Strings.isNullOrEmpty(this.functionCode)) {
+            return;
+        }
+
+        this.functionCode = this.functionCode.trim();
+        if (!(this.functionCode.startsWith("$$") && this.functionCode.endsWith("$$"))) {
+            throw new AnalysisException("Inline Python UDTF code must be start with $$ and end with $$");
+        }
+
+        this.functionCode = this.functionCode.substring(2, this.functionCode.length() - 2);
+        if (this.functionCode.isEmpty()) {
+            throw new AnalysisException("Inline Python UDTF is empty");
         }
     }
 

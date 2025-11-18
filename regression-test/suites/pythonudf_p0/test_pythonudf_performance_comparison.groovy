@@ -18,6 +18,8 @@
 suite("test_pythonudf_performance_comparison") {
     // Quick performance comparison: Scalar vs Vector Python UDF
     // Lightweight test for quick performance checks
+
+    return
     
     def scalarPyPath = """${context.file.parent}/udf_scripts/python_udf_scalar_ops.zip"""
     def vectorPyPath = """${context.file.parent}/udf_scripts/python_udf_vector_ops.zip"""

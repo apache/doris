@@ -2832,12 +2832,12 @@ public class Config extends ConfigBase {
     public static boolean enable_udf_in_load = false;
 
     @ConfField(description = {
-        "开启python_udf, 默认为false。如果该配置为false，则禁止创建和使用python_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+        "开启python_udf, 默认为true。如果该配置为false，则禁止创建和使用python_udf。在一些场景下关闭该配置可防止命令注入攻击。",
         "Used to enable python_udf, default is true. if this configuration is false, creation and use of python_udf is "
             + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
             + "command injection attacks."
     })
-    public static boolean enable_python_udf = false;
+    public static boolean enable_python_udf = true;
 
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
