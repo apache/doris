@@ -183,6 +183,7 @@ bool PhraseScorer<TPostings>::intersection_exists(const std::vector<uint32_t>& l
     return false;
 }
 
-template class PhraseScorer<PositionPostings>;
+template class PhraseScorer<PostingsPtr>;
+template class PhraseScorer<PositionPostingsPtr>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2

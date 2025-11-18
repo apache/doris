@@ -39,6 +39,9 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProje
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewLimitAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewLimitJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewLimitScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
@@ -47,6 +50,12 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilt
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewTopNAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewTopNJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewTopNScanRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewWindowScanRule;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -176,7 +185,7 @@ public class RuleSet {
             new PushDownFilterThroughPartitionTopN(),
             ExpressionNormalizationAndOptimization.NO_MIN_MAX_RANGE_INSTANCE,
             new EliminateFilter()
-    );
+            );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProducerToPhysicalCTEProducer())
@@ -270,6 +279,15 @@ public class RuleSet {
             .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .add(MaterializedViewAggregateOnNoneAggregateRule.INSTANCE)
             .add(MaterializedViewOnlyScanRule.INSTANCE)
+            .add(MaterializedViewLimitScanRule.INSTANCE)
+            .add(MaterializedViewLimitJoinRule.INSTANCE)
+            .add(MaterializedViewLimitAggregateRule.INSTANCE)
+            .add(MaterializedViewTopNAggregateRule.INSTANCE)
+            .add(MaterializedViewTopNJoinRule.INSTANCE)
+            .add(MaterializedViewTopNScanRule.INSTANCE)
+            .add(MaterializedViewWindowScanRule.INSTANCE)
+            .add(MaterializedViewWindowJoinRule.INSTANCE)
+            .add(MaterializedViewWindowAggregateRule.INSTANCE)
             .build();
 
     public static final List<Rule> MATERIALIZED_VIEW_IN_RBO_RULES = planRuleFactories()

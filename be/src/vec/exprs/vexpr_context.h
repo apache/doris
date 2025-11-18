@@ -34,6 +34,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -172,6 +173,7 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
+    [[nodiscard]] Status execute(Block* block, ColumnPtr& result_column);
     [[nodiscard]] bool is_blockable() const;
 
     VExprSPtr root() { return _root; }
@@ -302,6 +304,9 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            const std::unordered_map<vectorized::VExprContext*,
+                                     std::unordered_map<ColumnId, vectorized::VExpr*>>&
+                    common_expr_to_slotref_map,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
 
     uint64_t get_digest(uint64_t seed) const;

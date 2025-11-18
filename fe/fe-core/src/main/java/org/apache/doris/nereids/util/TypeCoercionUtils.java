@@ -487,7 +487,7 @@ public class TypeCoercionUtils {
         }
     }
 
-    private static boolean canCastTo(DataType input, DataType target) {
+    public static boolean canCastTo(DataType input, DataType target) {
         return CheckCast.checkWithLooseAggState(input, target, SessionVariable.enableStrictCast());
     }
 
@@ -623,11 +623,10 @@ public class TypeCoercionUtils {
                 ret = new VarcharLiteral(value, ((VarcharType) dataType).getLen());
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
-            } else if (dataType.isDateTimeV2Type() && DateTimeChecker.isValidDateTime(value)) {
+            } else if ((dataType.isDateTimeV2Type() || dataType.isDateTimeType())
+                    && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
-            } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
-            } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
+            } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
@@ -638,8 +637,6 @@ public class TypeCoercionUtils {
                         ret = parseResult2.get();
                     }
                 }
-            } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateLiteral.parseDateLiteral(value, false).orElse(null);
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
@@ -1923,7 +1920,7 @@ public class TypeCoercionUtils {
      */
     @VisibleForTesting
     @Deprecated
-    protected static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
+    public static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
         if (!(t1 instanceof PrimitiveType) || !(t2 instanceof PrimitiveType)) {
             return Optional.empty();
         }
@@ -1958,18 +1955,18 @@ public class TypeCoercionUtils {
             return Optional.of(StringType.INSTANCE);
         }
 
-        // forbidden decimal with date
+        // decimal with date should return double
         if ((t1.isDecimalV2Type() && t2.isDateType()) || (t2.isDecimalV2Type() && t1.isDateType())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
         if ((t1.isDecimalV2Type() && t2.isDateV2Type()) || (t2.isDecimalV2Type() && t1.isDateV2Type())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
         if ((t1.isDecimalV3Type() && t2.isDateType()) || (t2.isDecimalV3Type() && t1.isDateType())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
         if ((t1.isDecimalV3Type() && t2.isDateV2Type()) || (t2.isDecimalV3Type() && t1.isDateV2Type())) {
-            return Optional.empty();
+            return Optional.of(DoubleType.INSTANCE);
         }
 
         // decimalv3 and floating type
@@ -2040,7 +2037,9 @@ public class TypeCoercionUtils {
 
         // time-like vs all other type
         if (t1.isTimeType() && t2.isTimeType()) {
-            return Optional.of(TimeV2Type.INSTANCE);
+            TimeV2Type time1 = (TimeV2Type) t1;
+            TimeV2Type time2 = (TimeV2Type) t2;
+            return Optional.of(TimeV2Type.of(Math.max(time1.getScale(), time2.getScale())));
         }
         if (t1.isTimeType() || t2.isTimeType()) {
             if (t1.isNumericType() || t2.isNumericType() || t1.isBooleanType() || t2.isBooleanType()) {

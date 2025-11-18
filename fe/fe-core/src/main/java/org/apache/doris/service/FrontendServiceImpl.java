@@ -19,7 +19,6 @@ package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -85,6 +84,7 @@ import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
@@ -153,6 +153,8 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
+import org.apache.doris.thrift.TFetchLoadJobRequest;
+import org.apache.doris.thrift.TFetchLoadJobResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
 import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
@@ -201,6 +203,7 @@ import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadJob;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -288,7 +291,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -944,7 +947,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             desc.setColumnScale(decimalDigits);
         }
         desc.setIsAllowNull(column.isAllowNull());
-        if (column.getChildren().size() > 0) {
+        if (CollectionUtils.isNotEmpty(column.getChildren())) {
             ArrayList<TColumnDesc> children = new ArrayList<>();
             for (Column child : column.getChildren()) {
                 children.add(getColumnDesc(child));
@@ -2170,6 +2173,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         : false;
                 coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             }
+            // coord.getQueryOptions().setNewVersionUnixTimestamp(true);
             httpStreamParams.setParams(coord.getStreamLoadPlan());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
@@ -3152,7 +3156,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        LabelName label = new LabelName(request.getDb(), request.getLabelName());
+        LabelNameInfo label = new LabelNameInfo(request.getDb(), request.getLabelName());
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
 
@@ -3225,7 +3229,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         //instantiate RestoreCommand
-        LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
+        LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDb(), label.getLabel());
         List<TableRefInfo> tableRefInfos = restoreTableRefClause == null
                 ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
@@ -4382,6 +4386,83 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setRoutineLoadJobs(jobInfos);
 
         return result;
+    }
+
+    @Override
+    public TFetchLoadJobResult fetchLoadJob(TFetchLoadJobRequest request) {
+        TFetchLoadJobResult result = new TFetchLoadJobResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+        // Create a ConnectContext with skipAuth=true for system table access
+        // This is necessary because LoadJob.checkAuth() requires a ConnectContext
+        // and system table queries from backend don't have user context
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setSkipAuth(true);
+        ctx.setThreadLocalInfo();
+
+        try {
+            LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+            List<TLoadJob> jobInfos = Lists.newArrayList();
+            List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
+            for (String dbName : dbNames) {
+                DatabaseIf db;
+                try {
+                    db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+                } catch (Exception e) {
+                    LOG.warn("Failed to get database: {}", dbName, e);
+                    continue;
+                }
+                long dbId = db.getId();
+                try {
+                    List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(
+                            dbId, null, false, null);
+                    for (List<Comparable> jobInfo : loadJobInfosByDb) {
+                        TLoadJob tJob = new TLoadJob();
+                        // Based on LOAD_TITLE_NAMES order:
+                        // JobId, Label, State, Progress, Type, EtlInfo, TaskInfo, ErrorMsg, CreateTime,
+                        // EtlStartTime, EtlFinishTime, LoadStartTime, LoadFinishTime, URL, JobDetails,
+                        // TransactionId, ErrorTablets, User, Comment, FirstErrorMsg
+                        if (jobInfo.size() >= 20) {
+                            tJob.setJobId(String.valueOf(jobInfo.get(0)));
+                            tJob.setLabel(String.valueOf(jobInfo.get(1)));
+                            tJob.setState(String.valueOf(jobInfo.get(2)));
+                            tJob.setProgress(String.valueOf(jobInfo.get(3)));
+                            tJob.setType(String.valueOf(jobInfo.get(4)));
+                            tJob.setEtlInfo(String.valueOf(jobInfo.get(5)));
+                            tJob.setTaskInfo(String.valueOf(jobInfo.get(6)));
+                            tJob.setErrorMsg(String.valueOf(jobInfo.get(7)));
+                            tJob.setCreateTime(String.valueOf(jobInfo.get(8)));
+                            tJob.setEtlStartTime(String.valueOf(jobInfo.get(9)));
+                            tJob.setEtlFinishTime(String.valueOf(jobInfo.get(10)));
+                            tJob.setLoadStartTime(String.valueOf(jobInfo.get(11)));
+                            tJob.setLoadFinishTime(String.valueOf(jobInfo.get(12)));
+                            tJob.setUrl(String.valueOf(jobInfo.get(13)));
+                            tJob.setJobDetails(String.valueOf(jobInfo.get(14)));
+                            tJob.setTransactionId(String.valueOf(jobInfo.get(15)));
+                            tJob.setErrorTablets(String.valueOf(jobInfo.get(16)));
+                            tJob.setUser(String.valueOf(jobInfo.get(17)));
+                            tJob.setComment(String.valueOf(jobInfo.get(18)));
+                            tJob.setFirstErrorMsg(String.valueOf(jobInfo.get(19)));
+                            jobInfos.add(tJob);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to get load jobs for database: {}", dbName, e);
+                }
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("load job infos: {}", jobInfos);
+            }
+            result.setLoadJobs(jobInfos);
+
+            return result;
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Override

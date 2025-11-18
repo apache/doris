@@ -19,6 +19,7 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.PartitionNamesInfo;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
@@ -54,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPostProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -199,13 +202,18 @@ public class NereidsLoadUtils {
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);
         ConnectContext ctx = cascadesContext.getConnectContext();
+        // we force convert nullable column to non-nullable column for load
+        // so set feDebug to false to avoid AdjustNullableRule report error
+        boolean oldFeDebugValue = ctx.getSessionVariable().feDebug;
         try {
             ctx.getSessionVariable().setDebugSkipFoldConstant(true);
+            ctx.getSessionVariable().feDebug = false;
 
             Analyzer.buildCustomAnalyzer(cascadesContext, ImmutableList.of(Analyzer.bottomUp(
                     new BindExpression(),
                     new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
                     new BindSink(false),
+                    new AddPostProject(),
                     new AddPostFilter(
                             context.fileGroup.getWhereExpr()
                     ),
@@ -236,6 +244,7 @@ public class NereidsLoadUtils {
             throw new UserException(exception.getMessage());
         } finally {
             ctx.getSessionVariable().setDebugSkipFoldConstant(false);
+            ctx.getSessionVariable().feDebug = oldFeDebugValue;
         }
 
         return (LogicalPlan) cascadesContext.getRewritePlan();
@@ -322,6 +331,45 @@ public class NereidsLoadUtils {
                     return null;
                 }
             }).toRule(RuleType.ADD_POST_FILTER_FOR_LOAD);
+        }
+    }
+
+    /** AddPostProject
+     * The BindSink rule will produce the final project list for load, we need cast the outputs according to
+     * dest table's schema
+     * */
+    private static class AddPostProject extends OneRewriteRuleFactory {
+        public AddPostProject() {
+        }
+
+        @Override
+        public Rule build() {
+            return logicalOlapTableSink().whenNot(plan -> plan.child() instanceof LogicalPostProject
+                    || plan.child() instanceof LogicalFilter).thenApply(ctx -> {
+                        LogicalOlapTableSink logicalOlapTableSink = ctx.root;
+                        LogicalPlan childPlan = (LogicalPlan) logicalOlapTableSink.child();
+                        List<Slot> childOutputs = childPlan.getOutput();
+                        OlapTable destTable = logicalOlapTableSink.getTargetTable();
+                        int size = childOutputs.size();
+                        List<SlotReference> projectList = new ArrayList<>(size);
+                        for (int i = 0; i < size; ++i) {
+                            SlotReference slot = (SlotReference) childOutputs.get(i);
+                            Column col = destTable.getColumn(slot.getName());
+                            if (col != null) {
+                                slot = slot.withColumn(col);
+                                if (col.isAutoInc()) {
+                                    projectList.add(slot.withNullable(true));
+                                } else {
+                                    projectList.add(slot.withNullable(col.isAllowNull()));
+                                }
+                            } else {
+                                projectList.add(slot);
+                            }
+                        }
+                        return logicalOlapTableSink.withChildren(
+                                Lists.newArrayList(
+                                        new LogicalPostProject(projectList, (Plan) logicalOlapTableSink.child(0))));
+                    }).toRule(RuleType.ADD_POST_PROJECT_FOR_LOAD);
         }
     }
 }

@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -96,6 +96,16 @@ public class MTMVUtil {
     public static MTMV getMTMV(long dbId, long mtmvId) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+    }
+
+    public static TableIf getTable(List<String> names) throws AnalysisException {
+        if (names == null || names.size() != 3) {
+            throw new AnalysisException("size of names need 3, but names is:" + names);
+        }
+        return Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(names.get(0))
+                .getDbOrAnalysisException(names.get(1))
+                .getTableOrAnalysisException(names.get(2));
     }
 
     /**

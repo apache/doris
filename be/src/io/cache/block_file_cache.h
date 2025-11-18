@@ -100,6 +100,7 @@ struct FileBlockCell {
 
     size_t size() const { return file_block->_block_range.size(); }
 
+    FileBlockCell() = default;
     FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
     FileBlockCell(FileBlockCell&& other) noexcept
             : file_block(std::move(other.file_block)),
@@ -169,6 +170,9 @@ public:
     size_t try_release();
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
+
+    // Get storage for inspection
+    FileCacheStorage* get_storage() const { return _storage.get(); }
 
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
@@ -435,7 +439,8 @@ private:
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
+                            std::string& reason);
 
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
@@ -520,6 +525,8 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_read_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_hit_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
@@ -553,6 +560,7 @@ private:
     std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _meta_store_write_queue_size_metrics;
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;

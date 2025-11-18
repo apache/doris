@@ -49,6 +49,8 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_COS_SUPPORT = "fs.cos.support";
     public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
+    public static final String FS_HTTP_SUPPORT = "fs.http.support";
+
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
     protected static final String URI_KEY = "uri";
 
@@ -68,6 +70,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         AZURE,
         BROKER,
         LOCAL,
+        HTTP,
         UNKNOWN
     }
 
@@ -130,8 +133,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                 result.add(p);
             }
         }
+        // Add default HDFS storage if not explicitly configured
         if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
-            result.add(new HdfsProperties(origProps));
+            result.add(new HdfsProperties(origProps, false));
         }
 
         for (StorageProperties storageProperties : result) {
@@ -187,8 +191,10 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
-            );
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
+                    props -> (isFsSupport(props, FS_HTTP_SUPPORT)
+                            || HttpProperties.guessIsMe(props)) ? new HttpProperties(props) : null
+                            );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
         super(origProps);

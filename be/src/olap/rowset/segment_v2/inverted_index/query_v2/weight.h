@@ -23,12 +23,24 @@
 #include <vector>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
+#include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
 namespace lucene::index {
 class IndexReader;
 }
 
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
+
 namespace doris::segment_v2::inverted_index::query_v2 {
+
+struct FieldBindingContext {
+    std::string logical_field_name;
+    std::string stored_field_name;
+    std::wstring stored_field_wstr;
+};
 
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
@@ -36,6 +48,7 @@ struct QueryExecutionContext {
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
             field_reader_bindings;
+    std::unordered_map<std::string, FieldBindingContext> binding_fields;
     const NullBitmapResolver* null_resolver = nullptr;
 };
 
@@ -52,6 +65,30 @@ public:
     }
 
 protected:
+    const FieldBindingContext* get_field_binding(const QueryExecutionContext& ctx,
+                                                 const std::string& binding_key) const {
+        auto it = ctx.binding_fields.find(binding_key);
+        if (it != ctx.binding_fields.end()) {
+            return &it->second;
+        }
+        return nullptr;
+    }
+
+    std::string logical_field_or_fallback(const QueryExecutionContext& ctx,
+                                          const std::string& binding_key,
+                                          const std::wstring& fallback) const {
+        const auto* binding = get_field_binding(ctx, binding_key);
+        if (binding != nullptr) {
+            if (!binding->logical_field_name.empty()) {
+                return binding->logical_field_name;
+            }
+            if (!binding->stored_field_name.empty()) {
+                return binding->stored_field_name;
+            }
+        }
+        return std::string(fallback.begin(), fallback.end());
+    }
+
     std::shared_ptr<lucene::index::IndexReader> lookup_reader(
             const std::wstring& field, const QueryExecutionContext& ctx,
             const std::string& binding_key) const {
@@ -66,6 +103,31 @@ protected:
         }
         if (!ctx.readers.empty()) {
             return ctx.readers.front();
+        }
+        return nullptr;
+    }
+
+    TermPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
+                                        const std::wstring& field, const std::string& term,
+                                        bool enable_scoring, const io::IOContext* io_ctx) const {
+        auto term_wstr = StringHelper::to_wstring(term);
+        auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
+        auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
+        if (iter) {
+            return std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
+        }
+        return nullptr;
+    }
+
+    PositionPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
+                                                const std::wstring& field, const std::string& term,
+                                                bool enable_scoring,
+                                                const io::IOContext* io_ctx) const {
+        auto term_wstr = StringHelper::to_wstring(term);
+        auto t = make_term_ptr(field.c_str(), term_wstr.c_str());
+        auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
+        if (iter) {
+            return std::make_shared<SegmentPostings<TermPositionsPtr>>(std::move(iter));
         }
         return nullptr;
     }

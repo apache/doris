@@ -33,7 +33,7 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "vec/columns/column.h"
-#include "vec/exec/format/parquet/parquet_pred_cmp.h"
+#include "vec/exec/format/parquet/parquet_predicate.h"
 
 namespace roaring {
 class Roaring;

@@ -105,8 +105,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
-import org.apache.doris.deploy.impl.AmbariDeployManager;
-import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.encryption.KeyManagerFactory;
@@ -137,9 +135,7 @@ import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.StreamLoadRecordMgr;
-import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
-import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
@@ -266,6 +262,7 @@ import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -301,7 +298,7 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -492,9 +489,6 @@ public class Env {
 
     protected LoadJobScheduler loadJobScheduler;
 
-    private LoadEtlChecker loadEtlChecker;
-    private LoadLoadingChecker loadLoadingChecker;
-
     private RoutineLoadScheduler routineLoadScheduler;
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
@@ -584,6 +578,8 @@ public class Env {
     private KeyManagerInterface keyManager;
 
     private StatisticsMetricCollector statisticsMetricCollector;
+
+    private AgentTaskCleanupDaemon agentTaskCleanupDaemon;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -750,7 +746,6 @@ public class Env {
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
-        this.functionSet.init();
 
         this.functionRegistry = new FunctionRegistry();
 
@@ -793,8 +788,6 @@ public class Env {
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
         this.tabletLoadIndexRecorderMgr = new TabletLoadIndexRecorderMgr();
-        this.loadEtlChecker = new LoadEtlChecker(loadManager);
-        this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
@@ -847,6 +840,9 @@ public class Env {
         this.dictionaryManager = new DictionaryManager();
         this.keyManagerStore = new KeyManagerStore();
         this.keyManager = KeyManagerFactory.getKeyManager();
+        if (Config.agent_task_health_check_intervals_ms > 0) {
+            this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
+        }
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -1557,11 +1553,7 @@ public class Env {
         }
 
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
-            if (Config.enable_deploy_manager.equalsIgnoreCase("k8s")) {
-                deployManager = new K8sDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("ambari")) {
-                deployManager = new AmbariDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
+            if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
                 deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
             } else {
                 throw new AnalysisException("Unknow deploy manager: " + Config.enable_deploy_manager);
@@ -1899,8 +1891,6 @@ public class Env {
         loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
-        loadEtlChecker.start();
-        loadLoadingChecker.start();
         if (Config.isNotCloudMode()) {
             // Tablet checker and scheduler
             tabletChecker.start();
@@ -1971,6 +1961,7 @@ public class Env {
         if (keyManager != null) {
             keyManager.init();
         }
+        agentTaskCleanupDaemon.start();
     }
 
     // start threads that should run on all FE
@@ -3692,6 +3683,12 @@ public class Env {
         // dynamic partition
         if (olapTable.dynamicPartitionExists()) {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+        }
+
+        // partition retention count
+        if (olapTable.getPartitionRetentionCount() > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT).append("\" = \"");
+            sb.append(olapTable.getPartitionRetentionCount()).append("\"");
         }
 
         // only display z-order sort info
@@ -5755,7 +5752,8 @@ public class Env {
             // check if have materialized view on rename column
             // and check whether colName is referenced by generated columns
             for (Column column : entry.getValue().getSchema()) {
-                if (column.getName().equals(colName) && !column.getGeneratedColumnsThatReferToThis().isEmpty()) {
+                if (column.getName().equals(colName)
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis())) {
                     throw new DdlException(
                             "Cannot rename column, because column '" + colName
                                     + "' has a generated column dependency on :"
@@ -6055,7 +6053,8 @@ public class Env {
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
-                .buildAutoAnalyzeProperty();
+                .buildAutoAnalyzeProperty()
+                .buildPartitionRetentionCount();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -6330,38 +6329,12 @@ public class Env {
         return functionRegistry;
     }
 
-    /**
-     * Returns the function that best matches 'desc' that is registered with the
-     * catalog using 'mode' to check for matching. If desc matches multiple
-     * functions in the catalog, it will return the function with the strictest
-     * matching mode. If multiple functions match at the same matching mode,
-     * ties are broken by comparing argument types in lexical order. Argument
-     * types are ordered by argument precision (e.g. double is preferred over
-     * float) and then by alphabetical order of argument type name, to guarantee
-     * deterministic results.
-     */
-    public Function getFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode);
-    }
-
-    public List<Function> getBuiltinFunctions() {
-        return functionSet.getBulitinFunctions();
-    }
-
-    public Function getTableFunction(Function desc, Function.CompareMode mode) {
-        return functionSet.getFunction(desc, mode, true);
-    }
-
     public boolean isNondeterministicFunction(String funcName) {
         return functionSet.isNondeterministicFunction(funcName);
     }
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
-    }
-
-    public boolean isAggFunctionName(String name) {
-        return functionSet.isAggFunctionName(name);
     }
 
     @Deprecated

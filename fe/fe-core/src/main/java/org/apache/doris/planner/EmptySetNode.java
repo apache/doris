@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -35,7 +34,7 @@ import java.util.ArrayList;
 public class EmptySetNode extends PlanNode {
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
-        super(id, tupleIds, "EMPTYSET", StatisticalType.EMPTY_SET_NODE);
+        super(id, tupleIds, "EMPTYSET");
         cardinality = 0L;
         Preconditions.checkArgument(tupleIds.size() > 0);
     }

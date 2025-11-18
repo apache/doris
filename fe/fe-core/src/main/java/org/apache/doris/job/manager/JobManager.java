@@ -36,6 +36,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
@@ -56,7 +57,7 @@ import org.apache.doris.rpc.RpcException;
 import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -290,12 +291,16 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         log.info("update job success, jobId: {}", job.getJobId());
     }
 
-    public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
+
+    public void alterJobStatus(String jobName, JobStatus jobStatus, FailureReason reason) throws JobException {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
                     checkSameStatus(a, jobStatus);
                     alterJobStatus(a.getJobId(), jobStatus);
+                    if (a instanceof StreamingInsertJob) {
+                        ((StreamingInsertJob) a).resetFailureInfo(reason);
+                    }
                 } catch (JobException e) {
                     throw new JobException("Alter job status error, jobName is %s, errorMsg is %s",
                             jobName, e.getMessage());
@@ -475,6 +480,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 job.setJobId(((MTMVJob) job).getMtmvId());
             }
             jobMap.putIfAbsent(job.getJobId(), (T) job);
+            if (job instanceof StreamingInsertJob && job.isJobRunning()) {
+                Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback((StreamingInsertJob) job);
+            }
         }
     }
 

@@ -88,10 +88,8 @@ public class ExternalCatalogTest extends TestWithFeService {
             ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
         }
 
-        // use_meta_cache=false
         createStmt = "create catalog test4 properties(\n"
                         + "    \"type\" = \"test\",\n"
-                        + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\"\n"
@@ -103,7 +101,6 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         createStmt = "create catalog test5 properties(\n"
                         + "    \"type\" = \"test\",\n"
-                        + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
@@ -115,7 +112,6 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         createStmt = "create catalog test6 properties(\n"
                         + "    \"type\" = \"test\",\n"
-                        + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\",\n"
@@ -150,7 +146,6 @@ public class ExternalCatalogTest extends TestWithFeService {
 
     @Test
     public void testExternalCatalogFilteredDatabase() throws Exception {
-        // 1. use_meta_cache=true
         TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
         List<String> dbNames = ctl.getDbNames();
         System.out.println(dbNames);
@@ -188,7 +183,6 @@ public class ExternalCatalogTest extends TestWithFeService {
         stmtExecutor.execute();
         Assertions.assertEquals(MysqlStateType.OK, rootCtx.getState().getStateType());
 
-        // 2. use_meta_cache=false
         ctl = (TestExternalCatalog) mgr.getCatalog("test4");
         dbNames = ctl.getDbNames();
         System.out.println(dbNames);

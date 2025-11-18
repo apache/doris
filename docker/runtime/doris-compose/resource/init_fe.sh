@@ -94,11 +94,14 @@ run_fe() {
     export DORIS_TDE_SK=${TDE_SK}
     health_log "run start_fe.sh"
 
-    # Add cluster_snapshot parameter for first startup only (when REGISTER_FILE does not exist)
+    # Add cluster_snapshot parameter for first startup only (
+    #   when REGISTER_FILE does not exist, or ROLLBACK is set).
     EXTRA_ARGS=""
-    if [ -n "$CLUSTER_SNAPSHOT_FILE" ] && [ ! -f "$REGISTER_FILE" ]; then
-        EXTRA_ARGS="--cluster_snapshot $CLUSTER_SNAPSHOT_FILE"
-        health_log "Using cluster snapshot: $CLUSTER_SNAPSHOT_FILE"
+    if [ -n "$CLUSTER_SNAPSHOT_FILE" ]; then
+        if [ -n "${ROLLBACK}" ] || [ ! -f "$REGISTER_FILE" ]; then
+            EXTRA_ARGS="--cluster_snapshot $CLUSTER_SNAPSHOT_FILE"
+            health_log "Using cluster snapshot: $CLUSTER_SNAPSHOT_FILE"
+        fi
     fi
 
     bash $DORIS_HOME/bin/start_fe.sh --daemon $EXTRA_ARGS $@ | tee -a $DORIS_HOME/log/fe.out
@@ -170,7 +173,14 @@ start_cloud_fe() {
         # Cluster snapshot is provided, need to register cluster after FE is started.
         if [ -n "${CLUSTER_SNAPSHOT_FILE}" ]; then
             wait_doris_instance_ready
-            register_sql_server_cluster
+            if [ ! -n "${ROLLBACK}" ]; then
+                # When ROLLBACK is not set, need to register cluster.
+                register_sql_server_cluster
+            else
+                # Rollback scenario, just create the register file to skip register step.
+                touch $REGISTER_FILE
+            fi
+            rm "${CLUSTER_SNAPSHOT_FILE}"
         fi
 
         return

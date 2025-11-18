@@ -822,12 +822,8 @@ uint64_t VExpr::get_digest(uint64_t seed) const {
     return digest;
 }
 
-Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                    int* result_column_id) {
-    *result_column_id = block->columns();
-    auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
-    block->insert({std::move(column), _data_type, expr_name});
-    return Status::OK();
+ColumnPtr VExpr::get_result_from_const(const Block* block) const {
+    return ColumnConst::create(_constant_col->column_ptr, block->rows());
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
@@ -973,22 +969,15 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                         int* result_column_id) {
+bool VExpr::fast_execute(VExprContext* context, ColumnPtr& result_column) const {
     if (context->get_inverted_index_context() &&
         context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
-        uint32_t num_columns_without_result = block->columns();
         // prepare a column to save result
-        auto result_column =
+        result_column =
                 context->get_inverted_index_context()->get_inverted_index_result_column()[this];
         if (_data_type->is_nullable()) {
-            block->insert(
-                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
-                     _data_type, expr_name()});
-        } else {
-            block->insert({result_column, _data_type, expr_name()});
+            result_column = make_nullable(result_column);
         }
-        *result_column_id = num_columns_without_result;
         return true;
     }
     return false;
@@ -1021,8 +1010,12 @@ void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params
     }
 }
 
-bool VExpr::has_been_executed() {
+bool VExpr::ann_range_search_executedd() {
     return _has_been_executed;
+}
+
+bool VExpr::ann_dist_is_fulfilled() const {
+    return _virtual_column_is_fulfilled;
 }
 
 #include "common/compile_check_end.h"

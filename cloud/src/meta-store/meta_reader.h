@@ -108,6 +108,17 @@ public:
                                        TabletStatsPB* tablet_stats, Versionstamp* versionstamp,
                                        bool snapshot = false);
 
+    // Get the tablet load stats for the given tablet_ids (batch version).
+    // If a tablet_id does not exist, then it will not be included in the respective map.
+    TxnErrorCode get_tablet_load_stats(const std::vector<int64_t>& tablet_ids,
+                                       std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                       std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                       bool snapshot = false);
+    TxnErrorCode get_tablet_load_stats(Transaction* txn, const std::vector<int64_t>& tablet_ids,
+                                       std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                       std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                       bool snapshot = false);
+
     // Get the tablet compact stats for the given tablet
     //
     // If the `tablet_stats` is not nullptr, it will be filled with the deserialized TabletStatsPB.
@@ -293,6 +304,10 @@ public:
     // Get a specific snapshot by versionstamp.
     TxnErrorCode get_snapshot(Transaction* txn, Versionstamp snapshot_versionstamp,
                               SnapshotPB* snapshot_pb, bool snapshot = false);
+
+    // Whether any snapshot exists.
+    TxnErrorCode has_snapshot(bool* has, bool snapshot = false);
+    TxnErrorCode has_snapshot(Transaction* txn, bool* has, bool snapshot = false);
 
     // Whether the snapshot has references.
     TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,

@@ -23,26 +23,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 public class TryCastExpr extends CastExpr {
 
-    public TryCastExpr(Type targetType, Expr e) {
-        super(targetType, e);
-        opcode = TExprOpcode.TRY_CAST;
-    }
-
     public TryCastExpr(Type targetType, Expr e, Void v) {
         super(targetType, e, v);
-        opcode = TExprOpcode.TRY_CAST;
-    }
-
-    public TryCastExpr(TypeDef targetTypeDef, Expr e) {
-        super(targetTypeDef, e);
         opcode = TExprOpcode.TRY_CAST;
     }
 
@@ -62,12 +50,7 @@ public class TryCastExpr extends CastExpr {
 
     @Override
     public String toSqlImpl() {
-        if (isAnalyzed) {
-            return "TRYCAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
-        } else {
-            return "TRYCAST(" + getChild(0).toSql() + " AS "
-                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
-        }
+        return "TRY_CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
     }
 
     @Override
@@ -75,30 +58,8 @@ public class TryCastExpr extends CastExpr {
         if (needExternalSql) {
             return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
         }
-        if (isAnalyzed) {
-            return "TRYCAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                    + type.toSql() + ")";
-        } else {
-            return "TRYCAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
-        }
-    }
-
-    @Override
-    public String toDigestImpl() {
-        boolean isVerbose = ConnectContext.get() != null
-                && ConnectContext.get().getExecutor() != null
-                && ConnectContext.get().getExecutor().getParsedStmt() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
-        if (isImplicit && !isVerbose) {
-            return getChild(0).toDigest();
-        }
-        if (isAnalyzed) {
-            return "TRYCAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
-        } else {
-            return "TRYCAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
-        }
+        return "TRY_CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
+                + type.toSql() + ")";
     }
 
     @Override
@@ -109,11 +70,6 @@ public class TryCastExpr extends CastExpr {
             msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }
         originCastNullable.ifPresent(msg::setIsCastNullable);
-    }
-
-    public void analyze() throws AnalysisException {
-        super.analyze();
-        this.opcode = TExprOpcode.TRY_CAST;
     }
 
     @Override

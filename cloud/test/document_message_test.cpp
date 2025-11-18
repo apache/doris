@@ -372,7 +372,7 @@ TEST(DocumentMessageTest, DocumentPutTabletSchemaCloudPB) {
         column->set_is_nullable(false);
     }
 
-    std::string schema_key = "tablet_schema_key_test";
+    std::string schema_key = versioned::meta_schema_key({"instance_id", 10, 0});
     {
         // create a txn and put tablet schema
         doris::TabletSchemaCloudPB schema_copy(schema);
@@ -405,6 +405,27 @@ TEST(DocumentMessageTest, DocumentPutTabletSchemaCloudPB) {
     }
 
     ASSERT_GE(txn_kv->total_kvs(), 2) << dump_range(txn_kv.get());
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string begin_key = versioned::meta_schema_key({"instance_id", 10, 0});
+        std::string end_key = versioned::meta_schema_key({"instance_id", 10, INT64_MAX});
+        FullRangeGetOptions options;
+        std::unique_ptr<FullRangeGetIterator> iter =
+                txn->full_range_get(begin_key, end_key, std::move(options));
+        for (auto kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
+            auto&& [key, _] = *kvp;
+            int64_t decode_index_id = -1;
+            int64_t schema_version = -1;
+            std::string_view key_view(key);
+            ASSERT_TRUE(versioned::decode_meta_schema_key(&key_view, &decode_index_id,
+                                                          &schema_version));
+            ASSERT_EQ(10, decode_index_id);
+            ASSERT_EQ(0, schema_version);
+        }
+    }
 
     {
         // create a txn and remove tablet schema

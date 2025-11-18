@@ -130,6 +130,28 @@ TEST(MetaReaderTest, GetTableVersion) {
     }
 
     ASSERT_LT(version1, version2);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = versioned::table_version_key({instance_id, table_id});
+        std::string end_key = versioned::table_version_key({instance_id, table_id + 1});
+        FullRangeGetOptions options;
+        std::unique_ptr<FullRangeGetIterator> iter =
+                txn->full_range_get(begin_key, end_key, std::move(options));
+        int num = 1;
+        for (auto kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
+            auto&& [key, _] = *kvp;
+            int64_t decoded_id;
+            Versionstamp decoded_version;
+            std::string_view key_view(key);
+            ASSERT_TRUE(
+                    versioned::decode_table_version_key(&key_view, &decoded_id, &decoded_version));
+            ASSERT_EQ(decoded_id, table_id);
+            ASSERT_EQ(decoded_version, num == 1 ? version1 : version2);
+            num++;
+        }
+    }
 }
 
 TEST(MetaReaderTest, BatchGetTableVersion) {
@@ -659,6 +681,133 @@ TEST(MetaReaderTest, GetTabletLoadStats) {
     }
 
     ASSERT_LT(tablet_stats_version1, tablet_stats_version2);
+}
+
+TEST(MetaReaderTest, BatchGetTabletLoadStats) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    std::vector<int64_t> tablet_ids = {3001, 3002, 3003, 3004};
+
+    {
+        // Test empty input
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<int64_t> empty_ids;
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        TxnErrorCode err =
+                meta_reader.get_tablet_load_stats(empty_ids, &tablet_stats, &versionstamps);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_stats.empty());
+        ASSERT_TRUE(versionstamps.empty());
+    }
+
+    {
+        // Test all keys not found
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        TxnErrorCode err =
+                meta_reader.get_tablet_load_stats(tablet_ids, &tablet_stats, &versionstamps);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_stats.empty());
+        ASSERT_TRUE(versionstamps.empty());
+    }
+
+    {
+        // Put some tablet load stats (skip tablet_ids[1] to test partial results)
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            if (i == 1) continue; // Skip tablet_ids[1]
+            std::string tablet_load_stats_key =
+                    versioned::tablet_load_stats_key({instance_id, tablet_ids[i]});
+            TabletStatsPB tablet_stats;
+            tablet_stats.set_num_rows(1000 * (i + 1));
+            tablet_stats.set_data_size(500000 * (i + 1));
+            versioned_put(txn.get(), tablet_load_stats_key, tablet_stats.SerializeAsString());
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test partial results
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        TxnErrorCode err =
+                meta_reader.get_tablet_load_stats(tablet_ids, &tablet_stats, &versionstamps);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(tablet_stats.size(), 3); // All except tablet_ids[1]
+        ASSERT_EQ(versionstamps.size(), 3);
+
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [tablet_id, versionstamp] : versionstamps) {
+            min_expected = std::min(min_expected, versionstamp);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            if (i == 1) {
+                ASSERT_EQ(tablet_stats.count(tablet_ids[i]), 0);
+                ASSERT_EQ(versionstamps.count(tablet_ids[i]), 0);
+            } else {
+                ASSERT_EQ(tablet_stats.count(tablet_ids[i]), 1);
+                ASSERT_EQ(versionstamps.count(tablet_ids[i]), 1);
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).num_rows(), 1000 * (i + 1));
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).data_size(), 500000 * (i + 1));
+            }
+        }
+    }
+
+    {
+        // Put the missing tablet load stats
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string tablet_load_stats_key =
+                versioned::tablet_load_stats_key({instance_id, tablet_ids[1]});
+        TabletStatsPB tablet_stats;
+        tablet_stats.set_num_rows(2000);
+        tablet_stats.set_data_size(1000000);
+        versioned_put(txn.get(), tablet_load_stats_key, tablet_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test all keys found
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::unordered_map<int64_t, TabletStatsPB> tablet_stats;
+        std::unordered_map<int64_t, Versionstamp> versionstamps;
+        TxnErrorCode err = meta_reader.get_tablet_load_stats(txn.get(), tablet_ids, &tablet_stats,
+                                                             &versionstamps);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(tablet_stats.size(), tablet_ids.size());
+        ASSERT_EQ(versionstamps.size(), tablet_ids.size());
+
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [tablet_id, versionstamp] : versionstamps) {
+            min_expected = std::min(min_expected, versionstamp);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
+
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            ASSERT_EQ(tablet_stats.count(tablet_ids[i]), 1);
+            ASSERT_EQ(versionstamps.count(tablet_ids[i]), 1);
+            if (i == 1) {
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).num_rows(), 2000);
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).data_size(), 1000000);
+            } else {
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).num_rows(), 1000 * (i + 1));
+                ASSERT_EQ(tablet_stats.at(tablet_ids[i]).data_size(), 500000 * (i + 1));
+            }
+        }
+    }
 }
 
 TEST(MetaReaderTest, GetTabletCompactStats) {
@@ -2408,6 +2557,46 @@ TEST(MetaReaderTest, GetCompactRowsetMetas) {
                 meta_reader.get_compact_rowset_metas(txn.get(), tablet_id, &rowset_metas);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(rowset_metas.size(), 3);
+    }
+}
+
+TEST(MetaReaderTest, HasSnapshot) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+
+    {
+        // Test when snapshot does not exist
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_snapshot = true; // Initialize to true to test the change
+        TxnErrorCode err = meta_reader.has_snapshot(&has_snapshot);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(has_snapshot);
+    }
+
+    {
+        // Create a snapshot entry
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string snapshot_key = versioned::snapshot_full_key({instance_id});
+        snapshot_key = encode_versioned_key(snapshot_key, Versionstamp(1, 1));
+        SnapshotPB snapshot_pb;
+        snapshot_pb.set_label("test_snapshot");
+        snapshot_pb.set_instance_id(instance_id);
+
+        ASSERT_TRUE(versioned::document_put(txn.get(), snapshot_key, std::move(snapshot_pb)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test when snapshot exists
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_snapshot = false; // Initialize to false to test the change
+        TxnErrorCode err = meta_reader.has_snapshot(&has_snapshot);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_snapshot);
     }
 }
 

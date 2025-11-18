@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/nullable_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
@@ -25,24 +26,27 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+constexpr uint32_t LOADED_POSTINGS_DOC_FREQ_THRESHOLD = 100;
+
 class PhraseWeight : public Weight {
 public:
-    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<std::wstring> terms,
-                 SimilarityPtr similarity, bool enable_scoring)
+    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<TermInfo> term_infos,
+                 SimilarityPtr similarity, bool enable_scoring, bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
-              _terms(std::move(terms)),
+              _term_infos(std::move(term_infos)),
               _similarity(std::move(similarity)),
-              _enable_scoring(enable_scoring) {}
+              _enable_scoring(enable_scoring),
+              _nullable(nullable) {}
     ~PhraseWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto scorer = phrase_scorer(ctx, binding_key);
-        if (scorer) {
-            return scorer;
-        } else {
-            return std::make_shared<EmptyScorer>();
+        if (_nullable) {
+            auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
+            return make_nullable_scorer(scorer, logical_field, ctx.null_resolver);
         }
+        return scorer;
     }
 
 private:
@@ -53,29 +57,28 @@ private:
                             StringHelper::to_string(_field));
         }
 
-        std::vector<std::pair<size_t, PositionPostings>> term_postings_list;
-        for (size_t offset = 0; offset < _terms.size(); ++offset) {
-            const auto& term = _terms[offset];
-            auto t = make_term_ptr(_field.c_str(), term.c_str());
-            auto iter = make_term_positions_ptr(reader.get(), t.get(), _enable_scoring,
-                                                _context->io_ctx);
-            if (iter) {
-                auto segment_postings =
-                        std::make_shared<SegmentPostings<TermPositionsPtr>>(std::move(iter));
-                term_postings_list.emplace_back(offset, std::move(segment_postings));
+        std::vector<std::pair<size_t, PositionPostingsPtr>> term_postings_list;
+        for (const auto& term_info : _term_infos) {
+            size_t offset = term_info.position;
+            auto posting =
+                    create_position_posting(reader.get(), _field, term_info.get_single_term(),
+                                            _enable_scoring, _context->io_ctx);
+            if (posting) {
+                term_postings_list.emplace_back(offset, std::move(posting));
             } else {
-                return nullptr;
+                return std::make_shared<EmptyScorer>();
             }
         }
-        return PhraseScorer<PositionPostings>::create(term_postings_list, _similarity, 0);
+        return PhraseScorer<PositionPostingsPtr>::create(term_postings_list, _similarity, 0);
     }
 
     IndexQueryContextPtr _context;
 
     std::wstring _field;
-    std::vector<std::wstring> _terms;
+    std::vector<TermInfo> _term_infos;
     SimilarityPtr _similarity;
     bool _enable_scoring = false;
+    bool _nullable = true;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

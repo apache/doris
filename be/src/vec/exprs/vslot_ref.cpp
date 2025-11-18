@@ -88,7 +88,7 @@ Status VSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -96,6 +96,26 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
     }
     *result_column_id = _column_id;
     return Status::OK();
+}
+
+Status VSlotRef::execute_column(VExprContext* context, const Block* block,
+                                ColumnPtr& result_column) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                _column_id, block->dump_structure());
+    }
+    result_column = block->get_by_position(_column_id).column;
+    return Status::OK();
+}
+
+DataTypePtr VSlotRef::execute_type(const Block* block) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "input block not contain slot column {}, column_id={}, block={}",
+                               *_column_name, _column_id, block->dump_structure());
+    }
+    return block->get_by_position(_column_id).type;
 }
 
 const std::string& VSlotRef::expr_name() const {

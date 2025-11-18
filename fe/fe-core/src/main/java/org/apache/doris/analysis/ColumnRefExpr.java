@@ -104,9 +104,4 @@ public class ColumnRefExpr extends Expr {
     public String debugString() {
         return columnName + " (" + columnId + ")id";
     }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
-    }
 }

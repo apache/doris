@@ -277,6 +277,53 @@ Doris compose automatically validates:
 
 If validation fails, you'll get a clear error message explaining what needs to be fixed.
 
+### Rollback Cloud Cluster to Snapshot
+
+The rollback command allows you to rollback a cloud cluster to a specific snapshot state.
+
+#### Basic Usage
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback <cluster-name> \
+    --cluster-snapshot '{"instance_id":"instance_xxx", ...}' \
+    [--instance-id NEW_INSTANCE_ID]
+```
+
+#### What it does
+
+The rollback command performs the following operations on **ALL FE/BE nodes**:
+1. **Stops** all FE and BE nodes
+2. **Cleans** FE `doris-meta/` and BE `storage/` directories (preserves `conf/`, `log/`, etc.)
+3. **Updates** update all nodes conf
+4. **Restarts** all nodes with new `instance_id` and `cluster_snapshot`
+
+#### Parameters
+
+- `--cluster-snapshot` (required): Cluster snapshot JSON content
+  - Example: `'{"instance_id":"instance_id_xxx"}'`
+  - Will be written to FE-1's `conf/cluster_snapshot.json`
+
+- `--instance-id` (optional): New instance ID after rollback
+  - If not specified, auto-generates: `instance_{cluster_name}_{timestamp}`
+
+- `--wait-timeout` (optional): Wait seconds for nodes to be ready (default: 0)
+
+#### Examples
+
+**Full cluster rollback:**
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback my_cluster \
+    --cluster-snapshot '{"instance_id":"backup_instance", ...}' \
+    --wait-timeout 60
+```
+
+**Rollback with custom instance ID:**
+```shell
+python docker/runtime/doris-compose/doris-compose.py rollback my_cluster \
+    --cluster-snapshot '{"instance_id":"rollback_instance", ...}' \
+    --instance-id "prod_rollback_20251027"
+```
+
 ## Problem investigation
 
 ### Log

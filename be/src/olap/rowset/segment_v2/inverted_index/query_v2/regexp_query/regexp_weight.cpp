@@ -26,6 +26,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/const_score_query/const_score_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/nullable_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
@@ -34,16 +35,27 @@ CL_NS_USE(index)
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 RegexpWeight::RegexpWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern,
-                           bool enable_scoring)
+                           bool enable_scoring, bool nullable)
         : _context(std::move(context)),
           _field(std::move(field)),
           _pattern(std::move(pattern)),
-          _enable_scoring(enable_scoring) {
+          _enable_scoring(enable_scoring),
+          _nullable(nullable) {
     // _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
 }
 
 ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
                                const std::string& binding_key) {
+    auto scorer = regexp_scorer(context, binding_key);
+    if (_nullable) {
+        auto logical_field = logical_field_or_fallback(context, binding_key, _field);
+        return make_nullable_scorer(scorer, logical_field, context.null_resolver);
+    }
+    return scorer;
+}
+
+ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
+                                      const std::string& binding_key) {
     auto prefix = get_regex_prefix(_pattern);
 
     hs_database_t* database = nullptr;
