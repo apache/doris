@@ -129,8 +129,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -148,8 +148,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -167,8 +167,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -186,8 +186,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -205,8 +205,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -224,8 +224,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -243,8 +243,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -262,8 +262,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -281,8 +281,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -300,8 +300,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -319,8 +319,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	zhangsan
@@ -338,8 +338,8 @@ c2	text	Yes	false	\N	NONE
 1048576	1048576
 
 -- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
+id	text	Yes	false	\N	NONE
+name	text	Yes	false	\N	NONE
 
 -- !select --
 1	2
