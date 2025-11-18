@@ -102,7 +102,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     for (int i = 0; i < channels.size(); ++i) {
         if (channels[i]->is_local()) {
             local_size++;
-			local_channel_ids.emplace_back(i);
+            local_channel_ids.emplace_back(i);
             _last_local_channel_idx = i;
         }
     }
@@ -505,9 +505,12 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
     } else if (_part_type == TPartitionType::LOCAL_RANDOM) {
         // 1. select channel
-        auto& current_channel = local_state.channels[local_state.local_channel_ids[local_state.current_channel_idx]];
-        DCHECK(current_channel->is_local()) << "Only local channel are supported, current_channel_idx: "
-                                            << local_state.local_channel_ids[local_state.current_channel_idx];
+        auto& current_channel =
+                local_state
+                        .channels[local_state.local_channel_ids[local_state.current_channel_idx]];
+        DCHECK(current_channel->is_local())
+                << "Only local channel are supported, current_channel_idx: "
+                << local_state.local_channel_ids[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             auto status = current_channel->send_local_block(block, eos, true);
