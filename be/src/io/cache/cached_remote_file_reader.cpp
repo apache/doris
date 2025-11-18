@@ -225,17 +225,25 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     auto [align_left, align_size] = s_align_size(offset, bytes_req, size());
     if (config::file_cache_num_parallel_prefetch > 0 && !is_dryrun && _is_doris_table) {
         auto off = align_left + align_size;
-        if (off < _remote_file_reader->size()) { // there may be more to read
+        auto pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
+
+        // Prefetch multiple blocks ahead
+        for (int i = 0; i < config::file_cache_num_parallel_prefetch; ++i) {
+            if (off >= _remote_file_reader->size()) {
+                break; // No more data to prefetch
+            }
+
             auto ioctx = *io_ctx;
             ioctx.is_dryrun = true;
             ioctx.query_id = nullptr;
             ioctx.file_cache_stats = nullptr;
             ioctx.file_reader_stats = nullptr;
-            auto pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
+
             {
                 std::unique_lock l(_parallel_mtx);
                 _parallel_ref++;
             }
+
             auto st = pool->submit_scan_task(vectorized::SimplifiedScanTask(
                     [ioctx, off, this] {
                         size_t bytesread;
@@ -246,10 +254,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                         _parallel_cv.notify_one();
                     },
                     nullptr));
+
             if (!st.ok()) {
                 std::unique_lock l(_parallel_mtx);
                 _parallel_ref--;
             }
+
+            // Move to next block
+            off += config::file_cache_each_block_size;
         }
     }
     CacheContext cache_context(io_ctx);
