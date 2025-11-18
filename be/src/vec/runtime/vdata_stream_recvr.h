@@ -156,8 +156,6 @@ private:
     RuntimeProfile::Counter* _decompress_timer = nullptr;
     RuntimeProfile::Counter* _decompress_bytes = nullptr;
 
-    // Number of rows received
-    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
     RuntimeProfile::Counter* _max_wait_worker_time = nullptr;
