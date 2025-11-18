@@ -1,0 +1,109 @@
+name: 代码审查
+
+on:
+pull_request:
+types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+pull-requests: write
+contents: read
+issues: write
+
+jobs:
+code-review:
+runs-on: ubuntu-latest # 跳过草稿 PR 的自动代码审查
+if: github.event.pull_request.draft == false
+steps: - name: 检出代码仓库
+uses: actions/checkout@v4
+with:
+fetch-depth: 0
+ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: 安装 Cursor 命令行界面
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+
+      - name: 配置 git 身份信息
+        run: |
+          git config user.name "Cursor Agent"
+          git config user.email "cursoragent@cursor.com"
+
+      - name: 执行自动代码审查
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_TEST }}
+          MODEL: auto
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BLOCKING_REVIEW: ${{ vars.BLOCKING_REVIEW || 'false' }}
+        run: |
+          cursor-agent --force --model "$MODEL" --output-format=text --print '您正在 GitHub Actions 运行器中执行自动代码审查。gh 命令行界面可用并通过 GH_TOKEN 进行身份验证。您可以对拉取请求进行评论。
+
+          上下文：
+          - 仓库：${{ github.repository }}
+          - PR 编号：${{ github.event.pull_request.number }}
+          - PR Head SHA：${{ github.event.pull_request.head.sha }}
+          - PR Base SHA：${{ github.event.pull_request.base.sha }}
+          - 阻塞审查：${{ env.BLOCKING_REVIEW }}
+
+          目标：
+          1) 重新检查现有审查评论，并在问题解决后回复已解决。
+          2) 审查当前 PR 差异，仅标记明确的高严重性问题。
+          3) 仅在更改的行上留下非常简短的内联评论（1-2 句话），并在最后提供简要总结。
+
+          流程：
+          - 获取现有评论：gh pr view --json comments
+          - 获取差异：gh pr diff
+          - 获取带有补丁的更改文件以计算内联位置：gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq '.[] | {filename,patch}'
+          - 为每个问题计算精确的内联锚点（文件路径 + 差异位置）。评论必须内联放置在差异中的更改行上，而不是作为顶级评论。
+          - 检测此机器人创建的先前顶级"无问题"样式评论（匹配如下正文："✅ 无问题"、"未发现问题"、"LGTM"）。
+          - 如果当前运行发现问题且存在任何先前的"无问题"评论：
+            - 优先删除它们以避免混淆：
+              - 尝试通过以下方式删除顶级问题评论：gh api -X DELETE repos/${{ github.repository }}/issues/comments/<comment_id>
+              - 如果无法删除，通过 GraphQL (minimizeComment) 最小化它们或编辑以添加前缀"[被新发现取代]"。
+            - 如果既无法删除也无法最小化，请回复该评论："⚠️ 已取代：在较新的提交中发现了问题"。
+          - 如果先前报告的问题似乎已通过附近的更改修复，请回复：✅ 此问题似乎已通过最近的更改解决
+          - 仅分析以下内容：
+            - 空值/未定义解引用
+            - 资源泄漏（未关闭的文件或连接）
+            - 注入攻击（SQL/XSS）
+            - 并发/竞态条件
+            - 关键操作缺少错误处理
+            - 具有不正确行为的明显逻辑错误
+            - 具有可测量影响的明确性能反模式
+            - 明确的安全漏洞
+          - 避免重复：如果相同或相近行上已存在类似反馈，则跳过。
+
+          评论规则：
+          - 最多 10 条内联评论；优先处理最关键的问题
+          - 每条评论一个问题；放置在确切的更改行上
+          - 所有问题评论必须是内联的（锚定到 PR 差异中的文件和行/位置）
+          - 自然语调，具体且可操作；不要提及自动化或高置信度
+          - 使用表情符号：🚨 关键 🔒 安全 ⚡ 性能 ⚠️ 逻辑 ✅ 已解决 ✨ 改进
+
+          提交：
+          - 如果没有问题需要报告且已存在表示"无问题"的现有顶级评论（例如"✅ 无问题"、"未发现问题"、"LGTM"），请不要提交另一条评论。跳过提交以避免冗余。
+          - 如果没有问题需要报告且不存在先前的"无问题"评论，请提交一条简短的总结评论，说明无问题。
+          - 如果有问题需要报告且存在先前的"无问题"评论，请确保在提交新审查之前删除/最小化/标记该先前评论为已取代。
+          - 如果有问题需要报告，请提交一个仅包含内联评论加可选简洁总结正文的审查。使用 GitHub Reviews API 确保评论是内联的：
+            - 构建评论的 JSON 数组，如：[{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+            - 通过以下方式提交：gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews -f event=COMMENT -f body="$SUMMARY" -f comments='[$COMMENTS_JSON]'
+          - 不要使用：gh pr review --approve 或 --request-changes
+
+          阻塞行为：
+          - 如果 BLOCKING_REVIEW 为 true 且发布了任何 🚨 或 🔒 问题：echo "CRITICAL_ISSUES_FOUND=true" >> $GITHUB_ENV
+          - 否则：echo "CRITICAL_ISSUES_FOUND=false" >> $GITHUB_ENV
+          - 始终在最后设置 CRITICAL_ISSUES_FOUND
+          '
+
+      - name: 检查阻塞审查结果
+        if: env.BLOCKING_REVIEW == 'true'
+        run: |
+          echo "检查关键问题..."
+          echo "CRITICAL_ISSUES_FOUND: ${CRITICAL_ISSUES_FOUND:-unset}"
+
+          if [ "${CRITICAL_ISSUES_FOUND:-false}" = "true" ]; then
+            echo "❌ 发现关键问题且启用了阻塞审查。工作流失败。"
+            exit 1
+          else
+            echo "✅ 未发现阻塞问题。"
+          fi
