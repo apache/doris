@@ -157,6 +157,8 @@ struct RowsetWriterContext {
             }
         }();
 
+        bool is_s3_fs = fs->type() == io::FileSystemType::S3;
+
         if (!encrypt_algorithm.has_value()) {
 #ifndef BE_TEST
             constexpr std::string_view msg =
@@ -191,8 +193,10 @@ struct RowsetWriterContext {
             LOG(INFO) << kMsg << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id;
         }
 
+        // Only enable merge file for S3 file system, not for HDFS or other remote file systems
         bool should_wrap_with_merge_fs = enable_merge_file && config::is_cloud_mode() &&
-                                         config::enable_merge_file && !has_v1_inverted_index;
+                                         config::enable_merge_file && !has_v1_inverted_index &&
+                                         is_s3_fs;
 
         if (should_wrap_with_merge_fs) {
             std::unordered_map<std::string, io::MergeFileSegmentIndex> index_map;
