@@ -627,4 +627,257 @@ TEST_F(ColumnVarbinaryTest, GetPermutationAscDescIgnoreLimit) {
     }
 }
 
+TEST_F(ColumnVarbinaryTest, InsertManyStrings) {
+    auto col = ColumnVarbinary::create();
+
+    // Test 1: Insert empty array
+    {
+        std::vector<StringRef> empty_refs;
+        col->insert_many_strings(empty_refs.data(), empty_refs.size());
+        EXPECT_EQ(col->size(), 0U);
+    }
+
+    // Test 2: Insert single string
+    {
+        std::string s1 = "hello";
+        StringRef ref1(s1.data(), s1.size());
+        col->insert_many_strings(&ref1, 1);
+        EXPECT_EQ(col->size(), 1U);
+        auto data = col->get_data_at(0);
+        EXPECT_EQ(data.size, 5U);
+        EXPECT_EQ(memcmp(data.data, "hello", 5), 0);
+    }
+
+    // Test 3: Insert multiple inline strings (size <= kInlineSize)
+    {
+        std::string s2 = "abc";
+        std::string s3 = "def";
+        std::string s4 = make_bytes(doris::StringView::kInlineSize, 0xAA);
+        std::vector<StringRef> refs = {StringRef(s2.data(), s2.size()),
+                                       StringRef(s3.data(), s3.size()),
+                                       StringRef(s4.data(), s4.size())};
+        col->insert_many_strings(refs.data(), refs.size());
+        EXPECT_EQ(col->size(), 4U); // 1 from test 2 + 3 new
+
+        auto data1 = col->get_data_at(1);
+        EXPECT_EQ(data1.size, 3U);
+        EXPECT_EQ(memcmp(data1.data, "abc", 3), 0);
+
+        auto data2 = col->get_data_at(2);
+        EXPECT_EQ(data2.size, 3U);
+        EXPECT_EQ(memcmp(data2.data, "def", 3), 0);
+
+        auto data3 = col->get_data_at(3);
+        EXPECT_EQ(data3.size, doris::StringView::kInlineSize);
+        EXPECT_EQ(memcmp(data3.data, s4.data(), s4.size()), 0);
+    }
+
+    // Test 4: Insert multiple large strings (size > kInlineSize)
+    {
+        std::string large1 = make_bytes(doris::StringView::kInlineSize + 10, 0x11);
+        std::string large2 = make_bytes(doris::StringView::kInlineSize + 20, 0x22);
+        std::string large3 = make_bytes(doris::StringView::kInlineSize + 30, 0x33);
+
+        std::vector<StringRef> large_refs = {StringRef(large1.data(), large1.size()),
+                                             StringRef(large2.data(), large2.size()),
+                                             StringRef(large3.data(), large3.size())};
+        size_t before_size = col->size();
+        col->insert_many_strings(large_refs.data(), large_refs.size());
+        EXPECT_EQ(col->size(), before_size + 3);
+
+        auto data_large1 = col->get_data_at(before_size);
+        EXPECT_EQ(data_large1.size, large1.size());
+        EXPECT_EQ(memcmp(data_large1.data, large1.data(), large1.size()), 0);
+
+        auto data_large2 = col->get_data_at(before_size + 1);
+        EXPECT_EQ(data_large2.size, large2.size());
+        EXPECT_EQ(memcmp(data_large2.data, large2.data(), large2.size()), 0);
+
+        auto data_large3 = col->get_data_at(before_size + 2);
+        EXPECT_EQ(data_large3.size, large3.size());
+        EXPECT_EQ(memcmp(data_large3.data, large3.data(), large3.size()), 0);
+    }
+
+    // Test 5: Insert strings with null bytes
+    {
+        std::string null_str1 = std::string("abc\0def", 7);
+        std::string null_str2 = std::string("\0\0\0", 3);
+        std::vector<StringRef> null_refs = {StringRef(null_str1.data(), null_str1.size()),
+                                            StringRef(null_str2.data(), null_str2.size())};
+        size_t before_size = col->size();
+        col->insert_many_strings(null_refs.data(), null_refs.size());
+        EXPECT_EQ(col->size(), before_size + 2);
+
+        auto data_null1 = col->get_data_at(before_size);
+        EXPECT_EQ(data_null1.size, 7U);
+        EXPECT_EQ(memcmp(data_null1.data, null_str1.data(), 7), 0);
+
+        auto data_null2 = col->get_data_at(before_size + 1);
+        EXPECT_EQ(data_null2.size, 3U);
+        EXPECT_EQ(memcmp(data_null2.data, null_str2.data(), 3), 0);
+    }
+
+    // Test 6: Insert mixed inline and non-inline strings
+    {
+        std::string small = "xy";
+        std::string medium = make_bytes(doris::StringView::kInlineSize, 0xBB);
+        std::string large = make_bytes(doris::StringView::kInlineSize + 50, 0xCC);
+        std::vector<StringRef> mixed_refs = {StringRef(small.data(), small.size()),
+                                             StringRef(medium.data(), medium.size()),
+                                             StringRef(large.data(), large.size())};
+        size_t before_size = col->size();
+        col->insert_many_strings(mixed_refs.data(), mixed_refs.size());
+        EXPECT_EQ(col->size(), before_size + 3);
+
+        auto data_small = col->get_data_at(before_size);
+        EXPECT_EQ(data_small.size, 2U);
+        EXPECT_EQ(memcmp(data_small.data, "xy", 2), 0);
+
+        auto data_medium = col->get_data_at(before_size + 1);
+        EXPECT_EQ(data_medium.size, doris::StringView::kInlineSize);
+
+        auto data_large = col->get_data_at(before_size + 2);
+        EXPECT_EQ(data_large.size, large.size());
+        EXPECT_EQ(memcmp(data_large.data, large.data(), large.size()), 0);
+    }
+
+    // Test 7: Insert UUID-like binary data (16 bytes)
+    {
+        std::string uuid1 = make_bytes(16, 0x55);
+        std::string uuid2 = make_bytes(16, 0x12);
+        std::vector<StringRef> uuid_refs = {StringRef(uuid1.data(), uuid1.size()),
+                                            StringRef(uuid2.data(), uuid2.size())};
+        size_t before_size = col->size();
+        col->insert_many_strings(uuid_refs.data(), uuid_refs.size());
+        EXPECT_EQ(col->size(), before_size + 2);
+
+        auto data_uuid1 = col->get_data_at(before_size);
+        EXPECT_EQ(data_uuid1.size, 16U);
+        EXPECT_EQ(memcmp(data_uuid1.data, uuid1.data(), 16), 0);
+
+        auto data_uuid2 = col->get_data_at(before_size + 1);
+        EXPECT_EQ(data_uuid2.size, 16U);
+        EXPECT_EQ(memcmp(data_uuid2.data, uuid2.data(), 16), 0);
+    }
+}
+
+TEST_F(ColumnVarbinaryTest, InsertManyStringsOverflow) {
+    auto col = ColumnVarbinary::create();
+
+    // Test 1: Insert with max_length larger than actual strings (no overflow)
+    {
+        std::string s1 = "hello";
+        std::string s2 = "world";
+        std::vector<StringRef> refs = {StringRef(s1.data(), s1.size()),
+                                       StringRef(s2.data(), s2.size())};
+        col->insert_many_strings_overflow(refs.data(), refs.size(), 100);
+        EXPECT_EQ(col->size(), 2U);
+
+        auto data1 = col->get_data_at(0);
+        EXPECT_EQ(data1.size, 5U);
+        EXPECT_EQ(memcmp(data1.data, "hello", 5), 0);
+
+        auto data2 = col->get_data_at(1);
+        EXPECT_EQ(data2.size, 5U);
+        EXPECT_EQ(memcmp(data2.data, "world", 5), 0);
+    }
+
+    // Test 2: Insert with max_length equal to string length (exact fit)
+    {
+        std::string s3 = "test123";
+        StringRef ref3(s3.data(), s3.size());
+        col->insert_many_strings_overflow(&ref3, 1, 7);
+        EXPECT_EQ(col->size(), 3U);
+
+        auto data3 = col->get_data_at(2);
+        EXPECT_EQ(data3.size, 7U);
+        EXPECT_EQ(memcmp(data3.data, "test123", 7), 0);
+    }
+
+    // Test 3: Insert large strings with max_length
+    // Note: Current implementation doesn't actually truncate, it just calls insert_many_strings
+    // This test verifies the current behavior
+    {
+        std::string large = make_bytes(doris::StringView::kInlineSize + 100, 0xAA);
+        StringRef ref_large(large.data(), large.size());
+        size_t before_size = col->size();
+        col->insert_many_strings_overflow(&ref_large, 1, 50);
+        EXPECT_EQ(col->size(), before_size + 1);
+
+        auto data_large = col->get_data_at(before_size);
+        // Current implementation doesn't truncate, so full size is preserved
+        EXPECT_EQ(data_large.size, large.size());
+        EXPECT_EQ(memcmp(data_large.data, large.data(), large.size()), 0);
+    }
+
+    // Test 4: Insert multiple strings with overflow parameter
+    {
+        std::string s4 = make_bytes(20, 0x11);
+        std::string s5 = make_bytes(30, 0x22);
+        std::string s6 = make_bytes(40, 0x33);
+        std::vector<StringRef> refs = {StringRef(s4.data(), s4.size()),
+                                       StringRef(s5.data(), s5.size()),
+                                       StringRef(s6.data(), s6.size())};
+        size_t before_size = col->size();
+        col->insert_many_strings_overflow(refs.data(), refs.size(), 100);
+        EXPECT_EQ(col->size(), before_size + 3);
+
+        // Verify all strings are inserted correctly
+        auto data4 = col->get_data_at(before_size);
+        EXPECT_EQ(data4.size, 20U);
+        EXPECT_EQ(memcmp(data4.data, s4.data(), 20), 0);
+
+        auto data5 = col->get_data_at(before_size + 1);
+        EXPECT_EQ(data5.size, 30U);
+        EXPECT_EQ(memcmp(data5.data, s5.data(), 30), 0);
+
+        auto data6 = col->get_data_at(before_size + 2);
+        EXPECT_EQ(data6.size, 40U);
+        EXPECT_EQ(memcmp(data6.data, s6.data(), 40), 0);
+    }
+
+    // Test 5: Insert binary data (like UUID) with overflow
+    {
+        std::string uuid = make_bytes(16, 0x55);
+        StringRef uuid_ref(uuid.data(), uuid.size());
+        size_t before_size = col->size();
+        col->insert_many_strings_overflow(&uuid_ref, 1, 32);
+        EXPECT_EQ(col->size(), before_size + 1);
+
+        auto data_uuid = col->get_data_at(before_size);
+        EXPECT_EQ(data_uuid.size, 16U);
+        EXPECT_EQ(memcmp(data_uuid.data, uuid.data(), 16), 0);
+    }
+
+    // Test 6: Insert empty strings with max_length
+    {
+        std::string empty1;
+        std::string empty2;
+        std::vector<StringRef> empty_refs = {StringRef(empty1.data(), empty1.size()),
+                                             StringRef(empty2.data(), empty2.size())};
+        size_t before_size = col->size();
+        col->insert_many_strings_overflow(empty_refs.data(), empty_refs.size(), 10);
+        EXPECT_EQ(col->size(), before_size + 2);
+
+        auto data_empty1 = col->get_data_at(before_size);
+        EXPECT_EQ(data_empty1.size, 0U);
+
+        auto data_empty2 = col->get_data_at(before_size + 1);
+        EXPECT_EQ(data_empty2.size, 0U);
+    }
+
+    // Test 7: Insert strings with null bytes and overflow parameter
+    {
+        std::string null_data = std::string("abc\0\0\0def", 9);
+        StringRef null_ref(null_data.data(), null_data.size());
+        size_t before_size = col->size();
+        col->insert_many_strings_overflow(&null_ref, 1, 20);
+        EXPECT_EQ(col->size(), before_size + 1);
+
+        auto data_null = col->get_data_at(before_size);
+        EXPECT_EQ(data_null.size, 9U);
+        EXPECT_EQ(memcmp(data_null.data, null_data.data(), 9), 0);
+    }
+}
+
 } // namespace doris::vectorized

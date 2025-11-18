@@ -304,6 +304,9 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.JSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+    } else if (logicalType.__isset.UUID) {
+        ans.first =
+                DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1, -1, 16);
     } else {
         throw Exception(Status::InternalError("Not supported parquet logicalType"));
     }

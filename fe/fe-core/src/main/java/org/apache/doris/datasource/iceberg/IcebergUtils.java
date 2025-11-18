@@ -566,8 +566,9 @@ public class IcebergUtils {
             case DOUBLE:
                 return Type.DOUBLE;
             case STRING:
-            case UUID:
                 return Type.STRING;
+            case UUID:
+                return ScalarType.createVarbinaryType(16);
             case BINARY:
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
                         : Type.STRING;
