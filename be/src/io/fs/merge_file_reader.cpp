@@ -33,8 +33,6 @@ MergeFileReader::MergeFileReader(FileReaderSPtr inner_reader, Path path, int64_t
           _merge_file_offset(offset),
           _file_size(size) {
     DCHECK(_inner_reader != nullptr);
-    DCHECK(_merge_file_offset >= 0);
-    DCHECK(_file_size > 0);
 }
 
 MergeFileReader::~MergeFileReader() {

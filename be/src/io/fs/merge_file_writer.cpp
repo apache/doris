@@ -105,13 +105,6 @@ Status MergeFileWriter::close(bool non_block) {
 }
 
 Status MergeFileWriter::_close_async() {
-    // If merge file is disabled, just use direct write
-    if (!config::enable_merge_file) {
-        RETURN_IF_ERROR(_inner_writer->close(true));
-        _state = State::ASYNC_CLOSING;
-        return Status::OK();
-    }
-
     if (!_is_direct_write) {
         // Send small file data to merge manager
         RETURN_IF_ERROR(_send_to_merge_manager());
@@ -124,13 +117,6 @@ Status MergeFileWriter::_close_async() {
 }
 
 Status MergeFileWriter::_close_sync() {
-    // If merge file is disabled, just use direct write
-    if (!config::enable_merge_file) {
-        RETURN_IF_ERROR(_inner_writer->close(false));
-        _state = State::CLOSED;
-        return Status::OK();
-    }
-
     if (!_is_direct_write) {
         // Send small file data to merge manager and wait for upload
         RETURN_IF_ERROR(_send_to_merge_manager());
@@ -168,10 +154,6 @@ Status MergeFileWriter::_switch_to_direct_write() {
 Status MergeFileWriter::_send_to_merge_manager() {
     DCHECK(!_is_direct_write);
 
-    if (_buffer.size() == 0) {
-        return Status::OK();
-    }
-
     if (_merge_file_manager == nullptr) {
         return Status::InternalError("MergeFileManager is not available");
     }
@@ -192,11 +174,6 @@ Status MergeFileWriter::_send_to_merge_manager() {
 }
 
 Status MergeFileWriter::get_merge_file_index(MergeFileSegmentIndex* index) const {
-    if (_bytes_appended == 0) {
-        *index = MergeFileSegmentIndex {};
-        return Status::OK();
-    }
-
     DCHECK(_state == State::CLOSED)
             << " file_path: " << _file_path << " bytes_appended: " << _bytes_appended;
     if (_is_direct_write) {

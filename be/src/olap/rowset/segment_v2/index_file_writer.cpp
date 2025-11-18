@@ -190,7 +190,8 @@ Status IndexFileWriter::close() {
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr) {
+            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
+            dynamic_cast<io::MergeFileWriter*>(_idx_v2_writer.get()) != nullptr) {
             return _idx_v2_writer->close();
         }
         return Status::OK();
