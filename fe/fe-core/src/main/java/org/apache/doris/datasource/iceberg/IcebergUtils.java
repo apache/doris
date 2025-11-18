@@ -644,7 +644,7 @@ public class IcebergUtils {
             if (!partitionField.transform().isIdentity()) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(
-                            "Skipping dynamic partition pruning for non-identity partition field: {} with transform: {}",
+                            "Skip dynamic partition pruning for non-identity partition field: {} with transform: {}",
                             field.name(), partitionField.transform().toString());
                 }
                 return null;
