@@ -18,6 +18,7 @@
 #include "vec/exec/format/column_type_convert.h"
 
 #include "common/cast_set.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized::converter {
 #include "common/compile_check_begin.h"
@@ -221,6 +222,8 @@ static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const DataTypeP
         default:
             return std::make_unique<UnsupportedConverter>(src_type, dst_type);
         }
+    } else if (is_varbinary(src_primitive_type)) {
+        return std::make_unique<VarBinaryConverter<TYPE_VARBINARY, TYPE_STRING>>();
     }
     return std::make_unique<UnsupportedConverter>(src_type, dst_type);
 }
@@ -236,6 +239,9 @@ static std::unique_ptr<ColumnTypeConverter> _from_string_converter(const DataTyp
                 remove_nullable(dst_type));
         FOR_ALL_LOGICAL_TYPES(DISPATCH)
 #undef DISPATCH
+    case TYPE_VARBINARY: {
+        return std::make_unique<VarBinaryConverter<TYPE_STRING, TYPE_VARBINARY>>();
+    }
     default:
         return std::make_unique<UnsupportedConverter>(src_type, dst_type);
     }
@@ -367,14 +373,6 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
     //todo:  type to varchar/char.
     if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
-        return std::make_unique<ConsistentConverter>();
-    }
-
-    // src: varbinary -> dst: string/varbinary should be converted in physical level directly
-    // src: string -> dst: varbinary should be converted in physical level directly
-    if ((is_varbinary(src_primitive_type) &&
-         (is_string_type(dst_primitive_type) || is_varbinary(dst_primitive_type))) ||
-        (is_string_type(src_primitive_type) && is_varbinary(dst_primitive_type))) {
         return std::make_unique<ConsistentConverter>();
     }
 

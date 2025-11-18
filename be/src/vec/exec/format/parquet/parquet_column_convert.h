@@ -354,43 +354,6 @@ public:
     }
 };
 
-//TODO: we should use template to deduce src_physical_col and src_logical_column real column type
-// to avoid some virtual function call overhead.
-class VarBinaryConverter : public PhysicalToLogicalConverter {
-public:
-    VarBinaryConverter() = default;
-
-    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
-        DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
-        DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
-
-        ColumnPtr from_col = nullptr;
-        if (is_column_nullable(*src_physical_col)) {
-            const auto& nullable =
-                    assert_cast<const vectorized::ColumnNullable*>(src_physical_col.get());
-            from_col = nullable->get_nested_column_ptr();
-        } else {
-            from_col = src_physical_col;
-        }
-
-        MutableColumnPtr to_col = nullptr;
-        // nullmap flag seems have been handled in upper level
-        if (src_logical_column->is_nullable()) {
-            const auto* nullable =
-                    assert_cast<const vectorized::ColumnNullable*>(src_logical_column.get());
-            to_col = nullable->get_nested_column_ptr()->assume_mutable();
-        } else {
-            to_col = src_logical_column->assume_mutable();
-        }
-
-        for (size_t i = 0; i < from_col->size(); ++i) {
-            auto string_ref = from_col->get_data_at(i);
-            to_col->insert_data(string_ref.data, string_ref.size);
-        }
-        return Status::OK();
-    }
-};
-
 class UUIDVarBinaryConverter : public PhysicalToLogicalConverter {
 public:
     UUIDVarBinaryConverter(int type_length) : _type_length(type_length) {}

@@ -927,5 +927,43 @@ public:
     }
 };
 
+//case 1: string to varbinary, parquet byte_array with logical type, but create column is binary
+//case 2: varbinary to string, parquet byte_array without logical type, but create column is string
+template <PrimitiveType FromPtype, PrimitiveType ToPtype>
+class VarBinaryConverter : public ColumnTypeConverter {
+public:
+    VarBinaryConverter() = default;
+    using FromColumnType = typename PrimitiveTypeTraits<FromPtype>::ColumnType;
+    using ToColumnType = typename PrimitiveTypeTraits<ToPtype>::ColumnType;
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        DCHECK(!is_column_const(*src_col)) << src_col->dump_structure();
+        DCHECK(!is_column_const(*dst_col)) << dst_col->dump_structure();
+
+        const FromColumnType* from_col = nullptr;
+        if (is_column_nullable(*src_col)) {
+            const auto& nullable = assert_cast<const vectorized::ColumnNullable*>(src_col.get());
+            from_col = &assert_cast<const FromColumnType&>(nullable->get_nested_column());
+        } else {
+            from_col = &assert_cast<const FromColumnType&>(*src_col);
+        }
+
+        MutableColumnPtr to_col = nullptr;
+        // nullmap flag seems have been handled in upper level
+        if (dst_col->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(dst_col.get());
+            to_col = nullable->get_nested_column_ptr()->assume_mutable();
+        } else {
+            to_col = dst_col->assume_mutable();
+        }
+        auto* to_dst_column = assert_cast<ToColumnType*>(to_col.get());
+
+        for (size_t i = 0; i < from_col->size(); ++i) {
+            auto string_ref = from_col->get_data_at(i);
+            to_dst_column->insert_data(string_ref.data, string_ref.size);
+        }
+        return Status::OK();
+    }
+};
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized::converter
