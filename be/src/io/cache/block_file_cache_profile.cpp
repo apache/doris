@@ -28,9 +28,9 @@ namespace doris::io {
 std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     std::shared_ptr<AtomicStatistics> stats = std::make_shared<AtomicStatistics>();
     std::lock_guard lock(_mtx);
-    stats->num_io_bytes_read_from_cache += _profile->num_io_bytes_read_from_cache;
-    stats->num_io_bytes_read_from_remote += _profile->num_io_bytes_read_from_remote;
-    stats->num_io_bytes_read_from_peer += _profile->num_io_bytes_read_from_peer;
+    stats->num_io_bytes_read_from_cache += _statistics->num_io_bytes_read_from_cache;
+    stats->num_io_bytes_read_from_remote += _statistics->num_io_bytes_read_from_remote;
+    stats->num_io_bytes_read_from_peer += _statistics->num_io_bytes_read_from_peer;
     return stats;
 }
 
@@ -42,9 +42,9 @@ void FileCacheMetrics::update(FileCacheStatistics* stats) {
             register_entity();
         }
     }
-    _profile->num_io_bytes_read_from_cache += stats->bytes_read_from_local;
-    _profile->num_io_bytes_read_from_remote += stats->bytes_read_from_remote;
-    _profile->num_io_bytes_read_from_peer += stats->bytes_read_from_peer;
+    _statistics->num_io_bytes_read_from_cache += stats->bytes_read_from_local;
+    _statistics->num_io_bytes_read_from_remote += stats->bytes_read_from_remote;
+    _statistics->num_io_bytes_read_from_peer += stats->bytes_read_from_peer;
 }
 
 void FileCacheMetrics::register_entity() {
