@@ -223,7 +223,7 @@ static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const DataTypeP
             return std::make_unique<UnsupportedConverter>(src_type, dst_type);
         }
     } else if (is_varbinary(src_primitive_type)) {
-        return std::make_unique<VarBinaryConverter<TYPE_VARBINARY, TYPE_STRING>>();
+        return std::make_unique<VarBinaryConverter<TYPE_STRING, TYPE_STRING>>();
     }
     return std::make_unique<UnsupportedConverter>(src_type, dst_type);
 }
