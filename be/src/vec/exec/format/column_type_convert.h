@@ -927,8 +927,24 @@ public:
     }
 };
 
-//case 1: string to varbinary, parquet byte_array with logical type, but create column is binary
-//case 2: varbinary to string, parquet byte_array without logical type, but create column is string
+/*
+we treat the byte_array type in parquet
+if byte_array with logical type or converted as byte_array_utf8 used String type
+if byte_array without logical type and converted as byte_array used VarBinary type
+case 1: byte_array_utf8 in parquet -> string column in table
+case 2: byte_array in parquet -> binary column in table
+case 3: byte_array_utf8 in parquet -> binary column in table
+case 4: byte_array in parquet ->  string column in table
+so:
+case 1: src_logical_type is string,  dst_logical_type is string  => no convert
+case 2: src_logical_type is binary,  dst_logical_type is binary  => no convert
+case 3: src_logical_type is string,  dst_logical_type is binary  => need convert
+    and _cached_src_physical_type is string, so need handle here VarBinaryConverter<TYPE_STRING, TYPE_VARBINARY>
+case 4: src_logical_type is binary,  dst_logical_type is string  => need convert
+    _cached_src_physical_type is string still (see get_physical_column function), although src_logical_type is binary, and we except is varbinary column
+    but in order to compatibility and simplicity, so need handle here VarBinaryConverter<TYPE_STRING, TYPE_STRING>
+*/
+
 template <PrimitiveType FromPtype, PrimitiveType ToPtype>
 class VarBinaryConverter : public ColumnTypeConverter {
 public:
