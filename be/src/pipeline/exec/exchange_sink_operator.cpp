@@ -486,7 +486,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 auto pblock = std::make_unique<PBlock>();
-                RETURN_IF_ERROR(local_state._serializer.serialize_block(block, pblock.get()));
+                if (!block->empty()) {
+                    RETURN_IF_ERROR(local_state._serializer.serialize_block(block, pblock.get()));
+                }
                 auto status = current_channel->send_remote_block(std::move(pblock), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             }
