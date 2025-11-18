@@ -1403,6 +1403,8 @@ DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+DEFINE_mBool(enable_s3_parallel_read, "false");
+DEFINE_mInt32(s3_parallel_read_chunk_size, "131072"); // 128KB
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
@@ -1471,6 +1473,10 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
+// The min thread num for S3ParallelReadThreadPool
+DEFINE_Int64(num_s3_parallel_read_thread_pool_min_thread, "2000");
+// The max thread num for S3ParallelReadThreadPool
+DEFINE_Int64(num_s3_parallel_read_thread_pool_max_thread, "2000");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
