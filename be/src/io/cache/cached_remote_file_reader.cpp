@@ -42,6 +42,7 @@
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::io {
@@ -62,6 +63,9 @@ bvar::Adder<uint64_t> g_bytes_write_into_file_cache_total("cached_remote_reader"
 bvar::PerSecond<bvar::Adder<uint64_t>> g_bytes_write_into_file_cache_per_second(
         "cached_remote_reader", "bytes_write_into_file_cache_per_second",
         &g_bytes_write_into_file_cache_total, 10);
+bvar::LatencyRecorder g_read_at_wait_block_download(
+        "cached_remote_reader_read_at_wait_block_download");
+bvar::LatencyRecorder g_read_at_impl_cost("cached_remote_reader_read_at_impl_cost");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -166,8 +170,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         return Status::OK();
     }
     ReadStatistics stats;
+    MonotonicStopWatch watch;
+    watch.start();
     auto defer_func = [&](int*) {
         g_bytes_write_into_file_cache_total << stats.bytes_write_into_file_cache;
+        g_read_at_impl_cost << watch.elapsed_time_microseconds();
         if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
@@ -363,6 +370,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         static int64_t max_wait_time = 10;
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
+            MonotonicStopWatch watch2;
+            watch2.start();
             do {
                 SCOPED_RAW_TIMER(&stats.cache_block_download_wait_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
@@ -371,6 +380,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     break;
                 }
             } while (++wait_time < max_wait_time);
+            g_read_at_wait_block_download << watch2.elapsed_time_microseconds();
         }
         if (wait_time == max_wait_time) [[unlikely]] {
             LOG_WARNING("Waiting too long for the download to complete");
