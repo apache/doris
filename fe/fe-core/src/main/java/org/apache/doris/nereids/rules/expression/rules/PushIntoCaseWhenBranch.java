@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -41,52 +40,55 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Push expression into case when/if/nvl/nullif branch to increase the chance of constant folding.
+ * Push expression into case when/if/nvl/nullif branch.
  * For example: 2 > case when TB = 1 then 1 else 3 end
- * can be rewritten to: case when TB = 1 then true else false end
+ * can be rewritten to: case when TB = 1 then true else false end.
+ * After this rule, the expression will continue to be optimized by other rules.
+ * Later rule CASE_WHEN_TO_COMPOUND will rewrite it to: (TB = 1) <=> TRUE,
+ * later rule NULL_SAFE_EQUAL_TO_EQUAL will rewrite it to:
+ *  a) TB = 1, if expression is in filter or join;
+ *  b) TB = 1 and TB is not null, otherwise.
  */
 public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
     public static PushIntoCaseWhenBranch INSTANCE = new PushIntoCaseWhenBranch();
-    private static final Class<?>[] PUSH_INTO_CLASSES = new Class[] {CaseWhen.class, If.class, Nvl.class, NullIf.class};
+    private static final Class<?>[] CASE_WHEN_LIKE_CLASSES
+            = new Class[] {CaseWhen.class, If.class, Nvl.class, NullIf.class};
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        List<ExpressionPatternMatcher<? extends Expression>> folderRules
-                = FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.buildRules();
-        ImmutableList.Builder<ExpressionPatternMatcher<? extends Expression>> builder
-                = ImmutableList.builderWithExpectedSize(folderRules.size());
-        for (ExpressionPatternMatcher<? extends Expression> foldRule : folderRules) {
-            if (!LeafExpression.class.isAssignableFrom(foldRule.typePattern)) {
-                builder.add(matchesType(foldRule.typePattern)
+        return ImmutableList.of(
+                matchesType(Expression.class)
                         .when(this::needRewrite)
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.PUSH_INTO_CASE_WHEN_BRANCH));
-            }
-        }
-        return builder.build();
     }
 
     private boolean needRewrite(Expression expression) {
-        if (!expression.containsType(PUSH_INTO_CLASSES) || !expression.foldable()) {
+        if (!expression.containsType(CASE_WHEN_LIKE_CLASSES) || !expression.foldable()) {
             return false;
         }
-        // contains one case when/if/nvl/nullif child, other children are literals.
-        boolean hasPushIntoClassChild = false;
+        // for expression's children, if one of them is case when/if/nvl/nullif, and the others are literals,
+        // then try to push rewrite expression, and push expression into the case when/if/nvl/nullif branch.
+        boolean hasCaseWhenLikeChild = false;
         for (Expression child : expression.children()) {
             if (child.isLiteral()) {
                 continue;
             }
-            boolean isPushIntoClass = needPushInto(child.getClass());
-            if (!isPushIntoClass || hasPushIntoClassChild) {
+            boolean isCaseWhenLike = isClassCaseWhenLike(child.getClass());
+            if (!isCaseWhenLike) {
                 return false;
             }
-            hasPushIntoClassChild = true;
+            // if there are more than one case when/if/nvl/nullif child, do not rewrite
+            if (hasCaseWhenLikeChild) {
+                return false;
+            }
+            hasCaseWhenLikeChild = true;
         }
-        return hasPushIntoClassChild;
+        return hasCaseWhenLikeChild;
     }
 
-    private boolean needPushInto(Class<?> clazz) {
-        for (Class<?> pushIntoClass : PUSH_INTO_CLASSES) {
+    private boolean isClassCaseWhenLike(Class<?> clazz) {
+        for (Class<?> pushIntoClass : CASE_WHEN_LIKE_CLASSES) {
             if (clazz == pushIntoClass) {
                 return true;
             }
@@ -95,7 +97,6 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
     }
 
     private Expression rewrite(Expression expression, ExpressionRewriteContext context) {
-        boolean isConditionPlan = PlanUtils.isConditionExpressionPlan(context.plan.orElse(null));
         for (int i = 0; i < expression.children().size(); i++) {
             Expression child = expression.child(i);
             Optional<Expression> newExpr = Optional.empty();
@@ -103,9 +104,9 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
                 newExpr = tryPushIntoCaseWhen(expression, i, (CaseWhen) child, context);
             } else if (child instanceof If) {
                 newExpr = tryPushIntoIf(expression, i, (If) child, context);
-            } else if (child instanceof Nvl && isConditionPlan) {
+            } else if (child instanceof Nvl) {
                 newExpr = tryPushIntoNvl(expression, i, (Nvl) child, context);
-            } else if (child instanceof NullIf && isConditionPlan) {
+            } else if (child instanceof NullIf) {
                 newExpr = tryPushIntoNullIf(expression, i, (NullIf) child, context);
             }
             if (newExpr.isPresent()) {
@@ -151,7 +152,12 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
             ExpressionRewriteContext context) {
         Expression first = nvl.left();
         Expression second = nvl.right();
-        if (first.containsUniqueFunction()) {
+        boolean isConditionPlan = PlanUtils.isConditionExpressionPlan(context.plan.orElse(null));
+        // after rewrite, nvl(first, second) => if(isnull(first), second, first),
+        // so there will exist twice 'first' in the rewritten IF expression, which may increase the computation cost.
+        // if the plan is not filter and not join, then push down action may not have positive effect,
+        // considering this, we give up the rewrite if the plan is not condition plan or first contains unique function.
+        if (first.containsUniqueFunction() || !isConditionPlan) {
             return Optional.empty();
         }
         If ifExpr = new If(new IsNull(first), second, first);
@@ -162,7 +168,12 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
             ExpressionRewriteContext context) {
         Expression first = nullIf.left();
         Expression second = nullIf.right();
-        if (first.containsUniqueFunction()) {
+        boolean isConditionPlan = PlanUtils.isConditionExpressionPlan(context.plan.orElse(null));
+        // after rewrite, nullif(first, second) => if(first = second, null, first),
+        // so there will exist twice 'first' in the rewritten IF expression, which may increase the computation cost.
+        // if the plan is not filter and not join, then push down action may not have positive effect,
+        // considering this, we give up the rewrite if the plan is not condition plan or first contains unique function.
+        if (first.containsUniqueFunction() || !isConditionPlan) {
             return Optional.empty();
         }
         If ifExpr = new If(new EqualTo(first, second), new NullLiteral(nullIf.getDataType()), first);
@@ -172,6 +183,10 @@ public class PushIntoCaseWhenBranch implements ExpressionPatternRuleFactory {
     private boolean pushIntoBranches(Expression parent, int childIndex,
             List<Expression> branchValues, ExpressionRewriteContext context) {
         List<Expression> newChildren = Lists.newArrayList(parent.children());
+        // for filter/join condition expression, we allow one non-literal branch after push down,
+        // because later rule CASE_WHEN_TO_COMPOUND may rewrite to AND/OR expression.
+        // for other plan expression, we require all branches should be literal after push down,
+        // just for pass the regression test nereids_rules_p0/mv/agg_without_roll_up.
         final int MAX_NON_LIT_NUM = PlanUtils.isConditionExpressionPlan(context.plan.orElse(null)) ? 1 : 0;
         int nonLiteralBranchNum = 0;
         for (int i = 0; i < branchValues.size(); i++) {

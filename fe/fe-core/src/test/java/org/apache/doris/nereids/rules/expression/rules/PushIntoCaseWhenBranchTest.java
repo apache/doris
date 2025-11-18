@@ -52,6 +52,10 @@ class PushIntoCaseWhenBranchTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("cast(if(TA = 1, 1, 2) as bigint)", "if(TA = 1, 1, 2)");
         assertRewriteAfterTypeCoercion("TA > if(TB = 1, 1, 3)", "TA > if(TB = 1, 1, 3)");
         assertRewriteAfterTypeCoercion("2 > if(TB = 1, 1, 3)", "if(TB = 1, true, false)");
+        assertRewriteAfterTypeCoercion("10 < if(TA = 1, 1, 100) and 2 > if(TB = 1, 1, 3)",
+                "if(TA = 1, false, true) and if(TB = 1, true, false)");
+        assertRewriteAfterTypeCoercion("2 > if(if(TB = 1, 10, TA) > 15, 1, TC)",
+                "if(if(TB = 1, false, TA > 15), true, 2 > TC)");
         assertRewriteAfterTypeCoercion("2 > if(TB = 1, TC, TD)", "2 > if(TB = 1, TC, TD)");
         assertRewriteAfterTypeCoercion("2 > if(TB = 1, 1, TD)", "if(TB = 1, true, 2 > TD)");
         assertRewriteAfterTypeCoercion("2 > if(TB = 1, TC, NULL)", "if(TB = 1, 2 > TC, null)");
