@@ -105,7 +105,7 @@ public class MatchPredicate extends Predicate {
             this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
             this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
             this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
-            this.invertedIndexCustomAnalyzer = invertedIndex.getInvertedIndexCustomAnalyzer();
+            this.invertedIndexAnalyzerName = invertedIndex.getInvertedIndexAnalyzerName();
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);

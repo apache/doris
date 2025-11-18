@@ -27,6 +27,7 @@
 #include "gen_cpp/Exprs_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/collection_statistics.cpp"
+#include "olap/predicate_collector.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -238,6 +239,23 @@ private:
 };
 
 } // namespace collection_statistics
+
+vectorized::VSlotRef* find_slot_ref(const vectorized::VExprSPtr& expr) {
+    class TestPredicateCollector : public PredicateCollector {
+    public:
+        vectorized::VSlotRef* call_find(const vectorized::VExprSPtr& e) {
+            return PredicateCollector::find_slot_ref(e);
+        }
+
+        Status collect(RuntimeState*, const TabletSchemaSPtr&, const vectorized::VExprSPtr&,
+                       CollectInfoMap*) override {
+            return Status::OK();
+        }
+    };
+
+    TestPredicateCollector collector;
+    return collector.call_find(expr);
+}
 
 class CollectionStatisticsTest : public ::testing::Test {
 protected:

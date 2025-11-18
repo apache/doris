@@ -239,11 +239,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     private void validateNormalizerProperties(Map<String, String> properties) throws DdlException {
-        String type = properties.get(IndexPolicy.PROP_TYPE);
-        if (type == null || !type.equals("normalizer")) {
-            throw new DdlException("Normalizer must specify 'type' = 'normalizer'");
-        }
-
         if (properties.containsKey(IndexPolicy.PROP_TOKENIZER)) {
             throw new DdlException("Normalizer cannot contain 'tokenizer' field");
         }
@@ -269,8 +264,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
 
         for (String key : properties.keySet()) {
-            if (!key.equals(IndexPolicy.PROP_TYPE)
-                    && !key.equals(IndexPolicy.PROP_CHAR_FILTER)
+            if (!key.equals(IndexPolicy.PROP_CHAR_FILTER)
                     && !key.equals(IndexPolicy.PROP_TOKEN_FILTER)) {
                 throw new DdlException("Invalid normalizer property: '" + key + "'. Only '"
                         + IndexPolicy.PROP_CHAR_FILTER + "' and '" + IndexPolicy.PROP_TOKEN_FILTER
@@ -364,6 +358,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "pinyin":
                 validator = new PinyinTokenFilterValidator();
                 break;
+            case "icu_normalizer":
+                validator = new ICUNormalizerTokenFilterValidator();
+                break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
                         .filter(t -> !t.equals("empty"))
@@ -386,6 +383,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 break;
             case "char_replace":
                 validator = new CharReplaceCharFilterValidator();
+                break;
+            case "icu_normalizer":
+                validator = new ICUNormalizerCharFilterValidator();
                 break;
             default:
                 Set<String> userFacingTypes = IndexPolicy.BUILTIN_CHAR_FILTERS.stream()

@@ -39,7 +39,7 @@ TEST(ReaderTest, ArrayFieldTokenStreamWorkflow) {
 
     // 正确创建 InvertedIndexCtx
     auto inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    inverted_index_ctx->custom_analyzer = "";
+    inverted_index_ctx->analyzer_name = "";
     inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_STANDARD;
     inverted_index_ctx->parser_mode = "standard";
     inverted_index_ctx->support_phrase = "yes";

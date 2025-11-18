@@ -63,10 +63,10 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
             "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin");
 
     public static final Set<String> BUILTIN_TOKEN_FILTERS = ImmutableSet.of(
-            "empty", "asciifolding", "word_delimiter", "lowercase", "pinyin");
+            "empty", "asciifolding", "word_delimiter", "lowercase", "pinyin", "icu_normalizer");
 
     public static final Set<String> BUILTIN_CHAR_FILTERS = ImmutableSet.of(
-            "empty", "char_replace");
+            "empty", "char_replace", "icu_normalizer");
 
     public static final Set<String> BUILTIN_ANALYZERS = ImmutableSet.of(
             "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik");
