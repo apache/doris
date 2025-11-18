@@ -148,7 +148,7 @@ suite("test_outfile_csv_compress", "p0") {
 
     for (String compression_type: ["plain", "gz", "bz2", "snappyblock", "lz4block", "zstd"]) {
         def small = "small_${table_name}"
-        def outfile_url = csv_outfile_result(small, compression_type);
+        def outfile_url = csv_outfile_result(small, compression_type, "csv");
         print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
         qt_select """ select c1, c2 from s3(
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
@@ -202,7 +202,7 @@ suite("test_outfile_csv_compress", "p0") {
     // test empty table
     sql """drop table if exists test_outfile_csv_compress_empty_table"""
     sql """create table test_outfile_csv_compress_empty_table(k1 int) distributed by hash(k1) buckets 1 properties("replication_num" = "1")"""
-    def empty_outfile_url = csv_outfile_result("test_outfile_csv_compress_empty_table", "gz");
+    def empty_outfile_url = csv_outfile_result("test_outfile_csv_compress_empty_table", "gz", "csv");
     qt_select """desc function s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${empty_outfile_url.substring(5 + bucket.length(), empty_outfile_url.length() - 1)}*",
                 "ACCESS_KEY"= "${ak}",
