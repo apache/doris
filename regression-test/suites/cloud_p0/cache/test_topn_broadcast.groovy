@@ -63,7 +63,7 @@ suite("test_topn_broadcast", "docker") {
     """
 
 
-    def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
+    def load_httplogs_data = {table_name, label, read_flag, format_flag, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
         // load the json data
         streamLoad {
@@ -73,7 +73,7 @@ suite("test_topn_broadcast", "docker") {
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
             set 'format', format_flag
-            file file_name // import json file
+            file context.config.dataPath + "/fault_injection_p0/documents-1000.json"
             time 10000 // limit inflight 10s
             if (expected_succ_rows >= 0) {
                 set 'max_filter_ratio', '1'
@@ -93,9 +93,9 @@ suite("test_topn_broadcast", "docker") {
     }
 
     try {
-        load_httplogs_data.call(indexTbName, 'test_topn_broadcast1', 'true', 'json', 'documents-1000.json')
-        load_httplogs_data.call(indexTbName, 'test_topn_broadcast2', 'true', 'json', 'documents-1000.json')
-        load_httplogs_data.call(indexTbName, 'test_topn_broadcast3', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(indexTbName, 'test_topn_broadcast1', 'true', 'json')
+        load_httplogs_data.call(indexTbName, 'test_topn_broadcast2', 'true', 'json')
+        load_httplogs_data.call(indexTbName, 'test_topn_broadcast3', 'true', 'json')
         sql "sync"
 
         def explain_result = sql """ explain select * from ${indexTbName} order by `@timestamp` limit 512; """
