@@ -157,6 +157,8 @@ RuntimeState::RuntimeState(const TQueryOptions& query_options, const TQueryGloba
           _unreported_error_idx(0),
           _per_fragment_instance_idx(0) {
     Status status = init(TUniqueId(), query_options, query_globals, nullptr);
+    _exec_env = ExecEnv::GetInstance();
+    init_mem_trackers("<unnamed>");
     DCHECK(status.ok());
 }
 
