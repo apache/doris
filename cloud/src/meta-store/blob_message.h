@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <string>
 #include <string_view>
 
 #include "meta-store/txn_kv.h"
@@ -93,5 +94,115 @@ void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Me
  */
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
               size_t split_size = 90 * 1000);
+
+// Iterator for blob key-value pairs.
+//
+// The keys with the same origin key are considered as a blob. The origin key is obtained by
+// removing the sequence suffix from the raw key.
+//
+// ATTN: This iterator is not compatible with the old style blob keys (without sequence suffix).
+//
+// Usage:
+//   auto iter = blob_get_range(txn_kv, begin_key, end_key);
+//   for (; iter->valid(); iter->next()) {
+//      // Process the current blob
+//      auto origin_key = iter->key();
+//      auto version = iter->version();
+//      auto raw_keys = iter->raw_keys();
+//      auto values = iter->values();
+//      // Or parse the blob value into a protobuf message
+//      YourProtoMessage pb;
+//      if (iter->parse_value(&pb)) {
+//          // Successfully parsed
+//      }
+//   }
+//   if (iter->error_code() != TxnErrorCode::TXN_OK) {
+//      // Handle error
+//   }
+class BlobIterator {
+public:
+    BlobIterator(std::unique_ptr<FullRangeGetIterator> iter);
+    ~BlobIterator() = default;
+
+    BlobIterator(const BlobIterator&) = delete;
+    BlobIterator& operator=(const BlobIterator&) = delete;
+
+    // There are two states of validity:
+    // 1. The iterator is valid and points to a blob (a set of KVs with the same origin key).
+    //    In this state, `valid()` returns true.
+    // 2. The iterator is invalid (either due to an error or because it has reached the end).
+    //    In this state, `valid()` returns false.
+    bool valid() const;
+
+    // Move to the next blob.
+    //
+    // If there is no next blob, the iterator becomes invalid.
+    void next();
+
+    // Get the error code of the iterator. If the iterator has reached the end, returns TXN_OK.
+    TxnErrorCode error_code() const;
+
+    // Return the version of the current blob. `valid()` must be true before calling this method.
+    uint8_t version() const { return version_; }
+
+    // Return the origin key of the current blob. `valid()` must be true before calling this method.
+    std::string_view key() const { return current_blob_key_; }
+
+    // Return the raw keys of the current blob. `valid()` must be true before calling this method.
+    const std::vector<std::string>& raw_keys() const { return current_blob_raw_keys_; }
+
+    // Return the values of the current blob. `valid()` must be true before calling this method.
+    const std::vector<std::string>& values() const { return current_blob_values_; }
+
+    // Parse the value of the current blob into the given protobuf message. `valid()` must be true before calling this method.
+    bool parse_value(google::protobuf::Message* pb) const;
+
+private:
+    bool is_underlying_iter_valid() const { return iter_ && iter_->is_valid(); }
+
+    void load_current_blob();
+    bool extract_origin_key(std::string_view raw_key, std::string* origin_key, uint8_t* version,
+                            uint16_t* sequence);
+
+    TxnErrorCode error_code_ = TxnErrorCode::TXN_OK;
+    std::unique_ptr<FullRangeGetIterator> iter_;
+    uint8_t version_ = 0;
+    std::string current_blob_key_;
+    std::vector<std::string> current_blob_raw_keys_;
+    std::vector<std::string> current_blob_values_;
+};
+
+// Get a range of blob key-value pairs.
+//
+// It requires that all keys in the range are in the new blob format (with sequence suffix).
+std::unique_ptr<BlobIterator> blob_get_range(const std::shared_ptr<TxnKv>& txn_kv,
+                                             std::string_view begin_key, std::string_view end_key,
+                                             bool snapshot = false);
+
+// Get a range of blob key-value pairs.
+//
+// It requires that all keys in the range are in the new blob format (with sequence suffix).
+std::unique_ptr<BlobIterator> blob_get_range(Transaction* txn, std::string_view begin_key,
+                                             std::string_view end_key, bool snapshot = false);
+
+namespace versioned {
+
+// Put a blob message with a auto generated versionstamp.
+void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Message& pb,
+              uint8_t ver = 0, size_t split_size = 90 * 1000);
+
+// Put a blob message with a auto generated versionstamp.
+void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver = 0,
+              size_t split_size = 90 * 1000);
+
+// Put a blob message with a specified versionstamp.
+void blob_put(Transaction* txn, std::string_view key, Versionstamp v,
+              const google::protobuf::Message& pb, uint8_t ver = 0, size_t split_size = 90 * 1000);
+
+// Put a blob message with a specified versionstamp.
+void blob_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value,
+              uint8_t ver = 0, size_t split_size = 90 * 1000);
+
+} // namespace versioned
 
 } // namespace doris::cloud

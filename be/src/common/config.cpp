@@ -317,7 +317,7 @@ DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int co
     return true;
 });
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "false");
+DEFINE_Bool(enable_task_executor_in_internal_table, "true");
 // Enable task executor in external table scan.
 DEFINE_Bool(enable_task_executor_in_external_table, "true");
 

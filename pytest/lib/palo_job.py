@@ -1277,42 +1277,6 @@ class DynamicPartitionInfo(object):
         """get start of"""
         return self.dynamic_partition_info[self.StartOf]
 
-
-class SyncJobInfo(object):
-    """show sync job"""
-    JobId = 0
-    JobName = 1
-    Type = 2
-    State = 3
-    Channel = 4
-    Status = 5
-    JobConfig = 6
-    CreateTime = 7
-    LastStartTime = 8
-    LastStopTime = 9
-    FinishTime = 10
-    Msg = 11
-
-    def __init__(self, sync_job_info):
-        self.sync_job_info = sync_job_info
-
-    def get_job_name(self):
-        """get job name"""
-        return self.sync_job_info[self.JobName]
-
-    def get_state(self):
-        """get state"""
-        return self.sync_job_info[self.State]
-
-    def get_channel(self):
-        """get channel"""
-        return self.sync_job_info[self.Channel]
-
-    def get_job_config(self):
-        """get job config"""
-        return self.sync_job_info[self.JobConfig]
-
-
 class ReplicaStatus(object):
     """admin show replica status"""
     TabletId = 0

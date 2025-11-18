@@ -1272,6 +1272,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     need_commit = true;
 
     if (!compaction_log.recycle_rowsets().empty() && is_versioned_write) {
+        size_t num_recycled_rowsets = compaction_log.recycle_rowsets().size();
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
@@ -1293,7 +1294,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                 .tag("operation_log_key", hex(operation_log_key))
                 .tag("tablet_id", tablet_id)
                 .tag("value_size", operation_log_value.size())
-                .tag("recycle_rowsets_count", compaction_log.recycle_rowsets().size());
+                .tag("recycle_rowsets_count", num_recycled_rowsets);
         versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 }

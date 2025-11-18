@@ -3668,6 +3668,25 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
             LOG_INFO("delete rowset data ref count key")
                     .tag("txn_id", rowset_meta.txn_id())
                     .tag("ref_count_key", hex(rowset_ref_count_key));
+
+            std::string dbm_start_key =
+                    meta_delete_bitmap_key({reference_instance_id, tablet_id, rowset_id, 0, 0});
+            std::string dbm_end_key = meta_delete_bitmap_key(
+                    {reference_instance_id, tablet_id, rowset_id,
+                     std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()});
+            txn->remove(dbm_start_key, dbm_end_key);
+            LOG_INFO("remove delete bitmap kv")
+                    .tag("begin", hex(dbm_start_key))
+                    .tag("end", hex(dbm_end_key));
+
+            std::string versioned_dbm_start_key = versioned::meta_delete_bitmap_key(
+                    {reference_instance_id, tablet_id, rowset_id});
+            std::string versioned_dbm_end_key = versioned_dbm_start_key;
+            encode_int64(INT64_MAX, &versioned_dbm_end_key);
+            txn->remove(versioned_dbm_start_key, versioned_dbm_end_key);
+            LOG_INFO("remove versioned delete bitmap kv")
+                    .tag("begin", hex(versioned_dbm_start_key))
+                    .tag("end", hex(versioned_dbm_end_key));
         } else {
             // Decrease the rowset ref count.
             //

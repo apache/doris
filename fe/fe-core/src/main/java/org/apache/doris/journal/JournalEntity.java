@@ -60,7 +60,6 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -571,12 +570,14 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_SYNC_JOB: {
-                data = SyncJob.read(in);
+                // Note: The features (SYNC JOB) have been removed from the kernel code.
+                // data = SyncJob.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                data = SyncJob.SyncJobUpdateStateInfo.read(in);
+                // Note: The features (SYNC JOB) have been removed from the kernel code.
+                // data = SyncJob.SyncJobUpdateStateInfo.read(in);
                 isRead = true;
                 break;
             }

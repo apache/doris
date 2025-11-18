@@ -225,7 +225,7 @@ void IcebergTableReader::_generate_equality_delete_block(
 Status IcebergTableReader::_expand_block_if_need(Block* block) {
     for (auto& col : _expand_columns) {
         col.column->assume_mutable()->clear();
-        if (block->try_get_by_name(col.name)) {
+        if (block->get_position_by_name(col.name) != -1) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         block->insert(col);
@@ -235,7 +235,12 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
 
 Status IcebergTableReader::_shrink_block_if_need(Block* block) {
     for (const std::string& expand_col : _expand_col_names) {
-        block->erase(expand_col);
+        int pos = block->get_position_by_name(expand_col);
+        if (pos == -1) {
+            return Status::InternalError("Wrong erase column '{}', block: {}", expand_col,
+                                         block->dump_names());
+        }
+        block->erase(pos);
     }
     return Status::OK();
 }

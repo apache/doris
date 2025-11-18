@@ -135,9 +135,10 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
+Status VMatchPredicate::execute_column(VExprContext* context, const Block* block,
+                                       ColumnPtr& result_column) const {
     DCHECK(_open_finished || _getting_const_col);
-    if (fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, result_column)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VMatchPredicate.execute", {
@@ -159,19 +160,22 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
                     "column {} should in slow path while VMatchPredicate::execute.", column_name);
         }
     })
-    doris::vectorized::ColumnNumbers arguments(_children.size());
+    ColumnNumbers arguments(_children.size());
+    Block temp_block;
     for (int i = 0; i < _children.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
+        ColumnPtr arg_column;
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, arg_column));
+        auto arg_type = _children[i]->execute_type(block);
+        temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
+        arguments[i] = i;
     }
-    // call function
-    uint32_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = temp_block.columns();
     // prepare a column to save result
-    block->insert({nullptr, _data_type, _expr_name});
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows()));
-    *result_column_id = num_columns_without_result;
+    temp_block.insert({nullptr, _data_type, _expr_name});
+
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block,
+                                       arguments, num_columns_without_result, block->rows()));
+    result_column = temp_block.get_by_position(num_columns_without_result).column;
     return Status::OK();
 }
 

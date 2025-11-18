@@ -114,11 +114,13 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
+Status VInPredicate::execute_column(VExprContext* context, const Block* block,
+                                    ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
+        result_column = get_result_from_const(block);
+        return Status::OK();
     }
-    if (fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, result_column)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
@@ -129,20 +131,21 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     //  Here, _children[0] is colA
     const size_t args_size = _is_args_all_constant ? 1 : _children.size();
 
-    doris::vectorized::ColumnNumbers arguments(args_size);
+    ColumnNumbers arguments(args_size);
+    Block temp_block;
     for (int i = 0; i < args_size; ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
+        ColumnPtr column;
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, column));
+        arguments.push_back(i);
+        temp_block.insert({column, _children[i]->execute_type(block), _children[i]->expr_name()});
     }
-    // call function
-    uint32_t num_columns_without_result = block->columns();
-    // prepare a column to save result
-    block->insert({nullptr, _data_type, _expr_name});
 
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows()));
-    *result_column_id = num_columns_without_result;
+    int num_columns_without_result = temp_block.columns();
+    temp_block.insert({nullptr, _data_type, _expr_name});
+
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), temp_block,
+                                       arguments, num_columns_without_result, block->rows()));
+    result_column = temp_block.get_by_position(num_columns_without_result).column;
     return Status::OK();
 }
 

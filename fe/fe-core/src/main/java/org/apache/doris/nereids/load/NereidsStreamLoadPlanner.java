@@ -306,8 +306,8 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         // load
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
         boolean enableMemtableOnSinkNode = destTable.getTableProperty().getUseSchemaLightChange()
                 ? taskInfo.isMemtableOnSinkNode()
                 : false;

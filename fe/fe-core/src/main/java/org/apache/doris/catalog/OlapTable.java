@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -56,6 +55,7 @@ import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -407,7 +407,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * @param indexType The index type to check for
      * @return true if the table has at least one index of the specified type, false otherwise
      */
-    public boolean hasIndexOfType(IndexDef.IndexType indexType) {
+    public boolean hasIndexOfType(IndexDefinition.IndexType indexType) {
         if (indexes == null) {
             return false;
         }
@@ -3642,7 +3642,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Index getInvertedIndex(Column column, List<String> subPath) {
         List<Index> invertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
                     invertedIndexes.add(index);
@@ -3652,7 +3652,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         if (subPath == null || subPath.isEmpty()) {
             return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
-                : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+                    : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
         // subPath is not empty, means it is a variant column, find the field pattern from children
@@ -3681,7 +3681,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
                                         && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
@@ -3691,7 +3691,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
         if (invertedIndexesWithFieldPattern.isEmpty()) {
             return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
-                : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+                    : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         } else {
             return invertedIndexesWithFieldPattern.size() == 1 ? invertedIndexesWithFieldPattern.get(0)
                                         : invertedIndexesWithFieldPattern.stream()

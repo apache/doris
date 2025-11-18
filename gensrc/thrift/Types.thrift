@@ -693,6 +693,7 @@ enum TFileType {
     FILE_S3 = 3,
     FILE_HDFS = 4,
     FILE_NET = 5,       // read file by network, such as http
+    FILE_HTTP = 6,
 }
 
 struct TTabletCommitInfo {

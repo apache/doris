@@ -15,22 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.datasource.property.storage.exception;
 
-import com.google.gson.annotations.SerializedName;
-
-@Deprecated
-public class SyncFailMsg {
-    public enum MsgType {
-        USER_CANCEL,
-        SUBMIT_FAIL,
-        RUN_FAIL,
-        SCHEDULE_FAIL,
-        UNKNOWN
-    }
-
-    @SerializedName(value = "msgType")
-    private SyncFailMsg.MsgType msgType;
-    @SerializedName(value = "msg")
-    private String msg;
+public enum AzureAuthType {
+    OAuth2,
+    SharedKey;
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.StageProperties;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -40,6 +39,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.StageProperties;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -92,7 +92,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
         }
         // check stage name
         FeNameFormat.checkResourceName(stageName, ResourceTypeEnum.STAGE);
-        stageProperties.analyze();
+        stageProperties.validate();
         checkObjectStorageInfo();
     }
 

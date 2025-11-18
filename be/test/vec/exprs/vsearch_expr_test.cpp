@@ -70,6 +70,10 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override {
+        return Status::OK();
+    }
 };
 
 const std::string& intern_column_name(const std::string& name) {
