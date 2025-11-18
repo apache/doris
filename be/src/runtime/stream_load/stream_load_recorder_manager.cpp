@@ -43,14 +43,13 @@ static constexpr const char* DEFAULT_INTERNAL_DB_NAME = "__internal_schema";
 static constexpr const char* STREAM_LOAD_RECORD_TABLE = "audit_log";
 static constexpr const char* COLUMN_SEPARATOR = "\t";
 static constexpr const char* LINE_DELIMITER = "\n";
-// Use '#' prefix which comes before digits in ASCII (# = 35, 0 = 48)
 static constexpr const char* LAST_FETCH_KEY_STORAGE_KEY =
-        "#stream_load_recorder_manager_last_fetch_key";
+        "stream_load_recorder_manager_last_fetch_key";
 
 StreamLoadRecorderManager::StreamLoadRecorderManager()
         : _stop(false), _last_load_time(UnixMillis()), _record_num(0), _last_fetch_key("-1") {}
 
-StreamLoadRecorderManager::~StreamLoadRecorderManager() {}
+StreamLoadRecorderManager::~StreamLoadRecorderManager() = default;
 
 void StreamLoadRecorderManager::start() {
     _recorder = ExecEnv::GetInstance()->storage_engine().get_stream_load_recorder();
@@ -67,7 +66,7 @@ void StreamLoadRecorderManager::_load_last_fetch_key() {
     }
 
     std::string value;
-    Status st = _recorder->get(LAST_FETCH_KEY_STORAGE_KEY, &value);
+    Status st = _recorder->get(LAST_FETCH_KEY_STORAGE_KEY, &value, true);
     if (st.ok() && !value.empty()) {
         _last_fetch_key = value;
         LOG(INFO) << "Loaded stream load recorder manager last fetch key from RocksDB: "
@@ -140,7 +139,7 @@ void StreamLoadRecorderManager::_save_last_fetch_key() {
         return;
     }
 
-    Status st = _recorder->put(LAST_FETCH_KEY_STORAGE_KEY, _last_fetch_key);
+    Status st = _recorder->put(LAST_FETCH_KEY_STORAGE_KEY, _last_fetch_key, true);
     if (!st.ok()) {
         LOG(WARNING) << "Failed to save stream load recorder manager last fetch key to RocksDB: "
                      << st;
@@ -169,7 +168,9 @@ std::string StreamLoadRecorderManager::_parse_and_format_record(const std::strin
     };
 
     auto timestamp_to_datetime = [](int64_t ts_ms) -> std::string {
-        if (ts_ms <= 0) return "";
+        if (ts_ms <= 0) {
+            return "";
+        }
         time_t ts_sec = ts_ms / 1000;
         int64_t ms_part = ts_ms % 1000;
         struct tm tm_buf;
@@ -178,7 +179,7 @@ std::string StreamLoadRecorderManager::_parse_and_format_record(const std::strin
         snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03ld", tm_buf.tm_year + 1900,
                  tm_buf.tm_mon + 1, tm_buf.tm_mday, tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec,
                  ms_part);
-        return std::string(buf);
+        return {buf};
     };
 
     std::string label = get_string("Label");
