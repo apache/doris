@@ -474,6 +474,10 @@ private:
             const GetVersionRequest* request, GetVersionResponse* response,
             std::string_view instance_id, KVStats& stats);
 
+    void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
+                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   std::string& msg, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
