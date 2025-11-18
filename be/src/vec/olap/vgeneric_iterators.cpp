@@ -57,8 +57,8 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
         int64_t rows_in_read_options = _segment->num_rows();
-        if (opts.row_ranges.empty()) {
-            // Not in parallel read, so that all segment rows belong to one iterator
+        if (opts.row_ranges.range_size() == 0) {
+            // Not in parallel read, so that all rows in then segment belong to one iterator
             rows_in_read_options = _segment->num_rows();
         } else {
             // Even if in parallel read, the row range should equal to 1, because every scanner can
