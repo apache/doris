@@ -642,8 +642,11 @@ public class IcebergUtils {
             // For other transforms (day, bucket, truncate, etc.), skip dynamic partition
             // pruning
             if (!partitionField.transform().isIdentity()) {
-                LOG.debug("Skipping dynamic partition pruning for non-identity partition field: {} with transform: {}",
-                        field.name(), partitionField.transform().toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                            "Skipping dynamic partition pruning for non-identity partition field: {} with transform: {}",
+                            field.name(), partitionField.transform().toString());
+                }
                 return null;
             }
 
