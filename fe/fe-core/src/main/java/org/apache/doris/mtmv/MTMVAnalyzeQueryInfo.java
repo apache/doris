@@ -15,27 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.View;
-import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
 import java.util.List;
 
-/**
- * collect one level relations
- */
-public class CollectOneLevelRelation extends CollectRelation {
-    public CollectOneLevelRelation() {
-        super(true);
+public class MTMVAnalyzeQueryInfo {
+    private MTMVRelation relation;
+    private MTMVPartitionInfo mvPartitionInfo;
+    private List<ColumnDefinition> columnDefinitions;
+
+    public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
+            MTMVRelation relation) {
+        this.columnDefinitions = columnDefinitions;
+        this.mvPartitionInfo = mvPartitionInfo;
+        this.relation = relation;
     }
 
-    protected void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
-        //do nothing
+    public List<ColumnDefinition> getColumnDefinitions() {
+        return columnDefinitions;
     }
 
-    protected void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
-        //do nothing
+    public MTMVPartitionInfo getMvPartitionInfo() {
+        return mvPartitionInfo;
+    }
+
+    public MTMVRelation getRelation() {
+        return relation;
     }
 }

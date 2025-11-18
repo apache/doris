@@ -121,6 +121,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
@@ -989,8 +990,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             table.writeUnlock();
         }
-
-        Env.getCurrentEnv().getMtmvService().dropTable(table);
+        if (table instanceof OlapTable) {
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
+        }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
                     .clearTableLastTxnId(db.getId(), table.getId());
@@ -1016,6 +1018,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
+        }
+        if (table instanceof View) {
+            Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());

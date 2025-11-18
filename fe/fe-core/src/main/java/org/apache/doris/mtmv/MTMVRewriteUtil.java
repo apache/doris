@@ -91,7 +91,7 @@ public class MTMVRewriteUtil {
             }
             try {
                 if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
-                        mtmvRelation.getBaseTablesOneLevel(),
+                        mtmvRelation.getBaseTablesOneLevelAndFromView(),
                         forceConsistent ? ImmutableSet.of() : mtmv.getQueryRewriteConsistencyRelaxedTables())) {
                     res.add(partition);
                 }
