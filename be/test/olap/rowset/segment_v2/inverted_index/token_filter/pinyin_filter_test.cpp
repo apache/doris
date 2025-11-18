@@ -512,4 +512,82 @@ TEST_F(PinyinFilterTest, TestTokenFilter_UnicodeFallback) {
     assertTokens(tokens, expected, "Unicode symbols preserved without keep_original");
 }
 
+TEST_F(PinyinFilterTest, TestTokenFilter_NullConfig) {
+    std::string text = "测试"; // Keep string alive
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
+
+    StandardTokenizerFactory tokenizer_factory;
+    Settings tokenizer_settings;
+    tokenizer_factory.initialize(tokenizer_settings);
+    auto tokenizer = tokenizer_factory.create();
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+
+    // Create filter with nullptr config directly
+    PinyinFilter filter(tokenizer, nullptr);
+    filter.initialize();
+
+    Token token;
+    // Should work with default config without crashing
+    EXPECT_NE(filter.next(&token), nullptr);
+}
+
+TEST_F(PinyinFilterTest, TestTokenFilter_KeepNoneChineseFalse) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "false";
+    config["keep_none_chinese"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("测试ABC123", "standard", config);
+    std::vector<std::string> expected = {"ce", "c", "shi", "s", "abc123"};
+    assertTokens(tokens, expected, "KeepNoneChineseFalse test");
+}
+
+TEST_F(PinyinFilterTest, TestTokenFilter_NoneChinesePinyinTokenizeFalse) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "false";
+    config["keep_none_chinese"] = "true";
+    config["none_chinese_pinyin_tokenize"] = "false"; // Don't tokenize ASCII
+    config["ignore_pinyin_offset"] = "false";
+
+    auto tokens = tokenizeWithFilter("刘德华ABC123", "standard", config);
+    std::vector<std::string> expected = {"liu", "l", "de", "d", "hua", "h", "abc123"};
+    assertTokens(tokens, expected, "NoneChinesePinyinTokenizeFalse test");
+}
+
+TEST_F(PinyinFilterTest, TestTokenFilter_WhitespaceOnly) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "true";
+    config["keep_none_chinese"] = "true";
+    config["ignore_pinyin_offset"] = "false";
+
+    // Test with whitespace-only and mixed content
+    auto tokens = tokenizeWithFilter("   测试   ", "keyword", config);
+    std::vector<std::string> expected = {"ce", "测试", "cs", "shi"};
+    assertTokens(tokens, expected, "WhitespaceOnly test");
+}
+
+TEST_F(PinyinFilterTest, TestTokenFilter_PositionIncrement) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_first_letter"] = "true";
+    config["keep_full_pinyin"] = "true";
+    config["keep_original"] = "true";
+    config["keep_none_chinese"] = "true";
+    config["keep_none_chinese_together"] = "false";
+    config["ignore_pinyin_offset"] = "false";
+
+    // Use multiple Chinese characters to trigger position increment logic
+    auto tokens = tokenizeWithFilter("刘德华", "standard", config);
+
+    std::vector<std::string> expected = {"liu", "刘", "l", "de", "德", "d", "hua", "华", "h"};
+    assertTokens(tokens, expected, "PositionIncrement test");
+}
+
 } // namespace doris::segment_v2::inverted_index
