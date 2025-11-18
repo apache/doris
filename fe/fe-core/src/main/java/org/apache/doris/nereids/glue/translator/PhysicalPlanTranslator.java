@@ -2309,36 +2309,39 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (setOperation instanceof PhysicalUnion) {
             boolean isInplaceUnion = false;
             if (setOperation.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecExecutionAny) {
-                IdentityHashMap<PlanNode, ExchangeNode> childToExchange = new IdentityHashMap<>();
+                Map<Integer, ExchangeNode> exchangeIdToExchangeNode = new IdentityHashMap<>();
                 for (PlanNode child : setOperationNode.getChildren()) {
                     if (child instanceof ExchangeNode) {
-                        childToExchange.put(child.getChild(0), (ExchangeNode) child);
+                        exchangeIdToExchangeNode.put(child.getId().asInt(), (ExchangeNode) child);
                     }
                 }
 
                 for (PlanFragment childFragment : setOperationFragment.getChildren()) {
-                    PlanNode child = childFragment.getPlanRoot();
-                    ExchangeNode exchange = childToExchange.get(child);
-                    if (exchange != null) {
-                        DataSink sink = childFragment.getSink();
-                        if (sink instanceof DataStreamSink) {
-                            exchange.setPartitionType(TPartitionType.POINT_TO_POINT);
+                    DataSink sink = childFragment.getSink();
+                    if (sink instanceof DataStreamSink) {
+                        ExchangeNode exchangeNode = exchangeIdToExchangeNode.get(sink.getExchNodeId().asInt());
+                        if (exchangeNode == null) {
+                            continue;
+                        }
+                        exchangeNode.setPartitionType(TPartitionType.POINT_TO_POINT);
+                        isInplaceUnion = true;
+
+                        DataStreamSink dataStreamSink = (DataStreamSink) sink;
+                        DataPartition p2pPartition = new DataPartition(TPartitionType.POINT_TO_POINT);
+                        dataStreamSink.setOutputPartition(p2pPartition);
+                    } else if (sink instanceof MultiCastDataSink) {
+                        MultiCastDataSink multiCastDataSink = (MultiCastDataSink) sink;
+                        for (DataStreamSink dataStreamSink : multiCastDataSink.getDataStreamSinks()) {
+                            ExchangeNode exchangeNode = exchangeIdToExchangeNode.get(
+                                    dataStreamSink.getExchNodeId().asInt());
+                            if (exchangeNode == null) {
+                                continue;
+                            }
+                            exchangeNode.setPartitionType(TPartitionType.POINT_TO_POINT);
                             isInplaceUnion = true;
 
-                            DataStreamSink dataStreamSink = (DataStreamSink) sink;
                             DataPartition p2pPartition = new DataPartition(TPartitionType.POINT_TO_POINT);
                             dataStreamSink.setOutputPartition(p2pPartition);
-                        } else if (sink instanceof MultiCastDataSink) {
-                            exchange.setPartitionType(TPartitionType.POINT_TO_POINT);
-                            isInplaceUnion = true;
-
-                            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) sink;
-                            DataPartition p2pPartition = new DataPartition(TPartitionType.POINT_TO_POINT);
-                            for (DataStreamSink dataStreamSink : multiCastDataSink.getDataStreamSinks()) {
-                                if (dataStreamSink.getExchNodeId().asInt() == exchange.getId().asInt()) {
-                                    dataStreamSink.setOutputPartition(p2pPartition);
-                                }
-                            }
                         }
                     }
                 }
