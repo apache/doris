@@ -41,6 +41,15 @@ import java.util.Optional;
 
 /**
  * Push expression into case when/if/nvl/nullif branch.
+ *
+ * for expression f with n arguments a1, a2, ..., an, if one of its argument is case when/if/nvl/nullif,
+ * and the others are literals, then we can push f into each branch of case when/if/nvl/nullif.
+ * The rewrite rule is as follows:
+ * f(a1, a2, ..., (case when c1 then p1 when c2 then p2 else p3 end), ..., an)
+ * => case when c1 then f(a1, a2, ..., p1, ..., an)
+ *         when c2 then f(a1, a2, ..., p2, ..., an)
+ *         else  f(a1, a2, ..., p3, ..., an) end
+ *
  * For example: 2 > case when TB = 1 then 1 else 3 end
  * can be rewritten to: case when TB = 1 then true else false end.
  * After this rule, the expression will continue to be optimized by other rules.
