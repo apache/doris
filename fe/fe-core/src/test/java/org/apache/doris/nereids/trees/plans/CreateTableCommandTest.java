@@ -380,7 +380,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with multi keys
-        checkThrow(org.apache.doris.common.AnalysisException.class,
+        checkThrow(AnalysisException.class,
                 "partition key desc list size[3] is not equal to partition column size[2]",
                 () -> createTable("create table test.tbl12\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
