@@ -512,7 +512,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             // 2. serialize, send and rollover block
             auto status = current_channel->send_local_block(block, eos, true);
             HANDLE_CHANNEL_STATUS(state, current_channel, status);
-    }
+        }
         local_state.current_channel_idx =
                 (local_state.current_channel_idx + 1) % local_state.local_channel_ids.size();
     } else {
