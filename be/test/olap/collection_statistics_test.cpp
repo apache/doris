@@ -52,6 +52,11 @@ public:
         return Status::OK();
     }
 
+    Status execute_column(vectorized::VExprContext* context, const vectorized::Block* block,
+                          vectorized::ColumnPtr& result_column) const override {
+        return Status::OK();
+    }
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    vectorized::VExprContext* context) override {
         return Status::OK();

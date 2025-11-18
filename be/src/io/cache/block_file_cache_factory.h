@@ -102,6 +102,9 @@ public:
 
     void get_cache_stats_block(vectorized::Block* block);
 
+    // Get all cache instances for inspection
+    const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;

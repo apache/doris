@@ -35,8 +35,8 @@ under the License.
             <artifactId>woodstox-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>commons-collections</groupId>
-            <artifactId>commons-collections</artifactId>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -53,11 +53,15 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-auth</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop.thirdparty</groupId>
-            <artifactId>hadoop-shaded-protobuf_3_7</artifactId>
+            <artifactId>hadoop-shaded-protobuf_3_25</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>

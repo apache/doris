@@ -144,6 +144,7 @@ public class StreamingInsertTask {
         ctx.setStatementContext(statementContext);
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
+        log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
         baseCommand.setJobId(getTaskId());
         StmtExecutor baseStmtExecutor =
@@ -303,7 +304,7 @@ public class StreamingInsertTask {
         }
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
-                ? FeConstants.null_string : runningOffset.toString()));
+                ? FeConstants.null_string : runningOffset.showRange()));
         return trow;
     }
 }

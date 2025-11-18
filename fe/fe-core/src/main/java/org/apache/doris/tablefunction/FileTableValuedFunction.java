@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.property.storage.HttpProperties;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
@@ -58,6 +59,8 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
                 delegateTvf = new HdfsTableValuedFunction(properties);
             } else if (this.storageProperties instanceof LocalProperties) {
                 delegateTvf = new LocalTableValuedFunction(properties);
+            } else if (this.storageProperties instanceof HttpProperties) {
+                delegateTvf = new HttpTableValuedFunction(properties);
             } else {
                 throw new AnalysisException("Could not find storage_type: " + storageProperties);
             }

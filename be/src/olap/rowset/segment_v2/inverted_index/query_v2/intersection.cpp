@@ -147,29 +147,17 @@ Intersection<TDocSet, TOtherDocSet>::docset_mut_specialized(size_t ord) {
     }
 }
 
-template class Intersection<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>;
-template class Intersection<MockDocSetPtr, MockDocSetPtr>;
+#define INSTANTIATE_INTERSECTION(T)                                        \
+    template class Intersection<T, T>;                                     \
+    template std::enable_if_t<std::is_same_v<T, T>, IntersectionPtr<T, T>> \
+            Intersection<T, T>::create<T>(std::vector<T> & docsets);       \
+    template std::enable_if_t<std::is_same_v<T, T>, T&>                    \
+    Intersection<T, T>::docset_mut_specialized<T>(size_t ord);
 
-// create
-template std::enable_if_t<
-        std::is_same_v<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>,
-        IntersectionPtr<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>>
-Intersection<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>::create<
-        PositionPostingsWithOffsetPtr>(std::vector<PositionPostingsWithOffsetPtr>& docsets);
+INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<PostingsPtr>>)
+INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<PositionPostingsPtr>>)
+INSTANTIATE_INTERSECTION(MockDocSetPtr)
 
-template std::enable_if_t<std::is_same_v<MockDocSetPtr, MockDocSetPtr>,
-                          IntersectionPtr<MockDocSetPtr, MockDocSetPtr>>
-Intersection<MockDocSetPtr, MockDocSetPtr>::create<MockDocSetPtr>(
-        std::vector<MockDocSetPtr>& docsets);
-
-// docset_mut_specialized
-template std::enable_if_t<
-        std::is_same_v<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>,
-        PositionPostingsWithOffsetPtr&>
-Intersection<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>::docset_mut_specialized<
-        PositionPostingsWithOffsetPtr>(size_t ord);
-
-template std::enable_if_t<std::is_same_v<MockDocSetPtr, MockDocSetPtr>, MockDocSetPtr&>
-Intersection<MockDocSetPtr, MockDocSetPtr>::docset_mut_specialized<MockDocSetPtr>(size_t ord);
+#undef INSTANTIATE_INTERSECTION
 
 } // namespace doris::segment_v2::inverted_index::query_v2

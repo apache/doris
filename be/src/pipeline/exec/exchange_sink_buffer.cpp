@@ -101,7 +101,8 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()),
-          _send_multi_blocks(false) {
+          _send_multi_blocks(state->query_options().__isset.exchange_multi_blocks_byte_size &&
+                             state->query_options().exchange_multi_blocks_byte_size > 0) {
     if (_send_multi_blocks) {
         _send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
     }
@@ -424,8 +425,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                     add_block->set_compressed(block->compressed());
                     add_block->set_compression_type(block->compression_type());
                     add_block->set_uncompressed_size(block->uncompressed_size());
-                    add_block->set_allocated_column_values(
-                            const_cast<std::string*>(&block->column_values()));
+                    add_block->set_allocated_column_values(block->mutable_column_values());
                 }
             }
         } else {

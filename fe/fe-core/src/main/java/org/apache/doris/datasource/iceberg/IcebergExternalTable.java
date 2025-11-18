@@ -171,8 +171,17 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
         long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
+        // If partition snapshot ID is unavailable (<= 0), fallback to table snapshot ID
+        // This can happen when last_updated_snapshot_id is null in Iceberg metadata
         if (latestSnapshotId <= 0) {
-            throw new AnalysisException("can not find partition: " + partitionName);
+            long tableSnapshotId = snapshotValue.getSnapshot().getSnapshotId();
+            // If table snapshot ID is also invalid, it means empty table
+            if (tableSnapshotId <= 0) {
+                throw new AnalysisException("can not find partition: " + partitionName
+                        + ", and table snapshot ID is also invalid");
+            }
+            // Use table snapshot ID as fallback when partition snapshot ID is unavailable
+            return new MTMVSnapshotIdSnapshot(tableSnapshotId);
         }
         return new MTMVSnapshotIdSnapshot(latestSnapshotId);
     }

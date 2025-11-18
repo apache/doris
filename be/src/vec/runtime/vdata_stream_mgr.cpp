@@ -146,50 +146,25 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     }
 
     bool eos = request->eos();
-    if (!request->blocks().empty()) {
-        for (int i = 0; i < request->blocks_size(); i++) {
-            // Previously there was a const_cast here, but in our internal tests this occasionally caused a hard-to-reproduce core dump.
-            // We suspect it was caused by the const_cast, so we switched to making a copy here.
-            // In fact, for PBlock, most of the data resides in the PColumnMeta column_metas field, so the copy overhead is small.
-            // To make the intent explicit, we do not use
-            // std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>(request->blocks(i));
-            std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
-            pblock_ptr->CopyFrom(request->blocks(i));
-            auto pass_done = [&]() -> ::google::protobuf::Closure** {
-                // If it is eos, no callback is needed, done can be nullptr
-                if (eos) {
-                    return nullptr;
-                }
-                // If it is the last block, a callback is needed, pass done
-                if (i == request->blocks_size() - 1) {
-                    return done;
-                } else {
-                    // If it is not the last block, the blocks in the request currently belong to the same queue,
-                    // and the callback is handled by the done of the last block
-                    return nullptr;
-                }
-            };
-            RETURN_IF_ERROR(recvr->add_block(
-                    std::move(pblock_ptr), request->sender_id(), request->be_number(),
-                    request->packet_seq() - request->blocks_size() + i, pass_done(),
-                    wait_for_worker, cpu_time_stop_watch.elapsed_time()));
-        }
-    }
+    Status exec_status =
+            request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
 
-    // old logic, for compatibility
-    if (request->has_block()) {
+    auto sender_id = request->sender_id();
+    auto be_number = request->be_number();
+    if (!request->blocks().empty()) {
+        RETURN_IF_ERROR(recvr->add_blocks(request, done, wait_for_worker,
+                                          cpu_time_stop_watch.elapsed_time()));
+    } else if (request->has_block()) {
+        // old logic, for compatibility
         std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
         pblock_ptr->CopyFrom(request->block());
-        RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
-                                         request->be_number(), request->packet_seq(),
-                                         eos ? nullptr : done, wait_for_worker,
-                                         cpu_time_stop_watch.elapsed_time()));
+        RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), sender_id, be_number,
+                                         request->packet_seq(), eos ? nullptr : done,
+                                         wait_for_worker, cpu_time_stop_watch.elapsed_time()));
     }
 
     if (eos) {
-        Status exec_status =
-                request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
-        recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
+        recvr->remove_sender(sender_id, be_number, exec_status);
     }
     return Status::OK();
 }

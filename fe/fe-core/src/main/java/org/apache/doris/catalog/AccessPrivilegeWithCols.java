@@ -22,7 +22,7 @@ import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;

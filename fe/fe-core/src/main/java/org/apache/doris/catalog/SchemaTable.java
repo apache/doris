@@ -702,6 +702,17 @@ public class SchemaTable extends Table {
                                     .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
+            .put("file_cache_info",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
+                            builder().column("HASH", ScalarType.createStringType())
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("REMOTE_PATH", ScalarType.createStringType())
+                                    .column("CACHE_PATH", ScalarType.createStringType())
+                                    .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
             .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
                     builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))

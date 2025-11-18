@@ -283,4 +283,21 @@ public class LocationPathTest {
         Assertions.assertEquals(location, locationPath.getNormalizedLocation());
     }
 
+    @Test
+    public void testOnelakeStorageLocationConvert() {
+        String location = "abfss://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
+        LocationPath locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
+        location = "abfs://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
+        locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
+        location = "abfss://mycontainer@mystorageaccount.dfs.core.windows.net/data/2025/11/11/";
+        locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+
+    }
+
 }

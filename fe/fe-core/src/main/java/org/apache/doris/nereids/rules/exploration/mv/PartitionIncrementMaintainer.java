@@ -52,6 +52,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -457,11 +459,15 @@ public class PartitionIncrementMaintainer {
                     && ((LogicalUnion) plan).getQualifier() == SetOperation.Qualifier.ALL)
                     || plan instanceof LogicalCTEAnchor
                     || plan instanceof LogicalCTEConsumer
-                    || plan instanceof LogicalCTEProducer) {
+                    || plan instanceof LogicalCTEProducer
+                    || plan instanceof LogicalSort
+                    || plan instanceof LogicalTopN
+            ) {
                 return super.visit(plan, context);
             }
             context.addFailReason(String.format("Unsupported plan operate in track partition, "
                     + "the invalid plan node is %s", plan.getClass().getSimpleName()));
+            context.setFailFast(true);
             context.collectFailedTableSet(plan);
             return super.visit(plan, context);
         }
@@ -529,8 +535,10 @@ public class PartitionIncrementMaintainer {
                 NamedExpression partitionNamedExpression = partitionExpressionEntry.getKey();
                 RelatedTableColumnInfo partitionTableColumnInfo = partitionExpressionEntry.getValue();
                 Optional<Expression> partitionExpressionOpt = partitionTableColumnInfo.getPartitionExpression();
-                Expression partitionExpressionActual = partitionExpressionOpt.orElseGet(
-                        () -> ExpressionUtils.shuttleExpressionWithLineage(partitionNamedExpression,
+                Expression partitionExpressionActual = partitionExpressionOpt
+                        .map(expr -> ExpressionUtils.shuttleExpressionWithLineage(expr,
+                                context.getOriginalPlan(), new BitSet()))
+                        .orElseGet(() -> ExpressionUtils.shuttleExpressionWithLineage(partitionNamedExpression,
                                 context.getOriginalPlan(), new BitSet()));
                 // merge date_trunc
                 partitionExpressionActual = new ExpressionNormalization().rewrite(partitionExpressionActual,
@@ -694,6 +702,9 @@ public class PartitionIncrementMaintainer {
         }
 
         public void addFailReason(String failReason) {
+            if (failFast) {
+                return;
+            }
             this.failReasons.add(failReason);
         }
 

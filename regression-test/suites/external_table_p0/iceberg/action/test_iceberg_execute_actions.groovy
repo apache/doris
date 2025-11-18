@@ -396,13 +396,6 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
         exception "Iceberg expire_snapshots procedure is not implemented yet"
     }
 
-    // Test rewrite_data_files action
-    qt_test_rewrite_data_files_results """
-        ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE rewrite_data_files
-        ("target-file-size-bytes" = "134217728")
-    """
-
-
     // Test validation - missing required property
     test {
         sql """

@@ -52,24 +52,23 @@ public:
 
     std::string get_name() const override { return name; }
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id, const DataTypePtr& result_type,
+    doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
+                          ColumnPtr& result_column, const DataTypePtr& result_type,
                           const VExprSPtrs& children) const override {
         ///* array_filter(array, array<boolean>) *///
 
         //1. child[0:end]->execute(src_block)
-        doris::vectorized::ColumnNumbers arguments(children.size());
-        for (int i = 0; i < children.size(); ++i) {
-            int column_id = -1;
-            RETURN_IF_ERROR(children[i]->execute(context, block, &column_id));
-            arguments[i] = column_id;
-        }
+
+        DCHECK_EQ(children.size(), 2);
+        ColumnPtr column_ptr_0;
+        RETURN_IF_ERROR(children[0]->execute_column(context, block, column_ptr_0));
+        ColumnPtr column_ptr_1;
+        RETURN_IF_ERROR(children[1]->execute_column(context, block, column_ptr_1));
 
         //2. get first and second array column
-        auto first_column =
-                block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto second_column =
-                block->get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto first_column = column_ptr_0->convert_to_full_column_if_const();
+
+        auto second_column = column_ptr_1->convert_to_full_column_if_const();
 
         auto input_rows = first_column->size();
         auto first_outside_null_map = ColumnUInt8::create(input_rows, 0);
@@ -148,24 +147,19 @@ public:
         }
         first_nested_nullable_column.append_data_by_selector(result_data_column, selector);
 
-        //4. insert the result column to block
-        ColumnWithTypeAndName result_arr;
+        //4. return result column
         if (result_type->is_nullable()) {
-            result_arr = {
+            result_column =
                     ColumnNullable::create(ColumnArray::create(std::move(result_data_column),
                                                                std::move(result_offset_column)),
-                                           std::move(first_outside_null_map)),
-                    result_type, "array_filter_result"};
-
+                                           std::move(first_outside_null_map));
         } else {
             DCHECK(!first_column->is_nullable());
             DCHECK(!second_column->is_nullable());
-            result_arr = {ColumnArray::create(std::move(result_data_column),
-                                              std::move(result_offset_column)),
-                          result_type, "array_filter_result"};
+            result_column = ColumnArray::create(std::move(result_data_column),
+                                                std::move(result_offset_column));
         }
-        block->insert(std::move(result_arr));
-        *result_column_id = block->columns() - 1;
+
         return Status::OK();
     }
 };

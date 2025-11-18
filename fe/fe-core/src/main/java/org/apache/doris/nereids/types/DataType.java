@@ -600,10 +600,6 @@ public abstract class DataType {
         return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
     }
 
-    public boolean isDateV2LikeType() {
-        return isDateV2Type() || isDateTimeV2Type();
-    }
-
     public boolean isTimeType() {
         return this instanceof TimeV2Type;
     }

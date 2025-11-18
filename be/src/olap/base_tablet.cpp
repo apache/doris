@@ -941,11 +941,10 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
 
 const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
                                                            size_t rows_at_least) {
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
+    if (int pos = block.get_position_by_name(DELETE_SIGN); pos != -1) {
+        const vectorized::ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
         const auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+                assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= rows_at_least) {
             return delete_sign_col.get_data().data();
         }

@@ -39,7 +39,8 @@ public:
     ~VInfoFunc() override = default;
 
     const std::string& expr_name() const override { return _expr_name; }
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override;
 
 private:
     const std::string _expr_name = "vinfofunc expr";

@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.antlr.v4.runtime.ParserRuleContext;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -117,6 +117,30 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
             }
         }
         return super.visitCreateTable(ctx);
+    }
+
+    // create storage vault clause
+    @Override
+    public LogicalPlan visitCreateStorageVault(DorisParser.CreateStorageVaultContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateStorageVault(ctx);
+    }
+
+    // alter storage vault clause
+    @Override
+    public LogicalPlan visitAlterStorageVault(DorisParser.AlterStorageVaultContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterStorageVault(ctx);
     }
 
     // select from tvf

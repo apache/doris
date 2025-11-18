@@ -452,7 +452,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     for (Column column : rollupColumns) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                        destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 

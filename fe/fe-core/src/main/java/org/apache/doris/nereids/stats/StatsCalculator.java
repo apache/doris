@@ -562,10 +562,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         StatisticsBuilder builder = new StatisticsBuilder();
 
-        // for system table or FeUt, use ColumnStatistic.UNKNOWN
+        // query for system table or FeUt or analysis, use ColumnStatistic.UNKNOWN
+
         if (StatisticConstants.isSystemTable(olapTable) || !FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getState().isInternal()) {
+                || ConnectContext.get().getState().isPlanWithUnKnownColumnStats()) {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }

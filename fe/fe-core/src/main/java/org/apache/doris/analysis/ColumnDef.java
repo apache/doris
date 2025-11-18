@@ -28,13 +28,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +40,6 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -187,7 +183,7 @@ public class ColumnDef {
 
     // parameter initialized in constructor
     private String name;
-    private TypeDef typeDef;
+    private Type type;
     private AggregateType aggregateType;
 
     private boolean isKey;
@@ -202,40 +198,40 @@ public class ColumnDef {
     private Optional<GeneratedColumnInfo> generatedColumnInfo = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
-
-    public ColumnDef(String name, TypeDef typeDef) {
-        this(name, typeDef, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
+    public ColumnDef(String name, Type type) {
+        this(name, type, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isAllowNull) {
-        this(name, typeDef, false, null, isAllowNull, DefaultValue.NOT_SET, "");
+    public ColumnDef(String name, Type type, boolean isAllowNull) {
+        this(name, type, false, null, isAllowNull, DefaultValue.NOT_SET, "");
     }
 
-    public ColumnDef(String name, TypeDef typeDef, ColumnNullableType nullableType) {
-        this(name, typeDef, false, null, nullableType, DefaultValue.NOT_SET, "");
+    public ColumnDef(String name, Type type, ColumnNullableType nullableType) {
+        this(name, type, false, null, nullableType, DefaultValue.NOT_SET, "");
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            ColumnNullableType nullableType, long autoIncInitValue, DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, nullableType, autoIncInitValue, defaultValue, comment, true,
+    public ColumnDef(String name, Type type, boolean isKey, AggregateType aggregateType,
+                     ColumnNullableType nullableType, long autoIncInitValue, DefaultValue defaultValue,
+                     String comment) {
+        this(name, type, isKey, aggregateType, nullableType, autoIncInitValue, defaultValue, comment, true,
                 Optional.empty());
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            ColumnNullableType nullableType, DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, nullableType, -1, defaultValue, comment, true,
+    public ColumnDef(String name, Type type, boolean isKey, AggregateType aggregateType,
+                     ColumnNullableType nullableType, DefaultValue defaultValue, String comment) {
+        this(name, type, isKey, aggregateType, nullableType, -1, defaultValue, comment, true,
                 Optional.empty());
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            ColumnNullableType nullableType, long autoIncInitValue, DefaultValue defaultValue, String comment,
-            boolean visible, Optional<GeneratedColumnInfo> generatedColumnInfo) {
+    public ColumnDef(String name, Type type, boolean isKey, AggregateType aggregateType,
+                     ColumnNullableType nullableType, long autoIncInitValue, DefaultValue defaultValue, String comment,
+                     boolean visible, Optional<GeneratedColumnInfo> generatedColumnInfo) {
         this.name = name;
-        this.typeDef = typeDef;
+        this.type = type;
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         if (nullableType != ColumnNullableType.UNKNOWN) {
-            isAllowNull = nullableType.getNullable(typeDef.getType().getPrimitiveType());
+            isAllowNull = nullableType.getNullable(this.type.getPrimitiveType());
         }
         this.isAutoInc = autoIncInitValue != -1;
         this.autoIncInitValue = autoIncInitValue;
@@ -245,15 +241,16 @@ public class ColumnDef {
         this.generatedColumnInfo = generatedColumnInfo;
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true);
+    public ColumnDef(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+                     DefaultValue defaultValue, String comment) {
+        this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true);
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, long autoIncInitValue, DefaultValue defaultValue, String comment, boolean visible) {
+    public ColumnDef(String name, Type type, boolean isKey, AggregateType aggregateType,
+                     boolean isAllowNull, long autoIncInitValue, DefaultValue defaultValue, String comment,
+                     boolean visible) {
         this.name = name;
-        this.typeDef = typeDef;
+        this.type = type;
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         this.isAllowNull = isAllowNull;
@@ -264,9 +261,9 @@ public class ColumnDef {
         this.visible = visible;
     }
 
-    public ColumnDef(String name, TypeDef typeDef, boolean isKey, ColumnNullableType nullableType, String comment,
-            Optional<GeneratedColumnInfo> generatedColumnInfo) {
-        this(name, typeDef, isKey, null, nullableType, -1, DefaultValue.NOT_SET,
+    public ColumnDef(String name, Type type, boolean isKey, ColumnNullableType nullableType, String comment,
+                     Optional<GeneratedColumnInfo> generatedColumnInfo) {
+        this(name, type, isKey, null, nullableType, -1, DefaultValue.NOT_SET,
                 comment, true, generatedColumnInfo);
     }
 
@@ -289,7 +286,7 @@ public class ColumnDef {
 
         ColumnDefinition columnDefinition = new ColumnDefinition(
                 name,
-                DataType.fromCatalogType(typeDef.getType()),
+                DataType.fromCatalogType(type),
                 isKey,
                 aggregateType,
                 isAllowNull ? ColumnNullableType.NULLABLE : ColumnNullableType.NOT_NULLABLE,
@@ -305,48 +302,48 @@ public class ColumnDef {
     }
 
     public static ColumnDef newDeleteSignColumnDef() {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null,
+        return new ColumnDef(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT), false, null,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris delete flag hidden column", false, Optional.empty());
     }
 
     public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType,
+        return new ColumnDef(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.TINYINT), false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris delete flag hidden column", false, Optional.empty());
     }
 
     public static ColumnDef newSequenceColumnDef(Type type) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, ColumnNullableType.NULLABLE, -1,
+        return new ColumnDef(Column.SEQUENCE_COL, type, false, null, ColumnNullableType.NULLABLE, -1,
                 DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false, Optional.empty());
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, ColumnNullableType.NULLABLE,
+        return new ColumnDef(Column.SEQUENCE_COL, type, false, aggregateType, ColumnNullableType.NULLABLE,
                 -1, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false,
                 Optional.empty());
     }
 
     public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, aggregateType,
+        return new ColumnDef(Column.ROW_STORE_COL, ScalarType.createType(PrimitiveType.STRING), false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, ""),
                 "doris row store hidden column", false, Optional.empty());
     }
 
     public static ColumnDef newVersionColumnDef() {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null,
+        return new ColumnDef(Column.VERSION_COL, ScalarType.createType(PrimitiveType.BIGINT), false, null,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
     }
 
     public static ColumnDef newVersionColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType,
+        return new ColumnDef(Column.VERSION_COL, ScalarType.createType(PrimitiveType.BIGINT), false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
     }
 
     public static ColumnDef newSkipBitmapColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
+        return new ColumnDef(Column.SKIP_BITMAP_COL, ScalarType.createType(PrimitiveType.BITMAP), false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE,
                 "doris skip bitmap hidden column", false, Optional.empty());
     }
@@ -383,12 +380,8 @@ public class ColumnDef {
         this.keysType = keysType;
     }
 
-    public TypeDef getTypeDef() {
-        return typeDef;
-    }
-
     public Type getType() {
-        return typeDef.getType();
+        return type;
     }
 
     public String getComment() {
@@ -408,146 +401,8 @@ public class ColumnDef {
     }
 
     public void analyze(boolean isOlap) throws AnalysisException {
-        if (name == null || typeDef == null) {
-            throw new AnalysisException("No column name or column type in column definition.");
-        }
-        FeNameFormat.checkColumnName(name);
-        FeNameFormat.checkColumnCommentLength(comment);
-
-        typeDef.analyze();
-
-        Type type = typeDef.getType();
-
-        if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
-            throw new AnalysisException("quantile_state is disabled"
-                    + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
-        }
-
-        // disable Bitmap Hll type in keys, values without aggregate function.
-        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
-            if (isKey) {
-                throw new AnalysisException("Key column can not set complex type:" + name);
-            }
-            if (keysType == null || keysType == KeysType.AGG_KEYS) {
-                if (aggregateType == null) {
-                    throw new AnalysisException("complex type have to use aggregate function: " + name);
-                }
-            }
-            if (isAllowNull) {
-                throw new AnalysisException("complex type column must be not nullable, column:" + name);
-            }
-        }
-
-        // A column is a key column if and only if isKey is true.
-        // aggregateType == null does not mean that this is a key column,
-        // because when creating a UNIQUE KEY table, aggregateType is implicit.
-        if (aggregateType != null) {
-            if (isKey) {
-                throw new AnalysisException("Key column can not set aggregation type: " + name);
-            }
-
-            // check if aggregate type is valid
-            if (aggregateType != AggregateType.GENERIC
-                    && !aggregateType.checkCompatibility(type.getPrimitiveType())) {
-                throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
-                        toString(), type.toSql()));
-            }
-            if (aggregateType == AggregateType.GENERIC) {
-                if (!SessionVariable.enableAggState()) {
-                    throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
-                }
-            }
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.FLOAT || type.getPrimitiveType() == PrimitiveType.DOUBLE) {
-            if (isOlap && isKey) {
-                throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
-            }
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.HLL) {
-            if (defaultValue != null && defaultValue.isSet) {
-                throw new AnalysisException("Hll type column can not set default value");
-            }
-            defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
-                    && !defaultValue.value.equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value)) {
-                throw new AnalysisException("Bitmap type column default value only support null or "
-                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.value);
-            }
-            defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.ARRAY && isOlap) {
-            if (isKey()) {
-                throw new AnalysisException("Array can only be used in the non-key column of"
-                        + " the duplicate table at present.");
-            }
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
-                    && !defaultValue.value.equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value)) {
-                throw new AnalysisException("Array type column default value only support null or "
-                        + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value);
-            }
-        }
-        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING && isOlap) {
-            throw new AnalysisException("String Type should not be used in key column[" + getName()
-                    + "].");
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.JSONB
-                || type.getPrimitiveType() == PrimitiveType.VARIANT) {
-            if (isKey()) {
-                throw new AnalysisException("JSONB or VARIANT type should not be used in key column[" + getName()
-                        + "].");
-            }
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("JSONB or VARIANT type column default value just support null");
-            }
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.MAP) {
-            if (isKey()) {
-                throw new AnalysisException("Map can only be used in the non-key column of"
-                        + " the duplicate table at present.");
-            }
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Map type column default value just support null");
-            }
-        }
-
-        if (type.getPrimitiveType() == PrimitiveType.STRUCT) {
-            if (isKey()) {
-                throw new AnalysisException("Struct can only be used in the non-key column of"
-                        + " the duplicate table at present.");
-            }
-            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Struct type column default value just support null");
-            }
-        }
-
-
-        if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
-            if (!isAllowNull) {
-                throw new AnalysisException(
-                        "REPLACE_IF_NOT_NULL column must be nullable, maybe should use REPLACE, column:" + name);
-            }
-            if (!defaultValue.isSet) {
-                defaultValue = DefaultValue.NULL_DEFAULT_VALUE;
-            }
-        }
-
-        if (!isAllowNull && defaultValue == DefaultValue.NULL_DEFAULT_VALUE) {
-            throw new AnalysisException("Can not set null default value to non nullable column: " + name);
-        }
-
-        if (type.isScalarType() && defaultValue.isSet && defaultValue.value != null) {
-            validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
-        }
-        validateGeneratedColumnInfo();
     }
+
 
     @SuppressWarnings("checkstyle:Indentation")
     public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef)
@@ -693,7 +548,7 @@ public class ColumnDef {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        sb.append(typeDef.toSql()).append(" ");
+        sb.append(type.toSql()).append(" ");
 
         if (aggregateType != null && aggregateType != AggregateType.NONE) {
             sb.append(aggregateType.name()).append(" ");
@@ -715,15 +570,15 @@ public class ColumnDef {
 
         if (defaultValue.isSet) {
             if (defaultValue.value != null) {
-                if (typeDef.getType().getPrimitiveType() != PrimitiveType.BITMAP
-                        && typeDef.getType().getPrimitiveType() != PrimitiveType.HLL) {
+                if (this.type.getPrimitiveType() != PrimitiveType.BITMAP
+                        && this.type.getPrimitiveType() != PrimitiveType.HLL) {
                     if (defaultValue.defaultValueExprDef != null) {
                         sb.append("DEFAULT ").append(defaultValue.value).append(" ");
                     } else {
                         sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(defaultValue.value)).append("\"")
                                 .append(" ");
                     }
-                } else if (typeDef.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
+                } else if (this.type.getPrimitiveType() == PrimitiveType.BITMAP) {
                     sb.append("DEFAULT ").append(defaultValue.defaultValueExprDef.getExprName()).append(" ");
                 }
             } else {
@@ -736,10 +591,9 @@ public class ColumnDef {
     }
 
     public Column toColumn() {
-        Type type = typeDef.getType();
-        return new Column(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
-                clusterKeyId, generatedColumnInfo.orElse(null), generatedColumnsThatReferToThis);
+        return new Column(name, this.type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue.value,
+            comment, visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE,
+            defaultValue.getValue(), clusterKeyId, generatedColumnInfo.orElse(null), generatedColumnsThatReferToThis);
     }
 
     @Override
@@ -751,27 +605,7 @@ public class ColumnDef {
         isAllowNull = allowNull;
     }
 
-    public Optional<GeneratedColumnInfo> getGeneratedColumnInfo() {
-        return generatedColumnInfo;
-    }
-
     public long getAutoIncInitValue() {
         return autoIncInitValue;
-    }
-
-    public void addGeneratedColumnsThatReferToThis(List<String> list) {
-        generatedColumnsThatReferToThis.addAll(list);
-    }
-
-    private void validateGeneratedColumnInfo() throws AnalysisException {
-        // for generated column
-        if (generatedColumnInfo.isPresent()) {
-            if (autoIncInitValue != -1) {
-                throw new AnalysisException("Generated columns cannot be auto_increment.");
-            }
-            if (defaultValue != null && !defaultValue.isNullDefaultValue()) {
-                throw new AnalysisException("Generated columns cannot have default value.");
-            }
-        }
     }
 }

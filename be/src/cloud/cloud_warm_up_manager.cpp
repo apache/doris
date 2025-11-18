@@ -39,6 +39,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/stack_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
@@ -161,7 +162,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                         .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         .is_warmup = true},
                 .download_done =
-                        [&, done_cb = std::move(done_cb)](Status st) {
+                        [=, done_cb = std::move(done_cb)](Status st) {
                             if (done_cb) done_cb(st);
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
@@ -210,6 +211,7 @@ void CloudWarmUpManager::handle_jobs() {
                 std::make_shared<bthread::CountdownEvent>(0);
 
         for (int64_t tablet_id : cur_job->tablet_ids) {
+            VLOG_DEBUG << "Warm up tablet " << tablet_id << " stack: " << get_stack_trace();
             if (_cur_job_id == 0) { // The job is canceled
                 break;
             }

@@ -15,7 +15,7 @@ catalog_tvf_test_dlf	hms	dlf.catalog.id	987654321
 catalog_tvf_test_dlf	hms	dlf.secret_key	*XXX
 
 -- !test_12 --
-catalog_tvf_test_dlf	hms	dlf.access_key	AAAAAAAAAAAAAAAAAAAAAA
+catalog_tvf_test_dlf	hms	dlf.access_key	*XXX
 
 -- !test_13 --
 catalog_tvf_test_dlf	hms	dlf.uid	123456789
@@ -32,7 +32,7 @@ internal	internal	NULL	NULL
 catalog_tvf_test_dlf	hms	dlf.secret_key	*XXX
 
 -- !test_18 --
-catalog_tvf_test_dlf	hms	dlf.access_key	AAAAAAAAAAAAAAAAAAAAAA
+catalog_tvf_test_dlf	hms	dlf.access_key	*XXX
 
 -- !test_19 --
 catalog_tvf_test_dlf	hms	dlf.uid	123456789

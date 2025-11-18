@@ -147,7 +147,36 @@ class Syncer {
                     case TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ:
                     case TStatusCode.OK:
                         if (result.isSetBinlogs()) {
-                            binlog = result.getBinlogs().first()
+                            List<TBinlog> binlogs = result.getBinlogs()
+                            // Prefer a binlog that contains tableRecords for requested table to avoid NPE on ingest
+                            if (update && binlogs != null && !binlogs.isEmpty()) {
+                                Long preferTableId = -1
+                                if (!table.isEmpty() && context.sourceTableMap.containsKey(table)) {
+                                    preferTableId = context.sourceTableMap.get(table).id
+                                }
+                                for (TBinlog b : binlogs) {
+                                    if (!b.isSetData()) {
+                                        continue
+                                    }
+                                    try {
+                                        Gson gson = new Gson()
+                                        BinlogData parsed = gson.fromJson(b.getData(), BinlogData.class)
+                                        if (parsed != null && parsed.tableRecords != null) {
+                                            if (preferTableId == -1 || parsed.tableRecords.containsKey(preferTableId)) {
+                                                binlog = b
+                                                break
+                                            }
+                                        }
+                                    } catch (Throwable t) {
+                                        // fallback to default first binlog if parsing fails
+                                    }
+                                }
+                                if (binlog == null) {
+                                    binlog = binlogs.first()
+                                }
+                            } else if (binlogs != null && !binlogs.isEmpty()) {
+                                binlog = binlogs.first()
+                            }
                         }
                         break
                     case TStatusCode.BINLOG_DISABLE:
@@ -808,6 +837,12 @@ class Syncer {
         }
 
         BinlogData binlogData = context.lastBinlog
+
+        // Guard: If current binlog has no tableRecords (e.g., ADD_PARTITION/DDL), skip ingest to avoid NPE
+        if (binlogData == null || binlogData.tableRecords == null || binlogData.tableRecords.isEmpty()) {
+            logger.info("Skip ingest: lastBinlog has no tableRecords. lastBinlog=${binlogData}")
+            return true
+        }
 
         // step 2: Begin ingest binlog
         // step 2.1: ingest each table in meta

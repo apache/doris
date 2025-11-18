@@ -2747,7 +2747,7 @@ public:
 
         res_chars.reserve(input_rows_count * 64);
         res_offsets.resize(input_rows_count);
-        null_map.resize(input_rows_count);
+        null_map.resize_fill(input_rows_count, 0);
 
         // Get JSON document column
         auto [json_column, json_const] =

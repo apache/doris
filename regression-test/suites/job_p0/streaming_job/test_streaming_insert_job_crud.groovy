@@ -29,6 +29,9 @@ suite("test_streaming_insert_job_crud") {
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
+        DROP JOB IF EXISTS where jobname =  '${jobNameError}'
+    """
+    sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             `c1` int NULL,
             `c2` string NULL,
@@ -331,8 +334,8 @@ suite("test_streaming_insert_job_crud") {
     def jobOffset = sql """
         select currentOffset, endoffset from jobs("type"="insert") where Name='${jobName}'
     """
-    assert jobOffset.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobOffset.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobOffset.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+    assert jobOffset.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
 
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 

@@ -233,7 +233,7 @@ protected:
     doris::vectorized::ScannerScheduler* _scanner_scheduler_global = nullptr;
     SimplifiedScanScheduler* _scanner_scheduler = nullptr;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
-    std::stack<std::weak_ptr<ScannerDelegate>> _pending_scanners;
+    std::stack<std::shared_ptr<ScanTask>> _pending_scanners;
     // Scanner that is submitted to the scheduler.
     std::atomic_int _num_scheduled_scanners = 0;
     // Scanner that is eos or error.

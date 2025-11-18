@@ -1272,6 +1272,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     need_commit = true;
 
     if (!compaction_log.recycle_rowsets().empty() && is_versioned_write) {
+        size_t num_recycled_rowsets = compaction_log.recycle_rowsets().size();
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
@@ -1293,7 +1294,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                 .tag("operation_log_key", hex(operation_log_key))
                 .tag("tablet_id", tablet_id)
                 .tag("value_size", operation_log_value.size())
-                .tag("recycle_rowsets_count", compaction_log.recycle_rowsets().size());
+                .tag("recycle_rowsets_count", num_recycled_rowsets);
         versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 }
@@ -1586,13 +1587,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     if (is_versioned_write) {
         std::string versioned_new_tablet_key =
                 versioned::meta_tablet_key({instance_id, new_tablet_id});
-        if (!versioned::document_put(txn.get(), versioned_new_tablet_key,
-                                     std::move(new_tablet_meta))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
-                              hex(versioned_new_tablet_key));
-            return;
-        }
+        versioned_put(txn.get(), versioned_new_tablet_key, new_tablet_val);
         LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
                   << " key=" << hex(versioned_new_tablet_key);
     }
@@ -1828,8 +1823,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         txn->put(rowset_key, rowset_val);
         txn->remove(tmp_rowset_key);
         if (is_versioned_write) {
-            doris::RowsetMetaCloudPB rs_meta;
-            rs_meta.ParseFromString(tmp_rowset_val);
+            doris::RowsetMetaCloudPB rs_meta(tmp_rowset_meta);
             std::string meta_rowset_compact_key = versioned::meta_rowset_compact_key(
                     {instance_id, new_tablet_id, rs_meta.end_version()});
             // Put versioned rowset compact metadata for new tablet's rowsets

@@ -216,6 +216,90 @@ void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
     }
 }
 
+void internal_get_load_tablet_stats_batch(
+        MetaServiceCode& code, std::string& msg, CloneChainReader& meta_reader, Transaction* txn,
+        const std::string& instance_id,
+        const std::unordered_map<int64_t, TabletIndexPB>& tablet_indexes,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats, bool snapshot) {
+    if (tablet_indexes.empty()) {
+        return;
+    }
+
+    // Collect all tablet_ids
+    std::vector<int64_t> tablet_ids;
+    tablet_ids.reserve(tablet_indexes.size());
+    for (const auto& [tablet_id, _] : tablet_indexes) {
+        tablet_ids.push_back(tablet_id);
+    }
+
+    // Batch get versioned tablet load stats
+    std::unordered_map<int64_t, TabletStatsPB> versioned_stats;
+    std::unordered_map<int64_t, Versionstamp> versionstamps;
+    TxnErrorCode err = meta_reader.get_tablet_load_stats(txn, tablet_ids, &versioned_stats,
+                                                         &versionstamps, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to batch get versioned tablet stats, err={}", err);
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    // For tablets found in versioned stats, add them to output
+    for (const auto& [tablet_id, stats] : versioned_stats) {
+        (*tablet_stats)[tablet_id] = stats;
+    }
+
+    // For tablets not found in versioned stats, fall back to single version detached stats
+    std::vector<int64_t> fallback_tablet_ids;
+    for (int64_t tablet_id : tablet_ids) {
+        if (!versioned_stats.contains(tablet_id)) {
+            fallback_tablet_ids.push_back(tablet_id);
+        }
+    }
+
+    if (!fallback_tablet_ids.empty()) {
+        LOG(INFO) << "fallback to single version detached stats for " << fallback_tablet_ids.size()
+                  << " tablets";
+
+        // Fall back to single version for each tablet
+        for (int64_t tablet_id : fallback_tablet_ids) {
+            auto it = tablet_indexes.find(tablet_id);
+            if (it == tablet_indexes.end()) {
+                continue;
+            }
+            const TabletIndexPB& tablet_idx = it->second;
+
+            TabletStatsPB compact_stats;
+            TabletStats detached_stats;
+            internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
+                                      detached_stats, snapshot);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "failed to get detached tablet stats for fallback, tablet_id="
+                             << tablet_id << " code=" << code << " msg=" << msg;
+                return;
+            }
+
+            // Only the detached stats are valid for load tablet stats.
+            TabletStatsPB stats_pb;
+            merge_tablet_stats(stats_pb, detached_stats);
+            (*tablet_stats)[tablet_id] = std::move(stats_pb);
+        }
+    }
+}
+
+void internal_get_load_tablet_stats_batch(MetaServiceCode& code, std::string& msg,
+                                          CloneChainReader& meta_reader, Transaction* txn,
+                                          const std::string& instance_id,
+                                          const std::map<int64_t, TabletIndexPB>& tablet_indexes,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          bool snapshot) {
+    // Convert std::map to std::unordered_map and delegate to the main implementation
+    std::unordered_map<int64_t, TabletIndexPB> unordered_indexes(tablet_indexes.begin(),
+                                                                 tablet_indexes.end());
+    internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn, instance_id,
+                                         unordered_indexes, tablet_stats, snapshot);
+}
+
 MetaServiceResponseStatus parse_fix_tablet_stats_param(
         std::shared_ptr<ResourceManager> resource_mgr, const std::string& table_id_str,
         const std::string& cloud_unique_id_str, int64_t& table_id, std::string& instance_id) {

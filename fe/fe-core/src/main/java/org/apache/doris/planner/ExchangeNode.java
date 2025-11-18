@@ -24,15 +24,11 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-
-import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 
 import java.util.Collections;
 
@@ -64,12 +60,13 @@ public class ExchangeNode extends PlanNode {
      * use for Nereids only.
      */
     public ExchangeNode(PlanNodeId id, PlanNode inputNode) {
-        super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
+        super(id, inputNode, EXCHANGE_NODE);
         offset = 0;
         limit = -1;
         this.conjuncts = Collections.emptyList();
         children.add(inputNode);
-        computeTupleIds();
+        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
+        updateTupleIds(outputTupleDesc);
     }
 
     public TPartitionType getPartitionType() {
@@ -80,23 +77,14 @@ public class ExchangeNode extends PlanNode {
         this.partitionType = partitionType;
     }
 
-    @Override
-    public final void computeTupleIds() {
-        PlanNode inputNode = getChild(0);
-        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
-        updateTupleIds(outputTupleDesc);
-    }
-
     public void updateTupleIds(TupleDescriptor outputTupleDesc) {
         if (outputTupleDesc != null) {
-            tupleIds.clear();
+            clearTupleIds();
             tupleIds.add(outputTupleDesc.getId());
-            tblRefIds.add(outputTupleDesc.getId());
             nullableTupleIds.add(outputTupleDesc.getId());
         } else {
             clearTupleIds();
             tupleIds.addAll(getChild(0).getOutputTupleIds());
-            tblRefIds.addAll(getChild(0).getTblRefIds());
             nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
         }
     }
@@ -126,14 +114,6 @@ public class ExchangeNode extends PlanNode {
         }
         msg.exchange_node.setOffset(offset);
         msg.exchange_node.setPartitionType(partitionType);
-    }
-
-    @Override
-    protected String debugString() {
-        ToStringHelper helper = MoreObjects.toStringHelper(this);
-        helper.addValue(super.debugString());
-        helper.add("offset", offset);
-        return helper.toString();
     }
 
     @Override

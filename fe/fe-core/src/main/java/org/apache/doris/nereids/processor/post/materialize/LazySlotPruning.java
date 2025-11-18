@@ -65,18 +65,8 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
             this.rowIdSlot = rowIdSlot;
         }
 
-        private Context(PhysicalRelation scan, List<Slot> lazySlots, SlotReference rowIdSlot) {
-            this.scan = scan;
-            this.lazySlots = lazySlots;
-            this.rowIdSlot = rowIdSlot;
-        }
-
         public Context withLazySlots(List<Slot> otherLazySlots) {
-            return new Context(this.scan, otherLazySlots, this.rowIdSlot);
-        }
-
-        public void forceRowIdNullable() {
-            rowIdSlot = rowIdSlot.withNullable(true);
+            return new Context(this.scan, this.rowIdSlot, otherLazySlots);
         }
 
         public void updateRowIdSlot(SlotReference rowIdSlot) {

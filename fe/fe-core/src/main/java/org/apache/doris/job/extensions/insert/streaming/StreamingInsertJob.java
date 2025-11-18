@@ -74,7 +74,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataOutput;
@@ -368,7 +368,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public boolean needScheduleTask() {
-        return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
+        readLock();
+        try {
+            return (getJobStatus().equals(JobStatus.RUNNING)
+                    || getJobStatus().equals(JobStatus.PENDING));
+        } finally {
+            readUnlock();
+        }
     }
 
     public void clearRunningStreamTask(JobStatus newJobStatus) {

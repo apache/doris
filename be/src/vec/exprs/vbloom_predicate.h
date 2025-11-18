@@ -43,7 +43,8 @@ class VBloomPredicate final : public VExpr {
 public:
     VBloomPredicate(const TExprNode& node);
     ~VBloomPredicate() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;

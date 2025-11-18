@@ -81,13 +81,13 @@ class InternalSchemaInitializerTest {
         for (ColumnDef columnDef : InternalSchema.AUDIT_SCHEMA) {
             if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
                 hasLocalStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
 
             if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
                 hasRemoteStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
         }
@@ -107,13 +107,13 @@ class InternalSchemaInitializerTest {
         for (ColumnDef columnDef : copiedSchema) {
             if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
                 hasLocalStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
 
             if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
                 hasRemoteStorageField = true;
-                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getType().getPrimitiveType());
                 Assertions.assertTrue(columnDef.isAllowNull());
             }
         }

@@ -85,7 +85,6 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                 extras.add(column.getExtraInfo());
             }
             String extraStr = StringUtils.join(extras, ",");
-            String comment = column.getComment();
 
             List<String> rowList = Lists.newArrayList(column.getDisplayName(),
                     column.getOriginType().hideVersionForVersionColumn(true),
@@ -93,7 +92,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                     ((Boolean) column.isKey()).toString(),
                     column.getDefaultValue() == null
                             ? FeConstants.null_string : column.getDefaultValue(),
-                    extraStr, comment);
+                    extraStr);
 
             for (String additionalColName : additionalColNames) {
                 switch (additionalColName.toLowerCase()) {

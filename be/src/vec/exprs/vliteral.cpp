@@ -49,12 +49,10 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::execute(VExprContext* context, vectorized::Block* block,
-                         int* result_column_id) const {
-    // Literal expr should return least one row.
-    // sometimes we just use a VLiteral without open or prepare. so can't check it at this moment
+Status VLiteral::execute_column(VExprContext* context, const Block* block,
+                                ColumnPtr& result_column) const {
     size_t row_size = std::max(block->rows(), _column_ptr->size());
-    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
+    result_column = _column_ptr->clone_resized(row_size);
     return Status::OK();
 }
 

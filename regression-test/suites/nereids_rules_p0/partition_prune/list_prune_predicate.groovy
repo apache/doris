@@ -319,10 +319,49 @@ suite("list_prune_predicate") {
         notContains("PREDICATES")
     }
 
+    // test variable skip_prune_predicate
     sql "set skip_prune_predicate = true"
     explain {
         sql "select * from list_par_data_migration partition p1 where k1=1 or k1=2 or k1=3 or k1=4 order by k1;"
         contains("partitions=1/3 (p1)")
         contains("PREDICATES")
     }
+    sql "set skip_prune_predicate = false"
+
+    sql " drop table if exists test_list_multi_column_unique;"
+    sql """ create table  test_list_multi_column_unique (id int, d_date date, c02 int default 1) unique key (id, d_date)
+    PARTITION BY LIST(id,d_date)
+    (
+    PARTITION `p20250101` VALUES IN ((1,'2025-01-01')),
+    PARTITION `p20250102` VALUES IN ((2,'2025-01-02')),
+    PARTITION `p20250103` VALUES IN ((3,'2025-01-03')),
+    PARTITION `p20250104` VALUES IN ((4,'2025-01-04')),
+    PARTITION `p20250105` VALUES IN ((5,'2025-01-05')),
+    PARTITION `p20250106` VALUES IN ((6,'2025-01-06')),
+    PARTITION `p20250107` VALUES IN ((7,'2025-01-07')),
+    PARTITION `p20250108` VALUES IN ((8,'2025-01-08')),
+    PARTITION `p20250109` VALUES IN ((9,'2025-01-09')),
+    PARTITION `p20250110` VALUES IN ((10,'2025-01-10'))
+    ) DISTRIBUTED BY HASH(id) BUCKETS 10
+    properties('replication_num'='1');"""
+    sql """insert into test_list_multi_column_unique(id, d_date) values
+    (1,'2025-01-01') , (2, '2025-01-02') , (3, '2025-01-03'), (4, '2025-01-04') , (5, '2025-01-05'), (6,'2025-01-06') ,
+    (7, '2025-01-07') , (8, '2025-01-08'), (9, '2025-01-09') , (10, '2025-01-10');
+    """
+
+    // add test for delete(not support optimize)
+    explain {
+        sql "delete from  test_list_multi_column_unique where id=1 and d_date='2025-01-01';"
+        contains("partitions=1/10 (p20250101)")
+        contains("(id[#0] = 1) AND (d_date[#1] = '2025-01-01')")
+    }
+
+    // add test for update(support optimize)
+    explain {
+        sql "update test_list_multi_column_unique set c02 = 1 where id=1 and d_date='2025-01-01';"
+        contains("partitions=1/10 (p20250101)")
+        notContains("(id[#0] = 1) AND (d_date[#1] = '2025-01-01')")
+    }
+    sql """update test_list_multi_column_unique set c02 = 10 where id=1 and d_date='2025-01-01';"""
+    qt_update "select * from test_list_multi_column_unique order by id;"
 }

@@ -773,10 +773,6 @@ The Apache Software License, Version 2.0
         - commons-digester:commons-digester:1.8 (http://jakarta.apache.org/commons/digester/)
     * EL:
         - commons-el:commons-el:1.0 (http://jakarta.apache.org/commons/el/)
-    * Fabric8 :: Kubernetes :: Java Client:
-        - io.fabric8:kubernetes-client:5.12.2 (http://fabric8.io/kubernetes-client/)
-    * Fabric8 :: Kubernetes Model:
-        - io.fabric8:kubernetes-model:5.12.2 (http://fabric8.io/kubernetes-model/)
     * FindBugs-jsr305:
         - com.google.code.findbugs:jsr305:3.0.0 (http://findbugs.sourceforge.net/)
         - com.google.code.findbugs:jsr305:3.0.2 (http://findbugs.sourceforge.net/)
