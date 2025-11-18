@@ -2319,29 +2319,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (PlanFragment childFragment : setOperationFragment.getChildren()) {
                     DataSink sink = childFragment.getSink();
                     if (sink instanceof DataStreamSink) {
-                        ExchangeNode exchangeNode = exchangeIdToExchangeNode.get(sink.getExchNodeId().asInt());
-                        if (exchangeNode == null) {
-                            continue;
-                        }
-                        exchangeNode.setPartitionType(TPartitionType.POINT_TO_POINT);
-                        isInplaceUnion = true;
-
-                        DataStreamSink dataStreamSink = (DataStreamSink) sink;
-                        DataPartition p2pPartition = new DataPartition(TPartitionType.POINT_TO_POINT);
-                        dataStreamSink.setOutputPartition(p2pPartition);
+                        isInplaceUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, (DataStreamSink) sink);
                     } else if (sink instanceof MultiCastDataSink) {
                         MultiCastDataSink multiCastDataSink = (MultiCastDataSink) sink;
                         for (DataStreamSink dataStreamSink : multiCastDataSink.getDataStreamSinks()) {
-                            ExchangeNode exchangeNode = exchangeIdToExchangeNode.get(
-                                    dataStreamSink.getExchNodeId().asInt());
-                            if (exchangeNode == null) {
-                                continue;
-                            }
-                            exchangeNode.setPartitionType(TPartitionType.POINT_TO_POINT);
-                            isInplaceUnion = true;
-
-                            DataPartition p2pPartition = new DataPartition(TPartitionType.POINT_TO_POINT);
-                            dataStreamSink.setOutputPartition(p2pPartition);
+                            isInplaceUnion |= setLocalRandomPartition(exchangeIdToExchangeNode, dataStreamSink);
                         }
                     }
                 }
@@ -3314,5 +3296,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             child = child.child(0);
         }
         return child instanceof PhysicalRelation;
+    }
+
+    private boolean setLocalRandomPartition(
+            Map<Integer, ExchangeNode> exchangeIdToExchangeNode, DataStreamSink dataStreamSink) {
+        ExchangeNode exchangeNode = exchangeIdToExchangeNode.get(
+                dataStreamSink.getExchNodeId().asInt());
+        if (exchangeNode == null) {
+            return false;
+        }
+        exchangeNode.setPartitionType(TPartitionType.LOCAL_RANDOM);
+
+        DataPartition p2pPartition = new DataPartition(TPartitionType.LOCAL_RANDOM);
+        dataStreamSink.setOutputPartition(p2pPartition);
+        return true;
     }
 }

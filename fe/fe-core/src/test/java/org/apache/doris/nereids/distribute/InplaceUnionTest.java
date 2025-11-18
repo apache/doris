@@ -77,15 +77,15 @@ public class InplaceUnionTest extends TestWithFeService {
         for (PlanNode child : unionNode.getChildren()) {
             if (child instanceof ExchangeNode) {
                 ExchangeNode exchangeNode = (ExchangeNode) child;
-                Assertions.assertEquals(TPartitionType.POINT_TO_POINT, exchangeNode.getPartitionType());
+                Assertions.assertEquals(TPartitionType.LOCAL_RANDOM, exchangeNode.getPartitionType());
                 for (PlanFragment childFragment : unionFragment.getChildren()) {
                     DataSink sink = childFragment.getSink();
                     if (sink instanceof DataStreamSink && sink.getExchNodeId().asInt() == exchangeNode.getId().asInt()) {
-                        Assertions.assertEquals(TPartitionType.POINT_TO_POINT, sink.getOutputPartition().getType());
+                        Assertions.assertEquals(TPartitionType.LOCAL_RANDOM, sink.getOutputPartition().getType());
                     } else if (sink instanceof MultiCastDataSink) {
                         for (DataStreamSink dataStreamSink : ((MultiCastDataSink) sink).getDataStreamSinks()) {
                             if (dataStreamSink.getExchNodeId().asInt() == exchangeNode.getId().asInt()) {
-                                Assertions.assertEquals(TPartitionType.POINT_TO_POINT, dataStreamSink.getOutputPartition().getType());
+                                Assertions.assertEquals(TPartitionType.LOCAL_RANDOM, dataStreamSink.getOutputPartition().getType());
                             }
                         }
                     }

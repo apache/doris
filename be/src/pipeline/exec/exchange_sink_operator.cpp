@@ -102,6 +102,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     for (int i = 0; i < channels.size(); ++i) {
         if (channels[i]->is_local()) {
             local_size++;
+			local_channel_ids.emplace_back(i);
             _last_local_channel_idx = i;
         }
     }
@@ -288,7 +289,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
-           sink.output_partition.type == TPartitionType::POINT_TO_POINT);
+           sink.output_partition.type == TPartitionType::LOCAL_RANDOM);
 #endif
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
@@ -502,20 +503,18 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             }
         }
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
-    } else if (_part_type == TPartitionType::POINT_TO_POINT) {
-        auto& current_channel = local_state.channels[local_state.sender_id()];
+    } else if (_part_type == TPartitionType::LOCAL_RANDOM) {
+		// 1. select channel
+        auto& current_channel = local_state.channels[local_state.local_channel_ids[local_state.current_channel_idx]];
+		DCHECK(current_channel->is_local()) << "Only local channel are supported, current_channel_idx: "
+											<< local_state.local_channel_ids[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
-            if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block, eos, true);
-                HANDLE_CHANNEL_STATUS(state, current_channel, status);
-            } else {
-                auto pblock = std::make_unique<PBlock>();
-                RETURN_IF_ERROR(local_state._serializer.serialize_block(block, pblock.get()));
-                auto status = current_channel->send_remote_block(std::move(pblock), eos);
-                HANDLE_CHANNEL_STATUS(state, current_channel, status);
-            }
+            auto status = current_channel->send_local_block(block, eos, true);
+            HANDLE_CHANNEL_STATUS(state, current_channel, status);
         }
+        local_state.current_channel_idx =
+                (local_state.current_channel_idx + 1) % local_state.local_channel_ids.size();
     } else {
         // Range partition
         // 1. calculate range

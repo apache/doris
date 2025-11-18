@@ -66,7 +66,7 @@ public class DataPartition {
                 || type == TPartitionType.RANDOM
                 || type == TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED
                 || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED
-                || type == TPartitionType.POINT_TO_POINT);
+                || type == TPartitionType.LOCAL_RANDOM);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
     }

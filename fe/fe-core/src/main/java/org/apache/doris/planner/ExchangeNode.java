@@ -159,7 +159,7 @@ public class ExchangeNode extends PlanNode {
                 (
                     ConnectContext.get() != null
                         && ConnectContext.get().getSessionVariable().isUseSerialExchange()
-                        && (partitionType != TPartitionType.POINT_TO_POINT)
+                        && (partitionType != TPartitionType.LOCAL_RANDOM)
                 )
                 || partitionType == TPartitionType.UNPARTITIONED
             )
