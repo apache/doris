@@ -504,15 +504,15 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
     } else if (_part_type == TPartitionType::LOCAL_RANDOM) {
-		// 1. select channel
+        // 1. select channel
         auto& current_channel = local_state.channels[local_state.local_channel_ids[local_state.current_channel_idx]];
-		DCHECK(current_channel->is_local()) << "Only local channel are supported, current_channel_idx: "
-											<< local_state.local_channel_ids[local_state.current_channel_idx];
+        DCHECK(current_channel->is_local()) << "Only local channel are supported, current_channel_idx: "
+                                            << local_state.local_channel_ids[local_state.current_channel_idx];
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             auto status = current_channel->send_local_block(block, eos, true);
             HANDLE_CHANNEL_STATUS(state, current_channel, status);
-        }
+    }
         local_state.current_channel_idx =
                 (local_state.current_channel_idx + 1) % local_state.local_channel_ids.size();
     } else {
