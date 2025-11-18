@@ -122,8 +122,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
 Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
 #ifdef BE_TEST
     if (config::enable_debug_points &&
-                DebugPoints::instance()->is_enable(
-                        "MasterServerClient::report.fail")) [[unlikely]] {
+        DebugPoints::instance()->is_enable("MasterServerClient::report.fail")) [[unlikely]] {
         return Status::InternalError("debug report fail");
     }
     result->status.__set_status_code(TStatusCode::OK);

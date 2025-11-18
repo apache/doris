@@ -150,7 +150,8 @@ TEST(TaskWorkerPoolTest, ReportTabletCallbackWithDebugPoint) {
                 "WorkPoolReportTablet.report_tablet_callback.skip"));
         report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
         EXPECT_EQ(DorisMetrics::instance()->report_all_tablets_requests_skip->value(), 1);
-        EXPECT_EQ(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(), 0);
+        EXPECT_EQ(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
         // debug point report_tablet_callback.skip is removed
         DebugPoints::instance()->remove("WorkPoolReportTablet.report_tablet_callback.skip");
         EXPECT_FALSE(DebugPoints::instance()->is_enable(
@@ -162,10 +163,12 @@ TEST(TaskWorkerPoolTest, ReportTabletCallbackWithDebugPoint) {
         DebugPoints::instance()->add("MasterServerClient::report.fail");
         EXPECT_TRUE(DebugPoints::instance()->is_enable("MasterServerClient::report.fail"));
         report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
-        EXPECT_GT(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(), 0);
+        EXPECT_GT(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
         std::this_thread::sleep_for(std::chrono::seconds(1));
         report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
-        EXPECT_GT(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(), 0);
+        EXPECT_GT(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
         // debug point report.fail is removed
         DebugPoints::instance()->remove("MasterServerClient::report.fail");
         EXPECT_FALSE(DebugPoints::instance()->is_enable("MasterServerClient::report.fail"));
@@ -173,7 +176,8 @@ TEST(TaskWorkerPoolTest, ReportTabletCallbackWithDebugPoint) {
 
     {
         report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
-        EXPECT_EQ(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(), 0);
+        EXPECT_EQ(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
     }
 
     config::enable_debug_points = original_enable_debug_points;
