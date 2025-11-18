@@ -621,9 +621,8 @@ public:
         prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix,
                              InvertedIndexStorageFormatPB::V2);
 
-        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
-                                                        index_path_prefix,
-                                                        InvertedIndexStorageFormatPB::V2);
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         ASSERT_TRUE(reader->init().ok());
 
         auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
