@@ -748,18 +748,6 @@ public class CreateTableInfo {
             for (RollupDefinition rollup : rollups) {
                 rollup.validate();
             }
-
-            Env env = Env.getCurrentEnv();
-            if (ctx != null && env != null && partitionTableInfo != null
-                    && !partitionTableInfo.getPartitionList().isEmpty()) {
-                checkLegalityOfPartitionExprs(partitionTableInfo);
-            }
-
-            if (partitionDesc != null) {
-                for (SinglePartitionDesc singlePartitionDesc : partitionDesc.getSinglePartitionDescs()) {
-                    checkPartitionNullity(getColumns(), partitionDesc, singlePartitionDesc);
-                }
-            }
         } else {
             // mysql, broker and hive do not need key desc
             if (keysType != null) {
@@ -855,6 +843,20 @@ public class CreateTableInfo {
         columnToIndexesCheck();
         generatedColumnCheck(ctx);
         analyzeEngine();
+
+        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+            Env env = Env.getCurrentEnv();
+            if (ctx != null && env != null && partitionTableInfo != null
+                    && !partitionTableInfo.getPartitionList().isEmpty()) {
+                checkLegalityOfPartitionExprs(partitionTableInfo);
+            }
+
+            if (partitionDesc != null) {
+                for (SinglePartitionDesc singlePartitionDesc : partitionDesc.getSinglePartitionDescs()) {
+                    checkPartitionNullity(getColumns(), partitionDesc, singlePartitionDesc);
+                }
+            }
+        }
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
