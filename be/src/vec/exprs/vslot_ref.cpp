@@ -98,7 +98,7 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
     return Status::OK();
 }
 
-Status VSlotRef::execute_column(VExprContext* context, const Block* block,
+Status VSlotRef::execute_column(VExprContext* context, const Block* block, size_t count,
                                 ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
