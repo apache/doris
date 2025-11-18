@@ -362,8 +362,9 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
-            if (result_tmp_column_def.type->get_primitive_type() !=
-                _schema_mapping[idx].new_column->get_vec_type()->get_primitive_type()) {
+            auto lhs = _schema_mapping[idx].new_column->get_vec_type()->get_primitive_type();
+            auto rhs = result_tmp_column_def.type->get_primitive_type();
+            if (is_string_type(lhs) != is_string_type(rhs) && lhs != rhs) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result type invalid, expect={}, real={}; input expr={}, block={}",
                         _schema_mapping[idx].new_column->get_vec_type()->get_name(),
