@@ -72,7 +72,7 @@ suite("test_full_compaction_run_status","nonConcurrent") {
                 ++times
                 sleep(1000)
 
-                if (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10) {
+                if (parseJson(out.trim()).status.toLowerCase()=="success" || times>10) {
                     break
                 }
             } while (true)
