@@ -33,6 +33,7 @@
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -76,7 +77,7 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id,
+    Status execute(VExprContext* context, const vectorized::Block* block, ColumnPtr& result_column,
                    const DataTypePtr& result_type, const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
@@ -107,19 +108,18 @@ public:
 
         ///* array_map(lambda,arg1,arg2,.....) *///
         //1. child[1:end]->execute(src_block)
-        doris::vectorized::ColumnNumbers arguments(children.size() - 1);
+        ColumnsWithTypeAndName arguments(children.size() - 1);
         for (int i = 1; i < children.size(); ++i) {
-            int column_id = -1;
-            RETURN_IF_ERROR(children[i]->execute(context, block, &column_id));
-            arguments[i - 1] = column_id;
+            ColumnPtr column;
+            RETURN_IF_ERROR(children[i]->execute_column(context, block, column));
+            arguments[i - 1].column = column;
+            arguments[i - 1].type = children[i]->execute_type(block);
+            arguments[i - 1].name = children[i]->expr_name();
         }
 
         // used for save column array outside null map
-        auto outside_null_map =
-                ColumnUInt8::create(block->get_by_position(arguments[0])
-                                            .column->convert_to_full_column_if_const()
-                                            ->size(),
-                                    0);
+        auto outside_null_map = ColumnUInt8::create(
+                arguments[0].column->convert_to_full_column_if_const()->size(), 0);
         // offset column
         MutableColumnPtr array_column_offset;
         size_t nested_array_column_rows = 0;
@@ -128,7 +128,7 @@ public:
         std::vector<ColumnPtr> lambda_datas(arguments.size());
 
         for (int i = 0; i < arguments.size(); ++i) {
-            const auto& array_column_type_name = block->get_by_position(arguments[i]);
+            const auto& array_column_type_name = arguments[i];
             auto column_array = array_column_type_name.column->convert_to_full_column_if_const();
             auto type_array = array_column_type_name.type;
             if (type_array->is_nullable()) {
@@ -185,7 +185,6 @@ public:
             data_types.push_back(col_type.get_nested_type());
         }
 
-        ColumnWithTypeAndName result_arr;
         // if column_array is NULL, we know the array_data_column will not write any data,
         // so the column is empty. eg : (x) -> concat('|',x + "1"). if still execute the lambda function, will cause the bolck rows are not equal
         // the x column is empty, but "|" is const literal, size of column is 1, so the block rows is 1, but the x column is empty, will be coredump.
@@ -206,21 +205,17 @@ public:
                                                            std::move(array_column_offset));
 
             if (is_nullable) {
-                result_arr = {ColumnNullable::create(std::move(result_array_column),
-                                                     std::move(outside_null_map)),
-                              result_type, "Result"};
+                result_column = ColumnNullable::create(std::move(result_array_column),
+                                                       std::move(outside_null_map));
             } else {
-                result_arr = {std::move(result_array_column), result_type, "Result"};
+                result_column = std::move(result_array_column);
             }
 
-            block->insert(result_arr);
-            *result_column_id = block->columns() - 1;
             return Status::OK();
         }
 
         MutableColumnPtr result_col = nullptr;
         DataTypePtr res_type;
-        std::string res_name;
 
         //process first row
         args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
@@ -286,12 +281,12 @@ public:
                 }
             }
             //3. child[0]->execute(new_block)
-            RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, result_column_id));
 
-            auto res_col = lambda_block.get_by_position(*result_column_id)
-                                   .column->convert_to_full_column_if_const();
-            res_type = lambda_block.get_by_position(*result_column_id).type;
-            res_name = lambda_block.get_by_position(*result_column_id).name;
+            ColumnPtr res_col;
+            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, res_col));
+            res_col = res_col->convert_to_full_column_if_const();
+            res_type = children[0]->execute_type(&lambda_block);
+
             if (!result_col) {
                 result_col = res_col->clone_empty();
             }
@@ -302,40 +297,32 @@ public:
         //4. get the result column after execution, reassemble it into a new array column, and return.
         if (result_type->is_nullable()) {
             if (res_type->is_nullable()) {
-                result_arr = {
-                        ColumnNullable::create(ColumnArray::create(std::move(result_col),
-                                                                   std::move(array_column_offset)),
-                                               std::move(outside_null_map)),
-                        result_type, res_name};
+                result_column = ColumnNullable::create(
+                        ColumnArray::create(std::move(result_col), std::move(array_column_offset)),
+                        std::move(outside_null_map));
             } else {
                 // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
                 // need to create the nested column null map for column array
                 auto nested_null_map = ColumnUInt8::create(result_col->size(), 0);
-                result_arr = {ColumnNullable::create(
-                                      ColumnArray::create(
-                                              ColumnNullable::create(std::move(result_col),
-                                                                     std::move(nested_null_map)),
-                                              std::move(array_column_offset)),
-                                      std::move(outside_null_map)),
-                              result_type, res_name};
-            }
-        } else {
-            if (res_type->is_nullable()) {
-                result_arr = {
-                        ColumnArray::create(std::move(result_col), std::move(array_column_offset)),
-                        result_type, res_name};
-            } else {
-                auto nested_null_map = ColumnUInt8::create(result_col->size(), 0);
-                result_arr = {
+
+                result_column = ColumnNullable::create(
                         ColumnArray::create(ColumnNullable::create(std::move(result_col),
                                                                    std::move(nested_null_map)),
                                             std::move(array_column_offset)),
-                        result_type, res_name};
+                        std::move(outside_null_map));
+            }
+        } else {
+            if (res_type->is_nullable()) {
+                result_column =
+                        ColumnArray::create(std::move(result_col), std::move(array_column_offset));
+            } else {
+                auto nested_null_map = ColumnUInt8::create(result_col->size(), 0);
+
+                result_column = ColumnArray::create(
+                        ColumnNullable::create(std::move(result_col), std::move(nested_null_map)),
+                        std::move(array_column_offset));
             }
         }
-        block->insert(std::move(result_arr));
-        *result_column_id = block->columns() - 1;
-
         return Status::OK();
     }
 
@@ -368,7 +355,7 @@ private:
         }
     }
 
-    void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
+    void _extend_data(std::vector<MutableColumnPtr>& columns, const Block* block,
                       int current_repeat_times, int size, int64_t current_row_idx,
                       const std::vector<int>& output_slot_ref_indexs) const {
         if (!current_repeat_times || !size) {
