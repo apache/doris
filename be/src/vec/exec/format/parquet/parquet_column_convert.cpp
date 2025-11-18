@@ -230,10 +230,6 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
             // for FixedSizeBinary
             physical_converter =
                     std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
-        } else if (is_string_logical_type && src_physical_type == tparquet::Type::BYTE_ARRAY &&
-                   is_varbinary(remove_nullable(dst_logical_type)->get_primitive_type())) {
-            // src_physical_type is string and dst_logical_type is varbinary
-            physical_converter = std::make_unique<VarBinaryConverter>();
         } else {
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
@@ -259,19 +255,13 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (src_logical_primitive == TYPE_VARBINARY) {
-        // src_physical_type is varbinary and dst_logical_type is string
-        if (is_string_type(dst_logical_type->get_primitive_type())) {
-            DCHECK(src_physical_type == tparquet::Type::BYTE_ARRAY) << src_physical_type;
-            physical_converter = std::make_unique<VarBinaryConverter>();
+        if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+            DCHECK(parquet_schema.logicalType.__isset.UUID) << parquet_schema.name;
+            physical_converter =
+                    std::make_unique<UUIDVarBinaryConverter>(parquet_schema.type_length);
         } else {
-            if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                DCHECK(parquet_schema.logicalType.__isset.UUID) << parquet_schema.name;
-                physical_converter =
-                        std::make_unique<UUIDVarBinaryConverter>(parquet_schema.type_length);
-            } else {
-                DCHECK(src_physical_type == tparquet::Type::BYTE_ARRAY) << src_physical_type;
-                physical_converter = std::make_unique<ConsistentPhysicalConverter>();
-            }
+            DCHECK(src_physical_type == tparquet::Type::BYTE_ARRAY) << src_physical_type;
+            physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
     } else {
         physical_converter =
