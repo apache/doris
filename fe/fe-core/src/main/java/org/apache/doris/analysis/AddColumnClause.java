@@ -90,10 +90,6 @@ public class AddColumnClause extends AlterTableClause {
                     .getCatalogOrDdlException(tableNameInfo.getCtl())
                     .getDbOrDdlException(tableNameInfo.getDb())
                     .getTableOrDdlException(tableNameInfo.getTbl());
-            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
-                    && columnDef.getAggregateType() == null) {
-                columnDef.setIsKey(true);
-            }
             if (table instanceof OlapTable) {
                 columnDef.setKeysType(((OlapTable) table).getKeysType());
             }
