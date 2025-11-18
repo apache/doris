@@ -196,10 +196,6 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
 }
 
 int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
-    if (need_flush <= 0) {
-        return 0;
-    }
-
     _refresh_mem_tracker();
     if (_active_writers.size() == 0) {
         return 0;
