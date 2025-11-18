@@ -25,23 +25,22 @@
 
 #include "common/status.h"
 #include "vec/exec/vjdbc_connector.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "vec/sink/writer/blocking_writer.h"
 
 namespace doris {
 namespace vectorized {
 
 class Block;
 
-class VJdbcTableWriter final : public AsyncResultWriter, public JdbcConnector {
+class VJdbcTableWriter final : public BlockingWriter, public JdbcConnector {
 public:
     static JdbcConnectorParam create_connect_param(const TDataSink&);
 
-    VJdbcTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                     std::shared_ptr<pipeline::Dependency> dep,
-                     std::shared_ptr<pipeline::Dependency> fin_dep);
+    VJdbcTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     // connect to jdbc server
     Status open(RuntimeState* state, RuntimeProfile* operator_profile) override {
+        RETURN_IF_ERROR(BlockingWriter::open(state, operator_profile));
         RETURN_IF_ERROR(JdbcConnector::open(state, false));
         return init_to_write(operator_profile);
     }
