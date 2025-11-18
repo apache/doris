@@ -1323,4 +1323,8 @@ public class Column implements GsonPostProcessable {
     public Map<String, String> getSessionVariables() {
         return sessionVariables;
     }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
+    }
 }

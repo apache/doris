@@ -466,6 +466,8 @@ public class BindSink implements AnalysisRuleFactory {
         // if processed in upper for loop, will lead to not found slot error
         // It's the same reason for moving the processing of materialized columns down.
         for (Column column : generatedColumns) {
+            Map<String, String> currentSessionVars =
+                    ctx.connectContext.getSessionVariable().getAffectQueryResultVariables();
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 GeneratedColumnInfo info = column.getGeneratedColumnInfo();
@@ -477,7 +479,8 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-                if (column.getSessionVariables() != null && !column.getSessionVariables().isEmpty()) {
+                if (!SessionVarGuardRewriter.checkSessionVariablesMatch(
+                        currentSessionVars, column.getSessionVariables())) {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
@@ -488,11 +491,14 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         for (Column column : materializedViewColumn) {
-            if (column.isMaterializedViewColumn()) {
-                List<SlotRef> refs = column.getRefColumns();
-                // now we have to replace the column to slots.
-                Preconditions.checkArgument(refs != null,
-                        "mv column %s 's ref column cannot be null", column);
+            List<SlotRef> refs = column.getRefColumns();
+            // now we have to replace the column to slots.
+            Preconditions.checkArgument(refs != null,
+                    "mv column %s 's ref column cannot be null", column);
+            Map<String, String> currentSessionVars =
+                    ctx.connectContext.getSessionVariable().getAffectQueryResultVariables();
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
+                    column.getSessionVariables())) {
                 Expression parsedExpression = expressionParser.parseExpression(
                         column.getDefineExpr().toSqlWithoutTbl());
                 // the boundSlotExpression is an expression whose slots are bound but function
@@ -504,10 +510,17 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                if (!SessionVarGuardRewriter.checkSessionVariablesMatch(
+                        currentSessionVars, column.getSessionVariables())) {
+                    boundExpression = boundExpression.accept(
+                            new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
+                }
                 boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
                         DataType.fromCatalogType(column.getType()));
                 Alias output = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
                 columnToOutput.put(column.getName(), output);
+                columnToReplaced.put(column.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
             }
         }
         for (Column column : shadowColumns) {
@@ -911,8 +924,15 @@ public class BindSink implements AnalysisRuleFactory {
             Map<Long, Expression> mvWhereClauses = new HashMap<>();
             long baseIndexId = olapTable.getBaseIndexId();
             for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
-                if (entry.getKey() != baseIndexId && entry.getValue().getWhereClause() != null) {
-                    mvWhereClauses.put(entry.getKey(), analyze(entry.getValue().getWhereClause().toSqlWithoutTbl()));
+                try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(
+                        ConnectContext.get(), entry.getValue().getSessionVariables())) {
+                    if (entry.getKey() == baseIndexId || entry.getValue().getWhereClause() == null) {
+                        continue;
+                    }
+                    Expression predicate = analyze(entry.getValue().getWhereClause().toSqlWithoutTbl());
+                    predicate = predicate.accept(new AddSessionVarGuardRewriter(
+                            entry.getValue().getSessionVariables()), Boolean.FALSE);
+                    mvWhereClauses.put(entry.getKey(), predicate);
                 }
             }
             return mvWhereClauses;

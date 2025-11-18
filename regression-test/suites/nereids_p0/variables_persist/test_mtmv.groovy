@@ -25,7 +25,7 @@ suite("test_mtmv") {
     PROPERTIES("replication_num" = "1");
     insert into test_decimal_mul_overflow_for_mv values(999999999999999.12345,999999999999999.123456);"""
 
-    def query_sql = """select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_mv;"""
+    def query_sql = """select f1, f2, f1*f2 multi_col from test_decimal_mul_overflow_for_mv"""
 
     //打开256创建物化视图
     multi_sql """
@@ -55,12 +55,12 @@ suite("test_mtmv") {
         sql query_sql
         contains "mv_var_1 chose"
     }
-    qt_rewite_open256 "$query_sql"
+    qt_rewite_open256 "$query_sql order by 1,2,3;"
 
     sql "set enable_decimal256=false;"
     explain {
         sql query_sql
         contains "mv_var_1 not chose"
     }
-    qt_rewite_open128 "$query_sql"
+    qt_rewite_open128 "$query_sql order by 1,2,3;"
 }

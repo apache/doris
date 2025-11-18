@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -74,7 +75,7 @@ public class MergeAggregate implements RewriteRuleFactory {
      */
     private Plan mergeTwoAggregate(LogicalAggregate<LogicalAggregate<Plan>> outerAgg) {
         LogicalAggregate<Plan> innerAgg = outerAgg.child();
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
+        Map<ExprId, Expression> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         List<NamedExpression> newOutputExpressions = outerAgg.getOutputExpressions().stream()
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
                 .collect(Collectors.toList());
@@ -96,10 +97,9 @@ public class MergeAggregate implements RewriteRuleFactory {
         List<NamedExpression> outputExpressions = outerAgg.getOutputExpressions();
         List<NamedExpression> replacedOutputExpressions = PlanUtils.replaceExpressionByProjections(
                                 project.getProjects(), (List) outputExpressions);
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
+        Map<ExprId, Expression> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         // rewrite agg function. e.g. max(max)
         List<NamedExpression> replacedAggFunc = replacedOutputExpressions.stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
                 .collect(Collectors.toList());
         // replace groupByKeys directly refer to the slot below the project
@@ -132,18 +132,12 @@ public class MergeAggregate implements RewriteRuleFactory {
     }
 
     private NamedExpression rewriteAggregateFunction(NamedExpression e,
-            Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc) {
+            Map<ExprId, Expression> innerAggExprIdToAggFunc) {
         return (NamedExpression) e.rewriteDownShortCircuit(expr -> {
-            if (expr instanceof Alias && ((Alias) expr).child() instanceof AggregateFunction) {
-                Alias alias = (Alias) expr;
-                AggregateFunction aggFunc = (AggregateFunction) alias.child();
+            if (expr instanceof AggregateFunction) {
+                AggregateFunction aggFunc = (AggregateFunction) expr.child(0);
                 ExprId childExprId = ((SlotReference) aggFunc.child(0)).getExprId();
-                if (innerAggExprIdToAggFunc.containsKey(childExprId)) {
-                    return new Alias(alias.getExprId(), innerAggExprIdToAggFunc.get(childExprId),
-                            alias.getName());
-                } else {
-                    return expr;
-                }
+                return innerAggExprIdToAggFunc.getOrDefault(childExprId, expr);
             } else {
                 return expr;
             }
@@ -152,7 +146,7 @@ public class MergeAggregate implements RewriteRuleFactory {
 
     private boolean commonCheck(LogicalAggregate<? extends Plan> outerAgg, LogicalAggregate<Plan> innerAgg,
             boolean sameGroupBy, Optional<LogicalProject> projectOptional) {
-        Map<ExprId, AggregateFunction> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
+        Map<ExprId, Expression> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         Set<AggregateFunction> aggregateFunctions = outerAgg.getAggregateFunctions();
         List<AggregateFunction> replacedAggFunctions = projectOptional.map(project ->
                 (List<AggregateFunction>) PlanUtils.replaceExpressionByProjections(
@@ -171,7 +165,13 @@ public class MergeAggregate implements RewriteRuleFactory {
             }
             ExprId childExprId = ((SlotReference) outerFunc.child(0)).getExprId();
             if (innerAggExprIdToAggFunc.containsKey(childExprId)) {
-                AggregateFunction innerFunc = innerAggExprIdToAggFunc.get(childExprId);
+                Expression expr = innerAggExprIdToAggFunc.get(childExprId);
+                AggregateFunction innerFunc;
+                if (expr instanceof SessionVarGuardExpr) {
+                    innerFunc = (AggregateFunction) expr.child(0);
+                } else {
+                    innerFunc = (AggregateFunction) expr;
+                }
                 if (innerFunc.isDistinct() && !sameGroupBy) {
                     return false;
                 }
@@ -223,10 +223,20 @@ public class MergeAggregate implements RewriteRuleFactory {
         return commonCheck(outerAgg, innerAgg, sameGroupBy, Optional.of(project));
     }
 
-    private Map<ExprId, AggregateFunction> getInnerAggExprIdToAggFuncMap(LogicalAggregate<Plan> innerAgg) {
-        return innerAgg.getOutputExpressions().stream()
-                .filter(expr -> (expr instanceof Alias) && (expr.child(0) instanceof AggregateFunction))
-                .collect(Collectors.toMap(NamedExpression::getExprId, value -> (AggregateFunction) value.child(0),
-                        (existValue, newValue) -> existValue));
+    private Map<ExprId, Expression> getInnerAggExprIdToAggFuncMap(LogicalAggregate<Plan> innerAgg) {
+        Map<ExprId, Expression> innerAggExprIdToAggFunc = new HashMap<>();
+        for (Expression expr : innerAgg.getOutputExpressions()) {
+            if (!(expr instanceof Alias)) {
+                continue;
+            }
+            Alias alias = (Alias) expr;
+            // Alias(aggFunc) or Alias(guardExpr(aggFunc))
+            if (alias.child(0) instanceof AggregateFunction
+                    || (alias.child(0) instanceof SessionVarGuardExpr
+                    && alias.child(0).child(0) instanceof AggregateFunction)) {
+                innerAggExprIdToAggFunc.put(alias.getExprId(), alias.child(0));
+            }
+        }
+        return innerAggExprIdToAggFunc;
     }
 }

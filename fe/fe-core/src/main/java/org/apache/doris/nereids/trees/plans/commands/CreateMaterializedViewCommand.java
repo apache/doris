@@ -172,7 +172,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         if (whereClauseItem == null) {
             return null;
         }
-        return whereClauseItem.toMVColumn(olapTable);
+        return whereClauseItem.toMVColumn(olapTable, null);
     }
 
     public MVColumnItem getWhereClauseItem() {

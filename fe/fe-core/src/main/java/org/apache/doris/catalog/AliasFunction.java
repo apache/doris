@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -141,5 +142,15 @@ public class AliasFunction extends Function {
         return parameters.stream()
                 .map(String::toString)
                 .collect(Collectors.joining(", "));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        boolean equalBasic = super.equals(o);
+        if (!equalBasic) {
+            return false;
+        }
+        AliasFunction other = (AliasFunction) o;
+        return Objects.equals(sessionVariables, other.sessionVariables);
     }
 }

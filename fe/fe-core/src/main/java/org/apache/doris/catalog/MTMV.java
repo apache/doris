@@ -44,6 +44,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -377,7 +378,10 @@ public class MTMV extends OlapTable {
         // 1. If a guardexpr is present, rewriting is not possible;
         // 2. If no guardexpr is present, rewriting is possible.
         // Determine if current session variables match MV creation session variables
-        boolean sessionVarsMatch = checkSessionVariablesMatch(connectionContext);
+        Map<String, String> currentSessionVars =
+                connectionContext.getSessionVariable().getAffectQueryResultVariables();
+        boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
+                currentSessionVars, this.sessionVariables);
 
         // Select appropriate cache based on session variable match
         readMvLock();
@@ -409,37 +413,6 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
-    }
-
-    /**
-     * Check if current query session variables match MV creation session variables.
-     * Only compares variables that affect query results.
-     */
-    private boolean checkSessionVariablesMatch(ConnectContext connectionContext) {
-        if (this.sessionVariables == null || this.sessionVariables.isEmpty()) {
-            // If no session variables saved, consider them matched
-            return true;
-        }
-
-        if (connectionContext == null) {
-            return true;
-        }
-
-        Map<String, String> currentSessionVars =
-                connectionContext.getSessionVariable().getAffectQueryResultVariables();
-
-        // Check if all saved session variables match current ones
-        for (Map.Entry<String, String> entry : this.sessionVariables.entrySet()) {
-            String varName = entry.getKey();
-            String savedValue = entry.getValue();
-            String currentValue = currentSessionVars.get(varName);
-
-            if (currentValue == null || !currentValue.equals(savedValue)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     public Map<String, String> getMvProperties() {

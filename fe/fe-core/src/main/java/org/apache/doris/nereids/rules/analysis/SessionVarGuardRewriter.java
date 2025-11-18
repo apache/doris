@@ -136,4 +136,17 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             }
         }, null);
     }
+
+    /**
+     * Check if current query session variables match MV creation session variables.
+     * Only compares variables that affect query results.
+     */
+    public static boolean checkSessionVariablesMatch(Map<String, String> currentSessionVars,
+            Map<String, String> persistSessionVars) {
+        if (persistSessionVars == null || persistSessionVars.isEmpty()) {
+            // If no session variables saved, consider them matched
+            return true;
+        }
+        return currentSessionVars.equals(persistSessionVars);
+    }
 }

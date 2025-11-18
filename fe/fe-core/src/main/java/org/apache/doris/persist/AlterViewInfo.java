@@ -101,7 +101,7 @@ public class AlterViewInfo implements Writable {
         AlterViewInfo otherInfo = (AlterViewInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId()
                 && inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef())
-                && sessionVariables == otherInfo.getSessionVariables()
+                && Objects.equals(sessionVariables, otherInfo.getSessionVariables())
                 && newFullSchema.equals(otherInfo.getNewFullSchema()) && Objects.equals(comment, otherInfo.comment);
     }
 

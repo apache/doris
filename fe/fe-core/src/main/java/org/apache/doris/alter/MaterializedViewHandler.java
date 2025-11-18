@@ -232,7 +232,9 @@ public class MaterializedViewHandler extends AlterHandler {
 
             long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
             // Step1.3: mv clause validation
-            List<Column> mvColumns = checkAndPrepareMaterializedView(createMvCommand, olapTable);
+            Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultSessionVariables(
+                    ConnectContext.get());
+            List<Column> mvColumns = checkAndPrepareMaterializedView(createMvCommand, olapTable, sessionVariables);
 
             // Step2: create mv job
             RollupJobV2 rollupJobV2 =
@@ -240,7 +242,7 @@ public class MaterializedViewHandler extends AlterHandler {
                             createMvCommand.getWhereClauseItemColumn(olapTable),
                             createMvCommand.getProperties(), olapTable, db, baseIndexId,
                             createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement(),
-                            ConnectContextUtil.getAffectQueryResultSessionVariables(ConnectContext.get()));
+                            sessionVariables);
 
             addAlterJobV2(rollupJobV2);
 
@@ -511,7 +513,7 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     private List<Column> checkAndPrepareMaterializedView(CreateMaterializedViewCommand createMvCommand,
-                                                         OlapTable olapTable)
+                                                         OlapTable olapTable, Map<String, String> sessionVariables)
             throws DdlException {
         // check if mv index already exists
         if (olapTable.hasMaterializedIndex(createMvCommand.getMVName())) {
@@ -587,7 +589,7 @@ public class MaterializedViewHandler extends AlterHandler {
                                 "The mvItem[" + mvColumnItem.getName() + "] require slot because it is value column");
                     }
                 }
-                newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
+                newMVColumns.add(mvColumnItem.toMVColumn(olapTable, sessionVariables));
             }
         } else {
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
@@ -596,7 +598,7 @@ public class MaterializedViewHandler extends AlterHandler {
                     throw new DdlException("Base columns is null");
                 }
 
-                newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
+                newMVColumns.add(mvColumnItem.toMVColumn(olapTable, sessionVariables));
             }
         }
 
@@ -1210,7 +1212,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         if (shouldJobRun) {
-            try (AutoCloseSessionVariable sessionVariable = new AutoCloseSessionVariable(ConnectContext.get(),
+            try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(ConnectContext.get(),
                     rollupJobV2.getSessionVariables())) {
                 rollupJobV2.run();
             }
