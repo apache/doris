@@ -38,7 +38,12 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "faiss/Index.h"
+#include "faiss/IndexFlat.h"
 #include "faiss/IndexHNSW.h"
+#include "faiss/IndexIVF.h"
+#include "faiss/IndexIVFFlat.h"
+#include "faiss/IndexIVFPQ.h"
+#include "faiss/IndexScalarQuantizer.h"
 #include "faiss/MetricType.h"
 #include "faiss/impl/FaissException.h"
 #include "faiss/impl/IDSelector.h"
@@ -340,6 +345,61 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
         hnsw_index->hnsw.efConstruction = params.ef_construction;
 
         _index = std::move(hnsw_index);
+    } else if (params.index_type == FaissBuildParameter::IndexType::IVF) {
+        std::unique_ptr<faiss::Index> ivf_index;
+        if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+            _quantizer = std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_L2);
+        } else {
+            _quantizer =
+                    std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_INNER_PRODUCT);
+        }
+
+        if (params.quantizer == FaissBuildParameter::Quantizer::FLAT) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFFlat>(
+                        _quantizer.get(), params.dim, params.ivf_nlist, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFFlat>(_quantizer.get(), params.dim,
+                                                                  params.ivf_nlist,
+                                                                  faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::SQ4) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_4bit, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_4bit, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::SQ8) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_8bit, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFScalarQuantizer>(
+                        _quantizer.get(), params.dim, params.ivf_nlist,
+                        faiss::ScalarQuantizer::QT_8bit, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else if (params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                ivf_index = std::make_unique<faiss::IndexIVFPQ>(_quantizer.get(), params.dim,
+                                                                params.ivf_nlist, params.pq_m,
+                                                                params.pq_nbits, faiss::METRIC_L2);
+            } else {
+                ivf_index = std::make_unique<faiss::IndexIVFPQ>(
+                        _quantizer.get(), params.dim, params.ivf_nlist, params.pq_m,
+                        params.pq_nbits, faiss::METRIC_INNER_PRODUCT);
+            }
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported quantizer for IVF: {}",
+                                   static_cast<int>(params.quantizer));
+        }
+
+        _index = std::move(ivf_index);
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                static_cast<int>(params.index_type));
@@ -365,29 +425,44 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     DCHECK(params.roaring != nullptr)
             << "Roaring should not be null for topN search, please set roaring in params";
 
-    faiss::SearchParametersHNSW param;
-    const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
-    if (hnsw_params == nullptr) {
-        return doris::Status::InvalidArgument(
-                "HNSW search parameters should not be null for HNSW index");
-    }
-    param.efSearch = hnsw_params->ef_search;
-    param.check_relative_distance = hnsw_params->check_relative_distance;
-    param.bounded_queue = hnsw_params->bounded_queue;
-    param.sel = nullptr;
+    std::unique_ptr<faiss::SearchParameters> search_param;
     std::unique_ptr<faiss::IDSelector> id_sel = nullptr;
     // Costs of roaring to faiss selector is very high especially when the cardinality is very high.
     if (params.roaring->cardinality() != params.rows_of_segment) {
         SCOPED_RAW_TIMER(&result.engine_prepare_ns);
         id_sel = roaring_to_faiss_selector(*params.roaring);
-        param.sel = id_sel.get();
+    }
+
+    if (_index_type == AnnIndexType::HNSW) {
+        faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
+        const HNSWSearchParameters* hnsw_params =
+                dynamic_cast<const HNSWSearchParameters*>(&params);
+        if (hnsw_params == nullptr) {
+            return doris::Status::InvalidArgument(
+                    "HNSW search parameters should not be null for HNSW index");
+        }
+        param->efSearch = hnsw_params->ef_search;
+        param->check_relative_distance = hnsw_params->check_relative_distance;
+        param->bounded_queue = hnsw_params->bounded_queue;
+        param->sel = id_sel.get();
+        search_param.reset(param);
+    } else if (_index_type == AnnIndexType::IVF) {
+        faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
+        const IVFSearchParameters* ivf_params = dynamic_cast<const IVFSearchParameters*>(&params);
+        if (ivf_params == nullptr) {
+            return doris::Status::InvalidArgument(
+                    "IVF search parameters should not be null for IVF index");
+        }
+        param->nprobe = ivf_params->nprobe;
+        param->sel = id_sel.get();
+        search_param.reset(param);
     } else {
-        param.sel = nullptr;
+        return doris::Status::InvalidArgument("Unsupported index type for search");
     }
 
     {
         SCOPED_RAW_TIMER(&result.engine_search_ns);
-        _index->search(1, query_vec, k, distances, labels, &param);
+        _index->search(1, query_vec, k, distances, labels, search_param.get());
     }
     {
         SCOPED_RAW_TIMER(&result.engine_convert_ns);

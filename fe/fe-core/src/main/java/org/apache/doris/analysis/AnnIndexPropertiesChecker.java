@@ -29,12 +29,13 @@ public class AnnIndexPropertiesChecker {
         String quantizer = null;
         int dimension = 0;
         int numSubQuantizers = 0;
+        int nlist = 0;
         for (String key : properties.keySet()) {
             switch (key) {
                 case "index_type":
                     type = properties.get(key);
-                    if (!type.equals("hnsw")) {
-                        throw new AnalysisException("only support ann index with type hnsw, got: " + type);
+                    if (!type.equals("hnsw") && !type.equals("ivf")) {
+                        throw new AnalysisException("only support ann index with type hnsw or ivf, got: " + type);
                     }
                     break;
                 case "metric_type":
@@ -118,10 +119,27 @@ public class AnnIndexPropertiesChecker {
                     } catch (NumberFormatException e) {
                         throw new AnalysisException(
                                 "pq_nbits of ann index must be a positive integer, got: " + pqNbits);
-                    }
-                    break;
-                default:
-                    throw new AnalysisException("unknown ann index property: " + key);
+                     }
+                     break;
+                 case "nlist":
+                     String nlistStr = properties.get(key);
+                     try {
+                         nlist = Integer.parseInt(nlistStr);
+                         if (nlist <= 0) {
+                             throw new AnalysisException("nlist of ann index must be a positive integer, got: " + nlistStr);
+                         }
+                     } catch (NumberFormatException e) {
+                         throw new AnalysisException("nlist of ann index must be a positive integer, got: " + nlistStr);
+                     }
+                     break;
+                 default:
+                     throw new AnalysisException("unknown ann index property: " + key);
+            }
+        }
+
+        if (type != null && type.equals("ivf")) {
+            if (nlist == 0) {
+                throw new AnalysisException("nlist of ann index must be specified for ivf type");
             }
         }
 

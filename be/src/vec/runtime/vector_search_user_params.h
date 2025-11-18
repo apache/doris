@@ -26,6 +26,15 @@ struct VectorSearchUserParams {
     int hnsw_ef_search = 32;
     bool hnsw_check_relative_distance = true;
     bool hnsw_bounded_queue = true;
+    int ivf_nprobe = 1;
+
+    VectorSearchUserParams() = default;
+    VectorSearchUserParams(int hnsw_ef_search_, bool hnsw_check_relative_distance_,
+                           bool hnsw_bounded_queue_, int ivf_nprobe_)
+            : hnsw_ef_search(hnsw_ef_search_),
+              hnsw_check_relative_distance(hnsw_check_relative_distance_),
+              hnsw_bounded_queue(hnsw_bounded_queue_),
+              ivf_nprobe(ivf_nprobe_) {}
 
     bool operator==(const VectorSearchUserParams& other) const;
 
