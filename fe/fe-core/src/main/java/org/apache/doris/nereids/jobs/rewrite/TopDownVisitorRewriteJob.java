@@ -48,7 +48,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
     @Override
     public void execute(JobContext jobContext) {
         Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
-        Optional<Rules> relateRules = getRelatedRules(originPlan, rules, jobContext.getCascadesContext());
+        Optional<Rules> relateRules = RewriteUtil.getRelatedRules(rules, jobContext.getCascadesContext());
         if (!relateRules.isPresent()) {
             return;
         }
@@ -73,7 +73,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
             return plan;
         }
 
-        checkTimeout(jobContext);
+        RewriteUtil.checkTimeout(jobContext);
 
         plan = doRewrite(parent, childIndex, plan, jobContext, rules, processState);
 
@@ -132,14 +132,5 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                 return originPlan;
             }
         }
-    }
-
-    /** getRelateRules */
-    public static Optional<Rules> getRelatedRules(Plan plan, Rules originRules, CascadesContext context) {
-        List<Rule> validRules = originRules.filterValidRules(context);
-        if (validRules.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(originRules);
     }
 }
