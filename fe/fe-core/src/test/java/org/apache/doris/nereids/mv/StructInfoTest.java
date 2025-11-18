@@ -239,4 +239,73 @@ public class StructInfoTest extends SqlTestBase {
                                                     .isPresent()));
                         });
     }
+
+    @Test
+    public void testPlanPatternChecker() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, c2\n"
+                                + "from orders_arr\n"
+                                + "LATERAL VIEW explode_outer(orders_arr.o_array2) t1 as c2\n"
+                                + "order by c2;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            PlanCheckContext planCheckContext = new PlanCheckContext(
+                                    AbstractMaterializedViewJoinRule.SUPPORTED_JOIN_TYPE_SET);
+                            Boolean valid = rewrittenPlan.child(0).accept(
+                                    StructInfo.PLAN_PATTERN_CHECKER, planCheckContext);
+                            Assertions.assertTrue(valid);
+                            Assertions.assertEquals(0, planCheckContext.getTopAggregateNum());
+                            Assertions.assertFalse(planCheckContext.isContainsTopAggregate());
+
+                            Assertions.assertEquals(1, planCheckContext.getTopGenerateNum());
+                            Assertions.assertTrue(planCheckContext.isGenerateUnderAggregate());
+                            Assertions.assertTrue(planCheckContext.isContainsTopGenerate());
+                        });
+    }
+
+    @Test
+    public void testPlanPatternCheckerGenerateAboveAgg() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, c2\n"
+                                + "from (select o_orderkey from orders_arr group by o_orderkey) orders_a\n"
+                                + "LATERAL VIEW explode_numbers(0) t1 as c2\n"
+                                + "order by c2;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            PlanCheckContext planCheckContext = new PlanCheckContext(
+                                    AbstractMaterializedViewJoinRule.SUPPORTED_JOIN_TYPE_SET);
+                            Boolean valid = rewrittenPlan.child(0).accept(
+                                    StructInfo.PLAN_PATTERN_CHECKER, planCheckContext);
+                            Assertions.assertTrue(valid);
+                            Assertions.assertEquals(1, planCheckContext.getTopAggregateNum());
+                            Assertions.assertTrue(planCheckContext.isContainsTopAggregate());
+
+                            Assertions.assertEquals(1, planCheckContext.getTopGenerateNum());
+                            Assertions.assertFalse(planCheckContext.isGenerateUnderAggregate());
+                            Assertions.assertTrue(planCheckContext.isContainsTopGenerate());
+                        });
+    }
+
+    @Test
+    public void testCheckTmpRewrittenPlanInValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey, c2\n"
+                                + "from (select o_orderkey from orders_arr group by o_orderkey) orders_a\n"
+                                + "LATERAL VIEW explode_numbers(0) t1 as c2\n"
+                                + "order by c2;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertFalse(StructInfo.checkTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
+
+    @Test
+    public void testCheckTmpRewrittenPlanIsValid() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select o_orderkey from orders_arr where o_orderkey = 1;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan().child(0);
+                            Assertions.assertTrue(StructInfo.checkTmpRewrittenPlanIsValid(rewrittenPlan));
+                        });
+    }
 }
