@@ -44,6 +44,7 @@
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/cluster_info.h"
+#include "util/debug_points.h"
 
 namespace doris {
 class TConfirmUnusedRemoteFilesRequest;
@@ -120,6 +121,11 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
 
 Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
 #ifdef BE_TEST
+    if (config::enable_debug_points &&
+                DebugPoints::instance()->is_enable(
+                        "MasterServerClient::report.fail")) [[unlikely]] {
+        return Status::InternalError("debug report fail");
+    }
     result->status.__set_status_code(TStatusCode::OK);
     return Status::OK();
 #else
