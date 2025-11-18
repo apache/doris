@@ -203,8 +203,6 @@ import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
-import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
@@ -380,11 +378,6 @@ public class GsonUtils {
                     .registerCompatibleSubtype(CloudSchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
         }
     }
-
-    // runtime adapter for class "SyncJob"
-    private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(SyncJob.class, "clazz")
-            .registerSubtype(CanalSyncJob.class, CanalSyncJob.class.getSimpleName());
 
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
@@ -627,7 +620,6 @@ public class GsonUtils {
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
-            .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
