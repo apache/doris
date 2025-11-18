@@ -1473,6 +1473,8 @@ DECLARE_mInt32(max_s3_client_retry);
 // and the max retry time is max_s3_client_retry
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
+DECLARE_mBool(enable_s3_parallel_read);
+DECLARE_mInt32(s3_parallel_read_chunk_size);
 DECLARE_mBool(enable_s3_object_check_after_upload);
 
 // write as inverted index tmp directory
@@ -1520,6 +1522,10 @@ DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
+// The min thread num for S3ParallelReadThreadPool
+DECLARE_Int64(num_s3_parallel_read_thread_pool_min_thread);
+// The max thread num for S3ParallelReadThreadPool
+DECLARE_Int64(num_s3_parallel_read_thread_pool_max_thread);
 // The maximum jvm heap usage ratio for hdfs write workload
 DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage

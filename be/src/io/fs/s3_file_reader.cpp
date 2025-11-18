@@ -30,12 +30,16 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <future>
 #include <utility>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
@@ -43,6 +47,7 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
 
@@ -72,6 +77,11 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolde
         }
 
         file_size = res.value();
+    }
+
+    if (config::enable_s3_parallel_read) {
+        return std::make_shared<ParallelS3FileReader>(std::move(client), std::move(bucket),
+                                                       std::move(key), file_size, profile);
     }
 
     return std::make_shared<S3FileReader>(std::move(client), std::move(bucket), std::move(key),
@@ -217,6 +227,110 @@ void S3FileReader::_collect_profile_before_close() {
         COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
         COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
     }
+}
+
+ParallelS3FileReader::ParallelS3FileReader(std::shared_ptr<const ObjClientHolder> client,
+                                           std::string bucket, std::string key, size_t file_size,
+                                           RuntimeProfile* profile)
+        : S3FileReader(std::move(client), std::move(bucket), std::move(key), file_size, profile) {}
+
+Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                          const IOContext* io_ctx) {
+    DCHECK(!closed());
+    if (offset > _file_size) {
+        return Status::InternalError(
+                "offset exceeds file size(offset: {}, file size: {}, path: {})", offset, _file_size,
+                _path.native());
+    }
+
+    size_t bytes_req = result.size;
+    char* to = result.data;
+    bytes_req = std::min(bytes_req, _file_size - offset);
+    if (UNLIKELY(bytes_req == 0)) {
+        *bytes_read = 0;
+        return Status::OK();
+    }
+
+    // If request size is smaller than chunk size, use base implementation
+    size_t chunk_size = config::s3_parallel_read_chunk_size;
+    if (bytes_req <= chunk_size) {
+        return S3FileReader::read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+
+    // Calculate number of chunks
+    size_t num_chunks = (bytes_req + chunk_size - 1) / chunk_size;
+
+    // Structure to hold chunk read information
+    struct ChunkRead {
+        size_t offset;
+        size_t size;
+        char* buffer;
+        size_t bytes_read;
+        std::shared_ptr<std::promise<Status>> promise;
+        std::future<Status> future;
+    };
+
+    std::vector<ChunkRead> chunks(num_chunks);
+
+    // Split the read into multiple chunks and initialize promise/future
+    for (size_t i = 0; i < num_chunks; ++i) {
+        size_t chunk_offset = offset + i * chunk_size;
+        size_t chunk_bytes = std::min(chunk_size, bytes_req - i * chunk_size);
+
+        chunks[i].offset = chunk_offset;
+        chunks[i].size = chunk_bytes;
+        chunks[i].buffer = to + i * chunk_size;
+        chunks[i].bytes_read = 0;
+        chunks[i].promise = std::make_shared<std::promise<Status>>();
+        chunks[i].future = chunks[i].promise->get_future();
+    }
+
+    // Get thread pool from ExecEnv
+    ThreadPool* thread_pool = ExecEnv::GetInstance()->s3_parallel_read_thread_pool();
+    if (!thread_pool) {
+        // Fallback to base implementation if thread pool is not available
+        return S3FileReader::read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+
+    // Launch parallel reads
+    for (size_t i = 0; i < num_chunks; ++i) {
+        Status submit_status = thread_pool->submit_func(
+                [this, &chunks, i, io_ctx]() {
+                    Slice chunk_slice(chunks[i].buffer, chunks[i].size);
+                    Status status = S3FileReader::read_at_impl(
+                            chunks[i].offset, chunk_slice, &chunks[i].bytes_read, io_ctx);
+                    chunks[i].promise->set_value(status);
+                });
+
+        if (!submit_status.ok()) {
+            return Status::InternalError("Failed to submit parallel read task: {}",
+                                         submit_status.to_string());
+        }
+    }
+
+    // Wait for all reads to complete and check status
+    for (size_t i = 0; i < num_chunks; ++i) {
+        Status status = chunks[i].future.get();
+        if (!status.ok()) {
+            return status;
+        }
+    }
+
+    // Check bytes read and aggregate
+    *bytes_read = 0;
+    for (size_t i = 0; i < num_chunks; ++i) {
+        if (chunks[i].bytes_read != chunks[i].size) {
+            std::string msg = fmt::format(
+                    "parallel read chunk {} failed: expected {} bytes, got {} bytes, path={} "
+                    "offset={}",
+                    i, chunks[i].size, chunks[i].bytes_read, _path.native(), chunks[i].offset);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+        *bytes_read += chunks[i].bytes_read;
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris::io
