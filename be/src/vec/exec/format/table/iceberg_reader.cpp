@@ -223,9 +223,11 @@ void IcebergTableReader::_generate_equality_delete_block(
 }
 
 Status IcebergTableReader::_expand_block_if_need(Block* block) {
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = block->get_name_to_pos_map();
     for (auto& col : _expand_columns) {
         col.column->assume_mutable()->clear();
-        if (block->get_position_by_name(col.name) != -1) {
+        if (name_to_pos_map.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         block->insert(col);
@@ -234,13 +236,14 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
 }
 
 Status IcebergTableReader::_shrink_block_if_need(Block* block) {
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = block->get_name_to_pos_map();
     for (const std::string& expand_col : _expand_col_names) {
-        int pos = block->get_position_by_name(expand_col);
-        if (pos == -1) {
+        if (!name_to_pos_map.contains(expand_col)) {
             return Status::InternalError("Wrong erase column '{}', block: {}", expand_col,
                                          block->dump_names());
         }
-        block->erase(pos);
+        block->erase(name_to_pos_map[expand_col]);
     }
     return Status::OK();
 }
@@ -388,9 +391,11 @@ void IcebergTableReader::_sort_delete_rows(std::vector<std::vector<int64_t>*>& d
 void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
                                                          size_t read_rows,
                                                          bool file_path_column_dictionary_coded) {
-    ColumnPtr path_column = block.get_by_name(ICEBERG_FILE_PATH).column;
+    // todo: maybe do not need to build name to index map every time
+    auto name_to_pos_map = block.get_name_to_pos_map();
+    ColumnPtr path_column = block.get_by_position(name_to_pos_map[ICEBERG_FILE_PATH]).column;
     DCHECK_EQ(path_column->size(), read_rows);
-    ColumnPtr pos_column = block.get_by_name(ICEBERG_ROW_POS).column;
+    ColumnPtr pos_column = block.get_by_position(name_to_pos_map[ICEBERG_ROW_POS]).column;
     using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
     const int64_t* src_data = assert_cast<const ColumnType&>(*pos_column).get_data().data();
     IcebergTableReader::PositionDeleteRange range;

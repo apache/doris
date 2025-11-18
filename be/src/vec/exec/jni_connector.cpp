@@ -324,8 +324,8 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
     SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name = block->get_by_name(_column_names[i]);
+    for (int i = 0; i < block->columns(); ++i) {
+        auto& column_with_type_and_name = block->get_by_position(i);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(_fill_column(_table_meta, column_ptr, column_type, num_rows));
