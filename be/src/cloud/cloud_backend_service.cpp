@@ -32,6 +32,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/stack_util.h"
 #include "util/thrift_server.h"
 
 namespace doris {
@@ -213,8 +214,12 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
             return;
         }
         PGetFileCacheMetaRequest brpc_request;
-        std::for_each(request.tablet_ids.cbegin(), request.tablet_ids.cend(),
-                      [&](int64_t tablet_id) { brpc_request.add_tablet_ids(tablet_id); });
+        std::stringstream ss;
+        std::for_each(request.tablet_ids.cbegin(), request.tablet_ids.cend(), [&](int64_t tablet_id) {
+            brpc_request.add_tablet_ids(tablet_id);
+            ss << tablet_id << ",";
+        });
+        VLOG_DEBUG << "tablets set: " << ss.str() << " stack: " << get_stack_trace();
 
         auto run_rpc = [this, brpc_stub,
                         brpc_addr](PGetFileCacheMetaRequest request_copy) -> Status {
