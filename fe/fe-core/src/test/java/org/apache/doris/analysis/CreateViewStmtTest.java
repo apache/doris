@@ -17,9 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
