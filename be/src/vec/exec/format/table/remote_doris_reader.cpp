@@ -82,10 +82,14 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
         arrow::Array* column = batch->column(c).get();
 
         std::string column_name = batch->schema()->field(c)->name();
+        if (!name_to_pos_map.contains(column_name)) {
+            return Status::InternalError("column {} not found in block {}", column_name,
+                                         block->dump_structure());
+        }
 
         try {
             const vectorized::ColumnWithTypeAndName& column_with_name =
-                    block->safe_get_by_position(name_to_pos_map[column_name]);
+                    block->get_by_position(name_to_pos_map[column_name]);
             RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
                     column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz));
         } catch (Exception& e) {
