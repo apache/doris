@@ -31,11 +31,11 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
-#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -410,6 +410,10 @@ Status SegmentIterator::_lazy_init() {
     } else {
         _prefetch_range_iter.reset();
     }
+
+    // Trigger prefetch for data pages based on row bitmap
+    RETURN_IF_ERROR(_prefetch_data_pages_for_row_bitmap());
+
     return Status::OK();
 }
 
@@ -2070,7 +2074,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
         _block_rowids_prefetch.resize(_opts.block_row_max);
         _current_return_columns.resize(_schema->columns().size());
-        
+
         // Issue first prefetch after initialization
         Status prefetch_status = _prefetch_pages_for_next_batch();
         if (!prefetch_status.ok()) {
@@ -2599,9 +2603,8 @@ uint16_t SegmentIterator::_get_next_prefetch_rowids() {
         return 0;
     }
 
-    uint32_t nrows_read_limit =
-            std::min<uint32_t>(cast_set<uint32_t>(_row_bitmap.cardinality()),
-                               static_cast<uint32_t>(_opts.block_row_max));
+    uint32_t nrows_read_limit = std::min<uint32_t>(cast_set<uint32_t>(_row_bitmap.cardinality()),
+                                                   static_cast<uint32_t>(_opts.block_row_max));
     uint16_t nrows_prefetch = (uint16_t)_prefetch_range_iter->read_batch_rowids(
             _block_rowids_prefetch.data(), nrows_read_limit);
 
@@ -2686,7 +2689,7 @@ Status SegmentIterator::_issue_prefetch_requests(
 
     // Convert set to vector for prefetch_batch API
     std::vector<std::pair<size_t, size_t>> ranges(pages_to_prefetch.begin(),
-                                                   pages_to_prefetch.end());
+                                                  pages_to_prefetch.end());
 
     VLOG_DEBUG << fmt::format("Prefetch: Submitting {} unique pages to prefetch_batch",
                               ranges.size());
@@ -2735,17 +2738,15 @@ Status SegmentIterator::_collect_prefetch_pages(
     const int64_t bytes_budget = config::segment_iterator_prefetch_max_bytes;
     int64_t bytes_accumulated = 0;
 
-    for (int lookahead = 0; lookahead < config::segment_iterator_prefetch_lookahead;
-         ++lookahead) {
+    for (int lookahead = 0; lookahead < config::segment_iterator_prefetch_lookahead; ++lookahead) {
         uint16_t nrows_prefetch = _get_next_prefetch_rowids();
         if (nrows_prefetch == 0) {
             break;
         }
 
-        bool is_continuous = (nrows_prefetch > 1) &&
-                             (_block_rowids_prefetch[nrows_prefetch - 1] -
-                                      _block_rowids_prefetch[0] ==
-                              nrows_prefetch - 1);
+        bool is_continuous = (nrows_prefetch > 1) && (_block_rowids_prefetch[nrows_prefetch - 1] -
+                                                              _block_rowids_prefetch[0] ==
+                                                      nrows_prefetch - 1);
 
         if (!is_continuous) {
             VLOG_DEBUG << fmt::format(
@@ -2755,8 +2756,8 @@ Status SegmentIterator::_collect_prefetch_pages(
             continue;
         }
 
-        VLOG_DEBUG << fmt::format("Prefetch: read {} contiguous rowids [{}, {}]",
-                                  nrows_prefetch, _block_rowids_prefetch[0],
+        VLOG_DEBUG << fmt::format("Prefetch: read {} contiguous rowids [{}, {}]", nrows_prefetch,
+                                  _block_rowids_prefetch[0],
                                   _block_rowids_prefetch[nrows_prefetch - 1]);
 
         std::vector<rowid_t> rowid_range = {_block_rowids_prefetch[0],
@@ -2779,6 +2780,99 @@ Status SegmentIterator::_collect_prefetch_pages(
 
     if (has_more != nullptr) {
         *has_more = _prefetch_range_iter && _prefetch_range_iter->has_more_range();
+    }
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_prefetch_data_pages_for_row_bitmap() {
+    // Check if bitmap-based prefetch is enabled
+    if (!config::enable_segment_iterator_bitmap_prefetch) {
+        return Status::OK();
+    }
+
+    // Only prefetch for compute-storage separation scenarios with CachedRemoteFileReader
+    if (_row_bitmap.isEmpty() || _file_reader == nullptr) {
+        return Status::OK();
+    }
+
+    auto* cached_reader = dynamic_cast<io::CachedRemoteFileReader*>(_file_reader.get());
+    if (cached_reader == nullptr) {
+        // Not using CachedRemoteFileReader, skip prefetch
+        return Status::OK();
+    }
+
+    // Get the first and last row ID from the bitmap
+    uint64_t first_row = _row_bitmap.minimum();
+    uint64_t last_row = _row_bitmap.maximum();
+
+    VLOG_DEBUG << fmt::format(
+            "SegmentIterator prefetch: Processing row bitmap range [{}, {}] for segment {}",
+            first_row, last_row, segment_id());
+
+    // For each column, find the data page range covering [first_row, last_row]
+    // and trigger parallel prefetch for all file cache blocks
+    for (auto cid : _schema->column_ids()) {
+        // Get ColumnReader for this column
+        std::shared_ptr<ColumnReader> column_reader;
+        if (!_segment->_column_reader_cache->get_column_reader(
+                    _opts.tablet_schema->column(cid).unique_id(), &column_reader, _opts.stats) ||
+            column_reader == nullptr) {
+            VLOG_DEBUG << fmt::format(
+                    "SegmentIterator prefetch: Failed to get column reader for column {}", cid);
+            continue;
+        }
+
+        // Setup iterator options for seeking
+        ColumnIteratorOptions iter_opts {
+                .use_page_cache = _opts.use_page_cache,
+                .file_reader = _file_reader.get(),
+                .stats = _opts.stats,
+                .io_ctx = _opts.io_ctx,
+        };
+
+        // Find the first data page containing first_row
+        OrdinalPageIndexIterator first_page_iter;
+        Status st = column_reader->seek_at_or_before(first_row, &first_page_iter, iter_opts);
+        if (!st.ok() || !first_page_iter.valid()) {
+            VLOG_DEBUG << fmt::format(
+                    "SegmentIterator prefetch: Failed to seek first page for column {} row {}: {}",
+                    cid, first_row, st.to_string());
+            continue;
+        }
+
+        // Find the last data page containing last_row
+        OrdinalPageIndexIterator last_page_iter;
+        st = column_reader->seek_at_or_before(last_row, &last_page_iter, iter_opts);
+        if (!st.ok() || !last_page_iter.valid()) {
+            VLOG_DEBUG << fmt::format(
+                    "SegmentIterator prefetch: Failed to seek last page for column {} row {}: {}",
+                    cid, last_row, st.to_string());
+            continue;
+        }
+
+        // Get the file offset range for [first_page, last_page]
+        const PagePointer& first_pp = first_page_iter.page();
+        const PagePointer& last_pp = last_page_iter.page();
+        size_t start_offset = first_pp.offset;
+        size_t end_offset = last_pp.offset + last_pp.size;
+
+        LOG_INFO(
+                "SegmentIterator prefetch: Column {} pages [{}, {}] covers ordinals [{}, {}], "
+                "offset range [{}, {}) for tablet={}, rowset={}, segment {}",
+                cid, first_page_iter.page_index(), last_page_iter.page_index(),
+                first_page_iter.first_ordinal(), last_page_iter.last_ordinal(), start_offset,
+                end_offset, _tablet_id, _segment->rowset_id().to_string(), segment_id());
+
+        // Trigger parallel prefetch for all file cache blocks covering [start_offset, end_offset)
+        // This will submit concurrent read tasks to s3_parallel_read_thread_pool
+        st = cached_reader->prefetch_blocks_in_parallel(start_offset, end_offset, &_opts.io_ctx);
+        if (!st.ok()) {
+            // Prefetch is best-effort, log but don't fail
+            VLOG(1) << fmt::format(
+                    "SegmentIterator prefetch: Failed to prefetch column {} range [{}, {}): {}",
+                    cid, start_offset, end_offset, st.to_string());
+        }
     }
 
     return Status::OK();

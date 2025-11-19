@@ -1471,6 +1471,8 @@ DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_parallel_read_thread_pool_min_thread, "2000");
 // The max thread num for S3ParallelReadThreadPool
 DEFINE_Int64(num_s3_parallel_read_thread_pool_max_thread, "2000");
+// Enable segment iterator row bitmap based prefetch for compute-storage separation
+DEFINE_Bool(enable_segment_iterator_bitmap_prefetch, "false");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage

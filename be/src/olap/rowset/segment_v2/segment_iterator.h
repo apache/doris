@@ -188,6 +188,8 @@ private:
 
     [[nodiscard]] Status _lazy_init();
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Prefetch data pages based on row bitmap for compute-storage separation
+    [[nodiscard]] Status _prefetch_data_pages_for_row_bitmap();
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
