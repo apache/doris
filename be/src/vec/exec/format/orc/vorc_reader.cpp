@@ -1347,7 +1347,7 @@ Status OrcReader::_fill_missing_columns(
                 block->replace_by_position(
                         name_to_pos_map[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                        positions_to_erase.insert(result_column_id);
+                positions_to_erase.insert(result_column_id);
             }
         }
     }
