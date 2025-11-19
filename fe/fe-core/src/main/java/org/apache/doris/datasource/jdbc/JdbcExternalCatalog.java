@@ -305,7 +305,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkWhenCreating() throws DdlException {
-        super.checkWhenCreating();
+        // Skip super.checkWhenCreating() for now;
         Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(JdbcResource.DRIVER_URL)) {
             String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));

@@ -307,6 +307,9 @@ public class LocationPath {
     }
 
     public TFileType getTFileTypeForBE() {
+        if (StringUtils.isNotBlank(normalizedLocation) && isHdfsOnOssEndpoint(normalizedLocation)) {
+            return TFileType.FILE_HDFS;
+        }
         return SchemaTypeMapper.fromSchemaToFileType(schema);
     }
 
