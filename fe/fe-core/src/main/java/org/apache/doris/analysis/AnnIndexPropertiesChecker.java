@@ -119,21 +119,22 @@ public class AnnIndexPropertiesChecker {
                     } catch (NumberFormatException e) {
                         throw new AnalysisException(
                                 "pq_nbits of ann index must be a positive integer, got: " + pqNbits);
-                     }
-                     break;
-                 case "nlist":
-                     String nlistStr = properties.get(key);
-                     try {
-                         nlist = Integer.parseInt(nlistStr);
-                         if (nlist <= 0) {
-                             throw new AnalysisException("nlist of ann index must be a positive integer, got: " + nlistStr);
-                         }
-                     } catch (NumberFormatException e) {
-                         throw new AnalysisException("nlist of ann index must be a positive integer, got: " + nlistStr);
-                     }
-                     break;
-                 default:
-                     throw new AnalysisException("unknown ann index property: " + key);
+                    }
+                    break;
+                case "nlist":
+                    String nlistStr = properties.get(key);
+                    try {
+                        nlist = Integer.parseInt(nlistStr);
+                        if (nlist <= 0) {
+                            throw new AnalysisException(
+                                "nlist of ann index must be a positive integer, got: " + nlistStr);
+                        }
+                    } catch (NumberFormatException e) {
+                        throw new AnalysisException("nlist of ann index must be a positive integer, got: " + nlistStr);
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("unknown ann index property: " + key);
             }
         }
 

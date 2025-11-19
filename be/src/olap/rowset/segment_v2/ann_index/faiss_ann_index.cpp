@@ -434,25 +434,25 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     }
 
     if (_index_type == AnnIndexType::HNSW) {
-        faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
         const HNSWSearchParameters* hnsw_params =
                 dynamic_cast<const HNSWSearchParameters*>(&params);
         if (hnsw_params == nullptr) {
             return doris::Status::InvalidArgument(
                     "HNSW search parameters should not be null for HNSW index");
         }
+        faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
         param->efSearch = hnsw_params->ef_search;
         param->check_relative_distance = hnsw_params->check_relative_distance;
         param->bounded_queue = hnsw_params->bounded_queue;
         param->sel = id_sel.get();
         search_param.reset(param);
     } else if (_index_type == AnnIndexType::IVF) {
-        faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
         const IVFSearchParameters* ivf_params = dynamic_cast<const IVFSearchParameters*>(&params);
         if (ivf_params == nullptr) {
             return doris::Status::InvalidArgument(
                     "IVF search parameters should not be null for IVF index");
         }
+        faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
         param->nprobe = ivf_params->nprobe;
         param->sel = id_sel.get();
         search_param.reset(param);
@@ -511,14 +511,29 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     DCHECK(query_vec != nullptr);
     DCHECK(params.roaring != nullptr)
             << "Roaring should not be null for range search, please set roaring in params";
-    faiss::SearchParametersHNSW param;
+    std::unique_ptr<faiss::SearchParameters> search_param;
     const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
-    {
-        // Engine prepare: set search parameters and bind selector
-        SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-        param.efSearch = hnsw_params->ef_search;
-        param.check_relative_distance = hnsw_params->check_relative_distance;
-        param.bounded_queue = hnsw_params->bounded_queue;
+    const IVFSearchParameters* ivf_params = dynamic_cast<const IVFSearchParameters*>(&params);
+    if (hnsw_params != nullptr) {
+        faiss::SearchParametersHNSW* param = new faiss::SearchParametersHNSW();
+        {
+            // Engine prepare: set search parameters and bind selector
+            SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+            param->efSearch = hnsw_params->ef_search;
+            param->check_relative_distance = hnsw_params->check_relative_distance;
+            param->bounded_queue = hnsw_params->bounded_queue;
+        }
+        search_param.reset(param);
+    } else if (ivf_params != nullptr) {
+        faiss::SearchParametersIVF* param = new faiss::SearchParametersIVF();
+        {
+            // Engine prepare: set search parameters and bind selector
+            SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+            param->nprobe = ivf_params->nprobe;
+        }
+        search_param.reset(param);
+    } else {
+        return doris::Status::InvalidArgument("Unsupported index type for range search");
     }
     std::unique_ptr<faiss::IDSelector> sel;
     {
@@ -526,26 +541,25 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         SCOPED_RAW_TIMER(&result.engine_prepare_ns);
         if (params.roaring->cardinality() != params.rows_of_segment) {
             sel = roaring_to_faiss_selector(*params.roaring);
-            param.sel = sel.get();
+            search_param->sel = sel.get();
         } else {
-            param.sel = nullptr;
+            search_param->sel = nullptr;
         }
     }
 
     faiss::RangeSearchResult native_search_result(1, true);
-    // Currently only support HNSW index for range search.
-    DCHECK(hnsw_params != nullptr) << "HNSW search parameters should not be null for HNSW index";
     {
         // Engine search: FAISS range_search
         SCOPED_RAW_TIMER(&result.engine_search_ns);
         if (_metric == AnnIndexMetric::L2) {
             if (radius <= 0) {
-                _index->range_search(1, query_vec, 0.0f, &native_search_result, &param);
+                _index->range_search(1, query_vec, 0.0f, &native_search_result, search_param.get());
             } else {
-                _index->range_search(1, query_vec, radius * radius, &native_search_result, &param);
+                _index->range_search(1, query_vec, radius * radius, &native_search_result,
+                                     search_param.get());
             }
         } else if (_metric == AnnIndexMetric::IP) {
-            _index->range_search(1, query_vec, radius, &native_search_result, &param);
+            _index->range_search(1, query_vec, radius, &native_search_result, search_param.get());
         }
     }
 
