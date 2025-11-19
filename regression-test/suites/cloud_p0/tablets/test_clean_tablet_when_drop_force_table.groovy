@@ -33,12 +33,25 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'write_buffer_size=10240',
-        'write_buffer_size_for_agg=10240'
+        'write_buffer_size_for_agg=10240',
+        'sys_log_verbose_modules=task_worker_pool'
     ]
     options.setFeNum(3)
     options.setBeNum(3)
     options.cloudMode = true
     options.enableDebugPoints()
+
+    def checkBeLog = { String beLogPath ->
+        log.info("search be log path: {}", beLogPath)
+        def logFile = new File(beLogPath)
+        assertTrue(logFile.exists(), "BE log file not found: ${beLogPath}")
+        def queueZeroLine = logFile.readLines().find { line ->
+            line =~ /remove task info\. type=DROP, .*queue_size=0/
+        }
+        assertTrue(queueZeroLine != null,
+                "Expected to find log line with queue_size=0 in ${beLogPath}, but none matched.")
+        log.info("found queue_size=0 log line: {}", queueZeroLine)
+    }
     
     def testCase = { tableName, waitTime, useDp=false-> 
         def ms = cluster.getAllMetaservices().get(0)
@@ -191,6 +204,8 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             }
         }
 
+        String beLogPath = cluster.getBeByIndex(1).getLogFilePath()
+        checkBeLog(beLogPath)
     }
 
     docker(options) {
