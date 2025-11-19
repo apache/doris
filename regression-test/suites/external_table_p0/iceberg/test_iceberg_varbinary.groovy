@@ -25,7 +25,7 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
 
     String catalog_name_no_mapping = "test_iceberg_no_mapping"
     String catalog_name_with_mapping = "test_iceberg_with_mapping"
-    String db_name = "transform_partition_db"
+    String db_name = "test_varbinary"
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -71,15 +71,82 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
         select * from test_ice_uuid_parquet order by id;
     """
 
+    // no mapping orc
+    qt_select3 """
+        insert into test_ice_uuid_orc_write_no_mapping select * from test_ice_uuid_orc;
+    """
+
+    qt_select4 """
+        insert into test_ice_uuid_orc_write_no_mapping values(NULL,NULL,NULL);
+    """
+
+    qt_select5 """
+        insert into test_ice_uuid_orc_write_no_mapping values(7,X"ABAB",X"ABAB");
+    """   
+
+    qt_select6 """
+        select * from test_ice_uuid_orc_write_no_mapping order by id;
+    """
+
+    // no mapping parquet
+    qt_select7 """
+        insert into test_ice_uuid_parquet_write_no_mapping select * from test_ice_uuid_parquet;
+    """
+
+    qt_select9 """
+        insert into test_ice_uuid_parquet_write_no_mapping values(NULL,NULL,NULL);
+    """
+
+    qt_select10 """
+        insert into test_ice_uuid_parquet_write_no_mapping values(7,X"ABAB",X"ABAB");
+    """
+
+    qt_select11 """
+        select * from test_ice_uuid_parquet_write_no_mapping order by id;
+    """
 
     sql """switch ${catalog_name_with_mapping}"""
     sql """use ${db_name}"""
 
-    qt_select3 """
+    qt_select10 """
         select * from test_ice_uuid_orc order by id;
     """
 
-    qt_select4 """
+    qt_select11 """
         select * from test_ice_uuid_parquet order by id;
+    """
+
+    // with mapping orc
+    qt_select12 """
+        insert into test_ice_uuid_orc_write_with_mapping select * from test_ice_uuid_orc;
+    """
+
+    qt_select13 """
+        insert into test_ice_uuid_orc_write_with_mapping values(NULL,NULL,NULL);
+    """
+
+    qt_select14 """
+        insert into test_ice_uuid_orc_write_with_mapping values(7,X"ABAB",X"ABAB");
+    """   
+
+    qt_select15 """
+        select * from test_ice_uuid_orc_write_with_mapping order by id;
+    """
+
+    // with mapping parquet
+    qt_select16 """
+        insert into test_ice_uuid_parquet_write_with_mapping select * from test_ice_uuid_parquet;
+    """
+
+    qt_select17 """
+        insert into test_ice_uuid_parquet_write_with_mapping values(NULL,NULL,NULL);
+    """
+
+    qt_select18 """
+        insert into test_ice_uuid_parquet_write_with_mapping values(7,X"ABAB",X"ABAB");
+    """
+
+    qt_select19 """
+        select * from test_ice_uuid_parquet_write_with_mapping order by id;
     """
 }
