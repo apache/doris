@@ -36,7 +36,6 @@ public abstract class FileFormatProperties {
     public static final String FORMAT_HIVE_TEXT = "hive_text";
     public static final String FORMAT_ORC = "orc";
     public static final String FORMAT_JSON = "json";
-    public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
@@ -92,8 +91,6 @@ public abstract class FileFormatProperties {
                 return new OrcFileFormatProperties();
             case FORMAT_JSON:
                 return new JsonFileFormatProperties();
-            case FORMAT_AVRO:
-                return new AvroFileFormatProperties();
             case FORMAT_WAL:
                 return new WalFileFormatProperties();
             case FORMAT_ARROW:
