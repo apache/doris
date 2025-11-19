@@ -39,8 +39,9 @@ public class FromSecond extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
         FromSecondMonotonic {
 
+    public static final int RESULT_SCALE = 0;
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(BigIntType.INSTANCE));
+            FunctionSignature.ret(DateTimeV2Type.of(RESULT_SCALE)).args(BigIntType.INSTANCE));
 
     public FromSecond(Expression arg0) {
         super("from_second", arg0);

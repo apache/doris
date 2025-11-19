@@ -23,7 +23,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -63,16 +62,6 @@ public class AlterRepositoryStmt extends DdlStmt implements NotFallbackInParser 
         Map<String, String> copyProperties = new HashMap<>(properties);
         if (copyProperties.size() == 0) {
             throw new UserException("alter repository need contains ak/sk/token info of s3.");
-        }
-        copyProperties.remove(S3Properties.ACCESS_KEY);
-        copyProperties.remove(S3Properties.SECRET_KEY);
-        copyProperties.remove(S3Properties.SESSION_TOKEN);
-        copyProperties.remove(S3Properties.Env.ACCESS_KEY);
-        copyProperties.remove(S3Properties.Env.SECRET_KEY);
-        copyProperties.remove(S3Properties.Env.TOKEN);
-        if (copyProperties.size() != 0) {
-            throw new UserException("alter repository only support ak/sk/token info of s3."
-                + " unsupported properties: " + copyProperties.keySet());
         }
     }
 

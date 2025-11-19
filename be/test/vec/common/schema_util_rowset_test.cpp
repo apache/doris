@@ -306,6 +306,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
 
     // 2. create tablet
     TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    tablet_meta->_tablet_id = 12345;
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     EXPECT_TRUE(_tablet->init().ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
@@ -378,7 +379,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
     auto create_rowset_writer_context = [this](TabletSchemaSPtr tablet_schema,
                                                const SegmentsOverlapPB& overlap,
                                                uint32_t max_rows_per_segment, Version version) {
-        static int64_t inc_id = 1000;
+        static int64_t inc_id = 12345;
         RowsetWriterContext rowset_writer_context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
@@ -386,7 +387,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
         rowset_writer_context.rowset_type = BETA_ROWSET;
         rowset_writer_context.rowset_state = VISIBLE;
         rowset_writer_context.tablet_schema = tablet_schema;
-        rowset_writer_context.tablet_path = _absolute_dir + "/../";
+        rowset_writer_context.tablet_path = _tablet->tablet_path();
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
@@ -411,6 +412,61 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
 
     // 7. check output rowset
     EXPECT_TRUE(schema_util::check_path_stats(rowsets, out_rowset, _tablet).ok());
+
+    // get_data_type_of check
+    auto file_path =
+            local_segment_path(_tablet->tablet_path(), out_rowset->rowset_id().to_string(), 0);
+    OlapReaderStatistics olap_reader_stats;
+    std::shared_ptr<Segment> segment;
+    st = Segment::open(io::global_local_filesystem(), file_path, _tablet->tablet_id(), 0,
+                       out_rowset->rowset_id(), out_rowset->tablet_schema(),
+                       io::FileReaderOptions(), &segment, InvertedIndexFileInfo(),
+                       &olap_reader_stats);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    TabletColumn subcolumn_in_sparse;
+    subcolumn_in_sparse.set_name("v1.key3");
+    subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    subcolumn_in_sparse.set_unique_id(-1);
+    subcolumn_in_sparse.set_parent_unique_id(1);
+    subcolumn_in_sparse.set_path_info(PathInData("v1.key3"));
+    subcolumn_in_sparse.set_variant_max_subcolumns_count(3);
+    subcolumn_in_sparse.set_is_nullable(true);
+    st = segment->_create_column_meta_once(&olap_reader_stats);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // key3 is in the sparse column, return variant type
+    auto data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    EXPECT_TRUE(data_type != nullptr);
+    EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    subcolumn_in_sparse.set_name("v1.keya");
+    subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    subcolumn_in_sparse.set_path_info(PathInData("v1.keya"));
+
+    // keya is not in the segment, return string type;
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    EXPECT_TRUE(data_type != nullptr);
+    EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
+
+    subcolumn_in_sparse.set_name("v1.keyb");
+    subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    subcolumn_in_sparse.set_path_info(PathInData("v1.keyb"));
+    subcolumn_in_sparse._column_path->has_nested = true;
+
+    // keyb has nested part, return int type;
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    EXPECT_TRUE(data_type != nullptr);
+    EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_INT);
+
+    // key1 is in the subcolumns, return string type;
+    subcolumn_in_sparse.set_name("v1.key1");
+    subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    subcolumn_in_sparse.set_path_info(PathInData("v1.key1"));
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    EXPECT_TRUE(data_type != nullptr);
+    EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
 TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,

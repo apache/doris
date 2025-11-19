@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -33,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -226,7 +224,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     }
 
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = subqueryConjuncts.stream()
-                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
+                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryExpr.class::isInstance))
                             .collect(ImmutableList.toImmutableList());
                     ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
                     LogicalPlan applyPlan;
@@ -286,16 +284,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         );
     }
 
-    private static boolean canConvertToSupply(TreeNode<Expression> expression) {
-        // The subquery except ListQuery can be converted to Supply
-        return expression instanceof SubqueryExpr && !(expression instanceof ListQuery);
-    }
-
     private static boolean isValidSubqueryConjunct(Expression expression) {
         // only support 1 subquery expr in the expression
         // don't support expression like subquery1 or subquery2
         return expression
-                .collectToList(SubqueryToApply::canConvertToSupply)
+                .collectToList(SubqueryExpr.class::isInstance)
                 .size() == 1;
     }
 
@@ -322,7 +315,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         Set<Slot> rightOutputSlots = rightChild.getOutputSet();
         for (int i = 0; i < size; ++i) {
             Expression expression = subqueryConjuncts.get(i);
-            List<SubqueryExpr> subqueryExprs = expression.collectToList(SubqueryToApply::canConvertToSupply);
+            List<SubqueryExpr> subqueryExprs = expression.collectToList(SubqueryExpr.class::isInstance);
             RelatedInfo relatedInfo = RelatedInfo.UnSupported;
             if (subqueryExprs.size() == 1) {
                 SubqueryExpr subqueryExpr = subqueryExprs.get(0);
@@ -748,7 +741,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         boolean hasSubqueryExpr = false;
         ImmutableList.Builder<Set<SubqueryExpr>> subqueryExprsListBuilder = ImmutableList.builder();
         for (Expression expression : exprs) {
-            Set<SubqueryExpr> subqueries = expression.collect(SubqueryToApply::canConvertToSupply);
+            Set<SubqueryExpr> subqueries = expression.collect(SubqueryExpr.class::isInstance);
             hasSubqueryExpr |= !subqueries.isEmpty();
             subqueryExprsListBuilder.add(subqueries);
         }

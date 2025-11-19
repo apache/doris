@@ -64,13 +64,27 @@ DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
 
 DEFINE_mBool(save_load_error_log_to_s3, "false");
 
+DEFINE_mBool(use_public_endpoint_for_error_log, "true");
+
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
 DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
+// Empty rowset compaction strategy configurations
+DEFINE_mBool(enable_empty_rowset_compaction, "true");
+DEFINE_mInt32(empty_rowset_compaction_min_count, "5");
+DEFINE_mDouble(empty_rowset_compaction_min_ratio, "0.3");
+
 DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
 DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");
+
+DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
+// used in get_delete_bitmap rpc
+// The MS will return the current results to BE immediately when the size of delete bitmap
+// in memory fetched from fdb reached this theshold the first time, and BE will make subsequent RPCs
+// to get the remaining rowsets' results.
+DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
 
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
@@ -106,5 +120,13 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
+DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
+
+DEFINE_mBool(enable_cache_read_from_peer, "true");
+
+// Cache the expiration time of the peer address.
+// This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
+// If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
+DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 #include "common/compile_check_end.h"
 } // namespace doris::config

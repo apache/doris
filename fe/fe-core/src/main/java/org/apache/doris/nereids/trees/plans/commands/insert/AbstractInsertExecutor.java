@@ -23,7 +23,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -36,6 +35,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStatusCode;
@@ -202,8 +202,8 @@ public abstract class AbstractInsertExecutor {
             onComplete();
         } catch (Throwable t) {
             onFail(t);
-            // retry insert into from select when meet E-230 in cloud
-            if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+            // retry insert into from select when meet "need re-plan error" or no scan node in cloud
+            if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
                 throw t;
             }
             return;

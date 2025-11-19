@@ -17,18 +17,36 @@
 
 #include "runtime/user_function_cache.h"
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <string>
+#include <vector>
 
-#include "gtest/gtest.h"
+#include "common/status.h"
 
 namespace doris {
 
 class UserFunctionCacheTest : public ::testing::Test {
 protected:
     UserFunctionCache ufc;
+
+    void SetUp() override {
+        // Save original DORIS_HOME
+        original_doris_home_ = getenv("DORIS_HOME");
+    }
+
+    void TearDown() override {
+        // Restore original DORIS_HOME
+        if (original_doris_home_) {
+            setenv("DORIS_HOME", original_doris_home_, 1);
+        } else {
+            unsetenv("DORIS_HOME");
+        }
+    }
+
+private:
+    const char* original_doris_home_ = nullptr;
 };
 
 TEST_F(UserFunctionCacheTest, SplitStringByChecksumTest) {

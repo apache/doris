@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -49,7 +51,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -89,7 +90,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(LoadCommand.class);
 
     private final String labelName;
-    private final BulkStorageDesc bulkStorageDesc;
+    private final BrokerDesc brokerDesc;
     private final Set<String> sinkTableNames = new HashSet<>();
     private final List<BulkLoadDataDesc> sourceInfos;
     private final Map<String, String> properties;
@@ -100,13 +101,13 @@ public class LoadCommand extends Command implements ForwardWithSync {
     /**
      * constructor of ExportCommand
      */
-    public LoadCommand(String labelName, List<BulkLoadDataDesc> sourceInfos, BulkStorageDesc bulkStorageDesc,
+    public LoadCommand(String labelName, List<BulkLoadDataDesc> sourceInfos, BrokerDesc brokerDesc,
                        Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
         this.labelName = Objects.requireNonNull(labelName.trim(), "labelName should not null");
         this.sourceInfos = Objects.requireNonNull(ImmutableList.copyOf(sourceInfos), "sourceInfos should not null");
         this.properties = Objects.requireNonNull(ImmutableMap.copyOf(properties), "properties should not null");
-        this.bulkStorageDesc = Objects.requireNonNull(bulkStorageDesc, "bulkStorageDesc should not null");
+        this.brokerDesc = Objects.requireNonNull(brokerDesc, "brokerDesc should not null");
         this.comment = Objects.requireNonNull(comment, "comment should not null");
     }
 
@@ -151,7 +152,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
             LOG.debug("nereids load stmt before conversion: {}", dataDesc::toSql);
         }
         // 1. build source projects plan (select col1,col2... from tvf where prefilter)
-        Map<String, String> tvfProperties = getTvfProperties(dataDesc, bulkStorageDesc);
+        Map<String, String> tvfProperties = getTvfProperties(dataDesc, brokerDesc);
         LogicalPlan tvfLogicalPlan = new LogicalCheckPolicy<>(getUnboundTVFRelation(tvfProperties));
         tvfLogicalPlan = buildTvfQueryPlan(dataDesc, tvfProperties, tvfLogicalPlan);
 
@@ -431,15 +432,15 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     private UnboundTVFRelation getUnboundTVFRelation(Map<String, String> properties) {
         UnboundTVFRelation relation;
-        if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
             relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
                     S3TableValuedFunction.NAME, new Properties(properties));
-        } else if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.HDFS) {
+        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
             relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
                     HdfsTableValuedFunction.NAME, new Properties(properties));
         } else {
             throw new UnsupportedOperationException("Unsupported load storage type: "
-                    + bulkStorageDesc.getStorageType());
+                    + brokerDesc.getStorageType());
         }
         return relation;
     }
@@ -454,8 +455,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         return targetTable;
     }
 
-    private static Map<String, String> getTvfProperties(BulkLoadDataDesc dataDesc, BulkStorageDesc bulkStorageDesc) {
-        Map<String, String> tvfProperties = new HashMap<>(bulkStorageDesc.getProperties());
+    private static Map<String, String> getTvfProperties(BulkLoadDataDesc dataDesc, BrokerDesc brokerDesc) {
+        Map<String, String> tvfProperties = new HashMap<>(brokerDesc.getProperties());
         String fileFormat = dataDesc.getFormatDesc().getFileFormat().orElse("csv");
         if ("csv".equalsIgnoreCase(fileFormat)) {
             dataDesc.getFormatDesc().getColumnSeparator().ifPresent(sep ->
@@ -469,7 +470,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         List<String> filePaths = dataDesc.getFilePaths();
         // TODO: support multi location by union
         String listFilePath = filePaths.get(0);
-        if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
             // TODO: check file path by s3 fs list status
             tvfProperties.put("uri", listFilePath);
         }

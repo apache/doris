@@ -130,44 +130,66 @@ segment_v2::inverted_index::CustomAnalyzerPtr IndexPolicyMgr::get_policy_by_name
         builder.with_tokenizer_config(tokenzier_name, {});
     }
 
+    // Process char filters
+    process_filter_configs(index_policy_analyzer, PROP_CHAR_FILTER, "char filter",
+                           [&builder](const std::string& name,
+                                      const segment_v2::inverted_index::Settings& settings) {
+                               builder.add_char_filter_config(name, settings);
+                           });
+
     // Process token filters
-    auto token_filter_it = index_policy_analyzer.properties.find(PROP_TOKEN_FILTER);
-    if (token_filter_it != index_policy_analyzer.properties.end()) {
-        std::vector<std::string> token_filter_strs;
-        boost::split(token_filter_strs, token_filter_it->second, boost::is_any_of(","));
-
-        for (auto& filter_name : token_filter_strs) {
-            boost::trim(filter_name);
-            if (filter_name.empty()) {
-                continue;
-            }
-
-            if (_name_to_id.contains(filter_name)) {
-                // Nested token filter policy
-                const auto& filter_policy = _policys[_name_to_id[filter_name]];
-                auto type_it = filter_policy.properties.find(PROP_TYPE);
-                if (type_it == filter_policy.properties.end()) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "Invalid token filter configuration in policy: " + filter_name);
-                }
-
-                segment_v2::inverted_index::Settings settings;
-                for (const auto& prop : filter_policy.properties) {
-                    if (prop.first != PROP_TYPE) {
-                        settings.set(prop.first, prop.second);
-                    }
-                }
-                builder.add_token_filter_config(type_it->second, settings);
-            } else {
-                // Simple token filter
-                builder.add_token_filter_config(filter_name, {});
-            }
-        }
-    }
+    process_filter_configs(index_policy_analyzer, PROP_TOKEN_FILTER, "token filter",
+                           [&builder](const std::string& name,
+                                      const segment_v2::inverted_index::Settings& settings) {
+                               builder.add_token_filter_config(name, settings);
+                           });
 
     auto custom_analyzer_config = builder.build();
     return segment_v2::inverted_index::CustomAnalyzer::build_custom_analyzer(
             custom_analyzer_config);
+}
+
+void IndexPolicyMgr::process_filter_configs(
+        const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
+        const std::string& error_prefix,
+        std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
+                add_config_func) {
+    auto filter_it = index_policy_analyzer.properties.find(prop_name);
+    if (filter_it == index_policy_analyzer.properties.end()) {
+        return;
+    }
+
+    std::vector<std::string> filter_strs;
+    boost::split(filter_strs, filter_it->second, boost::is_any_of(","));
+
+    for (auto& filter_name : filter_strs) {
+        boost::trim(filter_name);
+        if (filter_name.empty()) {
+            continue;
+        }
+
+        if (_name_to_id.contains(filter_name)) {
+            // Nested filter policy
+            const auto& filter_policy = _policys[_name_to_id[filter_name]];
+            auto type_it = filter_policy.properties.find(PROP_TYPE);
+            if (type_it == filter_policy.properties.end()) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid " + error_prefix + " configuration in policy: " + filter_name);
+            }
+
+            segment_v2::inverted_index::Settings settings;
+            for (const auto& prop : filter_policy.properties) {
+                if (prop.first != PROP_TYPE) {
+                    settings.set(prop.first, prop.second);
+                }
+            }
+            add_config_func(type_it->second, settings);
+        } else {
+            // Simple filter
+            add_config_func(filter_name, {});
+        }
+    }
 }
 
 } // namespace doris

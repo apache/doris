@@ -50,6 +50,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(LakeSoulExternalTable.class);
     public static final int LAKESOUL_TIMESTAMP_SCALE_MS = 6;

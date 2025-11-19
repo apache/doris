@@ -1248,6 +1248,24 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean getEnablePreferCachedRowset(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getEnablePreferCachedRowset(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getQueryFreshnessToleranceMs(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryFreshnessToleranceMs(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {

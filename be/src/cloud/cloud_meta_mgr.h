@@ -171,6 +171,11 @@ private:
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
                                      bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
 
+    Status _get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req, GetDeleteBitmapResponse& res);
+    Status _get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest& req,
+                                               GetDeleteBitmapResponse& res,
+                                               int64_t bytes_threadhold);
+
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);

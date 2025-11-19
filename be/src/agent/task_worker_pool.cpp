@@ -497,11 +497,14 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     {
         ALTER_count << n;
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
-        doris::g_fragment_executing_count << 1;
-        int64 now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        g_fragment_last_active_time.set_value(now);
+        if (n > 0) {
+            // only count fragment when task is actually starting
+            doris::g_fragment_executing_count << 1;
+            int64_t now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+            g_fragment_last_active_time.set_value(now);
+        }
         return;
     }
     default:
@@ -1058,6 +1061,7 @@ void report_task_callback(const ClusterInfo* cluster_info) {
         }
     }
     request.__set_backend(BackendOptions::get_local_backend());
+    request.__set_running_tasks(ExecEnv::GetInstance()->fragment_mgr()->running_query_num());
     bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {

@@ -671,6 +671,11 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
+// Small memory task threshold in bytes for memory tracker limiter
+// Tasks with memory consumption below this threshold will not be cancelled during memory pressure
+// Default is 32MB (33554432 bytes)
+DEFINE_mInt64(mem_tracker_limit_small_memory_task_bytes, "33554432");
+
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -1012,6 +1017,7 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
+DEFINE_mInt32(cold_data_compaction_score_threshold, "100");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
@@ -1134,9 +1140,12 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 // will write to file cache; satisfying any of the two conditions will write to file cache.
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
+DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
+DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
@@ -1286,6 +1295,7 @@ DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
+DEFINE_Int32(grace_shutdown_post_delay_seconds, "30");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
@@ -1481,6 +1491,9 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
 
+// Enable partition column fallback when partition columns are missing from file
+DEFINE_Bool(enable_iceberg_partition_column_fallback, "true");
+
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
 
@@ -1569,6 +1582,15 @@ DEFINE_mBool(enable_wal_tde, "false");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+DEFINE_mBool(print_stack_when_cache_miss, "false");
+
+DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
+
+DEFINE_String(aws_credentials_provider_version, "v2");
+DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
 
 // clang-format off
 #ifdef BE_TEST

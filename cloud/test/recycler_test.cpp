@@ -34,6 +34,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
@@ -1103,6 +1104,16 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
     return 0;
 }
 
+static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto dbm_start_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+    auto dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
+    ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), expected_size);
+}
+
 TEST(RecyclerTest, recycle_empty) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -1281,9 +1292,11 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
 
 TEST(RecyclerTest, recycle_tmp_rowsets) {
     config::retention_seconds = 0;
+    // cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    // auto txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
-
+    config::instance_recycler_worker_pool_size = 10;
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
     auto obj_info = instance.add_obj_info();
@@ -1325,23 +1338,36 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int64_t txn_id_base = 114115;
     int64_t tablet_id_base = 10015;
     int64_t index_id_base = 1000;
-    for (int i = 0; i < 100; ++i) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    for (int i = 0; i < 50; ++i) {
         int64_t txn_id = txn_id_base + i;
-        for (int j = 0; j < 20; ++j) {
+        for (int j = 0; j < 1000; ++j) {
             auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
-                                        index_id_base + j % 4, 5, schemas[i % 5], txn_id);
-            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1);
+                                        index_id_base + j, 5, schemas[i % 5], txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false);
+            if (i < 50) {
+                create_delete_bitmaps(txn.get(), tablet_id_base + j, rowset.rowset_id_v2(), 0, 1);
+            }
         }
     }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    for (int j = 0; j < 20; ++j) {
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 100);
+    }
 
+    auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    auto finish = std::chrono::steady_clock::now();
+    std::cout << "recycle tmp rowsets cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << std::endl;
 
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
     ASSERT_FALSE(list_iter->has_next());
     // check all tmp rowset kv have been deleted
-    std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::unique_ptr<RangeGetIterator> it;
     auto begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
@@ -1349,8 +1375,12 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
     // Check InvertedIndexIdCache
-    EXPECT_EQ(insert_inverted_index, 16);
-    EXPECT_EQ(insert_no_inverted_index, 4);
+    // EXPECT_GE for InvertedIndexIdCache::get
+    EXPECT_GE(insert_inverted_index, 4000);
+    EXPECT_GE(insert_no_inverted_index, 1000);
+    for (int j = 0; j < 20; ++j) {
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0);
+    }
 }
 
 TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
@@ -6212,6 +6242,450 @@ TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
     ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
 
     EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+}
+
+TEST(CheckerTest, CheckCostTooMuchTime) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    int64_t tablet_id = 1000;
+    constexpr size_t NUM_BATCH_SIZE = 100;
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    for (size_t i = 0; i < NUM_BATCH_SIZE * 2; i++) {
+        std::string key = meta_rowset_key({instance_id, tablet_id, i});
+        std::string value = "rowset_value_" + std::to_string(i);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, value);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    sp->set_call_back("InstanceChecker:scan_and_handle_kv:limit",
+                      [&](auto&& args) { *try_any_cast<int*>(args[0]) = NUM_BATCH_SIZE; });
+
+    std::vector<doris::RowsetMetaCloudPB> rowset_metas;
+    size_t count = 0;
+    sp->set_call_back("InstanceChecker:scan_and_handle_kv:get_err", [&](auto&& args) {
+        if (++count == 2) {
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+        }
+    });
+
+    std::string begin = meta_rowset_key({instance_id, tablet_id, 0});
+    std::string end = meta_rowset_key({instance_id, tablet_id + 1, 0});
+
+    int ret =
+            checker.scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view val) {
+                doris::RowsetMetaCloudPB rowset_meta;
+                if (rowset_meta.ParseFromArray(val.data(), val.size()) != 0) {
+                    return -1;
+                }
+                rowset_metas.push_back(rowset_meta);
+                return 0;
+            });
+    ASSERT_EQ(0, ret);
+    ASSERT_EQ(rowset_metas.size(), NUM_BATCH_SIZE * 2);
+}
+
+TEST(CheckerTest, check_txn_info_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    std::string label = "test_label";
+    std::vector<int64_t> txn_ids = {2001, 2002, 2003};
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key, label_val;
+        txn_label_key({instance_id, db_id, label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        std::string serialized_label;
+        ASSERT_TRUE(txn_label_pb.SerializeToString(&serialized_label));
+
+        MemTxnKv::gen_version_timestamp(123456790, 0, &serialized_label);
+
+        txn->put(label_key, serialized_label);
+
+        for (auto txn_id : txn_ids) {
+            std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_label(label);
+            std::string info_val;
+            ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+            txn->put(info_key, info_val);
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::string label_key = txn_label_key({instance_id, db_id, label});
+        std::string label_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_info_key(label_key, label_val);
+        ASSERT_EQ(ret, 0);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t mismatch_txn_id = txn_ids[0];
+        std::string info_key = txn_info_key({instance_id, db_id, mismatch_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("mismatched_label");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        std::string label_key = txn_label_key({instance_id, db_id, label});
+        std::string label_val;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_info_key(label_key, label_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key = txn_label_key({instance_id, db_id, "invalid_label"});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        uint32_t offset = invalid_val.size();
+        invalid_val.append(10, '\x00');
+        invalid_val.append((const char*)&offset, 4);
+
+        txn->put(label_key, invalid_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_info_key(label_key, invalid_val);
+        ASSERT_EQ(ret, -1);
+    }
+}
+
+TEST(CheckerTest, check_txn_label_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    std::string label = "test_label";
+    std::vector<int64_t> txn_ids = {2001, 2002, 2003};
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key = txn_label_key({instance_id, db_id, label});
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        std::string label_val;
+        ASSERT_TRUE(txn_label_pb.SerializeToString(&label_val));
+        txn->put(label_key, label_val);
+
+        for (auto txn_id : txn_ids) {
+            std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_label(label);
+            std::string info_val;
+            ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+            txn->put(info_key, info_val);
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        for (auto txn_id : txn_ids) {
+            std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+            std::string info_val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+
+            int ret = checker.check_txn_label_key(info_key, info_val);
+            ASSERT_EQ(ret, 0);
+        }
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t missing_txn_id = 2004;
+        std::string info_key = txn_info_key({instance_id, db_id, missing_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(label);
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_label_key(info_key, info_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::string invalid_key = txn_info_key({instance_id, db_id, 9999});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        int ret = checker.check_txn_label_key(invalid_key, invalid_val);
+        ASSERT_EQ(ret, -1);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string non_existent_label = "non_existent_label";
+        int64_t txn_id = 3001;
+        std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(non_existent_label);
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_label_key(info_key, info_val);
+        ASSERT_EQ(ret, -1);
+    }
+}
+
+TEST(CheckerTest, check_txn_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    int64_t txn_id = 2001;
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("test_label");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        std::string index_key = txn_index_key({instance_id, txn_id});
+        TxnIndexPB txn_index_pb;
+        TabletIndexPB* tablet_index = txn_index_pb.mutable_tablet_index();
+        tablet_index->set_db_id(db_id);
+        std::string index_val;
+        ASSERT_TRUE(txn_index_pb.SerializeToString(&index_val));
+        txn->put(index_key, index_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        std::string info_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_index_key(info_key, info_val);
+        ASSERT_EQ(ret, 0);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t different_db_id = 1002;
+        int64_t new_txn_id = 2002;
+
+        std::string info_key = txn_info_key({instance_id, db_id, new_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("test_label_2");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        std::string index_key = txn_index_key({instance_id, new_txn_id});
+        TxnIndexPB txn_index_pb;
+        TabletIndexPB* tablet_index = txn_index_pb.mutable_tablet_index();
+        tablet_index->set_db_id(different_db_id);
+        std::string index_val;
+        ASSERT_TRUE(txn_index_pb.SerializeToString(&index_val));
+        txn->put(index_key, index_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_index_key(info_key, info_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::string invalid_key = txn_info_key({instance_id, db_id, 9999});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        int ret = checker.check_txn_index_key(invalid_key, invalid_val);
+        ASSERT_EQ(ret, -1);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t non_existent_txn_id = 3001;
+        std::string info_key = txn_info_key({instance_id, db_id, non_existent_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("test_label_3");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_index_key(info_key, info_val);
+        ASSERT_EQ(ret, -1);
+    }
+}
+
+TEST(CheckerTest, check_txn_running_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    int64_t txn_id = 2001;
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string running_key = txn_running_key({instance_id, db_id, txn_id});
+        TxnRunningPB txn_running_pb;
+
+        int64_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
+        txn_running_pb.set_timeout_time(current_time + 3600000);
+
+        std::string running_val;
+        ASSERT_TRUE(txn_running_pb.SerializeToString(&running_val));
+        txn->put(running_key, running_val);
+
+        std::string expired_key = txn_running_key({instance_id, db_id, txn_id + 1});
+        TxnRunningPB expired_running_pb;
+        expired_running_pb.set_timeout_time(current_time - 3600000);
+
+        std::string expired_val;
+        ASSERT_TRUE(expired_running_pb.SerializeToString(&expired_val));
+        txn->put(expired_key, expired_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::string running_key = txn_running_key({instance_id, db_id, txn_id});
+        std::string running_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(running_key, &running_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_running_key(running_key, running_val);
+        ASSERT_EQ(ret, 0);
+    }
+
+    {
+        std::string expired_key = txn_running_key({instance_id, db_id, txn_id + 1});
+        std::string expired_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(expired_key, &expired_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_running_key(expired_key, expired_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::string invalid_key = txn_running_key({instance_id, db_id, txn_id + 2});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(invalid_key, invalid_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        std::unique_ptr<Transaction> read_txn;
+        ASSERT_EQ(txn_kv->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(read_txn->get(invalid_key, &val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_running_key(invalid_key, val);
+        ASSERT_EQ(ret, -1);
+    }
 }
 
 } // namespace doris::cloud

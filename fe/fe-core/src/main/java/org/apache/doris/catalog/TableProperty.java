@@ -586,8 +586,12 @@ public class TableProperty implements Writable, GsonPostProcessable {
     }
 
     public TableProperty buildCompressionType() {
-        compressionType = TCompressionType.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPRESSION,
-                TCompressionType.LZ4F.name()));
+        try {
+            compressionType = PropertyAnalyzer.getCompressionTypeFromProperties(properties);
+        } catch (AnalysisException e) {
+            LOG.error("failed to analyze compression type", e);
+            compressionType = TCompressionType.ZSTD;
+        }
         return this;
     }
 

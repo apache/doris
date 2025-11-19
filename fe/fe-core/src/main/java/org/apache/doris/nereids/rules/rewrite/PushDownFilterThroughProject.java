@@ -113,14 +113,14 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         Set<Expression> remainPredicates = Sets.newLinkedHashSet();
         for (Expression conjunct : conjuncts) {
             Set<Slot> conjunctSlots = conjunct.getInputSlots();
-            // If filter contains non-foldable expression, it can push down, for example:
+            // If filter contains unique function, it can push down, for example:
             // `filter(a + random(1, 10) > 1) -> project(a)` => `project(a) -> filter(a + random(1, 10) > 1)`.
-            // If filter slot is alias and its expression contains non-foldable expression, it can't push down, example:
+            // If filter slot is alias and its expression contains unique function, it can't push down, example:
             // `filter(a > 1) -> project(b + random(1, 10) as a)`, if push down filter, it got
             // `project(b + random(1, 10) as a) -> filter(b + random(1, 10) > 1)`, it contains two distinct RANDOM.
             if (childOutputs.containsAll(conjunctSlots)
                     && conjunctSlots.stream().map(childAlias::get).filter(Objects::nonNull)
-                            .noneMatch(Expression::containsNonfoldable)) {
+                            .noneMatch(Expression::containsUniqueFunction)) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);

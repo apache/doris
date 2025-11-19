@@ -131,6 +131,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         LOG.info("Removed catalog with id {}, name {}", catalogId, catalog == null ? "N/A" : catalog.getName());
         if (catalog != null) {
+            // Remove from refresh map before calling onClose()
+            Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
             if (ConnectContext.get() != null) {
@@ -157,6 +159,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public CatalogIf getCatalogOrAnalysisException(long id) throws AnalysisException {
         return getCatalogOrException(id,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
+    public CatalogIf getCatalogOrDdlException(long id) throws DdlException {
+        return getCatalogOrException(id,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
                         ErrorCode.ERR_UNKNOWN_CATALOG));
     }
 

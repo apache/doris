@@ -257,7 +257,8 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 }
 
 // CLOSE_LOAD
-Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                  int num_incremental_streams) {
     if (!_is_open.load()) {
         return _status;
     }
@@ -268,6 +269,7 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
     }
+    header.set_num_incremental_streams(num_incremental_streams);
     _status = _encode_and_send(header);
     if (!_status.ok()) {
         LOG(WARNING) << "stream " << _stream_id << " close failed: " << _status;
@@ -545,7 +547,8 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
     return status;
 }
 
-Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                   int num_incremental_streams) {
     if (!_open_success.load()) {
         return Status::InternalError("streams not open");
     }
@@ -554,10 +557,10 @@ Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_comm
     for (auto& stream : _streams) {
         Status st;
         if (first) {
-            st = stream->close_load(tablets_to_commit);
+            st = stream->close_load(tablets_to_commit, num_incremental_streams);
             first = false;
         } else {
-            st = stream->close_load({});
+            st = stream->close_load({}, num_incremental_streams);
         }
         if (!st.ok()) {
             LOG(WARNING) << "close_load failed: " << st << "; stream: " << *stream;

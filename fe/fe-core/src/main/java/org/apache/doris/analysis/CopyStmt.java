@@ -32,9 +32,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.property.constants.BosProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.S3PropertyUtils;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -166,7 +167,7 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
         String path;
         for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
             path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, BosProperties.convertPathToS3(path));
+            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
             dataDescription.getFilePaths().set(i, path);
         }
@@ -207,7 +208,7 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
         // S3 Provider properties should be case insensitive.
-        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString().toUpperCase());
+        brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.analyze();

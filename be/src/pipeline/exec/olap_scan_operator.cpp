@@ -245,6 +245,20 @@ Status OlapScanLocalState::_init_profile() {
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
 
+    _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
+    _variant_scan_sparse_column_bytes =
+            ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
+    _variant_fill_path_from_sparse_column_timer =
+            ADD_TIMER(_segment_profile, "VariantFillPathFromSparseColumnTimer");
+    _variant_subtree_default_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeDefaultIterCount", TUnit::UNIT);
+    _variant_subtree_leaf_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeLeafIterCount", TUnit::UNIT);
+    _variant_subtree_hierarchical_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeHierarchicalIterCount", TUnit::UNIT);
+    _variant_subtree_sparse_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
+
     return Status::OK();
 }
 
@@ -561,12 +575,20 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
+    CaptureRowsetOps opts {
+            .skip_missing_versions = PipelineXLocalState<>::_state->skip_missing_version(),
+            .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
+            .enable_prefer_cached_rowset =
+                    config::is_cloud_mode()
+                            ? PipelineXLocalState<>::_state->enable_prefer_cached_rowset()
+                            : false,
+            .query_freshness_tolerance_ms =
+                    config::is_cloud_mode()
+                            ? PipelineXLocalState<>::_state->query_freshness_tolerance_ms()
+                            : -1};
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
-                {0, _tablets[i].version},
-                {.skip_missing_versions = RuntimeFilterConsumer::_state->skip_missing_version(),
-                 .enable_fetch_rowsets_from_peers =
-                         config::enable_fetch_rowsets_from_peer_replicas}));
+        _read_sources[i] =
+                DORIS_TRY(_tablets[i].tablet->capture_read_source({0, _tablets[i].version}, opts));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }

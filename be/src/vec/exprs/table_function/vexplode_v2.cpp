@@ -26,6 +26,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -134,24 +135,35 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
         return;
     }
     ColumnStruct* struct_column = nullptr;
-    if (_is_nullable) {
-        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-        struct_column = assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-        auto* nullmap_column =
-                assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-        nullmap_column->insert_many_defaults(length);
+    std::vector<IColumn*> columns;
+
+    const bool multi_sub_columns = _multi_detail.size() > 1;
+
+    if (multi_sub_columns) {
+        if (_is_nullable) {
+            auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+            struct_column =
+                    assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
+            auto* nullmap_column =
+                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            nullmap_column->insert_many_defaults(length);
+
+        } else {
+            struct_column = assert_cast<ColumnStruct*>(column.get());
+        }
+
+        for (size_t i = 0; i != _multi_detail.size(); ++i) {
+            columns.emplace_back(&struct_column->get_column(i));
+        }
     } else {
-        struct_column = assert_cast<ColumnStruct*>(column.get());
-    }
-    if (!struct_column) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "Only multiple columns can be returned within a struct.");
+        columns.push_back(column.get());
     }
     for (int i = 0; i < _multi_detail.size(); i++) {
         auto& detail = _multi_detail[i];
         size_t pos = _array_offsets[i] + _cur_offset;
         size_t element_size = _multi_detail[i].array_col->size_at(_row_idx);
-        auto& struct_field = struct_column->get_column(i);
+
+        auto& struct_field = *columns.at(i);
         if ((detail.array_nullmap_data && detail.array_nullmap_data[_row_idx])) {
             struct_field.insert_many_defaults(length);
         } else {
@@ -173,31 +185,40 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
 
 int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
     max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
+    const bool multi_sub_columns = _multi_detail.size() > 1;
+
+    ColumnStruct* struct_column = nullptr;
+    std::vector<IColumn*> columns;
+
     if (current_empty()) {
         column->insert_default();
         max_step = 1;
     } else {
-        ColumnStruct* struct_column = nullptr;
-        if (_is_nullable) {
-            auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-            struct_column =
-                    assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-            nullmap_column->insert_many_defaults(max_step);
+        if (multi_sub_columns) {
+            if (_is_nullable) {
+                auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+                struct_column =
+                        assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
+                auto* nullmap_column =
+                        assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+                nullmap_column->insert_many_defaults(max_step);
 
+            } else {
+                struct_column = assert_cast<ColumnStruct*>(column.get());
+            }
+
+            for (size_t i = 0; i != _multi_detail.size(); ++i) {
+                columns.emplace_back(&struct_column->get_column(i));
+            }
         } else {
-            struct_column = assert_cast<ColumnStruct*>(column.get());
-        }
-        if (!struct_column) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Only multiple columns can be returned within a struct.");
+            columns.emplace_back(column.get());
         }
         for (int i = 0; i < _multi_detail.size(); i++) {
             auto& detail = _multi_detail[i];
             size_t pos = _array_offsets[i] + _cur_offset;
             size_t element_size = _multi_detail[i].array_col->size_at(_row_idx);
-            auto& struct_field = struct_column->get_column(i);
+
+            auto& struct_field = *columns.at(i);
             if (detail.array_nullmap_data && detail.array_nullmap_data[_row_idx]) {
                 struct_field.insert_many_defaults(max_step);
             } else {
@@ -218,21 +239,22 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     } else {
                         nullmap_column->insert_many_defaults(max_step);
                     }
-                } else {
+                } else if (element_size > _cur_offset) {
+                    const auto current_insert_num = element_size - _cur_offset;
                     nullable_column->get_nested_column_ptr()->insert_range_from(
-                            *detail.nested_col, pos, element_size - _cur_offset);
+                            *detail.nested_col, pos, current_insert_num);
                     if (detail.nested_nullmap_data) {
-                        for (int j = 0; j < element_size - _cur_offset; j++) {
-                            if (detail.nested_nullmap_data[pos + j]) {
-                                nullmap_column->insert_value(1);
-                            } else {
-                                nullmap_column->insert_value(0);
-                            }
-                        }
+                        const auto old_size = nullmap_column->size();
+                        nullmap_column->resize(old_size + current_insert_num);
+                        memcpy(nullmap_column->get_data().data() + old_size,
+                               detail.nested_nullmap_data + pos,
+                               current_insert_num * sizeof(UInt8));
                     } else {
-                        nullmap_column->insert_many_defaults(element_size - _cur_offset);
+                        nullmap_column->insert_many_defaults(current_insert_num);
                     }
-                    nullable_column->insert_many_defaults(max_step - (element_size - _cur_offset));
+                    nullable_column->insert_many_defaults(max_step - current_insert_num);
+                } else {
+                    nullable_column->insert_many_defaults(max_step);
                 }
             }
         }

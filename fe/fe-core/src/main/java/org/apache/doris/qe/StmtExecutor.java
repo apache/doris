@@ -150,6 +150,7 @@ import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -593,7 +594,10 @@ public class StmtExecutor {
                 execute(queryId);
                 return;
             } catch (UserException e) {
-                if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
+                if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
+                    // We have retried internally(in handleQueryWithRetry()) for other kinds of exceptions.
+                    // And for error in SystemInfoService.NEED_REPLAN_ERRORS, they are not handled internally but here
+                    // so we just handle these errors, and throw exception for other errors.
                     throw e;
                 }
                 if (this.coord != null && this.coord.isQueryCancelled()) {
@@ -609,8 +613,8 @@ public class StmtExecutor {
                 if (DebugPointUtil.isEnable("StmtExecutor.retry.longtime")) {
                     randomMillis = 1000;
                 }
-                LOG.warn("receive E-230 tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
-                        i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
+                LOG.warn("receive '{}' tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
+                        e.getMessage(), i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
                 context.getState().reset();
@@ -805,7 +809,9 @@ public class StmtExecutor {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
-                if (Config.isCloudMode() && e.getDetailMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -853,8 +859,9 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             try {
+                checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-                checkBlockRules();
+                checkBlockRulesByScan(planner);
             } catch (MustFallbackException e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
@@ -956,15 +963,17 @@ public class StmtExecutor {
                 handleQueryStmt();
                 break;
             } catch (RpcException | UserException e) {
-                if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
-                // cloud mode retry
-                LOG.debug("due to exception {} retry {} rpc {} user {}",
+
+                LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
                 boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
@@ -1174,7 +1183,7 @@ public class StmtExecutor {
             throw e;
         } catch (UserException e) {
             // insert into select
-            if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+            if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                 throw e;
             }
             // analysis exception only print message, not print the stack
@@ -2051,6 +2060,8 @@ public class StmtExecutor {
                     DebugUtil.printId(context.queryId()), e.getMessage());
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
+            // set to null so that the retry logic will generate a new coordinator
+            this.coord = null;
             throw e;
         } finally {
             coordBase.close();
@@ -2523,7 +2534,7 @@ public class StmtExecutor {
                 }
 
                 // cloud mode, insert into select meet -230, retry
-                if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
                     LOG.warn("insert into select meet E-230, retry again");
                     resetAnalyzerAndStmt();
                     if (insertStmt instanceof NativeInsertStmt) {
@@ -3491,9 +3502,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
-        return nereidsPlanner.getPhysicalPlan().getOutput();
+        return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {

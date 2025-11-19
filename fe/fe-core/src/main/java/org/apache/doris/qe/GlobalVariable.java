@@ -78,6 +78,8 @@ public final class GlobalVariable {
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
+    public static final String ENABLE_NESTED_NAMESPACE = "enable_nested_namespace";
+
     @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
             | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
     public static int variableVersion = CURRENT_VARIABLE_VERSION;
@@ -202,6 +204,16 @@ public final class GlobalVariable {
                 "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_NESTED_NAMESPACE, flag = VariableMgr.GLOBAL,
+            description = {
+                    "是否允许访问 `ns1.ns2` 这种类型的 database。当前仅适用于 External Catalog 中映射 Database 并访问。"
+                            + "不支持创建。",
+                    "Whether to allow accessing databases of the form `ns1.ns2`. "
+                            + "Currently, this only applies to mapping databases in "
+                            + "External Catalogs and accessing them. "
+                            + "Creation is not supported."})
+    public static boolean enableNestedNamespace = false;
 
     // Don't allow creating instance.
     private GlobalVariable() {

@@ -25,6 +25,8 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cpp/sync_point.h"
+#include "gen_cpp/cloud.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
@@ -621,6 +623,249 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
             EXPECT_FALSE(rs_meta->empty()) << "Version " << version << " should not be empty";
             EXPECT_EQ(rs_meta->num_rows(), 100);
         }
+    }
+}
+
+// Helper class to access private methods for testing
+class CloudMetaMgrTestHelper {
+public:
+    static Status call_get_delete_bitmap_from_ms_by_batch(CloudMetaMgr& meta_mgr,
+                                                          GetDeleteBitmapRequest& req,
+                                                          GetDeleteBitmapResponse& res,
+                                                          int64_t bytes_threshold) {
+        return meta_mgr._get_delete_bitmap_from_ms_by_batch(req, res, bytes_threshold);
+    }
+};
+
+TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
+    CloudMetaMgr meta_mgr;
+    auto sp = SyncPoint::get_instance();
+
+    // Test case 1: Single batch (no more data)
+    {
+        sp->clear_all_call_backs();
+        sp->enable_processing();
+
+        GetDeleteBitmapRequest req;
+        req.set_tablet_id(12345);
+        req.set_base_compaction_cnt(1);
+        req.set_cumulative_compaction_cnt(2);
+        req.set_cumulative_point(10);
+        req.add_rowset_ids("rowset_1");
+        req.add_begin_versions(1);
+        req.add_end_versions(1);
+        req.add_rowset_ids("rowset_2");
+        req.add_begin_versions(2);
+        req.add_end_versions(2);
+
+        // Mock the _get_delete_bitmap_from_ms method to return success with no more data
+        sp->set_call_back("CloudMetaMgr::_get_delete_bitmap_from_ms", [](auto&& args) {
+            auto* res = try_any_cast<GetDeleteBitmapResponse*>(args[1]);
+
+            // Simulate successful response
+            res->mutable_status()->set_code(MetaServiceCode::OK);
+            res->add_rowset_ids("rowset_1");
+            res->add_segment_ids(0);
+            res->add_versions(1);
+            res->add_segment_delete_bitmaps("delete_bitmap_1");
+            res->add_rowset_ids("rowset_2");
+            res->add_segment_ids(0);
+            res->add_versions(2);
+            res->add_segment_delete_bitmaps("delete_bitmap_2");
+            res->add_returned_rowset_ids("rowset_1");
+            res->add_returned_rowset_ids("rowset_2");
+            res->set_has_more(false); // No more data
+        });
+
+        GetDeleteBitmapResponse res;
+        Status status = CloudMetaMgrTestHelper::call_get_delete_bitmap_from_ms_by_batch(
+                meta_mgr, req, res, 1024);
+
+        EXPECT_TRUE(status.ok()) << "Status: " << status;
+        EXPECT_EQ(res.rowset_ids_size(), 2);
+        EXPECT_EQ(res.rowset_ids(0), "rowset_1");
+        EXPECT_EQ(res.rowset_ids(1), "rowset_2");
+        EXPECT_EQ(res.segment_delete_bitmaps_size(), 2);
+
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }
+
+    // Test case 2: Two batches (has_more = true)
+    {
+        sp->clear_all_call_backs();
+        sp->enable_processing();
+
+        GetDeleteBitmapRequest req;
+        req.set_tablet_id(12345);
+        req.set_base_compaction_cnt(1);
+        req.set_cumulative_compaction_cnt(2);
+        req.set_cumulative_point(10);
+        req.add_rowset_ids("rowset_1");
+        req.add_begin_versions(1);
+        req.add_end_versions(1);
+        req.add_rowset_ids("rowset_2");
+        req.add_begin_versions(2);
+        req.add_end_versions(2);
+        req.add_rowset_ids("rowset_3");
+        req.add_begin_versions(3);
+        req.add_end_versions(3);
+
+        int call_count = 0;
+        // Mock the _get_delete_bitmap_from_ms method to simulate two batches
+        sp->set_call_back("CloudMetaMgr::_get_delete_bitmap_from_ms", [&call_count](auto&& args) {
+            auto* res = try_any_cast<GetDeleteBitmapResponse*>(args[1]);
+
+            call_count++;
+            res->mutable_status()->set_code(MetaServiceCode::OK);
+
+            if (call_count == 1) {
+                // First batch: return partial data with has_more=true
+                res->add_rowset_ids("rowset_1");
+                res->add_segment_ids(0);
+                res->add_versions(1);
+                res->add_segment_delete_bitmaps("delete_bitmap_1");
+                res->add_returned_rowset_ids("rowset_1");
+                res->set_has_more(true); // More data available
+            } else if (call_count == 2) {
+                // Second batch: return remaining data with has_more=false
+                res->add_rowset_ids("rowset_2");
+                res->add_segment_ids(0);
+                res->add_versions(2);
+                res->add_segment_delete_bitmaps("delete_bitmap_2");
+                res->add_rowset_ids("rowset_3");
+                res->add_segment_ids(0);
+                res->add_versions(3);
+                res->add_segment_delete_bitmaps("delete_bitmap_3");
+                res->add_returned_rowset_ids("rowset_2");
+                res->add_returned_rowset_ids("rowset_3");
+                res->set_has_more(false); // No more data
+            }
+        });
+
+        GetDeleteBitmapResponse res;
+        Status status = CloudMetaMgrTestHelper::call_get_delete_bitmap_from_ms_by_batch(
+                meta_mgr, req, res, 512);
+
+        EXPECT_TRUE(status.ok()) << "Status: " << status;
+        EXPECT_EQ(call_count, 2); // Should have made 2 RPC calls
+        EXPECT_EQ(res.rowset_ids_size(), 3);
+        EXPECT_EQ(res.rowset_ids(0), "rowset_1");
+        EXPECT_EQ(res.rowset_ids(1), "rowset_2");
+        EXPECT_EQ(res.rowset_ids(2), "rowset_3");
+        EXPECT_EQ(res.segment_delete_bitmaps_size(), 3);
+
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }
+
+    // Test case 3: Multiple batches (more than 2 batches)
+    {
+        sp->clear_all_call_backs();
+        sp->enable_processing();
+
+        GetDeleteBitmapRequest req;
+        req.set_tablet_id(12345);
+        req.set_base_compaction_cnt(1);
+        req.set_cumulative_compaction_cnt(2);
+        req.set_cumulative_point(10);
+        // Add 5 rowsets to test multiple batches
+        for (int i = 1; i <= 5; ++i) {
+            req.add_rowset_ids("rowset_" + std::to_string(i));
+            req.add_begin_versions(i);
+            req.add_end_versions(i);
+        }
+
+        int call_count = 0;
+        // Mock the _get_delete_bitmap_from_ms method to simulate 3 batches
+        sp->set_call_back("CloudMetaMgr::_get_delete_bitmap_from_ms", [&call_count](auto&& args) {
+            auto* res = try_any_cast<GetDeleteBitmapResponse*>(args[1]);
+
+            call_count++;
+            res->mutable_status()->set_code(MetaServiceCode::OK);
+
+            if (call_count == 1) {
+                // First batch: return rowset_1 and rowset_2
+                res->add_rowset_ids("rowset_1");
+                res->add_segment_ids(0);
+                res->add_versions(1);
+                res->add_segment_delete_bitmaps("delete_bitmap_1");
+                res->add_rowset_ids("rowset_2");
+                res->add_segment_ids(0);
+                res->add_versions(2);
+                res->add_segment_delete_bitmaps("delete_bitmap_2");
+                res->add_returned_rowset_ids("rowset_1");
+                res->add_returned_rowset_ids("rowset_2");
+                res->set_has_more(true); // More data available
+            } else if (call_count == 2) {
+                // Second batch: return rowset_3 and rowset_4
+                res->add_rowset_ids("rowset_3");
+                res->add_segment_ids(0);
+                res->add_versions(3);
+                res->add_segment_delete_bitmaps("delete_bitmap_3");
+                res->add_rowset_ids("rowset_4");
+                res->add_segment_ids(0);
+                res->add_versions(4);
+                res->add_segment_delete_bitmaps("delete_bitmap_4");
+                res->add_returned_rowset_ids("rowset_3");
+                res->add_returned_rowset_ids("rowset_4");
+                res->set_has_more(true); // Still more data available
+            } else if (call_count == 3) {
+                // Third batch: return rowset_5
+                res->add_rowset_ids("rowset_5");
+                res->add_segment_ids(0);
+                res->add_versions(5);
+                res->add_segment_delete_bitmaps("delete_bitmap_5");
+                res->add_returned_rowset_ids("rowset_5");
+                res->set_has_more(false); // No more data
+            }
+        });
+
+        GetDeleteBitmapResponse res;
+        Status status = CloudMetaMgrTestHelper::call_get_delete_bitmap_from_ms_by_batch(
+                meta_mgr, req, res, 256); // Small threshold to force multiple batches
+
+        EXPECT_TRUE(status.ok()) << "Status: " << status;
+        EXPECT_EQ(call_count, 3); // Should have made 3 RPC calls
+        EXPECT_EQ(res.rowset_ids_size(), 5);
+        EXPECT_EQ(res.segment_delete_bitmaps_size(), 5);
+        for (int i = 1; i <= 5; ++i) {
+            EXPECT_EQ(res.rowset_ids(i - 1), "rowset_" + std::to_string(i));
+            EXPECT_EQ(res.segment_delete_bitmaps(i - 1), "delete_bitmap_" + std::to_string(i));
+        }
+
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }
+
+    // Test case 4: RPC failure
+    {
+        sp->clear_all_call_backs();
+        sp->enable_processing();
+
+        GetDeleteBitmapRequest req;
+        req.set_tablet_id(12345);
+        req.add_rowset_ids("rowset_1");
+        req.add_begin_versions(1);
+        req.add_end_versions(1);
+
+        // Mock to simulate connection failure or service unavailable
+        sp->set_call_back("CloudMetaMgr::_get_delete_bitmap_from_ms", [](auto&& args) {
+            auto* res = try_any_cast<GetDeleteBitmapResponse*>(args[1]);
+            res->mutable_status()->set_code(MetaServiceCode::TABLET_NOT_FOUND);
+            res->mutable_status()->set_msg("Tablet not found");
+        });
+
+        GetDeleteBitmapResponse res;
+        Status status = CloudMetaMgrTestHelper::call_get_delete_bitmap_from_ms_by_batch(
+                meta_mgr, req, res, 1024);
+
+        // The method should handle the error from _get_delete_bitmap_from_ms
+        // Since _get_delete_bitmap_from_ms_by_batch calls RETURN_IF_ERROR, it should propagate the error
+        EXPECT_FALSE(status.ok());
+
+        sp->disable_processing();
+        sp->clear_all_call_backs();
     }
 }
 

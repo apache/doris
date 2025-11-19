@@ -185,7 +185,6 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-    COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
     if (_recvr->_max_wait_worker_time->value() < wait_for_worker) {
         _recvr->_max_wait_worker_time->set(wait_for_worker);
@@ -365,7 +364,6 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::Exchang
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
     _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
-    _rows_produced_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
     _max_wait_worker_time = ADD_COUNTER(_profile, "MaxWaitForWorkerTime", TUnit::UNIT);
     _max_wait_to_process_time = ADD_COUNTER(_profile, "MaxWaitToProcessTime", TUnit::UNIT);

@@ -86,3 +86,25 @@ INSERT INTO test_paimon_time_travel_db.`tbl_time_travel$branch_b_2` VALUES
 (20008, 8008, '2024-02-08', 92.30, '729 Iris Lane, Riverside, MN 55987', 'SHIPPED', true),
 (20009, 8009, '2024-02-09', 445.80, '856 Tulip Boulevard, Sunnydale, ND 58301', 'PENDING', false),
 (20010, 8010, '2024-02-10', 167.25, '392 Daisy Court, Meadowbrook, SD 57401', 'CANCELLED', true);
+
+
+-- time travle schema change
+ALTER TABLE test_paimon_time_travel_db.tbl_time_travel ADD COLUMNS (
+    new_col1 INT
+);
+
+-- - snpashot 5
+INSERT INTO test_paimon_time_travel_db.tbl_time_travel VALUES
+(6001, 9001, '2024-02-11', 456.80, '123 New Street, Downtown, CA 90210', 'COMPLETED', true, 100),
+(6002, 9002, '2024-02-12', 289.45, '456 Updated Ave, Midtown, NY 10001', 'PROCESSING', false, 200),
+(6003, 9003, '2024-02-13', 378.90, '789 Modern Blvd, Uptown, TX 75201', 'SHIPPED', true, 300);
+
+CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel', tag => 't_5', snapshot => 5);
+
+-- - snapshot 6
+INSERT INTO test_paimon_time_travel_db.tbl_time_travel VALUES
+(6004, 9004, '2024-02-14', 199.99, '321 Future Lane, Innovation, WA 98001', 'PENDING', true, 400),
+(6005, 9005, '2024-02-15', 567.25, '654 Progress Drive, Tech City, OR 97201', 'COMPLETED', false, 500),
+(6006, 9006, '2024-02-16', 123.75, '987 Advanced Court, Silicon Valley, CA 94301', 'CANCELLED', true, 600);
+
+CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel', tag => 't_6', snapshot => 6);

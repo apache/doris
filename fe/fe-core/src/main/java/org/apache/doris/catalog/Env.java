@@ -3350,12 +3350,12 @@ public class Env {
         if (StringUtils.isEmpty(stmt.getCtlName())) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+            catalogIf = catalogMgr.getCatalogOrDdlException(stmt.getCtlName());
         }
         catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
     }
 
-    // For replay edit log, need't lock metadata
+    // For replay edit log, no need to lock metadata
     public void unprotectCreateDb(Database db) {
         getInternalCatalog().unprotectCreateDb(db);
     }
@@ -3552,7 +3552,7 @@ public class Env {
         try {
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
             sb.append(mtmv.getName());
-            addMTMVCols(mtmv, sb);
+            addColNameAndComment(mtmv, sb);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
             addMTMVKeyInfo(mtmv, sb);
@@ -3601,9 +3601,9 @@ public class Env {
         sb.append(")");
     }
 
-    private static void addMTMVCols(MTMV mtmv, StringBuilder sb) {
+    private static void addColNameAndComment(TableIf tableIf, StringBuilder sb) {
         sb.append("\n(");
-        List<Column> columns = mtmv.getBaseSchema();
+        List<Column> columns = tableIf.getBaseSchema();
         for (int i = 0; i < columns.size(); i++) {
             if (i != 0) {
                 sb.append(",");
@@ -3918,6 +3918,8 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            addColNameAndComment(view, sb);
+            sb.append("\n");
             if (StringUtils.isNotBlank(table.getComment())) {
                 sb.append(" COMMENT '").append(table.getComment()).append("'");
             }
@@ -5806,12 +5808,7 @@ public class Env {
 
     // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
-        CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
-        if (catalogIf == null) {
-            throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
-                    ErrorCode.ERR_UNKNOWN_CATALOG);
-        }
-
+        CatalogIf catalogIf = catalogMgr.getCatalogOrDdlException(catalogName);
         String currentDB = ctx.getDatabase();
         if (StringUtils.isNotEmpty(currentDB)) {
             // When dropped the current catalog in current context, the current catalog will be null.

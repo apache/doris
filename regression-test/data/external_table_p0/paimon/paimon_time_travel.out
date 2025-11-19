@@ -1001,3 +1001,101 @@ true	7
 false	5
 true	7
 
+-- !schema_change_snapshot_5_version_count --
+15
+
+-- !schema_change_snapshot_5_version --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true	\N
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false	\N
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true	\N
+2001	3001	2024-01-18	445.75	321 Cedar Lane, Millbrook, NY 12545	PENDING	false	\N
+2002	3002	2024-01-19	67.25	654 Birch Drive, Lakewood, CO 80226	COMPLETED	true	\N
+2003	3003	2024-01-20	188.90	987 Elm Court, Fairview, OR 97024	CANCELLED	false	\N
+3001	4001	2024-01-21	325.40	159 Willow Street, Brookdale, FL 33602	SHIPPED	true	\N
+3002	4002	2024-01-22	99.85	753 Aspen Road, Clearwater, WA 98012	PROCESSING	true	\N
+3003	4003	2024-01-23	512.30	264 Chestnut Avenue, Westfield, MI 48097	COMPLETED	false	\N
+5001	6001	2024-01-24	278.60	842 Hickory Lane, Stonewood, GA 30309	PENDING	true	\N
+5002	6002	2024-01-25	134.75	417 Poplar Street, Ridgefield, NV 89109	SHIPPED	false	\N
+5003	6003	2024-01-26	389.20	695 Sycamore Drive, Maplewood, AZ 85001	COMPLETED	true	\N
+6001	9001	2024-02-11	456.80	123 New Street, Downtown, CA 90210	COMPLETED	true	100
+6002	9002	2024-02-12	289.45	456 Updated Ave, Midtown, NY 10001	PROCESSING	false	200
+6003	9003	2024-02-13	378.90	789 Modern Blvd, Uptown, TX 75201	SHIPPED	true	300
+
+-- !schema_change_snapshot_6_version_count --
+18
+
+-- !schema_change_snapshot_6_version --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true	\N
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false	\N
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true	\N
+2001	3001	2024-01-18	445.75	321 Cedar Lane, Millbrook, NY 12545	PENDING	false	\N
+2002	3002	2024-01-19	67.25	654 Birch Drive, Lakewood, CO 80226	COMPLETED	true	\N
+2003	3003	2024-01-20	188.90	987 Elm Court, Fairview, OR 97024	CANCELLED	false	\N
+3001	4001	2024-01-21	325.40	159 Willow Street, Brookdale, FL 33602	SHIPPED	true	\N
+3002	4002	2024-01-22	99.85	753 Aspen Road, Clearwater, WA 98012	PROCESSING	true	\N
+3003	4003	2024-01-23	512.30	264 Chestnut Avenue, Westfield, MI 48097	COMPLETED	false	\N
+5001	6001	2024-01-24	278.60	842 Hickory Lane, Stonewood, GA 30309	PENDING	true	\N
+5002	6002	2024-01-25	134.75	417 Poplar Street, Ridgefield, NV 89109	SHIPPED	false	\N
+5003	6003	2024-01-26	389.20	695 Sycamore Drive, Maplewood, AZ 85001	COMPLETED	true	\N
+6001	9001	2024-02-11	456.80	123 New Street, Downtown, CA 90210	COMPLETED	true	100
+6002	9002	2024-02-12	289.45	456 Updated Ave, Midtown, NY 10001	PROCESSING	false	200
+6003	9003	2024-02-13	378.90	789 Modern Blvd, Uptown, TX 75201	SHIPPED	true	300
+6004	9004	2024-02-14	199.99	321 Future Lane, Innovation, WA 98001	PENDING	true	400
+6005	9005	2024-02-15	567.25	654 Progress Drive, Tech City, OR 97201	COMPLETED	false	500
+6006	9006	2024-02-16	123.75	987 Advanced Court, Silicon Valley, CA 94301	CANCELLED	true	600
+
+-- !time_zone_time_travel_basic --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true
+
+-- !time_zone_time_travel_plus08_jni_true --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true
+
+-- !time_zone_time_travel_plus08_jni_false --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true
+
+-- !time_zone_time_travel_plus06_jni_true --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true	\N
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false	\N
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true	\N
+2001	3001	2024-01-18	445.75	321 Cedar Lane, Millbrook, NY 12545	PENDING	false	\N
+2002	3002	2024-01-19	67.25	654 Birch Drive, Lakewood, CO 80226	COMPLETED	true	\N
+2003	3003	2024-01-20	188.90	987 Elm Court, Fairview, OR 97024	CANCELLED	false	\N
+3001	4001	2024-01-21	325.40	159 Willow Street, Brookdale, FL 33602	SHIPPED	true	\N
+3002	4002	2024-01-22	99.85	753 Aspen Road, Clearwater, WA 98012	PROCESSING	true	\N
+3003	4003	2024-01-23	512.30	264 Chestnut Avenue, Westfield, MI 48097	COMPLETED	false	\N
+5001	6001	2024-01-24	278.60	842 Hickory Lane, Stonewood, GA 30309	PENDING	true	\N
+5002	6002	2024-01-25	134.75	417 Poplar Street, Ridgefield, NV 89109	SHIPPED	false	\N
+5003	6003	2024-01-26	389.20	695 Sycamore Drive, Maplewood, AZ 85001	COMPLETED	true	\N
+6001	9001	2024-02-11	456.80	123 New Street, Downtown, CA 90210	COMPLETED	true	100
+6002	9002	2024-02-12	289.45	456 Updated Ave, Midtown, NY 10001	PROCESSING	false	200
+6003	9003	2024-02-13	378.90	789 Modern Blvd, Uptown, TX 75201	SHIPPED	true	300
+6004	9004	2024-02-14	199.99	321 Future Lane, Innovation, WA 98001	PENDING	true	400
+6005	9005	2024-02-15	567.25	654 Progress Drive, Tech City, OR 97201	COMPLETED	false	500
+6006	9006	2024-02-16	123.75	987 Advanced Court, Silicon Valley, CA 94301	CANCELLED	true	600
+
+-- !time_zone_time_travel_plus06_jni_false --
+1001	2001	2024-01-15	299.99	123 Maple Street, Springfield, IL 62701	COMPLETED	true	\N
+1002	2002	2024-01-16	156.50	456 Oak Avenue, Riverside, CA 92507	PROCESSING	false	\N
+1003	2003	2024-01-17	89.00	789 Pine Boulevard, Greenfield, TX 75001	SHIPPED	true	\N
+2001	3001	2024-01-18	445.75	321 Cedar Lane, Millbrook, NY 12545	PENDING	false	\N
+2002	3002	2024-01-19	67.25	654 Birch Drive, Lakewood, CO 80226	COMPLETED	true	\N
+2003	3003	2024-01-20	188.90	987 Elm Court, Fairview, OR 97024	CANCELLED	false	\N
+3001	4001	2024-01-21	325.40	159 Willow Street, Brookdale, FL 33602	SHIPPED	true	\N
+3002	4002	2024-01-22	99.85	753 Aspen Road, Clearwater, WA 98012	PROCESSING	true	\N
+3003	4003	2024-01-23	512.30	264 Chestnut Avenue, Westfield, MI 48097	COMPLETED	false	\N
+5001	6001	2024-01-24	278.60	842 Hickory Lane, Stonewood, GA 30309	PENDING	true	\N
+5002	6002	2024-01-25	134.75	417 Poplar Street, Ridgefield, NV 89109	SHIPPED	false	\N
+5003	6003	2024-01-26	389.20	695 Sycamore Drive, Maplewood, AZ 85001	COMPLETED	true	\N
+6001	9001	2024-02-11	456.80	123 New Street, Downtown, CA 90210	COMPLETED	true	100
+6002	9002	2024-02-12	289.45	456 Updated Ave, Midtown, NY 10001	PROCESSING	false	200
+6003	9003	2024-02-13	378.90	789 Modern Blvd, Uptown, TX 75201	SHIPPED	true	300
+6004	9004	2024-02-14	199.99	321 Future Lane, Innovation, WA 98001	PENDING	true	400
+6005	9005	2024-02-15	567.25	654 Progress Drive, Tech City, OR 97201	COMPLETED	false	500
+6006	9006	2024-02-16	123.75	987 Advanced Court, Silicon Valley, CA 94301	CANCELLED	true	600
+

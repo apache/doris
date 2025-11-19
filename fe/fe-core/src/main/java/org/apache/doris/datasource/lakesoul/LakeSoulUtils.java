@@ -63,6 +63,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulUtils {
 
     public static final String FILE_NAMES = "file_paths";

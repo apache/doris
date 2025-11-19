@@ -196,6 +196,8 @@ QueryContext::~QueryContext() {
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
+    // TODO(gabriel): we need to clear outdated query contexts on time
+    // ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }

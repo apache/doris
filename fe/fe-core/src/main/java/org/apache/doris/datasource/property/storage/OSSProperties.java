@@ -57,6 +57,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
             "dlf.secret_key", "dlf.catalog.secret_key", "fs.oss.accessKeySecret"},
+            sensitive = true,
             required = false,
             description = "The secret key of OSS.")
     protected String secretKey = "";
@@ -76,6 +77,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token", "fs.oss.securityToken"},
             required = false,
+            sensitive = true,
             description = "The session token of OSS.")
     protected String sessionToken = "";
 
@@ -122,6 +124,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
+    private static final Pattern STANDARD_ENDPOINT_PATTERN = Pattern
+            .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
+
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
      * <p>
@@ -137,16 +142,19 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * use-amazon-s3-sdks-to-access-oss">...</a>
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
+     * https://help.aliyun.com/zh/dlf/dlf-1-0/developer-reference/api-datalake-2020-07-10-endpoint
+     * - datalake.cn-hangzhou.aliyuncs.com          => region = cn-hangzhou
      */
-    public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
-                    .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"),
-            Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
-            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
+    public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(STANDARD_ENDPOINT_PATTERN,
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"),
+            Pattern.compile("^(?:https?://)?datalake(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
     private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
 
     private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
             "iceberg.catalog.type", "paimon.catalog.type");
+
+    private static final String DLS_URI_KEYWORDS = "oss-dls.aliyuncs";
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -168,6 +176,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .findFirst()
                 .orElse(null);
         if (StringUtils.isNotBlank(value)) {
+            if (value.contains(DLS_URI_KEYWORDS)) {
+                return false;
+            }
             return (value.contains("aliyuncs.com"));
         }
 
@@ -196,6 +207,10 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (value == null) {
             return false;
         }
+        boolean isDls = value.contains(DLS_URI_KEYWORDS);
+        if (isDls) {
+            return false;
+        }
         if (value.startsWith("oss://")) {
             return true;
         }
@@ -204,8 +219,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         }
         boolean isAliyunOss = (value.contains("oss-"));
         boolean isAmazonS3 = value.contains("s3.");
-        boolean isDls = value.contains("dls");
-        return isAliyunOss || isAmazonS3 || isDls;
+        return isAliyunOss || isAmazonS3;
     }
 
     private static boolean isDlfMSType(Map<String, String> params) {
@@ -243,7 +257,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        if (endpoint.contains("dlf") || endpoint.contains("oss-dls")) {
+        if (StringUtils.isBlank(endpoint) || !STANDARD_ENDPOINT_PATTERN.matcher(endpoint).matches()) {
             this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
     }
@@ -273,6 +287,11 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return AnonymousCredentialsProvider.create();
         }
         return null;
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("oss");
     }
 
     @Override

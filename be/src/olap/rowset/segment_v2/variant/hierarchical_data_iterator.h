@@ -67,8 +67,6 @@ public:
     // Currently two types of read, merge sparse columns with root columns, or read directly
     enum class ReadType { MERGE_ROOT, READ_DIRECT };
 
-    HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
-
     static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
@@ -97,6 +95,9 @@ private:
     std::unique_ptr<SubstreamIterator> _sparse_column_reader;
     size_t _rows_read = 0;
     vectorized::PathInData _path;
+    OlapReaderStatistics* _stats = nullptr;
+
+    HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
 
     template <typename NodeFunction>
     Status tranverse(NodeFunction&& node_func) {
@@ -156,7 +157,11 @@ private:
 
         // read sparse column
         if (_sparse_column_reader) {
+            SCOPED_RAW_TIMER(&_stats->variant_scan_sparse_column_timer_ns);
+            int64_t curr_size = _sparse_column_reader->column->byte_size();
             RETURN_IF_ERROR(read_func(*_sparse_column_reader, {}, nullptr));
+            _stats->variant_scan_sparse_column_bytes +=
+                    _sparse_column_reader->column->byte_size() - curr_size;
         }
 
         MutableColumnPtr container;

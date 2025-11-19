@@ -182,8 +182,9 @@ suite('nereids_insert_into_values') {
     // when disable string auto cast and in insert strict mode, insert will failed
     sql 'set enable_insert_value_auto_cast = false'
     test {
+        def exception_str = isGroupCommitMode() ? "DATA_QUALITY_ERROR" : "Insert has filtered data in strict mode"
         sql "insert into test_insert_more_string values (3, 'hi'), (4, 'jklmn')"
-        exception 'Insert has filtered data in strict mode'
+        exception exception_str
     }
 
     // when disable insert strict, the longer varchar row will be filtered, other rows will succ

@@ -45,7 +45,12 @@ suite("test_recycler") {
                 def info = parseJson(recycleJobInfoResult.trim())
                 if (info.last_finish_time_ms != null) {
                     recyclerLastFinishTime = Long.parseLong(info.last_finish_time_ms)
+<<<<<<< HEAD
                     assertTrue(info.last_success_time_ms != null)
+=======
+                }
+                if(info.last_success_time_ms != null) {
+>>>>>>> 3.1.3-rc02
                     recyclerLastSuccessTime = Long.parseLong(info.last_success_time_ms)
                 }
         }
@@ -56,7 +61,11 @@ suite("test_recycler") {
         Thread.sleep(10000)
         getRecycleJobInfo()
         logger.info("caseStartTime=${caseStartTime}, recyclerLastSuccessTime=${recyclerLastSuccessTime}")
+<<<<<<< HEAD
         if (recyclerLastFinishTime > caseStartTime) {
+=======
+        if (recyclerLastSuccessTime > caseStartTime) {
+>>>>>>> 3.1.3-rc02
             break
         }
     } while (true)
@@ -128,6 +137,11 @@ suite("test_recycler") {
     }
 
     do {
+<<<<<<< HEAD
+=======
+        triggerRecycle(token, instanceId)
+        Thread.sleep(10000) // 10s
+>>>>>>> 3.1.3-rc02
         triggerChecker()
         Thread.sleep(10000) // 10s
         getCheckJobInfo()

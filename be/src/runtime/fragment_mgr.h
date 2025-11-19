@@ -134,6 +134,7 @@ public:
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb);
 
+    void remove_query_context(const TUniqueId& key);
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status trigger_pipeline_context_report(const ReportStatusRequest,

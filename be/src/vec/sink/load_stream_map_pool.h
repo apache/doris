@@ -112,6 +112,7 @@ private:
     const int64_t _src_id;
     const int _num_streams;
     std::atomic<int> _use_cnt;
+    std::atomic<int> _num_incremental_streams;
     std::mutex _mutex;
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> _streams_for_node;
     LoadStreamMapPool* _pool = nullptr;

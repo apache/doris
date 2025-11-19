@@ -140,6 +140,8 @@ message RowsetMetaPB {
 
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
+
+    optional int64 visible_ts_ms = 1010;
 }
 
 message SchemaDictKeyList {
@@ -233,6 +235,8 @@ message RowsetMetaCloudPB {
 
     optional bool enable_inverted_index_file_info = 106;
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
+
+    optional int64 visible_ts_ms = 109;
 }
 
 message SegmentStatisticsPB {

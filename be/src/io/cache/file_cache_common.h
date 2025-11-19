@@ -61,10 +61,12 @@ struct UInt128Wrapper {
 
 struct ReadStatistics {
     bool hit_cache = true;
+    bool from_peer_cache = false;
     bool skip_cache = false;
     int64_t bytes_read = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
+    int64_t peer_read_timer = 0;
     int64_t local_read_timer = 0;
     int64_t local_write_timer = 0;
     int64_t read_cache_file_directly_timer = 0;
@@ -148,6 +150,7 @@ struct CacheContext {
             cache_type = FileCacheType::NORMAL;
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
+        is_warmup = io_context->is_warmup;
     }
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
@@ -159,6 +162,7 @@ struct CacheContext {
     int64_t expiration_time {0};
     bool is_cold_data {false};
     ReadStatistics* stats;
+    bool is_warmup {false};
 };
 
 template <class Lock>

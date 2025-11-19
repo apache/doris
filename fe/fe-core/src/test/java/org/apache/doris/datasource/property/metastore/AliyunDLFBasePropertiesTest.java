@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 
 public class AliyunDLFBasePropertiesTest {
@@ -101,5 +103,15 @@ public class AliyunDLFBasePropertiesTest {
                 () -> AliyunDLFBaseProperties.of(props)
         );
         Assertions.assertTrue(ex.getMessage().contains("dlf.secret_key is required"));
+    }
+
+    @Test
+    void testGetSensitiveKeys() {
+        Set<String> keys = ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class);
+        System.out.println(keys);
+        Assertions.assertTrue(keys.contains("dlf.catalog.sessionToken"));
+        Assertions.assertTrue(keys.contains("dlf.catalog.accessKeySecret"));
+        Assertions.assertTrue(keys.contains("dlf.secret_key"));
+        Assertions.assertTrue(keys.contains("dlf.session_token"));
     }
 }

@@ -780,7 +780,7 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
             }
         }
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, resultExprs, colLabels);
+            outFileClause.analyze(analyzer, resultExprs, colLabels, true);
         }
     }
 

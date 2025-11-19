@@ -289,8 +289,10 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
-        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
-        return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull" or "zeroDateTimeBehavior=convert_to_null"
+        String jdbcUrl = jdbcClientConfig.getJdbcUrl().toLowerCase();
+        return jdbcUrl.contains("zerodatetimebehavior=converttonull")
+                || jdbcUrl.contains("zerodatetimebehavior=convert_to_null");
     }
 
     /**
@@ -303,9 +305,9 @@ public class JdbcMySQLClient extends JdbcClient {
         Map<String, String> fieldToType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(remoteTableName);
+        queryBuf.append("`").append(remoteTableName).append("`");
         queryBuf.append(" FROM ");
-        queryBuf.append(remoteDbName);
+        queryBuf.append("`").append(remoteDbName).append("`");
         try {
             conn = getConnection();
             stmt = conn.createStatement();

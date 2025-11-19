@@ -105,6 +105,9 @@ protected:
     int64_t _local_read_bytes_total {};
     int64_t _remote_read_bytes_total {};
 
+    int64_t _input_rowsets_cached_data_size {0};
+    int64_t _input_rowsets_cached_index_size {0};
+
     Merger::Statistics _stats;
 
     RowsetSharedPtr _output_rowset;
@@ -214,6 +217,8 @@ private:
     virtual Status modify_rowsets();
 
     int64_t get_compaction_permits();
+
+    bool should_cache_compaction_output();
 };
 
 } // namespace doris

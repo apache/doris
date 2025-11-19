@@ -197,6 +197,16 @@ public class SetVar {
             }
             this.result = (LiteralExpr) this.value;
         }
+        if (getVariable().equalsIgnoreCase(SessionVariable.MERGE_IO_READ_SLICE_SIZE_BYTES)) {
+            try {
+                this.value = new StringLiteral(
+                        Long.toString(ParseUtil.analyzeDataVolume(getResult().getStringValue())));
+            } catch (Throwable t) {
+                // See file_split_size comment
+                this.value = new StringLiteral(getResult().getStringValue());
+            }
+            this.result = (LiteralExpr) this.value;
+        }
         if (getVariable().equalsIgnoreCase("is_report_success")) {
             variable = SessionVariable.ENABLE_PROFILE;
         }

@@ -42,7 +42,7 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
 
     sql """switch ${catalog_name}"""
 
-    order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey limit 1;"""
+    order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey,l_partkey limit 1;"""
     // brpc metrics will be updated at most 20 seconds
     Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
         def result = sql """select METRIC_VALUE from information_schema.file_cache_statistics where METRIC_NAME like "%hits_ratio%" order by METRIC_VALUE limit 1;"""

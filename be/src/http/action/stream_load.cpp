@@ -527,6 +527,23 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     } else {
         request.__set_strip_outer_array(false);
     }
+
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            request.__set_read_json_by_line(true);
+        } else {
+            request.__set_read_json_by_line(false);
+        }
+    } else {
+        request.__set_read_json_by_line(false);
+    }
+
+    if (http_req->header(HTTP_READ_JSON_BY_LINE).empty() &&
+        http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
+        request.__set_read_json_by_line(true);
+        request.__set_strip_outer_array(false);
+    }
+
     if (!http_req->header(HTTP_NUM_AS_STRING).empty()) {
         if (iequal(http_req->header(HTTP_NUM_AS_STRING), "true")) {
             request.__set_num_as_string(true);
@@ -544,16 +561,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     } else {
         request.__set_fuzzy_parse(false);
-    }
-
-    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
-            request.__set_read_json_by_line(true);
-        } else {
-            request.__set_read_json_by_line(false);
-        }
-    } else {
-        request.__set_read_json_by_line(false);
     }
 
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {

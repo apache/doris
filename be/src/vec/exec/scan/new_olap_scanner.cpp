@@ -200,11 +200,16 @@ Status NewOlapScanner::init() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            auto maybe_read_source = tablet->capture_read_source(
-                    _tablet_reader_params.version,
-                    {.skip_missing_versions = _state->skip_missing_version(),
-                     .enable_fetch_rowsets_from_peers =
-                             config::enable_fetch_rowsets_from_peer_replicas});
+            CaptureRowsetOps opts {
+                    .skip_missing_versions = _state->skip_missing_version(),
+                    .enable_fetch_rowsets_from_peers =
+                            config::enable_fetch_rowsets_from_peer_replicas,
+                    .enable_prefer_cached_rowset =
+                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                    .query_freshness_tolerance_ms =
+                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1};
+            auto maybe_read_source =
+                    tablet->capture_read_source(_tablet_reader_params.version, opts);
             if (!maybe_read_source) {
                 LOG(WARNING) << "fail to init reader. res=" << maybe_read_source.error();
                 return maybe_read_source.error();
@@ -533,7 +538,7 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
 }
 
 Status NewOlapScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
 
@@ -575,6 +580,9 @@ void NewOlapScanner::update_realtime_counters() {
             _query_statistics->add_scan_bytes_from_remote_storage(
                     stats.file_cache_stats.bytes_read_from_remote);
         }
+
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
@@ -696,7 +704,21 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_output_index_result_column_timer,                                    \
                    stats.output_index_result_column_timer);                                      \
     COUNTER_UPDATE(Parent->_filtered_segment_counter, stats.filtered_segment_number);            \
-    COUNTER_UPDATE(Parent->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(Parent->_total_segment_counter, stats.total_segment_number);                  \
+    COUNTER_UPDATE(Parent->_variant_scan_sparse_column_timer,                                    \
+                   stats.variant_scan_sparse_column_timer_ns);                                   \
+    COUNTER_UPDATE(Parent->_variant_scan_sparse_column_bytes,                                    \
+                   stats.variant_scan_sparse_column_bytes);                                      \
+    COUNTER_UPDATE(Parent->_variant_fill_path_from_sparse_column_timer,                          \
+                   stats.variant_fill_path_from_sparse_column_timer_ns);                         \
+    COUNTER_UPDATE(Parent->_variant_subtree_default_iter_count,                                  \
+                   stats.variant_subtree_default_iter_count);                                    \
+    COUNTER_UPDATE(Parent->_variant_subtree_leaf_iter_count,                                     \
+                   stats.variant_subtree_leaf_iter_count);                                       \
+    COUNTER_UPDATE(Parent->_variant_subtree_hierarchical_iter_count,                             \
+                   stats.variant_subtree_hierarchical_iter_count);                               \
+    COUNTER_UPDATE(Parent->_variant_subtree_sparse_iter_count,                                   \
+                   stats.variant_subtree_sparse_iter_count);
 
     // Update counters for NewOlapScanner
     // Update counters from tablet reader's stats

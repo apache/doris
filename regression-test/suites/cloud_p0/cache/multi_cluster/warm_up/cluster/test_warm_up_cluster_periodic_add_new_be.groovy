@@ -23,6 +23,7 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'fetch_cluster_cache_hotspot_interval_ms=1000',
+        'rehash_tablet_after_be_dead_seconds=1',
     ]
     options.beConfigs += [
         'file_cache_enter_disk_resource_limit_mode_percent=99',

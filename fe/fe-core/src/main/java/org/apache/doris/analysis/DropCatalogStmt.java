@@ -53,7 +53,7 @@ public class DropCatalogStmt extends DdlStmt implements NotFallbackInParser {
         Util.checkCatalogAllRules(catalogName);
 
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new AnalysisException("Internal catalog can't be drop.");
+            throw new AnalysisException("Internal catalog can't be dropped.");
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(

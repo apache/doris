@@ -402,7 +402,9 @@ suite("test_point_query") {
         partial_prepared_stmt.setString(2, "feature")
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
-
+        
+        sql "set skip_delete_sign=false"
+        trigger_and_wait_compaction("regression_test_point_query_p0.table_3821461", "full")
         partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
         partial_prepared_stmt.setInt(1, 10)
         partial_prepared_stmt.setInt(2, 20)

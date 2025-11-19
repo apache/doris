@@ -1317,13 +1317,29 @@ Status VFileScanner::_get_next_reader() {
             _slot_lower_name_to_col_type.emplace(to_lower(col_name), col_type);
         }
 
+        if (!_fill_partition_from_path && config::enable_iceberg_partition_column_fallback) {
+            // check if the cols of _partition_col_descs are in _missing_cols
+            // if so, set _fill_partition_from_path to true and remove the col from _missing_cols
+            for (const auto& [col_name, col_type] : _partition_col_descs) {
+                if (_missing_cols.contains(col_name)) {
+                    _fill_partition_from_path = true;
+                    _missing_cols.erase(col_name);
+                }
+            }
+        }
+
         RETURN_IF_ERROR(_generate_missing_columns());
+        Status status;
         if (_fill_partition_from_path) {
-            RETURN_IF_ERROR(
-                    _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+            status = _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs);
         } else {
             // If the partition columns are not from path, we only fill the missing columns.
-            RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
+            status = _cur_reader->set_fill_columns({}, _missing_col_descs);
+        }
+        if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
+            continue;
+        } else if (!status.ok()) {
+            return Status::InternalError("failed to set_fill_columns, err: {}", status.to_string());
         }
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
@@ -1529,7 +1545,7 @@ Status VFileScanner::_init_expr_ctxes() {
 }
 
 Status VFileScanner::close(RuntimeState* state) {
-    if (_is_closed) {
+    if (!_try_close()) {
         return Status::OK();
     }
 

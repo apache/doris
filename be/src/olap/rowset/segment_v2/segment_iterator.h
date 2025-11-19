@@ -484,6 +484,9 @@ private:
 
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
+
+    // key is column uid, value is the sparse column cache
+    std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
 };
 
 } // namespace segment_v2

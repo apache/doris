@@ -5,6 +5,12 @@
 -- !hdfs --
 11111111	hdfs_db_test
 
+-- !hdfs_kerberos --
+11111111	hdfs_db_test
+
+-- !hdfs_kerberos --
+11111111	hdfs_db_test
+
 -- !oss --
 11111111	ali_db_test
 11111111	ali_db_test
@@ -60,11 +66,49 @@
 11111111	aws_db_test
 11111111	aws_db_test
 11111111	aws_db_test
+
+-- !gcs --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+
+-- !gcs --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+
+-- !gcs_s3 --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+
+-- !gcs_s3 --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
 
 -- !support_hdfs --
 11111111	hdfs_db_test
 
 -- !support_hdfs --
+11111111	hdfs_db_test
+
+-- !support_hdfs_kerberos --
+11111111	hdfs_db_test
+
+-- !support_hdfs_kerberos --
 11111111	hdfs_db_test
 
 -- !support_oss --
@@ -122,4 +166,36 @@
 11111111	aws_db_test
 11111111	aws_db_test
 11111111	aws_db_test
+
+-- !support_gcs --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+
+-- !support_gcs --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+
+-- !support_gcs_s3 --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+
+-- !support_gcs_s3 --
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
+11111111	gcs_db_test
 

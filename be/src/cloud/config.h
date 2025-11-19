@@ -75,6 +75,12 @@ DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
+// Enable empty rowset compaction strategy
+DECLARE_mBool(enable_empty_rowset_compaction);
+// Minimum number of consecutive empty rowsets to trigger compaction
+DECLARE_mInt32(empty_rowset_compaction_min_count);
+// Minimum percentage of empty rowsets to trigger compaction
+DECLARE_mDouble(empty_rowset_compaction_min_ratio);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(compaction_load_max_freeze_interval_s);
@@ -100,12 +106,18 @@ DECLARE_mInt32(mow_stream_load_commit_retry_times);
 
 DECLARE_mBool(save_load_error_log_to_s3);
 
+// Whether to use public endpoint for error log presigned URL
+DECLARE_mBool(use_public_endpoint_for_error_log);
+
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
+
+DECLARE_mBool(enable_batch_get_delete_bitmap);
+DECLARE_mInt64(get_delete_bitmap_bytes_threshold);
 
 // Skip writing empty rowset metadata to meta service
 DECLARE_mBool(skip_writing_empty_rowset_metadata);
@@ -147,6 +159,12 @@ DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
 DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
+
+DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
+
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

@@ -37,11 +37,13 @@ namespace io {
 
 struct FileBlocksHolder;
 class BlockFileCache;
+struct FileBlockCell;
 
 class FileBlock {
     friend struct FileBlocksHolder;
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
+    friend struct FileBlockCell;
 
 public:
     enum class State {
@@ -135,6 +137,10 @@ public:
     void set_deleting() { _is_deleting = true; }
     bool is_deleting() const { return _is_deleting; };
 
+public:
+    std::atomic<bool> _owned_by_cached_reader {
+            false}; // pocessed by CachedRemoteFileReader::_cache_file_readers
+
 private:
     std::string get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const;
 
@@ -161,6 +167,8 @@ private:
     FileCacheKey _key;
     size_t _downloaded_size {0};
     bool _is_deleting {false};
+
+    FileBlockCell* cell;
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

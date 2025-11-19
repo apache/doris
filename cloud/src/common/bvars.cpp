@@ -17,13 +17,17 @@
 
 #include "common/bvars.h"
 
+#include <bvar/latency_recorder.h>
 #include <bvar/multi_dimension.h>
+#include <bvar/passive_status.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
 #include <bvar/window.h>
 
 #include <cstdint>
 #include <stdexcept>
+
+#include "meta-store/txn_kv.h"
 
 // clang-format off
 
@@ -97,6 +101,12 @@ bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_get_delete_bitmap_fail_counter_minute("ms", "get_delete_bitmap_fail", &g_bvar_get_delete_bitmap_fail_counter, 60);
+BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_count("ms", "txn_commit_with_partition_count");
+BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count("ms", "txn_commit_with_tablet_count");
+
+MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count("instance", "txn_commit_with_partition_count", {"instance_id"});
+MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count("instance", "txn_commit_with_tablet_count", {"instance_id"});
+
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
@@ -130,8 +140,8 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycle
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes("recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
 mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts("recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
 // total recycled num and bytes of resources since recycler started
-mBvarIntAdder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
-mBvarIntAdder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
+mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
+mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
 mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_round", {"instance_id", "resource_type"});
 // represents the ms required per resource to be recycled
 // value of -1 means no resource recycled

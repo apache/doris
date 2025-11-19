@@ -471,6 +471,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     }
 
     s3_file_created_total << 1;
+    s3_bytes_written_total << buf.get_size();
 }
 
 std::string S3FileWriter::_dump_completed_part() const {

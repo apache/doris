@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.property;
 
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Utility class for handling fields annotated with {@link ConnectorProperty}.
@@ -143,6 +145,26 @@ public class ConnectorPropertiesUtils {
         }
 
         throw new IllegalArgumentException("Unsupported property type: " + targetType.getName());
+    }
+
+    /**
+     * Return the sensitive keys of the give properties
+     *
+     * @param clazz
+     * @return
+     */
+    public static Set<String> getSensitiveKeys(Class<?> clazz) {
+        Set<String> keys = Sets.newHashSet();
+        List<Field> supportedProps = getConnectorProperties(clazz);
+        for (Field field : supportedProps) {
+            ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
+            if (anno.sensitive()) {
+                for (String name : anno.names()) {
+                    keys.add(name);
+                }
+            }
+        }
+        return keys;
     }
 }
 

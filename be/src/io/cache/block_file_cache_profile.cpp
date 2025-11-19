@@ -30,6 +30,7 @@ std::shared_ptr<AtomicStatistics> FileCacheProfile::report() {
     std::lock_guard lock(_mtx);
     stats->num_io_bytes_read_from_cache += _profile->num_io_bytes_read_from_cache;
     stats->num_io_bytes_read_from_remote += _profile->num_io_bytes_read_from_remote;
+    stats->num_io_bytes_read_from_peer += _profile->num_io_bytes_read_from_peer;
     return stats;
 }
 
@@ -44,6 +45,7 @@ void FileCacheProfile::update(FileCacheStatistics* stats) {
     }
     _profile->num_io_bytes_read_from_cache += stats->bytes_read_from_local;
     _profile->num_io_bytes_read_from_remote += stats->bytes_read_from_remote;
+    _profile->num_io_bytes_read_from_peer += stats->bytes_read_from_peer;
 }
 
 void FileCacheMetric::register_entity() {
@@ -57,8 +59,11 @@ void FileCacheMetric::update_table_metrics() const {
             stats->num_io_bytes_read_from_cache);
     DorisMetrics::instance()->num_io_bytes_read_from_remote->set_value(
             stats->num_io_bytes_read_from_remote);
+    DorisMetrics::instance()->num_io_bytes_read_from_peer->set_value(
+            stats->num_io_bytes_read_from_peer);
     DorisMetrics::instance()->num_io_bytes_read_total->set_value(
-            stats->num_io_bytes_read_from_cache + stats->num_io_bytes_read_from_remote);
+            stats->num_io_bytes_read_from_cache + stats->num_io_bytes_read_from_remote +
+            stats->num_io_bytes_read_from_peer);
 }
 
 } // namespace doris::io

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.paimon.catalog.Catalog;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -70,12 +71,10 @@ public class PaimonCatalogTest {
             System.out.println("Catalog initialization skipped: Missing valid S3 Access Key/Secret Key.");
             return null;
         }
-
         AbstractPaimonProperties metaStoreProps =
                 (AbstractPaimonProperties) MetastoreProperties.create(params);
-
         metaStoreProps.initNormalizeAndCheckProps();
-
+        Assertions.assertNotNull(metaStoreProps.getExecutionAuthenticator());
         List<StorageProperties> storageProps = StorageProperties.createAll(params);
 
         return metaStoreProps.initializeCatalog("paimon_catalog", storageProps);

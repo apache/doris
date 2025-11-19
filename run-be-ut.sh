@@ -23,6 +23,8 @@
 #     --clean            clean and build ut
 #     --run              build and run all ut
 #     --run --filter=xx  build and run specified ut
+#     --gdb              debug with gdb, does not take effect if --run is not specified
+#     --coverage         generate coverage report, does not take effect if --gdb is specified
 #     -j                 build parallel
 #     -h                 print this help message
 #
@@ -52,7 +54,8 @@ Usage: $0 <options>
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
      --run --gen_out    generate expected check data for test
-     --coverage         coverage after run ut
+     --gdb              debug with gdb, DOES NOT take effect if --run is not specified
+     --coverage         generage coverage after run ut, DOES NOT take effect if --gdb is specified
      -j                 build parallel
      -h                 print this help message
 
@@ -67,12 +70,13 @@ Usage: $0 <options>
     $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
     $0 --clean                                                      clean and build tests
     $0 --clean --run                                                clean, build and run all tests
-    $0 --clean --run --coverage                                     clean, build, run all tests and coverage
+    $0 --clean --run --coverage                                     clean, build, run all tests and generate coverage report
+    $0 --clean --run --gdb --filter=FooTest.*-FooTest.Bar           clean, build, run all tests and debug FooTest with gdb
   "
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,coverage,benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,coverage,benchmark,run,gdb,clean,filter: -- "$@")"; then
     usage
 fi
 
@@ -81,6 +85,7 @@ eval set -- "${OPTS}"
 CLEAN=0
 RUN=0
 BUILD_BENCHMARK_TOOL='OFF'
+GDB=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
@@ -98,6 +103,10 @@ if [[ "$#" != 1 ]]; then
             ;;
         --benchmark)
             BUILD_BENCHMARK_TOOL='ON'
+            shift
+            ;;
+        --gdb)
+            GDB=1
             shift
             ;;
         --coverage)
@@ -470,6 +479,12 @@ export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
 profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
+
+
+if [[ ${GDB} -ge 1 ]]; then
+    gdb --args "${test}" "${FILTER}"
+    exit
+fi
 
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then

@@ -306,8 +306,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         _record_rowids = true;
     }
 
-    RETURN_IF_ERROR(init_iterators());
-
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
@@ -342,8 +340,15 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 }
             }
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
+            if (int32_t uid = col->get_unique_id(); !_variant_sparse_column_cache.contains(uid)) {
+                DCHECK(uid >= 0);
+                _variant_sparse_column_cache.emplace(uid,
+                                                     std::make_unique<PathToSparseColumnCache>());
+            }
         }
     }
+
+    RETURN_IF_ERROR(init_iterators());
 
     RETURN_IF_ERROR(_construct_compound_expr_context());
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
@@ -480,7 +485,8 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid], &_opts));
+                                                          &_column_iterators[cid], &_opts,
+                                                          &_variant_sparse_column_cache));
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
                     .file_reader = _file_reader.get(),
@@ -942,7 +948,12 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     //    and the operation is a push down of the 'COUNT_ON_INDEX' aggregation function.
     // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
     // Then, return false.
-    int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    const auto& column = _opts.tablet_schema->column(cid);
+    // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
+    if (column.is_extracted_column()) {
+        return true;
+    }
+    int32_t unique_id = column.unique_id();
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
@@ -1046,7 +1057,8 @@ Status SegmentIterator::_init_return_column_iterators() {
 
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid], &_opts));
+                                                          &_column_iterators[cid], &_opts,
+                                                          &_variant_sparse_column_cache));
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
                     // If the col is predicate column, then should read the last page to check
@@ -2031,8 +2043,6 @@ void SegmentIterator::_clear_iterators() {
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
-    // Clear the sparse column cache before processing a new batch
-    _opts.sparse_column_cache.clear();
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());
