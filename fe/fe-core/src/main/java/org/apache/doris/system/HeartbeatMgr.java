@@ -192,18 +192,21 @@ public class HeartbeatMgr extends MasterDaemon {
                     boolean isChanged = be.handleHbResponse(hbResponse, isReplay);
                     if (hbResponse.getStatus() == HbStatus.OK) {
                         long newStartTime = be.getLastStartTime();
+                        // oldStartTime > 0 means it is not the first heartbeat
                         if (!isReplay && Config.enable_abort_txn_by_checking_coordinator_be
-                                && oldStartTime != newStartTime) {
-                            Env.getCurrentGlobalTransactionMgr().abortTxnWhenCoordinateBeRestart(
-                                    be.getId(), be.getHost(), newStartTime);
+                                && oldStartTime != newStartTime && oldStartTime > 0) {
+                            submitAbortTxnTask(() -> Env.getCurrentGlobalTransactionMgr()
+                                    .abortTxnWhenCoordinateBeRestart(be.getId(), be.getHost(), newStartTime),
+                                    "restart");
                         }
                     } else {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
                         if (!isReplay && System.currentTimeMillis() - be.getLastUpdateMs()
-                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L) {
-                            Env.getCurrentGlobalTransactionMgr().abortTxnWhenCoordinateBeDown(
-                                    be.getId(), be.getHost(), 100);
+                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L
+                                && be.getLastUpdateMs() > 0) {
+                            submitAbortTxnTask(() -> Env.getCurrentGlobalTransactionMgr()
+                                    .abortTxnWhenCoordinateBeDown(be.getId(), be.getHost(), 100), "down");
                         }
                     }
                     return isChanged;
@@ -228,6 +231,23 @@ public class HeartbeatMgr extends MasterDaemon {
                 break;
         }
         return false;
+    }
+
+    private void submitAbortTxnTask(Runnable task, String reason) {
+        Thread thread = new Thread(() -> {
+            long start = System.currentTimeMillis();
+            LOG.info("start abort txn task, reason={}, start_ts={}", reason, start);
+            try {
+                task.run();
+                long duration = System.currentTimeMillis() - start;
+                LOG.info("finish abort txn task, reason={}, start_ts={}, cost_ms={}", reason, start, duration);
+            } catch (Exception e) {
+                long duration = System.currentTimeMillis() - start;
+                LOG.warn("abort txn task({}) failed, start_ts={}, cost_ms={}", reason, start, duration, e);
+            }
+        }, "abort-txn-thread");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     // backend heartbeat
