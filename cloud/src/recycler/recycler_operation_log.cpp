@@ -31,11 +31,12 @@
 #include <utility>
 #include <vector>
 
+#include "client/s3_common.h"
 #include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
+#include "cpp/stopwatch.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"

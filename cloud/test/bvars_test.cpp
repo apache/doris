@@ -66,10 +66,11 @@ TEST(BvarsTest, MultiThreadRecordMetrics) {
 
     std::vector<std::thread> threads;
     std::atomic_long update_count = 0;
-    MBvarLatencyRecorderWithStatus<60> mbvarlr_partition_test("partition_test", {"instance_id"});
-    MBvarLatencyRecorderWithStatus<60> mbvarlr_tablet_test("tablet_test", {"instance_id"});
+    constexpr int interval_s = 20;
+    MBvarLatencyRecorderWithStatus<interval_s> mbvarlr_partition_test("partition_test",
+                                                                      {"instance_id"});
+    MBvarLatencyRecorderWithStatus<interval_s> mbvarlr_tablet_test("tablet_test", {"instance_id"});
 
-    int interval_s = 60;
     auto* sp = SyncPoint::get_instance();
     sp->set_call_back("mBvarLatencyRecorderWithStatus::put", [&interval_s](auto&& args) {
         auto* vault = try_any_cast<int*>(args[0]);
