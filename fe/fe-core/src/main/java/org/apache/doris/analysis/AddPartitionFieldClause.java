@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 
 import java.util.Collections;
 import java.util.Map;
@@ -30,12 +30,15 @@ public class AddPartitionFieldClause extends AlterTableClause {
     private final String transformName;
     private final Integer transformArg;
     private final String columnName;
+    private final String partitionFieldName;
 
-    public AddPartitionFieldClause(String transformName, Integer transformArg, String columnName) {
-        super(AlterOpType.SCHEMA_CHANGE);
+    public AddPartitionFieldClause(String transformName, Integer transformArg, String columnName,
+            String partitionFieldName) {
+        super(AlterOpType.ADD_PARTITION_FIELD);
         this.transformName = transformName;
         this.transformArg = transformArg;
         this.columnName = columnName;
+        this.partitionFieldName = partitionFieldName;
     }
 
     public String getTransformName() {
@@ -50,8 +53,12 @@ public class AddPartitionFieldClause extends AlterTableClause {
         return columnName;
     }
 
+    public String getPartitionFieldName() {
+        return partitionFieldName;
+    }
+
     @Override
-    public void analyze() throws AnalysisException {
+    public void analyze() throws UserException {
         // Validation will be done in IcebergMetadataOps
     }
 
@@ -72,6 +79,9 @@ public class AddPartitionFieldClause extends AlterTableClause {
             }
         } else if (columnName != null) {
             sb.append(columnName);
+        }
+        if (partitionFieldName != null) {
+            sb.append(" AS ").append(partitionFieldName);
         }
         return sb.toString();
     }
@@ -96,4 +106,3 @@ public class AddPartitionFieldClause extends AlterTableClause {
         return Collections.emptyMap();
     }
 }
-

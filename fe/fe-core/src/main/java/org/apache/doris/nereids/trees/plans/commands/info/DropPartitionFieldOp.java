@@ -35,7 +35,7 @@ public class DropPartitionFieldOp extends AlterTableOp {
     private final String columnName;
 
     public DropPartitionFieldOp(String transformName, Integer transformArg, String columnName) {
-        super(AlterOpType.SCHEMA_CHANGE);
+        super(AlterOpType.DROP_PARTITION_FIELD);
         this.transformName = transformName;
         this.transformArg = transformArg;
         this.columnName = columnName;
@@ -99,4 +99,3 @@ public class DropPartitionFieldOp extends AlterTableOp {
         return sb.toString();
     }
 }
-

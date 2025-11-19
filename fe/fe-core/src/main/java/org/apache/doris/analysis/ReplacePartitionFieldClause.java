@@ -24,41 +24,60 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * DropPartitionFieldClause for Iceberg partition evolution
+ * ReplacePartitionFieldClause for Iceberg partition evolution
  */
-public class DropPartitionFieldClause extends AlterTableClause {
-    private final String transformName;
-    private final Integer transformArg;
-    private final String columnName;
+public class ReplacePartitionFieldClause extends AlterTableClause {
+    private final String oldPartitionFieldName;
+    private final String newTransformName;
+    private final Integer newTransformArg;
+    private final String newColumnName;
+    private final String newPartitionFieldName;
 
-    public DropPartitionFieldClause(String transformName, Integer transformArg, String columnName) {
-        super(AlterOpType.DROP_PARTITION_FIELD);
-        this.transformName = transformName;
-        this.transformArg = transformArg;
-        this.columnName = columnName;
+    public ReplacePartitionFieldClause(String oldPartitionFieldName,
+            String newTransformName, Integer newTransformArg, String newColumnName,
+            String newPartitionFieldName) {
+        super(AlterOpType.REPLACE_PARTITION_FIELD);
+        this.oldPartitionFieldName = oldPartitionFieldName;
+        this.newTransformName = newTransformName;
+        this.newTransformArg = newTransformArg;
+        this.newColumnName = newColumnName;
+        this.newPartitionFieldName = newPartitionFieldName;
     }
 
-    public String getTransformName() {
-        return transformName;
+    public String getOldPartitionFieldName() {
+        return oldPartitionFieldName;
     }
 
-    public Integer getTransformArg() {
-        return transformArg;
+    public String getNewTransformName() {
+        return newTransformName;
     }
 
-    public String getColumnName() {
-        return columnName;
+    public Integer getNewTransformArg() {
+        return newTransformArg;
     }
 
-    @Override
-    public void analyze() throws UserException {
-        // Validation will be done in IcebergMetadataOps
+    public String getNewColumnName() {
+        return newColumnName;
+    }
+
+    public String getNewPartitionFieldName() {
+        return newPartitionFieldName;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP PARTITION KEY ");
+        sb.append("REPLACE PARTITION KEY ").append(oldPartitionFieldName);
+        sb.append(" WITH ");
+        appendPartitionTransform(sb, newTransformName, newTransformArg, newColumnName);
+        if (newPartitionFieldName != null) {
+            sb.append(" AS ").append(newPartitionFieldName);
+        }
+        return sb.toString();
+    }
+
+    private void appendPartitionTransform(StringBuilder sb, String transformName, Integer transformArg,
+            String columnName) {
         if (transformName != null) {
             sb.append(transformName);
             if (transformArg != null) {
@@ -73,12 +92,16 @@ public class DropPartitionFieldClause extends AlterTableClause {
         } else if (columnName != null) {
             sb.append(columnName);
         }
-        return sb.toString();
     }
 
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public void analyze() throws UserException {
+        // Analysis will be done in IcebergMetadataOps
     }
 
     @Override

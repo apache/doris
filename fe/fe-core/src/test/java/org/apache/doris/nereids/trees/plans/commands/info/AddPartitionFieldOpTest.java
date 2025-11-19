@@ -29,12 +29,21 @@ public class AddPartitionFieldOpTest {
 
     @Test
     public void testIdentityTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp(null, null, "category");
+        AddPartitionFieldOp op = new AddPartitionFieldOp(null, null, "category", null);
         Assertions.assertEquals(AlterOpType.SCHEMA_CHANGE, op.getOpType());
         Assertions.assertNull(op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("category", op.getColumnName());
+        Assertions.assertNull(op.getPartitionFieldName());
         Assertions.assertEquals("ADD PARTITION KEY category", op.toSql());
+    }
+
+    @Test
+    public void testIdentityTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp(null, null, "category", "category_partition");
+        Assertions.assertEquals("category", op.getColumnName());
+        Assertions.assertEquals("category_partition", op.getPartitionFieldName());
+        Assertions.assertEquals("ADD PARTITION KEY category AS category_partition", op.toSql());
 
         AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertNotNull(clause);
@@ -45,11 +54,20 @@ public class AddPartitionFieldOpTest {
 
     @Test
     public void testTimeTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("year", null, "ts");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("year", null, "ts", null);
         Assertions.assertEquals("year", op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("ts", op.getColumnName());
         Assertions.assertEquals("ADD PARTITION KEY year(ts)", op.toSql());
+    }
+
+    @Test
+    public void testTimeTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp("year", null, "ts", "ts_year");
+        Assertions.assertEquals("year", op.getTransformName());
+        Assertions.assertEquals("ts", op.getColumnName());
+        Assertions.assertEquals("ts_year", op.getPartitionFieldName());
+        Assertions.assertEquals("ADD PARTITION KEY year(ts) AS ts_year", op.toSql());
 
         AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertEquals("year", clause.getTransformName());
@@ -59,11 +77,21 @@ public class AddPartitionFieldOpTest {
 
     @Test
     public void testBucketTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id", null);
         Assertions.assertEquals("bucket", op.getTransformName());
         Assertions.assertEquals(16, op.getTransformArg());
         Assertions.assertEquals("id", op.getColumnName());
         Assertions.assertEquals("ADD PARTITION KEY bucket(16, id)", op.toSql());
+    }
+
+    @Test
+    public void testBucketTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id", "id_bucket_16");
+        Assertions.assertEquals("bucket", op.getTransformName());
+        Assertions.assertEquals(16, op.getTransformArg());
+        Assertions.assertEquals("id", op.getColumnName());
+        Assertions.assertEquals("id_bucket_16", op.getPartitionFieldName());
+        Assertions.assertEquals("ADD PARTITION KEY bucket(16, id) AS id_bucket_16", op.toSql());
 
         AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertEquals("bucket", clause.getTransformName());
@@ -73,7 +101,7 @@ public class AddPartitionFieldOpTest {
 
     @Test
     public void testTruncateTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("truncate", 10, "name");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("truncate", 10, "name", null);
         Assertions.assertEquals("truncate", op.getTransformName());
         Assertions.assertEquals(10, op.getTransformArg());
         Assertions.assertEquals("name", op.getColumnName());
@@ -81,26 +109,51 @@ public class AddPartitionFieldOpTest {
     }
 
     @Test
+    public void testTruncateTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp("truncate", 10, "name", "name_truncate");
+        Assertions.assertEquals("name_truncate", op.getPartitionFieldName());
+        Assertions.assertEquals("ADD PARTITION KEY truncate(10, name) AS name_truncate", op.toSql());
+    }
+
+    @Test
     public void testMonthTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("month", null, "created_date");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("month", null, "created_date", null);
         Assertions.assertEquals("ADD PARTITION KEY month(created_date)", op.toSql());
     }
 
     @Test
+    public void testMonthTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp("month", null, "created_date", "date_month");
+        Assertions.assertEquals("ADD PARTITION KEY month(created_date) AS date_month", op.toSql());
+    }
+
+    @Test
     public void testDayTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("day", null, "ts");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("day", null, "ts", null);
         Assertions.assertEquals("ADD PARTITION KEY day(ts)", op.toSql());
     }
 
     @Test
+    public void testDayTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp("day", null, "ts", "ts_day");
+        Assertions.assertEquals("ADD PARTITION KEY day(ts) AS ts_day", op.toSql());
+    }
+
+    @Test
     public void testHourTransform() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("hour", null, "ts");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("hour", null, "ts", null);
         Assertions.assertEquals("ADD PARTITION KEY hour(ts)", op.toSql());
     }
 
     @Test
+    public void testHourTransformWithCustomName() {
+        AddPartitionFieldOp op = new AddPartitionFieldOp("hour", null, "ts", "ts_hour");
+        Assertions.assertEquals("ADD PARTITION KEY hour(ts) AS ts_hour", op.toSql());
+    }
+
+    @Test
     public void testProperties() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 32, "id");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 32, "id", null);
         Map<String, String> properties = op.getProperties();
         Assertions.assertNotNull(properties);
         Assertions.assertTrue(properties.isEmpty());
@@ -108,14 +161,13 @@ public class AddPartitionFieldOpTest {
 
     @Test
     public void testAllowOpMTMV() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id", null);
         Assertions.assertFalse(op.allowOpMTMV());
     }
 
     @Test
     public void testNeedChangeMTMVState() {
-        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id");
+        AddPartitionFieldOp op = new AddPartitionFieldOp("bucket", 16, "id", null);
         Assertions.assertFalse(op.needChangeMTMVState());
     }
 }
-

@@ -753,8 +753,9 @@ alterTableClause
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
     | dropBranchClause                                                              #dropBranchClauses
     | dropTagClause                                                                 #dropTagClauses
-    | ADD PARTITION KEY partitionTransform                                          #addPartitionFieldClause
-    | DROP PARTITION KEY partitionTransform                                         #dropPartitionFieldClause
+    | addPartitionFieldClause                                                       #addPartitionFieldClause
+    | dropPartitionFieldClause                                                      #dropPartitionFieldClause
+    | replacePartitionFieldClause                                                   #replacePartitionFieldClause
     ;
 
 createOrReplaceTagClause
@@ -799,6 +800,18 @@ dropBranchClause
 
 dropTagClause
     : DROP TAG (IF EXISTS)? name=identifier
+    ;
+
+addPartitionFieldClause
+    : ADD PARTITION KEY partitionTransform (AS partitionFieldName=identifier)?      #addPartitionFieldClause
+    ;
+
+dropPartitionFieldClause
+    : DROP PARTITION KEY partitionTransform                                         #dropPartitionFieldClause
+    ;
+
+replacePartitionFieldClause
+    : REPLACE PARTITION KEY oldPartitionFieldName=identifier WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?  #replacePartitionFieldClause
     ;
 
 partitionTransform

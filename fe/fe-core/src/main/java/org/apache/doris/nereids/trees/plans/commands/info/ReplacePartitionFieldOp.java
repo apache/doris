@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.AlterTableClause;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -27,37 +27,44 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * AddPartitionFieldOp for Iceberg partition evolution
+ * ReplacePartitionFieldOp for Iceberg partition evolution
  */
-public class AddPartitionFieldOp extends AlterTableOp {
-    private final String transformName;
-    private final Integer transformArg;
-    private final String columnName;
-    private final String partitionFieldName;
+public class ReplacePartitionFieldOp extends AlterTableOp {
+    private final String oldPartitionFieldName;
+    private final String newTransformName;
+    private final Integer newTransformArg;
+    private final String newColumnName;
+    private final String newPartitionFieldName;
 
-    public AddPartitionFieldOp(String transformName, Integer transformArg, String columnName,
-            String partitionFieldName) {
-        super(AlterOpType.ADD_PARTITION_FIELD);
-        this.transformName = transformName;
-        this.transformArg = transformArg;
-        this.columnName = columnName;
-        this.partitionFieldName = partitionFieldName;
+    public ReplacePartitionFieldOp(String oldPartitionFieldName,
+            String newTransformName, Integer newTransformArg, String newColumnName,
+            String newPartitionFieldName) {
+        super(AlterOpType.REPLACE_PARTITION_FIELD);
+        this.oldPartitionFieldName = oldPartitionFieldName;
+        this.newTransformName = newTransformName;
+        this.newTransformArg = newTransformArg;
+        this.newColumnName = newColumnName;
+        this.newPartitionFieldName = newPartitionFieldName;
     }
 
-    public String getTransformName() {
-        return transformName;
+    public String getOldPartitionFieldName() {
+        return oldPartitionFieldName;
     }
 
-    public Integer getTransformArg() {
-        return transformArg;
+    public String getNewTransformName() {
+        return newTransformName;
     }
 
-    public String getColumnName() {
-        return columnName;
+    public Integer getNewTransformArg() {
+        return newTransformArg;
     }
 
-    public String getPartitionFieldName() {
-        return partitionFieldName;
+    public String getNewColumnName() {
+        return newColumnName;
+    }
+
+    public String getNewPartitionFieldName() {
+        return newPartitionFieldName;
     }
 
     @Override
@@ -67,7 +74,8 @@ public class AddPartitionFieldOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new AddPartitionFieldClause(transformName, transformArg, columnName, partitionFieldName);
+        return new ReplacePartitionFieldClause(oldPartitionFieldName,
+                newTransformName, newTransformArg, newColumnName, newPartitionFieldName);
     }
 
     @Override
@@ -88,7 +96,17 @@ public class AddPartitionFieldOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD PARTITION KEY ");
+        sb.append("REPLACE PARTITION KEY ").append(oldPartitionFieldName);
+        sb.append(" WITH ");
+        appendPartitionTransform(sb, newTransformName, newTransformArg, newColumnName);
+        if (newPartitionFieldName != null) {
+            sb.append(" AS ").append(newPartitionFieldName);
+        }
+        return sb.toString();
+    }
+
+    private void appendPartitionTransform(StringBuilder sb, String transformName, Integer transformArg,
+            String columnName) {
         if (transformName != null) {
             sb.append(transformName);
             if (transformArg != null) {
@@ -103,9 +121,5 @@ public class AddPartitionFieldOp extends AlterTableOp {
         } else if (columnName != null) {
             sb.append(columnName);
         }
-        if (partitionFieldName != null) {
-            sb.append(" AS ").append(partitionFieldName);
-        }
-        return sb.toString();
     }
 }

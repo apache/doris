@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
@@ -256,7 +257,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterClause instanceof DropBranchOp
                     || alterClause instanceof DropTagOp
                     || alterClause instanceof AddPartitionFieldOp
-                    || alterClause instanceof DropPartitionFieldOp) {
+                    || alterClause instanceof DropPartitionFieldOp
+                    || alterClause instanceof ReplacePartitionFieldOp) {
                 alterTableOps.add(alterClause);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "

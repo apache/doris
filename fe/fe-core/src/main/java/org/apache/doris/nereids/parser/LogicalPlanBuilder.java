@@ -321,6 +321,7 @@ import org.apache.doris.nereids.DorisParser.RenameRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.ReorderColumnsClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceContext;
 import org.apache.doris.nereids.DorisParser.ReplacePartitionClauseContext;
+import org.apache.doris.nereids.DorisParser.ReplacePartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceTableClauseContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
@@ -974,6 +975,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
@@ -5707,12 +5709,55 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public AlterTableOp visitAddPartitionFieldClause(AddPartitionFieldClauseContext ctx) {
-        return visitPartitionTransform(ctx.partitionTransform(), true);
+        AlterTableOp op = visitPartitionTransform(ctx.partitionTransform(), true);
+
+        // Extract optional partition field name
+        String partitionFieldName = null;
+        if (ctx.partitionFieldName != null) {
+            partitionFieldName = ctx.partitionFieldName.getText();
+        }
+
+        if (op instanceof AddPartitionFieldOp) {
+            AddPartitionFieldOp addOp = (AddPartitionFieldOp) op;
+            return new AddPartitionFieldOp(addOp.getTransformName(), addOp.getTransformArg(), 
+                    addOp.getColumnName(), partitionFieldName);
+        }
+
+        return op;
     }
 
     @Override
     public AlterTableOp visitDropPartitionFieldClause(DropPartitionFieldClauseContext ctx) {
         return visitPartitionTransform(ctx.partitionTransform(), false);
+    }
+
+    @Override
+    public AlterTableOp visitReplacePartitionFieldClause(ReplacePartitionFieldClauseContext ctx) {
+        // Extract old partition field name (key_name)
+        String oldPartitionFieldName = ctx.oldPartitionFieldName.getText();
+
+        // Extract new partition transform info
+        AlterTableOp newOp = visitPartitionTransform(ctx.newPartitionTransform, true);
+
+        String newTransformName = null;
+        Integer newTransformArg = null;
+        String newColumnName = null;
+
+        if (newOp instanceof AddPartitionFieldOp) {
+            AddPartitionFieldOp addOp = (AddPartitionFieldOp) newOp;
+            newTransformName = addOp.getTransformName();
+            newTransformArg = addOp.getTransformArg();
+            newColumnName = addOp.getColumnName();
+        }
+
+        // Extract optional new partition field name
+        String newPartitionFieldName = null;
+        if (ctx.newPartitionFieldName != null) {
+            newPartitionFieldName = ctx.newPartitionFieldName.getText();
+        }
+
+        return new ReplacePartitionFieldOp(oldPartitionFieldName,
+                newTransformName, newTransformArg, newColumnName, newPartitionFieldName);
     }
 
     private AlterTableOp visitPartitionTransform(PartitionTransformContext ctx, boolean isAdd) {
@@ -5735,7 +5780,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         if (isAdd) {
-            return new AddPartitionFieldOp(transformName, transformArg, columnName);
+            // partitionFieldName will be set in visitAddPartitionFieldClause if AS clause is present
+            return new AddPartitionFieldOp(transformName, transformArg, columnName, null);
         } else {
             return new DropPartitionFieldOp(transformName, transformArg, columnName);
         }

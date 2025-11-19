@@ -43,6 +43,7 @@ import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableRenameClause;
@@ -444,6 +445,14 @@ public class Alter {
                             (IcebergExternalTable) table, dropPartitionField);
                 } else {
                     throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
+                }
+            } else if (alterClause instanceof ReplacePartitionFieldClause) {
+                ReplacePartitionFieldClause replacePartitionField = (ReplacePartitionFieldClause) alterClause;
+                if (table instanceof IcebergExternalTable) {
+                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
+                            (IcebergExternalTable) table, replacePartitionField);
+                } else {
+                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
                 }
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterClauses);
