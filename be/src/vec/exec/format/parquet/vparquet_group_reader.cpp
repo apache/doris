@@ -39,7 +39,9 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "schema_desc.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -481,11 +483,13 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         {
             SCOPED_RAW_TIMER(&_predicate_filter_time);
 
+            ColumnPtr tmp_first_column = nullptr;
             // generate filter vector
             if (_lazy_read_ctx.resize_first_column) {
                 // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
-                // The following process may be tricky and time-consuming, but we have no other way.
-                block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
+                tmp_first_column = block->get_by_position(0).column;
+                // set first column to pre_read_rows size to pass the block->rows()
+                block->get_by_position(0).column = ColumnNothing::create(pre_read_rows);
             }
             result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
             std::vector<IColumn::Filter*> filters;
@@ -505,8 +509,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             }
 
             if (_lazy_read_ctx.resize_first_column) {
-                // We have to clean the first column to insert right data.
-                block->get_by_position(0).column->assume_mutable()->clear();
+                block->get_by_position(0).column = tmp_first_column;
             }
         }
 

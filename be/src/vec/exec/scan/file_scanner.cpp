@@ -322,17 +322,24 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         index++;
     }
 
+    ColumnPtr tmp_first_column;
+
     // 2.2 Execute conjuncts.
     if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        _runtime_filter_partition_prune_block.get_by_position(0).column->assume_mutable()->resize(
-                partition_value_column_size);
+        tmp_first_column = _runtime_filter_partition_prune_block.get_by_position(0).column;
+        _runtime_filter_partition_prune_block.get_by_position(0).column =
+                ColumnNothing::create(partition_value_column_size);
     }
     IColumn::Filter result_filter(_runtime_filter_partition_prune_block.rows(), 1);
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
                                                     &_runtime_filter_partition_prune_block,
                                                     &result_filter, &can_filter_all));
+
+    if (!first_column_filled) {
+        _runtime_filter_partition_prune_block.get_by_position(0).column = tmp_first_column;
+    }
     return Status::OK();
 }
 
