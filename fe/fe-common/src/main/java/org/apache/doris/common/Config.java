@@ -3506,7 +3506,6 @@ public class Config extends ConfigBase {
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
 
-<<<<<<< HEAD
     @ConfField(mutable = true, description = {
             "数据加密自动rotate master key的时间间隔，单位为毫秒，默认间隔是一个月",
             "The time interval for automatic rotation of the master key in data encryption, in milliseconds."
@@ -3520,8 +3519,7 @@ public class Config extends ConfigBase {
                     + "and the default interval is five minutes."
     })
     public static long doris_tde_check_rotate_master_key_interval_ms = 5 * 60 * 1000L;
-=======
+
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
->>>>>>> 3.1.3-rc02
 }
