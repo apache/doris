@@ -42,8 +42,7 @@ public class CreateViewStmtTest extends TestWithFeService {
     public void testCreateView() throws Exception {
         connectContext.setDatabase("test");
         String createViewStr1 = "create view 1view1 as select k1,k2 from test.table1;";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                String.format("Incorrect table name '1view1'. Table name regex is '%s'", FeNameFormat.getTableNameRegex()),
+        ExceptionChecker.expectThrowsNoException(
                 () -> parseAndAnalyzeStmt(createViewStr1, connectContext));
 
         String createViewStr2 = "create view view2 as select k1,k2 from test.table1;";
