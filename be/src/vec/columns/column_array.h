@@ -166,9 +166,11 @@ public:
     bool has_enough_capacity(const IColumn& src) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         IColumn::Permutation& res) const override;
+                         IColumn::Permutation& res,
+                         std::pair<uint32_t, uint32_t>& extremum_range) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const override;
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const override;
     void deserialize(StringRef* keys, const size_t num_rows) override;
     size_t get_max_row_byte_size() const override;
     void serialize(StringRef* keys, size_t num_rows) const override;

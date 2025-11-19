@@ -251,8 +251,8 @@ Field ColumnDecimal<T>::operator[](size_t n) const {
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
-                                       IColumn::Permutation& res) const {
+void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int, IColumn::Permutation& res,
+                                       std::pair<uint32_t, uint32_t>& extremum_range) const {
 #if 1 /// TODO: perf test
     if (data.size() <= std::numeric_limits<UInt32>::max()) {
         PaddedPODArray<UInt32> tmp_res;
@@ -455,8 +455,10 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
 template <PrimitiveType T>
 void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                    IColumn::Permutation& perms, EqualRange& range,
+                                   std::pair<uint32_t, uint32_t>& extremum_range,
                                    bool last_column) const {
-    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, extremum_range,
+                        last_column);
 }
 
 template <PrimitiveType T>

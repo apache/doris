@@ -39,26 +39,36 @@ ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block
     return res;
 }
 
-void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
-                UInt64 limit) {
+Status sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
+                  uint32_t* extremum_num, UInt64 limit, UInt64 op_limit) {
     if (!src_block.columns()) {
-        return;
+        return Status::OK();
     }
 
+    // Terminate once the limit is reached. Only apply if the ordering column is nullable.
+    bool reach_limit = false;
     /// If only one column to sort by
     if (description.size() == 1) {
         bool reverse = description[0].direction == -1;
 
         const IColumn* column =
                 src_block.safe_get_by_position(description[0].column_number).column.get();
-
+        // Now we only consider extremum_num for nullable columns.
+        std::pair<uint32_t, uint32_t> extremum_range = {0,
+                                                        column->is_nullable() ? column->size() : 0};
         IColumn::Permutation perm;
-        column->get_permutation(reverse, limit, description[0].nulls_direction, perm);
-
+        column->get_permutation(reverse, limit, description[0].nulls_direction, perm,
+                                extremum_range);
+        if (extremum_num) {
+            *extremum_num = extremum_range.second - extremum_range.first + *extremum_num;
+            if (op_limit > 0 && *extremum_num >= op_limit) {
+                reach_limit = true;
+            }
+        }
         size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
-            dest_block.replace_by_position(
-                    i, src_block.get_by_position(i).column->permute(perm, limit));
+            dest_block.replace_by_position(i, src_block.get_by_position(i).column->permute(
+                                                      perm, reach_limit ? op_limit : limit));
         }
     } else {
         size_t size = src_block.rows();
@@ -77,19 +87,30 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
             EqualFlags flags(size, 1);
             EqualRange range {0, size};
 
+            // Now we only consider extremum_num for nullable columns.
+            std::pair<uint32_t, uint32_t> extremum_range = {
+                    0, columns_with_sort_desc.back().first->is_nullable() ? size : 0};
             // TODO: ColumnSorter should be constructed only once.
             for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
                 ColumnSorter sorter(columns_with_sort_desc[i], limit);
-                sorter.operator()(flags, perm, range, i == columns_with_sort_desc.size() - 1);
+                sorter.operator()(flags, perm, range, extremum_range,
+                                  i == columns_with_sort_desc.size() - 1);
+            }
+            if (extremum_num) {
+                *extremum_num = extremum_range.second - extremum_range.first + *extremum_num;
+                if (op_limit > 0 && *extremum_num >= op_limit) {
+                    reach_limit = true;
+                }
             }
         }
 
         size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
-            dest_block.replace_by_position(
-                    i, src_block.get_by_position(i).column->permute(perm, limit));
+            dest_block.replace_by_position(i, src_block.get_by_position(i).column->permute(
+                                                      perm, reach_limit ? op_limit : limit));
         }
     }
-}
+    return reach_limit ? Status::EndOfFile("") : Status::OK();
+} // namespace doris::vectorized
 
 } // namespace doris::vectorized

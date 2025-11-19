@@ -101,7 +101,8 @@ MutableColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) con
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
-                                  Permutation& res) const {
+                                  Permutation& res,
+                                  std::pair<uint32_t, uint32_t>& extremum_range) const {
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
         res[i] = i;

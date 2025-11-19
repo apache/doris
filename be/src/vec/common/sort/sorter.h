@@ -170,6 +170,7 @@ protected:
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
+    uint32_t _extremum_num = 0;
 };
 
 class FullSorter final : public Sorter {

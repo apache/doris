@@ -54,8 +54,8 @@ class ColumnVector;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
-void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
-                UInt64 limit = 0);
+Status sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
+                  uint32_t* extremum_num, UInt64 limit = 0, UInt64 op_limit = 0);
 
 using ColumnWithSortDescription = std::pair<const IColumn*, SortColumnDescription>;
 
@@ -154,12 +154,17 @@ public:
               _direction(column.second.direction) {}
 
     void operator()(EqualFlags& flags, IColumn::Permutation& perms, EqualRange& range,
-                    bool last_column) const {
-        _column_with_sort_desc.first->sort_column(this, flags, perms, range, last_column);
+                    std::pair<uint32_t, uint32_t>& extremum_range, bool last_column) const {
+        if (!_column_with_sort_desc.first->is_nullable()) {
+            extremum_range.second = last_column ? 0 : cast_set<uint32_t>(flags.size());
+        }
+        _column_with_sort_desc.first->sort_column(this, flags, perms, range, extremum_range,
+                                                  last_column);
     }
 
     void sort_column(const IColumn& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         size_t new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
             return column.compare_at(a, b, *_column_with_sort_desc.first, _nulls_direction);
@@ -210,7 +215,8 @@ public:
 
     template <template <typename type> typename ColumnType, typename T>
     void sort_column(const ColumnType<T>& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
@@ -220,7 +226,8 @@ public:
 
     template <template <PrimitiveType type> typename ColumnType, PrimitiveType T>
     void sort_column(const ColumnType<T>& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
@@ -229,7 +236,8 @@ public:
     }
 
     void sort_column(const ColumnString& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
@@ -238,20 +246,24 @@ public:
     }
 
     void sort_column(const ColumnArray& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
     void sort_column(const ColumnMap& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
     void sort_column(const ColumnStruct& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
 
     void sort_column(const ColumnString64& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         if (!_should_inline_value(perms)) {
             _sort_by_default(column, flags, perms, range, last_column);
         } else {
@@ -260,9 +272,12 @@ public:
     }
 
     void sort_column(const ColumnNullable& column, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const {
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const {
         if (!column.has_null()) {
-            column.get_nested_column().sort_column(this, flags, perms, range, last_column);
+            extremum_range.second = 0;
+            column.get_nested_column().sort_column(this, flags, perms, range, extremum_range,
+                                                   last_column);
         } else {
             const auto& null_map = column.get_null_map_data();
             size_t limit = _limit;
@@ -297,6 +312,10 @@ public:
                     std::pair<size_t, size_t> not_null_range = {range_split, range_end};
                     if (!null_first) {
                         std::swap(is_null_range, not_null_range);
+                    } else {
+                        DCHECK_EQ(extremum_range.first, 0);
+                        extremum_range.second =
+                                std::min(cast_set<uint32_t>(range_split), extremum_range.second);
                     }
 
                     if (not_null_range.first < not_null_range.second) {
@@ -315,9 +334,12 @@ public:
                     }
                 }
             }
-
-            column.get_nested_column().sort_column(this, flags, perms, range, last_column);
             _limit = limit;
+            if (limit > 0 && extremum_range.second >= limit && last_column) {
+                return;
+            }
+            column.get_nested_column().sort_column(this, flags, perms, range, extremum_range,
+                                                   last_column);
             if (!last_column) {
                 for (const auto& nr : is_null_ranges) {
                     std::fill(flags.begin() + nr.first + 1, flags.begin() + nr.second, 1);

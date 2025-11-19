@@ -213,8 +213,8 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8_t>& cmp_res,
                           uint8_t* __restrict filter) const override;
-    void get_permutation(bool reverse, size_t limit, int null_direction_hint,
-                         Permutation& res) const override;
+    void get_permutation(bool reverse, size_t limit, int null_direction_hint, Permutation& res,
+                         std::pair<uint32_t, uint32_t>& extremum_range) const override;
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;
@@ -320,7 +320,8 @@ public:
     }
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const override;
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const override;
 
     void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
         _nested_column->set_rowset_segment_id(rowset_segment_id);

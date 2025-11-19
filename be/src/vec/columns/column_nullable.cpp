@@ -431,9 +431,10 @@ void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int
 }
 
 void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direction_hint,
-                                     Permutation& res) const {
+                                     Permutation& res,
+                                     std::pair<uint32_t, uint32_t>& extremum_range) const {
     /// Cannot pass limit because of unknown amount of NULLs.
-    get_nested_column().get_permutation(reverse, 0, null_direction_hint, res);
+    get_nested_column().get_permutation(reverse, 0, null_direction_hint, res, extremum_range);
 
     if ((null_direction_hint > 0) != reverse) {
         /// Shift all NULL values to the end.
@@ -472,6 +473,7 @@ void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direct
             }
             ++read_idx;
         }
+        extremum_range.second = 0;
     } else {
         /// Shift all NULL values to the beginning.
 
@@ -492,6 +494,10 @@ void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direct
             }
             --read_idx;
         }
+        auto null_count = res.size() - simd::count_zero_num(reinterpret_cast<const int8_t*>(
+                                                                    _null_map->get_raw_data().data),
+                                                            _null_map->size());
+        extremum_range.second = std::min(extremum_range.second, cast_set<uint32_t>(null_count));
     }
 }
 
@@ -557,9 +563,10 @@ void ColumnNullable::check_consistency() const {
 
 void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                  IColumn::Permutation& perms, EqualRange& range,
+                                 std::pair<uint32_t, uint32_t>& extremum_range,
                                  bool last_column) const {
     sorter->sort_column(static_cast<const ColumnNullable&>(*this), flags, perms, range,
-                        last_column);
+                        extremum_range, last_column);
 }
 
 bool ColumnNullable::only_null() const {

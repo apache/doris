@@ -240,7 +240,8 @@ struct ColumnArray::less {
 };
 
 void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                  IColumn::Permutation& res) const {
+                                  IColumn::Permutation& res,
+                                  std::pair<uint32_t, uint32_t>& extremum_range) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -256,8 +257,10 @@ void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_
 
 void ColumnArray::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                               IColumn::Permutation& perms, EqualRange& range,
+                              std::pair<uint32_t, uint32_t>& extremum_range,
                               bool last_column) const {
-    sorter->sort_column(static_cast<const ColumnArray&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const ColumnArray&>(*this), flags, perms, range, extremum_range,
+                        last_column);
 }
 
 int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {

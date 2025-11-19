@@ -36,6 +36,7 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
 
 Status HeapSorter::append_block(Block* block) {
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
+    Status st = Status::OK();
     if (!_have_runtime_predicate && _queue.is_valid() && _queue_row_num >= _heap_size) {
         RETURN_IF_ERROR(_prepare_sort_columns(*block, *tmp_block, false));
         if (_materialize_sort_exprs) {
@@ -57,12 +58,13 @@ Status HeapSorter::append_block(Block* block) {
         for (auto& d : rev_desc) {
             d.direction *= -1;
         }
-        sort_block(*tmp_block, *sorted_block, rev_desc, 0 /*limit*/);
+        st = sort_block(*tmp_block, *sorted_block, rev_desc, &_extremum_num, 0 /*limit*/,
+                        _offset + _limit);
         _queue_row_num += sorted_block->rows();
         _data_size += sorted_block->allocated_bytes();
         _queue.push(MergeSortCursor(MergeSortCursorImpl::create_shared(sorted_block, rev_desc)));
     } else {
-        RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
+        st = partial_sort(*block, *tmp_block, true);
         _queue_row_num += tmp_block->rows();
         _data_size += tmp_block->allocated_bytes();
         _queue.push(
@@ -82,7 +84,7 @@ Status HeapSorter::append_block(Block* block) {
         _queue_row_num -= current_rows;
     }
 
-    return Status::OK();
+    return st;
 }
 
 Status HeapSorter::prepare_for_read(bool is_spill) {

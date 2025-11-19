@@ -161,8 +161,10 @@ void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
 template <PrimitiveType T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
+                                  std::pair<uint32_t, uint32_t>& extremum_range,
                                   bool last_column) const {
-    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, extremum_range,
+                        last_column);
 }
 
 template <PrimitiveType T>
@@ -260,7 +262,8 @@ struct ColumnVector<T>::greater {
 
 template <PrimitiveType T>
 void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      IColumn::Permutation& res) const {
+                                      IColumn::Permutation& res,
+                                      std::pair<uint32_t, uint32_t>& extremum_range) const {
     size_t s = data.size();
     res.resize(s);
 

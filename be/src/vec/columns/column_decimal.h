@@ -180,7 +180,8 @@ public:
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         IColumn::Permutation& res) const override;
+                         IColumn::Permutation& res,
+                         std::pair<uint32_t, uint32_t>& extremum_range) const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -223,7 +224,8 @@ public:
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const override;
+                     EqualRange& range, std::pair<uint32_t, uint32_t>& extremum_range,
+                     bool last_column) const override;
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8_t>& cmp_res,
