@@ -254,7 +254,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             auto st = pool->submit_scan_task(vectorized::SimplifiedScanTask(
                     [ioctx, off, this] {
                         size_t bytesread;
-                        Slice r((char*)0x0, config::file_cache_each_block_size);
+                        Slice r((char*)0x0, std::min<int64_t>(config::file_cache_each_block_size,
+                                                              _remote_file_reader->size() - off));
                         (void)read_at_impl(off, r, &bytesread, &ioctx);
                         std::unique_lock l(_parallel_mtx);
                         _parallel_ref--;
