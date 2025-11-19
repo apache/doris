@@ -224,7 +224,7 @@ suite("test_agg_schema_value_add", "p0") {
     //Test the AGGREGATE model by adding a value column with INT
     sql initTable
     sql initTableData
-    sql """ alter  table ${tbName1} add  column house_price INT  DEFAULT "999" AFTER username """
+    sql """ alter  table ${tbName1} add  column house_price INT key DEFAULT "999" AFTER username """
     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 22536, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql

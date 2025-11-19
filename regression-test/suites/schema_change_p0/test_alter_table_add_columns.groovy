@@ -57,7 +57,7 @@ suite("test_alter_table_add_columns") {
 
     // Add one value column light schema change is false
 
-    sql """ alter table ${tbName} ADD COLUMN (new_k1 INT DEFAULT '1', new_k2 INT DEFAULT '2');"""
+    sql """ alter table ${tbName} ADD COLUMN (new_k1 INT key DEFAULT '1', new_k2 INT key DEFAULT '2');"""
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tbName}' ORDER BY createtime DESC LIMIT 1 """

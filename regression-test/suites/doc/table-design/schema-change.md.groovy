@@ -57,7 +57,7 @@ suite("docs/table-design/schema-change.md") {
             DISTRIBUTED BY HASH(col1) BUCKETS 10
         """
         sql """
-            ALTER TABLE example_db.my_table ADD COLUMN key_col INT DEFAULT "0" AFTER col1;
+            ALTER TABLE example_db.my_table ADD COLUMN key_col INT key DEFAULT "0" AFTER col1;
         """
         waitUntilSchemaChangeDone("my_table")
         sql """
