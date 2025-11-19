@@ -445,10 +445,6 @@ public class NereidsPlanner extends Planner {
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsTranslateTime(TimeUtils.getStartTimeMs());
-        }
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         if (sessionVariable.isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
@@ -457,6 +453,11 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
+
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsTranslateTime(TimeUtils.getStartTimeMs());
+        }
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
