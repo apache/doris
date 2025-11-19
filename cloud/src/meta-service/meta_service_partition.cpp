@@ -24,6 +24,7 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -295,19 +296,16 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
 
     if (commit_index_log.index_ids_size() > 0 && is_version_write_enabled(instance_id)) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_commit_index()->Swap(&commit_index_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
+        LOG_INFO("put commit index operation log key")
+                .tag("instance_id", instance_id)
+                .tag("table_id", request->table_id())
+                .tag("operation_log_key", hex(operation_log_key));
     }
 
     err = txn->commit();
@@ -419,23 +417,15 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
 
     if (drop_index_log.index_ids_size() > 0 && is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_drop_index()->Swap(&drop_index_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
         LOG(INFO) << "put drop index operation log"
                   << " instance_id=" << instance_id << " table_id=" << request->table_id()
-                  << " index_ids=" << drop_index_log.index_ids_size()
-                  << " log_size=" << operation_log_value.size();
+                  << " index_ids=" << drop_index_log.index_ids_size();
     }
 
     err = txn->commit();
@@ -719,19 +709,16 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
 
     if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_commit_partition()->Swap(&commit_partition_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
+        LOG_INFO("put commit partition operation log key")
+                .tag("instance_id", instance_id)
+                .tag("table_id", request->table_id())
+                .tag("operation_log_key", hex(operation_log_key));
     }
 
     err = txn->commit();
@@ -864,23 +851,15 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
          drop_partition_log.partition_ids_size() > 0) &&
         is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
-            return;
-        }
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
         LOG(INFO) << "put drop partition operation log"
                   << " instance_id=" << instance_id << " table_id=" << request->table_id()
-                  << " partition_ids=" << drop_partition_log.partition_ids_size()
-                  << " log_size=" << operation_log_value.size();
+                  << " partition_ids=" << drop_partition_log.partition_ids_size();
     }
 
     err = txn->commit();

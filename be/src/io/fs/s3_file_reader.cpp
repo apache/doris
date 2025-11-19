@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
@@ -115,6 +116,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
+    VLOG_DEBUG << fmt::format("S3FileReader::read_at_impl offset={} size={} path={} hash={}",
+                              offset, result.size, _path.native(),
+                              io::BlockFileCache::hash(_path.native()).to_string());
     VLOG_DEBUG << "enter s3 read_at_impl, off=" << offset << " n=" << bytes_req
                << " req=" << result.size << " file size=" << _file_size;
     if (UNLIKELY(bytes_req == 0)) {
