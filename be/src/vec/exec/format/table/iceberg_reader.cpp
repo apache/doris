@@ -223,13 +223,15 @@ void IcebergTableReader::_generate_equality_delete_block(
 }
 
 Status IcebergTableReader::_expand_block_if_need(Block* block) {
-    // todo: maybe do not need to build name to index map every time
-    auto name_to_pos_map = block->get_name_to_pos_map();
+    std::set<std::string> names;
+    auto block_names = block->get_names();
+    names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
         col.column->assume_mutable()->clear();
-        if (name_to_pos_map.contains(col.name)) {
+        if (names.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
+        names.insert(col.name);
         block->insert(col);
     }
     return Status::OK();
@@ -238,13 +240,15 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
 Status IcebergTableReader::_shrink_block_if_need(Block* block) {
     // todo: maybe do not need to build name to index map every time
     auto name_to_pos_map = block->get_name_to_pos_map();
+    std::set<size_t> positions_to_erase;
     for (const std::string& expand_col : _expand_col_names) {
         if (!name_to_pos_map.contains(expand_col)) {
             return Status::InternalError("Wrong erase column '{}', block: {}", expand_col,
                                          block->dump_names());
         }
-        block->erase(name_to_pos_map[expand_col]);
+        positions_to_erase.emplace(name_to_pos_map[expand_col]);
     }
+    block->erase(positions_to_erase);
     return Status::OK();
 }
 

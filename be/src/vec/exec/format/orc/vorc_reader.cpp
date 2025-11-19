@@ -1313,6 +1313,7 @@ Status OrcReader::_fill_missing_columns(
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     // todo: maybe do not need to build name to index map every time
     auto name_to_pos_map = block->get_name_to_pos_map();
+    std::set<size_t> positions_to_erase;
     for (const auto& kv : missing_columns) {
         if (!name_to_pos_map.contains(kv.first)) {
             return Status::InternalError("Failed to find missing column: {}, block: {}", kv.first,
@@ -1346,10 +1347,11 @@ Status OrcReader::_fill_missing_columns(
                 block->replace_by_position(
                         name_to_pos_map[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                block->erase(result_column_id);
+                        positions_to_erase.insert(result_column_id);
             }
         }
     }
+    block->erase(positions_to_erase);
     return Status::OK();
 }
 
