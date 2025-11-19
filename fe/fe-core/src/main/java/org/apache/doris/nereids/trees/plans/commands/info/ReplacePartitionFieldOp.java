@@ -39,6 +39,9 @@ public class ReplacePartitionFieldOp extends AlterTableOp {
     private final String newColumnName;
     private final String newPartitionFieldName;
 
+    /**
+     * Constructor for ReplacePartitionFieldOp
+     */
     public ReplacePartitionFieldOp(String oldPartitionFieldName, String oldTransformName,
             Integer oldTransformArg, String oldColumnName,
             String newTransformName, Integer newTransformArg, String newColumnName,

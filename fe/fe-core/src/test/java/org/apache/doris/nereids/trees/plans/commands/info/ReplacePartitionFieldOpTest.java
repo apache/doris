@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

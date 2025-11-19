@@ -50,7 +50,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -768,6 +767,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable);
+    }
+
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        return executionAuthenticator;
     }
 
     private Term getTransform(String transformName, String columnName, Integer transformArg) throws UserException {

@@ -753,9 +753,12 @@ alterTableClause
     | createOrReplaceBranchClause                                                   #createOrReplaceBranchClauses
     | dropBranchClause                                                              #dropBranchClauses
     | dropTagClause                                                                 #dropTagClauses
-    | addPartitionFieldClause                                                       #addPartitionFieldClause
-    | dropPartitionFieldClause                                                      #dropPartitionFieldClause
-    | replacePartitionFieldClause                                                   #replacePartitionFieldClause
+    | ADD PARTITION KEY partitionTransform (AS partitionFieldName=identifier)?      #addPartitionFieldClause
+    | DROP PARTITION KEY (partitionFieldName=identifier | partitionTransform)       #dropPartitionFieldClause
+    | REPLACE PARTITION KEY
+        (oldPartitionFieldName=identifier | oldPartitionTransform=partitionTransform)
+        WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?
+                                                                                    #replacePartitionFieldClause
     ;
 
 createOrReplaceTagClause
@@ -802,24 +805,10 @@ dropTagClause
     : DROP TAG (IF EXISTS)? name=identifier
     ;
 
-addPartitionFieldClause
-    : ADD PARTITION KEY partitionTransform (AS partitionFieldName=identifier)?      #addPartitionFieldClause
-    ;
-
-dropPartitionFieldClause
-    : DROP PARTITION KEY (partitionFieldName=identifier | partitionTransform)                       #dropPartitionFieldClause
-    ;
-
-replacePartitionFieldClause
-    : REPLACE PARTITION KEY
-        (oldPartitionFieldName=identifier | oldPartitionTransform=partitionTransform)
-        WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?         #replacePartitionFieldClause
-    ;
-
 partitionTransform
     : identifier LEFT_PAREN INTEGER_VALUE COMMA identifier RIGHT_PAREN  #partitionTransformWithArgs
-    | identifier LEFT_PAREN identifier RIGHT_PAREN                       #partitionTransformWithColumn
-    | identifier                                                          #partitionTransformIdentity
+    | identifier LEFT_PAREN identifier RIGHT_PAREN                      #partitionTransformWithColumn
+    | identifier                                                        #partitionTransformIdentity
     ;
 
 columnPosition

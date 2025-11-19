@@ -5723,7 +5723,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private PartitionFieldInfo extractOldPartitionFieldInfo(ReplacePartitionFieldClauseContext ctx) {
-        PartitionTransformContext oldTransformCtx = ctx.partitionTransform();
+        PartitionTransformContext oldTransformCtx = ctx.oldPartitionTransform;
         if (oldTransformCtx == null) {
             // old specified as identifier (appears right after KEY)
             return new PartitionFieldInfo(ctx.getChild(3).getText(), null, null, null);
