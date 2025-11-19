@@ -628,7 +628,7 @@ DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
 // Whether to enable stream load record to audit log table, the default is true.
-DEFINE_mBool(enable_stream_load_record_to_audit_log_table, "true");
+DEFINE_mBool(enable_stream_load_record_to_audit_log_table, "false");
 // the maximum bytes of a batch of stream load records to audit log table
 DEFINE_mInt64(stream_load_record_batch_bytes, "104857600"); // 100MB
 // the interval to send a batch of stream load records to audit log table
