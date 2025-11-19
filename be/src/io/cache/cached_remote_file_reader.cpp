@@ -677,4 +677,102 @@ Status CachedRemoteFileReader::_submit_prefetch_task(size_t offset, size_t size,
     return Status::OK();
 }
 
+Status CachedRemoteFileReader::prefetch_blocks_in_parallel(size_t start_offset, size_t end_offset,
+                                                            const IOContext* io_ctx) {
+    if (!_cache) {
+        VLOG_DEBUG << "prefetch_blocks_in_parallel: No cache available, skipping";
+        return Status::OK();
+    }
+
+    if (start_offset >= size() || end_offset > size() || start_offset >= end_offset) {
+        VLOG_DEBUG << fmt::format(
+                "prefetch_blocks_in_parallel: Invalid range [{}, {}) for file size {}", start_offset,
+                end_offset, size());
+        return Status::OK();
+    }
+
+    // Get the s3_parallel_read_thread_pool from ExecEnv
+    ThreadPool* thread_pool = ExecEnv::GetInstance()->s3_parallel_read_thread_pool();
+    if (!thread_pool) {
+        VLOG(1) << "prefetch_blocks_in_parallel: s3_parallel_read_thread_pool not available";
+        return Status::InternalError("s3_parallel_read_thread_pool not available");
+    }
+
+    // Calculate which file cache blocks are covered by the range [start_offset, end_offset)
+    const size_t block_size = config::file_cache_each_block_size;
+    size_t first_block_start = (start_offset / block_size) * block_size;
+    size_t last_block_start = (end_offset - 1) / block_size * block_size;
+
+    VLOG_DEBUG << fmt::format(
+            "prefetch_blocks_in_parallel: Processing range [{}, {}) covering blocks [{}, {}] for "
+            "file {}",
+            start_offset, end_offset, first_block_start, last_block_start, path().native());
+
+    // Prepare IOContext for async tasks
+    IOContext ctx_copy;
+    if (io_ctx) {
+        ctx_copy = *io_ctx;
+    }
+    // Set as dryrun to avoid allocating unnecessary result buffer
+    ctx_copy.is_dryrun = true;
+    // Clear pointers to avoid dangling references in async context
+    ctx_copy.query_id = nullptr;
+    ctx_copy.file_cache_stats = nullptr;
+    ctx_copy.file_reader_stats = nullptr;
+
+    std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
+
+    // Submit a prefetch task for each file cache block in parallel
+    size_t num_submitted = 0;
+    for (size_t block_start = first_block_start; block_start <= last_block_start;
+         block_start += block_size) {
+        // Calculate the actual size for this block (considering file boundaries)
+        size_t block_end = std::min(block_start + block_size, size());
+        size_t read_size = block_end - block_start;
+
+        // Create a prefetch task for this block
+        auto prefetch_task = [weak_this, block_start, read_size, ctx_copy]() {
+            auto reader = weak_this.lock();
+            if (!reader) {
+                VLOG_DEBUG << "prefetch_blocks_in_parallel: Reader destroyed before task executed";
+                return;
+            }
+
+            // Perform a dryrun read to populate the cache
+            std::vector<char> dummy_buffer(0);
+            size_t bytes_read = 0;
+            Status st = reader->read_at(block_start, Slice(dummy_buffer.data(), read_size),
+                                        &bytes_read, &ctx_copy);
+
+            if (st.ok()) {
+                VLOG_DEBUG << fmt::format(
+                        "prefetch_blocks_in_parallel: Successfully prefetched block at offset {} "
+                        "size {} for file {}",
+                        block_start, read_size, reader->path().native());
+            } else {
+                VLOG(1) << fmt::format(
+                        "prefetch_blocks_in_parallel: Failed to prefetch block at offset {} size {} "
+                        "for file {}: {}",
+                        block_start, read_size, reader->path().native(), st.to_string());
+            }
+        };
+
+        // Submit to s3_parallel_read_thread_pool
+        Status submit_st = thread_pool->submit_func(std::move(prefetch_task));
+        if (submit_st.ok()) {
+            num_submitted++;
+        } else {
+            VLOG(1) << fmt::format(
+                    "prefetch_blocks_in_parallel: Failed to submit task for block at offset {}: {}",
+                    block_start, submit_st.to_string());
+        }
+    }
+
+    VLOG_DEBUG << fmt::format(
+            "prefetch_blocks_in_parallel: Successfully submitted {} prefetch tasks for file {}",
+            num_submitted, path().native());
+
+    return Status::OK();
+}
+
 } // namespace doris::io

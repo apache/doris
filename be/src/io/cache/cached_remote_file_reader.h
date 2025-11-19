@@ -66,6 +66,13 @@ public:
     Status prefetch_batch(const std::vector<std::pair<size_t, size_t>>& ranges,
                           const IOContext* io_ctx = nullptr);
 
+    // Parallel prefetch multiple file cache blocks concurrently.
+    // For each file cache block covered by the given range, this function triggers
+    // a parallel read in the s3_parallel_read_thread_pool.
+    // This is specifically designed for compute-storage separation scenarios to hide S3 latency.
+    Status prefetch_blocks_in_parallel(size_t start_offset, size_t end_offset,
+                                       const IOContext* io_ctx = nullptr);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
