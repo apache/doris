@@ -1005,7 +1005,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
-    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
@@ -1132,7 +1132,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
 
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, needForward = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
