@@ -47,6 +47,7 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
 #include "util/runtime_profile.h"
+#include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/time.h"
@@ -922,6 +923,9 @@ size_t BlockFileCache::try_release() {
         std::lock_guard lc(cell->file_block->_mutex);
         remove_size += file_block->range().size();
         remove(file_block, cache_lock, lc);
+        VLOG_DEBUG << "try_release " << _cache_base_path
+                   << " hash=" << file_block->get_hash_value().to_string()
+                   << " offset=" << file_block->offset();
     }
     *_evict_by_try_release << remove_size;
     LOG(INFO) << "Released " << trash.size() << " blocks in file cache " << _cache_base_path;
@@ -961,12 +965,16 @@ const LRUQueue& BlockFileCache::get_queue(FileCacheType type) const {
 }
 
 void BlockFileCache::remove_file_blocks(std::vector<FileBlockCell*>& to_evict,
-                                        std::lock_guard<std::mutex>& cache_lock, bool sync) {
+                                        std::lock_guard<std::mutex>& cache_lock, bool sync,
+                                        std::string& reason) {
     auto remove_file_block_if = [&](FileBlockCell* cell) {
         FileBlockSPtr file_block = cell->file_block;
         if (file_block) {
             std::lock_guard block_lock(file_block->_mutex);
             remove(file_block, cache_lock, block_lock, sync);
+            VLOG_DEBUG << "remove_file_blocks"
+                       << " hash=" << file_block->get_hash_value().to_string()
+                       << " offset=" << file_block->offset() << " reason=" << reason;
         }
     };
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
@@ -1228,6 +1236,7 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
 // remove specific cache synchronously, for critical operations
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
+    std::string reason = "remove_if_cached";
     SCOPED_CACHE_LOCK(_mutex, this);
     bool is_ttl_file = remove_if_ttl_file_blocks(file_key, true, cache_lock, true);
     if (!is_ttl_file) {
@@ -1242,7 +1251,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
                 }
             }
         }
-        remove_file_blocks(to_remove, cache_lock, true);
+        remove_file_blocks(to_remove, cache_lock, true, reason);
     }
 }
 
@@ -1250,6 +1259,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // cache meta is deleted synchronously if not in use, and the block file is deleted asynchronously
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
+    std::string reason = "remove_if_cached_async";
     SCOPED_CACHE_LOCK(_mutex, this);
     bool is_ttl_file = remove_if_ttl_file_blocks(file_key, true, cache_lock, /*sync*/ false);
     if (!is_ttl_file) {
@@ -1266,7 +1276,7 @@ void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
                 }
             }
         }
-        remove_file_blocks(to_remove, cache_lock, false);
+        remove_file_blocks(to_remove, cache_lock, false, reason);
     }
 }
 
@@ -1357,7 +1367,9 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
         *(_evict_by_time_metrics_matrix[cache_type][cur_type]) << remove_size_per_type;
     }
     bool is_sync_removal = !evict_in_advance;
-    remove_file_blocks(to_evict, cache_lock, is_sync_removal);
+    std::string reason = std::string("try_reserve_by_time ") +
+                         " evict_in_advance=" + (evict_in_advance ? "true" : "false");
+    remove_file_blocks(to_evict, cache_lock, is_sync_removal, reason);
 
     return !is_overflow(removed_size, size, cur_cache_size, evict_in_advance);
 }
@@ -1400,7 +1412,9 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
         *(_evict_by_size_metrics_matrix[cache_type][cur_type]) << cur_removed_size;
     }
     bool is_sync_removal = !evict_in_advance;
-    remove_file_blocks(to_evict, cache_lock, is_sync_removal);
+    std::string reason = std::string("try_reserve_by_size") +
+                         " evict_in_advance=" + (evict_in_advance ? "true" : "false");
+    remove_file_blocks(to_evict, cache_lock, is_sync_removal, reason);
     return !is_overflow(removed_size, size, cur_cache_size, evict_in_advance);
 }
 
@@ -1447,7 +1461,10 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
         find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
                               cur_removed_size, evict_in_advance);
         bool is_sync_removal = !evict_in_advance;
-        remove_file_blocks(to_evict, cache_lock, is_sync_removal);
+        std::string reason = std::string("try_reserve for cache type ") +
+                             cache_type_to_string(context.cache_type) +
+                             " evict_in_advance=" + (evict_in_advance ? "true" : "false");
+        remove_file_blocks(to_evict, cache_lock, is_sync_removal, reason);
         *(_evict_by_self_lru_metrics_matrix[context.cache_type]) << cur_removed_size;
 
         if (is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
@@ -1483,6 +1500,11 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     *_queue_evict_size_metrics[static_cast<int>(file_block->cache_type())]
             << file_block->range().size();
     *_total_evict_size_metrics << file_block->range().size();
+
+    VLOG_DEBUG << "Removing file block from cache. hash: " << hash.to_string()
+               << ", offset: " << offset << ", size: " << file_block->range().size()
+               << ", type: " << cache_type_to_string(type);
+
     if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
         FileCacheKey key;
         key.hash = hash;
@@ -2327,7 +2349,8 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     if (index_queue_size != 0) {
         collect_eliminate_fragments(get_queue(FileCacheType::INDEX));
     }
-    remove_file_blocks(to_evict, cache_lock, true);
+    std::string reason = "async load";
+    remove_file_blocks(to_evict, cache_lock, true, reason);
 
     return !_disk_resource_limit_mode || removed_size >= size;
 }

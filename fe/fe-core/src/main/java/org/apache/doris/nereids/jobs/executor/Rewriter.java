@@ -400,6 +400,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     )
                             ),
                             topic("necessary rules before record mv",
+                                    topDown(new LimitSortToTopN()),
                                     topDown(new SplitLimit()),
                                     custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
                                     custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
