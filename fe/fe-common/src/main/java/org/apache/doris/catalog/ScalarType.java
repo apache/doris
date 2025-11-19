@@ -783,14 +783,15 @@ public class ScalarType extends Type {
 
     public int decimalPrecision() {
         Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
-                || type == PrimitiveType.TIMEV2 || type == PrimitiveType.DECIMAL32
-                || type == PrimitiveType.DECIMAL64 || type == PrimitiveType.DECIMAL128
-                || type == PrimitiveType.DECIMAL256);
+                || type == PrimitiveType.TIMESTAMPTZ || type == PrimitiveType.TIMEV2
+                || type == PrimitiveType.DECIMAL32 || type == PrimitiveType.DECIMAL64
+                || type == PrimitiveType.DECIMAL128 || type == PrimitiveType.DECIMAL256);
         return precision;
     }
 
     public int decimalScale() {
-        Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2
+                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ
                 || type == PrimitiveType.TIMEV2 || type == PrimitiveType.DECIMAL32
                 || type == PrimitiveType.DECIMAL64 || type == PrimitiveType.DECIMAL128
                 || type == PrimitiveType.DECIMAL256);

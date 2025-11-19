@@ -23,7 +23,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import java.time.LocalDateTime;
@@ -161,8 +160,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (this.dataType.equals(targetType)) {
             return this;
         }
-        if (targetType.isDateTimeType()) {
-            return new DateTimeLiteral((DateTimeType) targetType,
+        if (targetType.isTimeStampTzType()) {
+            return new TimestampTzLiteral((TimeStampTzType) targetType,
                     year, month, day, hour, minute, second, microSecond);
         }
         return super.uncheckedCastTo(targetType);
