@@ -331,6 +331,13 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         tmp_first_column = _runtime_filter_partition_prune_block.get_by_position(0).column;
         _runtime_filter_partition_prune_block.get_by_position(0).column =
                 ColumnNothing::create(partition_value_column_size);
+        LOG_WARNING("only test").tag("exprs", [&]() -> std::string {
+            std::string repr;
+            for (auto& ctx : _runtime_filter_partition_prune_ctxs) {
+                repr += ctx->root()->debug_string() + "; ";
+            }
+            return repr;
+        }());
     }
     IColumn::Filter result_filter(_runtime_filter_partition_prune_block.rows(), 1);
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
