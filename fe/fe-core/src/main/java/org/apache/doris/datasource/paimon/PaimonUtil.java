@@ -280,6 +280,9 @@ public class PaimonUtil {
 
     public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
         List<Column> columns = column.getChildren();
+        if (columns == null) {
+            return;
+        }
         switch (dataType.getTypeRoot()) {
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;

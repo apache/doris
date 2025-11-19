@@ -107,23 +107,23 @@ public class DateTrunc extends ScalarFunction
         boolean secondArgIsStringLiteral =
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (firstArgIsStringLiteral && !secondArgIsStringLiteral) {
-            return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT);
+            return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
         } else if (!firstArgIsStringLiteral && secondArgIsStringLiteral) {
-            return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
+            return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT);
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
             boolean timeUnitIsFirst = LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0))
                     .getStringValue().toLowerCase());
-            return timeUnitIsFirst ? FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT)
-                    : FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                            .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
+            return timeUnitIsFirst ? FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD)
+                    : FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                            .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT);
         }
         // if both of args are not constant, `checkLegalityBeforeTypeCoercion` will throw exception so just return
         // a signature here.
-        return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT);
+        return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
     }
 
     @Override

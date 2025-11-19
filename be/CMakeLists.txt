@@ -242,9 +242,12 @@ install(DIRECTORY
     ${BASE_DIR}/dict/icu/uax29
     DESTINATION ${OUTPUT_DIR}/dict/icu)
 
-
 install(DIRECTORY
     ${BASE_DIR}/dict/ik
+    DESTINATION ${OUTPUT_DIR}/dict)
+
+install(DIRECTORY
+    ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -544,7 +547,7 @@ set(COMMON_THIRDPARTY
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
+    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
 
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}

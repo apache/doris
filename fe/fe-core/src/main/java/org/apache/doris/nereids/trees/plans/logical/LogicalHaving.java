@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Logical Having plan
@@ -156,5 +157,17 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public String toString() {
         return Utils.toSqlStringSkipNull("LogicalHaving",
                 "predicates", getPredicate(), "stats", statistics);
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest());
+        sb.append(" HAVING ");
+        sb.append(
+                conjuncts.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(" AND "))
+        );
+        return sb.toString();
     }
 }

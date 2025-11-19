@@ -84,6 +84,7 @@ public class MTMV extends OlapTable {
     private MTMVRefreshSnapshot refreshSnapshot;
     // Should update after every fresh, not persist
     private MTMVCache cache;
+    private long schemaChangeVersion;
 
     // For deserialization
     public MTMV() {
@@ -179,13 +180,26 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             // only can update state, refresh state will be change by add task
+            this.schemaChangeVersion++;
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
         }
     }
 
-    public void addTaskResult(MTMVTask task, MTMVRelation relation,
+    public void processBaseViewChange(String schemaChangeDetail) {
+        writeMvLock();
+        try {
+            this.schemaChangeVersion++;
+            this.status.setState(MTMVState.SCHEMA_CHANGE);
+            this.status.setSchemaChangeDetail(schemaChangeDetail);
+            this.refreshSnapshot = new MTMVRefreshSnapshot();
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
         MTMVCache mtmvCache = null;
         boolean needUpdateCache = false;
@@ -198,8 +212,9 @@ public class MTMV extends OlapTable {
                 if (!isReplay) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                            true, currentContext);
+                    mtmvCache = MTMVCache.from(this.getQuerySql(),
+                            MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                            true, true, currentContext);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -208,6 +223,14 @@ public class MTMV extends OlapTable {
         }
         writeMvLock();
         try {
+            if (!isReplay && task.getMtmvSchemaChangeVersion() != this.schemaChangeVersion) {
+                LOG.warn(
+                        "addTaskResult failed, schemaChangeVersion has changed. "
+                                + "mvName: {}, taskId: {}, taskSchemaChangeVersion: {}, "
+                                + "mvSchemaChangeVersion: {}",
+                        name, task.getTaskId(), task.getMtmvSchemaChangeVersion(), this.schemaChangeVersion);
+                return false;
+            }
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
@@ -223,6 +246,7 @@ public class MTMV extends OlapTable {
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
+            return true;
         } finally {
             writeMvUnlock();
         }
@@ -308,6 +332,25 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public Set<TableName> getQueryRewriteConsistencyRelaxedTables() {
+        Set<TableName> res = Sets.newHashSet();
+        readMvLock();
+        try {
+            String stillRewrittenTables
+                    = mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES);
+            if (StringUtils.isEmpty(stillRewrittenTables)) {
+                return res;
+            }
+            String[] split = stillRewrittenTables.split(",");
+            for (String alias : split) {
+                res.add(new TableName(alias));
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     /**
      * Called when in query, Should use one connection context in query
      */
@@ -323,8 +366,9 @@ public class MTMV extends OlapTable {
         }
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                false, connectionContext);
+        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(),
+                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
+                true, false, connectionContext);
         writeMvLock();
         try {
             this.cache = mtmvCache;
@@ -349,6 +393,15 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    public long getSchemaChangeVersion() {
+        readMvLock();
+        try {
+            return schemaChangeVersion;
+        } finally {
+            readMvUnlock();
+        }
     }
 
     /**

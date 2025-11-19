@@ -51,6 +51,7 @@ public class LoadProcessor extends AbstractJobProcessor {
     // MarkedCountDownLatch:
     //  key: fragmentId, value: backendId
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> latch;
+    private volatile Optional<MarkedCountDownLatch<Integer, Long>> topFragmentLatch;
     private volatile List<SingleFragmentPipelineTask> topFragmentTasks;
 
     public LoadProcessor(CoordinatorContext coordinatorContext, long jobId) {
@@ -76,7 +77,9 @@ public class LoadProcessor extends AbstractJobProcessor {
 
         topFragmentTasks = Lists.newArrayList();
 
-        LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet());
+        LOG.info("dispatch load job: {} to {}",
+                DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
+        );
     }
 
     @Override
@@ -102,6 +105,13 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
         this.topFragmentTasks = topFragmentTasks;
+
+        // only wait top fragments
+        MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>(topFragmentTasks.size());
+        for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
+            topFragmentLatch.addMark(topFragmentTask.getFragmentId(), topFragmentTask.getBackend().getId());
+        }
+        this.topFragmentLatch = Optional.of(topFragmentLatch);
     }
 
     @Override
@@ -225,7 +235,18 @@ public class LoadProcessor extends AbstractJobProcessor {
                 LOG.debug("Query {} fragment {} is marked done",
                         DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
             }
-            latch.get().markedCountDown(params.getFragmentId(), params.getBackendId());
+            MarkedCountDownLatch<Integer, Long> latch = this.latch.get();
+            latch.markedCountDown(params.getFragmentId(), params.getBackendId());
+
+            int topFragmentId = coordinatorContext.topDistributedPlan
+                    .getFragmentJob().getFragment().getFragmentId().asInt();
+            if (topFragmentId == params.getFragmentId()) {
+                MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
+                topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
+                if (topFragmentLatch.getCount() == 0) {
+                    tryFinishSchedule();
+                }
+            }
         }
     }
 

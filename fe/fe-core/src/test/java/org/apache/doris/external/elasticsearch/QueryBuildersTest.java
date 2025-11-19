@@ -243,7 +243,7 @@ public class QueryBuildersTest {
     @Test
     public void testCastConvertEsDsl() {
         FloatLiteral floatLiteral = new FloatLiteral(3.14);
-        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral);
+        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral, null);
         BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
         List<Expr> notPushDownList = new ArrayList<>();
         Map<String, String> fieldsContext = new HashMap<>();
@@ -264,7 +264,7 @@ public class QueryBuildersTest {
 
         SlotRef k3 = new SlotRef(null, "k3");
         k3.setType(Type.FLOAT);
-        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3);
+        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3, null);
         BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
                 new FloatLiteral(3.0, Type.DOUBLE));
         QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions, col2typeMap);
@@ -272,7 +272,7 @@ public class QueryBuildersTest {
 
         SlotRef k4 = new SlotRef(null, "k4");
         k4.setType(Type.FLOAT);
-        CastExpr castFloatExpr = new CastExpr(Type.FLOAT, k4);
+        CastExpr castFloatExpr = new CastExpr(Type.FLOAT, k4, null);
         BinaryPredicate castFloatPredicate = new BinaryPredicate(Operator.GE, new FloatLiteral(3.0, Type.FLOAT),
                 castFloatExpr);
         QueryBuilders.QueryBuilder queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList,

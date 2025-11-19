@@ -1127,15 +1127,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            TColumn tColumn = globalRowIdColumn.toThrift();
-            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
-            tColumn.setIsKey(false);
-            tColumn.setIsAllowNull(false);
-            // keep compatibility
-            tColumn.setVisible(false);
-            tColumn.setColUniqueId(Integer.MAX_VALUE);
-            columnsDesc.add(tColumn);
+            columnsDesc.add(globalRowIdColumn.toThrift());
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
@@ -1403,24 +1395,11 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
-        for (SlotDescriptor virtualSlot : context.getTupleDesc(this.getTupleId()).getSlots()) {
-            Expr virtualColumn = virtualSlot.getVirtualColumn();
-            if (virtualColumn == null) {
-                continue;
-            }
-            Set<Expr> slotRefs = Sets.newHashSet();
-            virtualColumn.collect(e -> e instanceof SlotRef, slotRefs);
-            Set<SlotId> virtualColumnInputSlotIds = slotRefs.stream()
-                    .filter(s -> s instanceof SlotRef)
-                    .map(s -> (SlotRef) s)
-                    .map(SlotRef::getSlotId)
-                    .collect(Collectors.toSet());
-            for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
-                if (virtualColumnInputSlotIds.contains(slot.getId()) && slot.getColumn() != null) {
-                    outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
-                }
-            }
-        }
+        // Do not add input slots of virtual columns into outputColumnUniqueIds.
+        // Backend can decide whether the underlying source columns are truly needed
+        // (e.g., ANN distance index-only scan can produce the virtual distance without
+        // reading the source vector column). Keeping only the real projected slots here
+        // avoids forcing unnecessary reads in BE.
     }
 
     @Override

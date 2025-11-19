@@ -67,6 +67,7 @@ public class AzureProperties extends StorageProperties {
     @Getter
     @ConnectorProperty(names = {"azure.account_name", "azure.access_key", "s3.access_key",
             "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+            sensitive = true,
             description = "The access key of S3.")
     protected String accountName = "";
 

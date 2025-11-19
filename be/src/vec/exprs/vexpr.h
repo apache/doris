@@ -130,7 +130,7 @@ public:
         return Status::InternalError(expr_name() + " is not ready when execute");
     }
 
-    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const = 0;
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
@@ -166,6 +166,8 @@ public:
     const DataTypePtr& data_type() const { return _data_type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+
+    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
@@ -277,7 +279,7 @@ public:
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                      int* result_column_id);
+                      int* result_column_id) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
@@ -308,7 +310,9 @@ public:
                                           segment_v2::AnnRangeSearchRuntime& range_search_runtime,
                                           bool& suitable_for_ann_index);
 
-    bool has_been_executed();
+    bool ann_range_search_executedd();
+
+    bool ann_dist_is_fulfilled() const;
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -342,10 +346,12 @@ protected:
         return res;
     }
 
-    bool is_const_and_have_executed() { return (is_constant() && (_constant_col != nullptr)); }
+    bool is_const_and_have_executed() const {
+        return (is_constant() && (_constant_col != nullptr));
+    }
 
     Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                 int* result_column_id);
+                                 int* result_column_id) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -392,7 +398,12 @@ protected:
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
 
+    // Indicates whether the expr row_bitmap has been updated.
     bool _has_been_executed = false;
+    // Indicates whether the virtual column is fulfilled.
+    // NOTE, if there is no virtual column in the expr tree, and expr
+    // is evaluated by ann index, this flag is still true.
+    bool _virtual_column_is_fulfilled = false;
 };
 
 } // namespace vectorized
