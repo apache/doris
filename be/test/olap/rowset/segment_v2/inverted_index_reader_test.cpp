@@ -606,7 +606,8 @@ public:
         std::string_view rowset_id = "test_cache_matrix";
         int seg_id = 0;
 
-        std::vector<Slice> values = {Slice("images"), Slice("english"), Slice("other")};
+        std::vector<Slice> values = {Slice("images"), Slice("english"), Slice("other"),
+                                     Slice("unique")};
 
         TabletIndex idx_meta;
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -633,6 +634,7 @@ public:
         const std::string kImages = "images";
         const std::string kEnglish = "english";
         const std::string kOther = "other";
+        const std::string kUnique = "unique";
 
         auto run_match = [&](bool enable_query_cache, bool enable_searcher_cache,
                              const std::string& term, OlapReaderStatistics* stats) {
@@ -666,15 +668,18 @@ public:
             OlapReaderStatistics warm_stats;
             run_match(true, true, kEnglish, &warm_stats);
             EXPECT_EQ(1, warm_stats.inverted_index_query_cache_miss);
-            EXPECT_EQ(1, warm_stats.inverted_index_searcher_cache_miss);
+            EXPECT_EQ(0, warm_stats.inverted_index_searcher_cache_miss);
+            EXPECT_EQ(1, warm_stats.inverted_index_searcher_cache_hit);
         }
 
-        // Query cache hit / searcher cache already prepared (no misses expected).
+        // Query cache hit / searcher cache not accessed (query cache returns early).
         {
             OlapReaderStatistics stats;
             run_match(true, true, kImages, &stats);
             EXPECT_EQ(1, stats.inverted_index_query_cache_hit);
             EXPECT_EQ(0, stats.inverted_index_query_cache_miss);
+            // When query cache hits, searcher cache is not accessed, so no hit/miss
+            EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_miss);
         }
 
@@ -687,12 +692,12 @@ public:
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_miss);
         }
 
-        // Query cache hit while searcher cache is disabled forcing a miss.
+        // Query cache enabled while searcher cache disabled using a new term -> both should miss.
         {
             OlapReaderStatistics stats;
-            run_match(true, false, kEnglish, &stats);
-            EXPECT_EQ(1, stats.inverted_index_query_cache_hit);
-            EXPECT_EQ(0, stats.inverted_index_query_cache_miss);
+            run_match(true, false, kOther, &stats);
+            EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
             EXPECT_EQ(1, stats.inverted_index_searcher_cache_miss);
         }
@@ -700,7 +705,7 @@ public:
         // Both caches disabled should report misses.
         {
             OlapReaderStatistics stats;
-            run_match(false, false, kOther, &stats);
+            run_match(false, false, kUnique, &stats);
             EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
             EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
