@@ -2306,7 +2306,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
-        if (setOperation instanceof PhysicalUnion) {
+        if (setOperation instanceof PhysicalUnion
+                && context.getConnectContext().getSessionVariable().getEnableLocalExchange()) {
             boolean isInplaceUnion = false;
             if (setOperation.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecExecutionAny) {
                 Map<Integer, ExchangeNode> exchangeIdToExchangeNode = new IdentityHashMap<>();
