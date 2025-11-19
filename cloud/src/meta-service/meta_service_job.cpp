@@ -37,6 +37,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -1272,29 +1273,19 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     need_commit = true;
 
     if (!compaction_log.recycle_rowsets().empty() && is_versioned_write) {
+        size_t num_recycled_rowsets = compaction_log.recycle_rowsets().size();
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(meta_reader.min_read_version());
         }
         operation_log.mutable_compaction()->Swap(&compaction_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg)
-                    .tag("instance_id", instance_id)
-                    .tag("table_id", request->job().idx().table_id());
-            return;
-        }
-        // Put versioned operation log for compaction to track recycling
-        LOG_INFO("put versioned operation log key")
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
+        LOG_INFO("put compaction operation log key")
                 .tag("instance_id", instance_id)
                 .tag("operation_log_key", hex(operation_log_key))
                 .tag("tablet_id", tablet_id)
-                .tag("value_size", operation_log_value.size())
-                .tag("recycle_rowsets_count", compaction_log.recycle_rowsets().size());
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+                .tag("recycle_rowsets_count", num_recycled_rowsets);
     }
 }
 
@@ -1881,29 +1872,18 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     if (is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
         OperationLogPB operation_log;
         if (is_versioned_read) {
             operation_log.set_min_timestamp(reader.min_read_version());
         }
         operation_log.mutable_schema_change()->Swap(&schema_change_log);
-        if (!operation_log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg)
-                    .tag("instance_id", instance_id)
-                    .tag("table_id", request->job().idx().table_id());
-            return;
-        }
-        // Put versioned operation log for compaction to track recycling
-        LOG_INFO("put versioned operation log key")
+        versioned::blob_put(txn.get(), operation_log_key, operation_log);
+        LOG_INFO("put schema change operation log key")
                 .tag("instance_id", instance_id)
                 .tag("operation_log_key", hex(operation_log_key))
                 .tag("tablet_id", tablet_id)
                 .tag("new_tablet_id", new_tablet_id)
-                .tag("value_size", operation_log_value.size())
                 .tag("recycle_rowsets_count", schema_change_log.recycle_rowsets().size());
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 }
 

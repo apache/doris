@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Lists;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -125,8 +127,13 @@ public class MTMVPartitionDefinition {
             if (partitionExpression.isPresent() && partitionExpression.get().getExpressionName()
                     .equalsIgnoreCase(PARTITION_BY_FUNCTION_NAME)) {
                 DateTrunc dateTrunc = (DateTrunc) partitionExpression.get();
+                List<Pair<Integer, Expr>> paramPairs = convertDateTruncToLegacyArguments(dateTrunc.children());
+                List<Expr> params = paramPairs.stream()
+                        .sorted(Comparator.comparingInt(Pair::key))
+                        .map(Pair::value)
+                        .collect(Collectors.toList());
                 mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(),
-                        new FunctionParams(convertToLegacyArguments(dateTrunc.children()))));
+                        new FunctionParams(params)));
                 mtmvPartitionInfo.setPartitionType(MTMVPartitionType.EXPR);
                 this.partitionType = MTMVPartitionType.EXPR;
             }
@@ -168,15 +175,15 @@ public class MTMVPartitionDefinition {
         mtmvPartitionInfo.setPctInfos(pctInfos);
     }
 
-    private static List<Expr> convertToLegacyArguments(List<Expression> children) {
+    private static List<Pair<Integer, Expr>> convertDateTruncToLegacyArguments(List<Expression> children) {
         return children.stream().map(MTMVPartitionDefinition::convertToLegacyRecursion).collect(Collectors.toList());
     }
 
-    private static Expr convertToLegacyRecursion(Expression expression) {
+    private static Pair<Integer, Expr> convertToLegacyRecursion(Expression expression) {
         if (expression instanceof Slot) {
-            return new SlotRef(null, ((Slot) expression).getName());
+            return Pair.of(1, new SlotRef(null, ((Slot) expression).getName()));
         } else if (expression instanceof Literal) {
-            return new StringLiteral(((Literal) expression).getStringValue());
+            return Pair.of(2, new StringLiteral(((Literal) expression).getStringValue()));
         } else if (expression instanceof Cast) {
             // mv partition roll up only need the slot in cast
             return convertToLegacyRecursion(((Cast) expression).child());

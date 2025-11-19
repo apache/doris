@@ -898,12 +898,6 @@ public class EditLog {
                     env.getLoadManager().replayUpdateLoadJobStateInfo(info);
                     break;
                 }
-                case OperationType.OP_CREATE_SYNC_JOB: {
-                    break;
-                }
-                case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                    break;
-                }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
                     FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
                     env.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
