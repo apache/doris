@@ -1593,7 +1593,7 @@ public class StmtExecutor {
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             planner.plan(parsedStmt, tQueryOptions);
         }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
+        profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
     }
 
     private void resetAnalyzerAndStmt() {

@@ -33,10 +33,8 @@ public class SummaryProfileTest {
         profile.setNereidsAnalysisTime(15);
         profile.setNereidsRewriteTime(21);
         profile.setNereidsCollectTablePartitionFinishTime(28);
-        profile.setNereidsPreRewriteByMvFinishTime(31);
         profile.setNereidsOptimizeTime(36);
         profile.setNereidsTranslateTime(45);
-        profile.setNereidsDistributeTime(55);
         profile.setQueryPlanFinishTime(66);
         profile.setQueryScheduleFinishTime(78);
         profile.setQueryFetchResultFinishTime(91);
@@ -52,11 +50,8 @@ public class SummaryProfileTest {
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_ANALYSIS_TIME), "5ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_REWRITE_TIME), "6ms");
 
-        Assertions.assertEquals(executionSummary.getInfoString(
-                SummaryProfile.NEREIDS_PRE_REWRITE_BY_MV_TIME), "3ms");
-        Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_OPTIMIZE_TIME), "5ms");
+        Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_OPTIMIZE_TIME), "8ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_TRANSLATE_TIME), "9ms");
-        Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.NEREIDS_DISTRIBUTE_TIME), "10ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.SCHEDULE_TIME), "12ms");
         Assertions.assertEquals(executionSummary.getInfoString(SummaryProfile.WAIT_FETCH_RESULT_TIME), "13ms");
     }
