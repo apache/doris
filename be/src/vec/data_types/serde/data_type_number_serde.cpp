@@ -219,14 +219,14 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
+        const auto* offsets_data = concrete_array->value_offsets()->data();
+        const size_t offset_size = sizeof(int32_t);
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset;
-                int32_t end_offset;
-                const auto* offsets_data = concrete_array->value_offsets()->data();
-                memcpy(&start_offset, offsets_data + offset_i * sizeof(int32_t), sizeof(int32_t));
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * sizeof(int32_t),
-                       sizeof(int32_t));
+                int32_t start_offset = 0;
+                int32_t end_offset = 0;
+                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
 
                 const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;

@@ -338,7 +338,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
             const auto* value = concrete_array->Value(value_i);
-            FieldType decimal_value;
+            FieldType decimal_value = FieldType {};
             memcpy(&decimal_value, value, sizeof(FieldType));
             column_data.emplace_back(decimal_value);
         }
