@@ -280,8 +280,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         for (Backend be : toAdd) {
             Env.getCurrentEnv().getEditLog().logAddBackend(be);
             LOG.info("added cloud backend={} ", be);
-            // backends is changed, regenerated tablet number metrics
-            MetricRepo.generateBackendsTabletMetrics();
 
             String host = be.getHost();
             if (existedHostToBeList.keySet().contains(host)) {
@@ -306,8 +304,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             be.setLastMissingHeartbeatTime(System.currentTimeMillis());
             Env.getCurrentEnv().getEditLog().logDropBackend(be);
             LOG.info("dropped cloud backend={}, and lastMissingHeartbeatTime={}", be, be.getLastMissingHeartbeatTime());
-            // backends is changed, regenerated tablet number metrics
-            MetricRepo.generateBackendsTabletMetrics();
         }
 
         // Update idToBackendRef
@@ -316,6 +312,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         toDel.forEach(i -> copiedBackends.remove(i.getId()));
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        // backends is changed, regenerated tablet number metrics
+        // metric repo should be regenerated after setting `idToBackendRef`
+        LOG.info("Add {} and delete {} backend metrics", toAdd.size(), toDel.size());
+        MetricRepo.generateBackendsTabletMetrics();
 
         // Update idToReportVersionRef
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
