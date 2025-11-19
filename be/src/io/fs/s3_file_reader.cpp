@@ -273,8 +273,9 @@ Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* b
         size_t size;
         char* buffer;
         size_t bytes_read;
-        std::shared_ptr<std::promise<Status>> promise;
-        std::future<Status> future;
+        Status status;
+        std::shared_ptr<std::promise<void>> promise;
+        std::future<void> future;
     };
 
     std::vector<ChunkRead> chunks(num_chunks);
@@ -288,7 +289,8 @@ Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* b
         chunks[i].size = chunk_bytes;
         chunks[i].buffer = to + i * chunk_size;
         chunks[i].bytes_read = 0;
-        chunks[i].promise = std::make_shared<std::promise<Status>>();
+        chunks[i].status = Status::OK();
+        chunks[i].promise = std::make_shared<std::promise<void>>();
         chunks[i].future = chunks[i].promise->get_future();
     }
 
@@ -303,9 +305,9 @@ Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* b
     for (size_t i = 0; i < num_chunks; ++i) {
         Status submit_status = thread_pool->submit_func([this, &chunks, i, io_ctx]() {
             Slice chunk_slice(chunks[i].buffer, chunks[i].size);
-            Status status = S3FileReader::read_at_impl(chunks[i].offset, chunk_slice,
-                                                       &chunks[i].bytes_read, io_ctx);
-            chunks[i].promise->set_value(status);
+            chunks[i].status = S3FileReader::read_at_impl(chunks[i].offset, chunk_slice,
+                                                          &chunks[i].bytes_read, io_ctx);
+            chunks[i].promise->set_value();
         });
 
         if (!submit_status.ok()) {
@@ -314,17 +316,18 @@ Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
     }
 
-    // Wait for all reads to complete and check status
+    // Wait for all reads to complete
     for (size_t i = 0; i < num_chunks; ++i) {
-        Status status = chunks[i].future.get();
-        if (!status.ok()) {
-            return status;
-        }
+        chunks[i].future.get();
     }
 
-    // Check bytes read and aggregate
+    // Check status and aggregate bytes read
     *bytes_read = 0;
     for (size_t i = 0; i < num_chunks; ++i) {
+        if (!chunks[i].status.ok()) {
+            return Status::InternalError("Parallel read chunk {} failed: {}", i,
+                                         chunks[i].status.to_string());
+        }
         if (chunks[i].bytes_read != chunks[i].size) {
             std::string msg = fmt::format(
                     "parallel read chunk {} failed: expected {} bytes, got {} bytes, path={} "
