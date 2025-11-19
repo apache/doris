@@ -47,6 +47,7 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
+#include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
 namespace doris::io {
@@ -67,6 +68,8 @@ bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
                                                           &s3_file_reader_read_counter);
 
+bvar::LatencyRecorder parallel_s3_reader_read_latency("parallel_s3_reader", "read_latency");
+
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key, int64_t file_size,
                                             RuntimeProfile* profile) {
@@ -81,7 +84,7 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolde
 
     if (config::enable_s3_parallel_read) {
         return std::make_shared<ParallelS3FileReader>(std::move(client), std::move(bucket),
-                                                       std::move(key), file_size, profile);
+                                                      std::move(key), file_size, profile);
     }
 
     return std::make_shared<S3FileReader>(std::move(client), std::move(bucket), std::move(key),
@@ -251,6 +254,10 @@ Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* b
         return Status::OK();
     }
 
+    MonotonicStopWatch watch;
+    watch.start();
+    Defer _ = [&]() { parallel_s3_reader_read_latency << watch.elapsed_time_microseconds(); };
+
     // If request size is smaller than chunk size, use base implementation
     size_t chunk_size = config::s3_parallel_read_chunk_size;
     if (bytes_req <= chunk_size) {
@@ -294,13 +301,12 @@ Status ParallelS3FileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
     // Launch parallel reads
     for (size_t i = 0; i < num_chunks; ++i) {
-        Status submit_status = thread_pool->submit_func(
-                [this, &chunks, i, io_ctx]() {
-                    Slice chunk_slice(chunks[i].buffer, chunks[i].size);
-                    Status status = S3FileReader::read_at_impl(
-                            chunks[i].offset, chunk_slice, &chunks[i].bytes_read, io_ctx);
-                    chunks[i].promise->set_value(status);
-                });
+        Status submit_status = thread_pool->submit_func([this, &chunks, i, io_ctx]() {
+            Slice chunk_slice(chunks[i].buffer, chunks[i].size);
+            Status status = S3FileReader::read_at_impl(chunks[i].offset, chunk_slice,
+                                                       &chunks[i].bytes_read, io_ctx);
+            chunks[i].promise->set_value(status);
+        });
 
         if (!submit_status.ok()) {
             return Status::InternalError("Failed to submit parallel read task: {}",
