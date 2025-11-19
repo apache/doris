@@ -970,7 +970,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!newColumn.isKey()) {
                     throw new DdlException(
                             String.format("Please specify `key` as keyword for adding key column on AGG_KEYS table: %s",
-                            newColumn.getName()));
+                                    newColName));
                 }
             } else if (newColumn.getAggregationType() == AggregateType.SUM && newColumn.getDefaultValue() != null
                     && !newColumn.getDefaultValue().equals("0")) {
