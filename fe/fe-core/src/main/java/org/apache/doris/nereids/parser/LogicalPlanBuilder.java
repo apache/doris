@@ -5707,84 +5707,97 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ReorderColumnsOp(columnsByPos, rollupName, properties);
     }
 
+    // Helper class to reduce parameter passing
+    private static class PartitionFieldInfo {
+        final String fieldName;
+        final String transformName;
+        final Integer transformArg;
+        final String columnName;
+
+        PartitionFieldInfo(String fieldName, String transformName, Integer transformArg, String columnName) {
+            this.fieldName = fieldName;
+            this.transformName = transformName;
+            this.transformArg = transformArg;
+            this.columnName = columnName;
+        }
+    }
+
+    private PartitionFieldInfo extractOldPartitionFieldInfo(ReplacePartitionFieldClauseContext ctx) {
+        PartitionTransformContext oldTransformCtx = ctx.partitionTransform();
+        if (oldTransformCtx == null) {
+            // old specified as identifier (appears right after KEY)
+            return new PartitionFieldInfo(ctx.getChild(3).getText(), null, null, null);
+        }
+
+        PartitionFieldInfo info = extractTransformInfo(oldTransformCtx);
+        return new PartitionFieldInfo(null, info.transformName, info.transformArg, info.columnName);
+    }
+
+    private PartitionFieldInfo extractNewPartitionFieldInfo(ReplacePartitionFieldClauseContext ctx) {
+        PartitionFieldInfo info = extractTransformInfo(ctx.newPartitionTransform);
+        String partitionFieldName = ctx.newPartitionFieldName != null
+                ? ctx.newPartitionFieldName.getText()
+                : null;
+        return new PartitionFieldInfo(partitionFieldName, info.transformName, info.transformArg, info.columnName);
+    }
+
+    private PartitionFieldInfo extractTransformInfo(PartitionTransformContext ctx) {
+        if (ctx instanceof PartitionTransformWithArgsContext) {
+            PartitionTransformWithArgsContext argsCtx = (PartitionTransformWithArgsContext) ctx;
+            return new PartitionFieldInfo(null,
+                    argsCtx.identifier(0).getText(),
+                    Integer.parseInt(argsCtx.INTEGER_VALUE().getText()),
+                    argsCtx.identifier(1).getText());
+        }
+
+        if (ctx instanceof PartitionTransformWithColumnContext) {
+            PartitionTransformWithColumnContext colCtx = (PartitionTransformWithColumnContext) ctx;
+            return new PartitionFieldInfo(null,
+                    colCtx.identifier(0).getText(),
+                    null,
+                    colCtx.identifier(1).getText());
+        }
+
+        if (ctx instanceof PartitionTransformIdentityContext) {
+            PartitionTransformIdentityContext idCtx = (PartitionTransformIdentityContext) ctx;
+            return new PartitionFieldInfo(null, null, null, idCtx.identifier().getText());
+        }
+
+        return new PartitionFieldInfo(null, null, null, null);
+    }
+
     @Override
     public AlterTableOp visitAddPartitionFieldClause(AddPartitionFieldClauseContext ctx) {
-        AlterTableOp op = visitPartitionTransform(ctx.partitionTransform(), true);
-
-        // Extract optional partition field name
-        String partitionFieldName = null;
-        if (ctx.partitionFieldName != null) {
-            partitionFieldName = ctx.partitionFieldName.getText();
-        }
-
-        if (op instanceof AddPartitionFieldOp) {
-            AddPartitionFieldOp addOp = (AddPartitionFieldOp) op;
-            return new AddPartitionFieldOp(addOp.getTransformName(), addOp.getTransformArg(), 
-                    addOp.getColumnName(), partitionFieldName);
-        }
-
-        return op;
+        PartitionFieldInfo info = extractTransformInfo(ctx.partitionTransform());
+        String partitionFieldName = ctx.partitionFieldName != null
+                ? ctx.partitionFieldName.getText()
+                : null;
+        return new AddPartitionFieldOp(info.transformName, info.transformArg,
+                info.columnName, partitionFieldName);
     }
 
     @Override
     public AlterTableOp visitDropPartitionFieldClause(DropPartitionFieldClauseContext ctx) {
-        return visitPartitionTransform(ctx.partitionTransform(), false);
+        PartitionTransformContext transform = ctx.partitionTransform();
+        if (transform == null) {
+            // Identifier case
+            return new DropPartitionFieldOp(ctx.getChild(ctx.getChildCount() - 1).getText());
+        }
+        PartitionFieldInfo info = extractTransformInfo(transform);
+        return new DropPartitionFieldOp(null, info.transformName, info.transformArg, info.columnName);
     }
 
     @Override
     public AlterTableOp visitReplacePartitionFieldClause(ReplacePartitionFieldClauseContext ctx) {
-        // Extract old partition field name (key_name)
-        String oldPartitionFieldName = ctx.oldPartitionFieldName.getText();
+        // Extract old partition field info (key name or partition expression)
+        PartitionFieldInfo oldInfo = extractOldPartitionFieldInfo(ctx);
 
         // Extract new partition transform info
-        AlterTableOp newOp = visitPartitionTransform(ctx.newPartitionTransform, true);
+        PartitionFieldInfo newInfo = extractNewPartitionFieldInfo(ctx);
 
-        String newTransformName = null;
-        Integer newTransformArg = null;
-        String newColumnName = null;
-
-        if (newOp instanceof AddPartitionFieldOp) {
-            AddPartitionFieldOp addOp = (AddPartitionFieldOp) newOp;
-            newTransformName = addOp.getTransformName();
-            newTransformArg = addOp.getTransformArg();
-            newColumnName = addOp.getColumnName();
-        }
-
-        // Extract optional new partition field name
-        String newPartitionFieldName = null;
-        if (ctx.newPartitionFieldName != null) {
-            newPartitionFieldName = ctx.newPartitionFieldName.getText();
-        }
-
-        return new ReplacePartitionFieldOp(oldPartitionFieldName,
-                newTransformName, newTransformArg, newColumnName, newPartitionFieldName);
-    }
-
-    private AlterTableOp visitPartitionTransform(PartitionTransformContext ctx, boolean isAdd) {
-        String transformName = null;
-        Integer transformArg = null;
-        String columnName = null;
-
-        if (ctx instanceof PartitionTransformWithArgsContext) {
-            PartitionTransformWithArgsContext argsCtx = (PartitionTransformWithArgsContext) ctx;
-            transformName = argsCtx.identifier(0).getText();
-            transformArg = Integer.parseInt(argsCtx.INTEGER_VALUE().getText());
-            columnName = argsCtx.identifier(1).getText();
-        } else if (ctx instanceof PartitionTransformWithColumnContext) {
-            PartitionTransformWithColumnContext colCtx = (PartitionTransformWithColumnContext) ctx;
-            transformName = colCtx.identifier(0).getText();
-            columnName = colCtx.identifier(1).getText();
-        } else if (ctx instanceof PartitionTransformIdentityContext) {
-            PartitionTransformIdentityContext idCtx = (PartitionTransformIdentityContext) ctx;
-            columnName = idCtx.identifier().getText();
-        }
-
-        if (isAdd) {
-            // partitionFieldName will be set in visitAddPartitionFieldClause if AS clause is present
-            return new AddPartitionFieldOp(transformName, transformArg, columnName, null);
-        } else {
-            return new DropPartitionFieldOp(transformName, transformArg, columnName);
-        }
+        return new ReplacePartitionFieldOp(oldInfo.fieldName, oldInfo.transformName,
+                oldInfo.transformArg, oldInfo.columnName,
+                newInfo.transformName, newInfo.transformArg, newInfo.columnName, newInfo.fieldName);
     }
 
     @Override

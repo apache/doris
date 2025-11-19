@@ -62,7 +62,9 @@ public class AddPartitionFieldOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        // Validation will be done in IcebergMetadataOps
+        if (columnName == null) {
+            throw new UserException("Column name must be specified");
+        }
     }
 
     @Override

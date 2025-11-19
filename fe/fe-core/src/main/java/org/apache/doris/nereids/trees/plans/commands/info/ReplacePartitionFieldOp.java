@@ -88,7 +88,12 @@ public class ReplacePartitionFieldOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        // Validation will be done in IcebergMetadataOps
+        if (oldPartitionFieldName == null && oldColumnName == null) {
+            throw new UserException("Old partition field name or old column name must be specified");
+        }
+        if (newColumnName == null) {
+            throw new UserException("New column name must be specified");
+        }
     }
 
     @Override
