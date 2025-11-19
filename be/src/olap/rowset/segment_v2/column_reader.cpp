@@ -969,7 +969,7 @@ MapFileColumnIterator::MapFileColumnIterator(std::shared_ptr<ColumnReader> reade
 
 Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
-        LOG(INFO) << "Map column iterator column " << _column_name << " skip reading.";
+        DLOG(INFO) << "Map column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
     RETURN_IF_ERROR(_key_iterator->init(opts));
@@ -1095,8 +1095,8 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
 
     if (!predicate_access_paths.empty()) {
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
-        LOG(INFO) << "Map column iterator set sub-column " << _column_name
-                  << " to READING_FOR_PREDICATE";
+        DLOG(INFO) << "Map column iterator set sub-column " << _column_name
+                   << " to READING_FOR_PREDICATE";
     }
 
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
@@ -1149,7 +1149,7 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
                 _key_iterator->set_access_paths(key_all_access_paths, key_predicate_access_paths));
     } else {
         _key_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
-        LOG(INFO) << "Map column iterator set key column to SKIP_READING";
+        DLOG(INFO) << "Map column iterator set key column to SKIP_READING";
     }
 
     if (need_read_values) {
@@ -1158,7 +1158,7 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
                 _val_iterator->set_access_paths(val_all_access_paths, val_predicate_access_paths));
     } else {
         _val_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
-        LOG(INFO) << "Map column iterator set value column to SKIP_READING";
+        DLOG(INFO) << "Map column iterator set value column to SKIP_READING";
     }
     return Status::OK();
 }
@@ -1176,7 +1176,7 @@ StructFileColumnIterator::StructFileColumnIterator(
 
 Status StructFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
-        LOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
+        DLOG(INFO) << "Struct column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
 
@@ -1294,8 +1294,8 @@ Status StructFileColumnIterator::set_access_paths(
 
     if (!predicate_access_paths.empty()) {
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
-        LOG(INFO) << "Struct column iterator set sub-column " << _column_name
-                  << " to READING_FOR_PREDICATE";
+        DLOG(INFO) << "Struct column iterator set sub-column " << _column_name
+                   << " to READING_FOR_PREDICATE";
     }
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
@@ -1319,7 +1319,7 @@ Status StructFileColumnIterator::set_access_paths(
         if (!need_to_read) {
             set_reading_flag(ReadingFlag::SKIP_READING);
             sub_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
-            LOG(INFO) << "Struct column iterator set sub-column " << name << " to SKIP_READING";
+            DLOG(INFO) << "Struct column iterator set sub-column " << name << " to SKIP_READING";
             continue;
         }
         set_reading_flag(ReadingFlag::NEED_TO_READ);
@@ -1413,7 +1413,7 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(std::shared_ptr<ColumnReader> r
 
 Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
-        LOG(INFO) << "Array column iterator column " << _column_name << " skip readking.";
+        DLOG(INFO) << "Array column iterator column " << _column_name << " skip readking.";
         return Status::OK();
     }
 
@@ -1535,8 +1535,8 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
 
     if (!predicate_access_paths.empty()) {
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
-        LOG(INFO) << "Array column iterator set sub-column " << _column_name
-                  << " to READING_FOR_PREDICATE";
+        DLOG(INFO) << "Array column iterator set sub-column " << _column_name
+                   << " to READING_FOR_PREDICATE";
     }
 
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
@@ -1575,7 +1575,7 @@ FileColumnIterator::FileColumnIterator(std::shared_ptr<ColumnReader> reader) : _
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
-        LOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
+        DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
 
