@@ -271,6 +271,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("scaleFactor", "1");
             params.put("sampleHints", "");
             params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            params.put("rowCount", "COUNT(1)");
             params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             scanFullTable = true;
             return;
