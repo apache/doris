@@ -142,7 +142,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         } else {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
+        profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
         submitInsertStmtPlan(ctx, executor, plans);
     }
 
