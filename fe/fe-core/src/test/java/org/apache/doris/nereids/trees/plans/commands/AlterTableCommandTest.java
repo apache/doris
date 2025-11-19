@@ -112,28 +112,40 @@ public class AlterTableCommandTest {
     @Test
     void testReplacePartitionFieldOp() {
         List<AlterTableOp> ops = new ArrayList<>();
-        ops.add(new ReplacePartitionFieldOp("ts_year", "month", null, "ts", null));
+        ops.add(new ReplacePartitionFieldOp("ts_year", null, null, null,
+                "month", null, "ts", null));
         AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
         Assertions.assertEquals(alterTableCommand.toSql(),
                 "ALTER TABLE `db`.`test` REPLACE PARTITION KEY ts_year WITH month(ts)");
 
         ops.clear();
-        ops.add(new ReplacePartitionFieldOp("id_bucket_10", "bucket", 16, "id", null));
+        ops.add(new ReplacePartitionFieldOp("id_bucket_10", null, null, null,
+                "bucket", 16, "id", null));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
         Assertions.assertEquals(alterTableCommand.toSql(),
                 "ALTER TABLE `db`.`test` REPLACE PARTITION KEY id_bucket_10 WITH bucket(16, id)");
 
         ops.clear();
-        ops.add(new ReplacePartitionFieldOp("category", "bucket", 8, "id", null));
+        ops.add(new ReplacePartitionFieldOp("category", null, null, null,
+                "bucket", 8, "id", null));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
         Assertions.assertEquals(alterTableCommand.toSql(),
                 "ALTER TABLE `db`.`test` REPLACE PARTITION KEY category WITH bucket(8, id)");
 
         // Test with custom partition field name
         ops.clear();
-        ops.add(new ReplacePartitionFieldOp("ts_year", "day", null, "ts", "day_of_ts"));
+        ops.add(new ReplacePartitionFieldOp("ts_year", null, null, null,
+                "day", null, "ts", "day_of_ts"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
         Assertions.assertEquals(alterTableCommand.toSql(),
                 "ALTER TABLE `db`.`test` REPLACE PARTITION KEY ts_year WITH day(ts) AS day_of_ts");
+
+        // Test with old partition expression
+        ops.clear();
+        ops.add(new ReplacePartitionFieldOp(null, "bucket", 16, "id",
+                "truncate", 5, "code", "code_trunc"));
+        alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+        Assertions.assertEquals(alterTableCommand.toSql(),
+                "ALTER TABLE `db`.`test` REPLACE PARTITION KEY bucket(16, id) WITH truncate(5, code) AS code_trunc");
     }
 }

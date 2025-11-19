@@ -837,12 +837,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
-        String partitionFieldName = clause.getPartitionFieldName();
-        if (partitionFieldName == null) {
-            throw new UserException("Partition field name is required for drop partition field");
+        if (clause.getPartitionFieldName() != null) {
+            updateSpec.removeField(clause.getPartitionFieldName());
+        } else {
+            String transformName = clause.getTransformName();
+            Integer transformArg = clause.getTransformArg();
+            String columnName = clause.getColumnName();
+            Term transform = getTransform(transformName, columnName, transformArg);
+            updateSpec.removeField(transform);
         }
-
-        updateSpec.removeField(partitionFieldName);
 
         try {
             executionAuthenticator.execute(() -> updateSpec.commit());
@@ -861,21 +864,34 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
-        String oldPartitionFieldName = clause.getOldPartitionFieldName();
+        // remove old partition field
+        if (clause.getOldPartitionFieldName() != null) {
+            updateSpec.removeField(clause.getOldPartitionFieldName());
+        } else {
+            String oldTransformName = clause.getOldTransformName();
+            Integer oldTransformArg = clause.getOldTransformArg();
+            String oldColumnName = clause.getOldColumnName();
+            Term oldTransform = getTransform(oldTransformName, oldColumnName, oldTransformArg);
+            updateSpec.removeField(oldTransform);
+        }
+
+        // add new partition field
+        String newPartitionFieldName = clause.getNewPartitionFieldName();
         String newTransformName = clause.getNewTransformName();
         Integer newTransformArg = clause.getNewTransformArg();
         String newColumnName = clause.getNewColumnName();
-        String newPartitionFieldName = clause.getNewPartitionFieldName();
+        Term newTransform = getTransform(newTransformName, newColumnName, newTransformArg);
 
-        Term transform = getTransform(newTransformName, newColumnName, newTransformArg);
-
-        updateSpec.removeField(oldPartitionFieldName);
-        updateSpec.addField(newPartitionFieldName, transform);
+        if (newPartitionFieldName != null) {
+            updateSpec.addField(newPartitionFieldName, newTransform);
+        } else {
+            updateSpec.addField(newTransform);
+        }
 
         try {
             executionAuthenticator.execute(() -> updateSpec.commit());
         } catch (Exception e) {
-            throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
+            throw new UserException("Failed to replace partition field in table: " + icebergTable.name()
                     + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable);

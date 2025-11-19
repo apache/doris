@@ -28,15 +28,35 @@ import java.util.Map;
 public class DropPartitionFieldOpTest {
 
     @Test
-    public void testDropPartitionField() {
+    public void testDropPartitionFieldByName() {
         DropPartitionFieldOp op = new DropPartitionFieldOp("ts_year");
         Assertions.assertEquals(AlterOpType.DROP_PARTITION_FIELD, op.getOpType());
         Assertions.assertEquals("ts_year", op.getPartitionFieldName());
+        Assertions.assertNull(op.getTransformName());
         Assertions.assertEquals("DROP PARTITION KEY ts_year", op.toSql());
 
         DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertNotNull(clause);
         Assertions.assertEquals("ts_year", clause.getPartitionFieldName());
+        Assertions.assertNull(clause.getTransformName());
+    }
+
+    @Test
+    public void testDropPartitionFieldByTransform() {
+        DropPartitionFieldOp op = new DropPartitionFieldOp("bucket", 16, "id");
+        Assertions.assertEquals(AlterOpType.DROP_PARTITION_FIELD, op.getOpType());
+        Assertions.assertNull(op.getPartitionFieldName());
+        Assertions.assertEquals("bucket", op.getTransformName());
+        Assertions.assertEquals(16, op.getTransformArg());
+        Assertions.assertEquals("id", op.getColumnName());
+        Assertions.assertEquals("DROP PARTITION KEY bucket(16, id)", op.toSql());
+
+        DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
+        Assertions.assertNotNull(clause);
+        Assertions.assertNull(clause.getPartitionFieldName());
+        Assertions.assertEquals("bucket", clause.getTransformName());
+        Assertions.assertEquals(16, clause.getTransformArg());
+        Assertions.assertEquals("id", clause.getColumnName());
     }
 
     @Test

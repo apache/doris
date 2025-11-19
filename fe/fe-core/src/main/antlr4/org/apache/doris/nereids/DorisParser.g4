@@ -807,11 +807,13 @@ addPartitionFieldClause
     ;
 
 dropPartitionFieldClause
-    : DROP PARTITION KEY partitionFieldName=identifier                              #dropPartitionFieldClause
+    : DROP PARTITION KEY (partitionFieldName=identifier | partitionTransform)                       #dropPartitionFieldClause
     ;
 
 replacePartitionFieldClause
-    : REPLACE PARTITION KEY oldPartitionFieldName=identifier WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?  #replacePartitionFieldClause
+    : REPLACE PARTITION KEY
+        (oldPartitionFieldName=identifier | oldPartitionTransform=partitionTransform)
+        WITH newPartitionTransform=partitionTransform (AS newPartitionFieldName=identifier)?         #replacePartitionFieldClause
     ;
 
 partitionTransform

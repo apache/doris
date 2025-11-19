@@ -28,16 +28,23 @@ import java.util.Map;
  */
 public class ReplacePartitionFieldClause extends AlterTableClause {
     private final String oldPartitionFieldName;
+    private final String oldTransformName;
+    private final Integer oldTransformArg;
+    private final String oldColumnName;
     private final String newTransformName;
     private final Integer newTransformArg;
     private final String newColumnName;
     private final String newPartitionFieldName;
 
-    public ReplacePartitionFieldClause(String oldPartitionFieldName,
+    public ReplacePartitionFieldClause(String oldPartitionFieldName, String oldTransformName,
+            Integer oldTransformArg, String oldColumnName,
             String newTransformName, Integer newTransformArg, String newColumnName,
             String newPartitionFieldName) {
         super(AlterOpType.REPLACE_PARTITION_FIELD);
         this.oldPartitionFieldName = oldPartitionFieldName;
+        this.oldTransformName = oldTransformName;
+        this.oldTransformArg = oldTransformArg;
+        this.oldColumnName = oldColumnName;
         this.newTransformName = newTransformName;
         this.newTransformArg = newTransformArg;
         this.newColumnName = newColumnName;
@@ -46,6 +53,18 @@ public class ReplacePartitionFieldClause extends AlterTableClause {
 
     public String getOldPartitionFieldName() {
         return oldPartitionFieldName;
+    }
+
+    public String getOldTransformName() {
+        return oldTransformName;
+    }
+
+    public Integer getOldTransformArg() {
+        return oldTransformArg;
+    }
+
+    public String getOldColumnName() {
+        return oldColumnName;
     }
 
     public String getNewTransformName() {
@@ -67,7 +86,12 @@ public class ReplacePartitionFieldClause extends AlterTableClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("REPLACE PARTITION KEY ").append(oldPartitionFieldName);
+        sb.append("REPLACE PARTITION KEY ");
+        if (oldPartitionFieldName != null) {
+            sb.append(oldPartitionFieldName);
+        } else {
+            appendPartitionTransform(sb, oldTransformName, oldTransformArg, oldColumnName);
+        }
         sb.append(" WITH ");
         appendPartitionTransform(sb, newTransformName, newTransformArg, newColumnName);
         if (newPartitionFieldName != null) {

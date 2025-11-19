@@ -31,14 +31,41 @@ import java.util.Map;
  */
 public class DropPartitionFieldOp extends AlterTableOp {
     private final String partitionFieldName;
+    private final String transformName;
+    private final Integer transformArg;
+    private final String columnName;
 
     public DropPartitionFieldOp(String partitionFieldName) {
+        this(partitionFieldName, null, null, null);
+    }
+
+    public DropPartitionFieldOp(String transformName, Integer transformArg, String columnName) {
+        this(null, transformName, transformArg, columnName);
+    }
+
+    public DropPartitionFieldOp(String partitionFieldName, String transformName,
+            Integer transformArg, String columnName) {
         super(AlterOpType.DROP_PARTITION_FIELD);
         this.partitionFieldName = partitionFieldName;
+        this.transformName = transformName;
+        this.transformArg = transformArg;
+        this.columnName = columnName;
     }
 
     public String getPartitionFieldName() {
         return partitionFieldName;
+    }
+
+    public String getTransformName() {
+        return transformName;
+    }
+
+    public Integer getTransformArg() {
+        return transformArg;
+    }
+
+    public String getColumnName() {
+        return columnName;
     }
 
     @Override
@@ -48,7 +75,7 @@ public class DropPartitionFieldOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new DropPartitionFieldClause(partitionFieldName);
+        return new DropPartitionFieldClause(partitionFieldName, transformName, transformArg, columnName);
     }
 
     @Override
@@ -68,6 +95,30 @@ public class DropPartitionFieldOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        return "DROP PARTITION KEY " + partitionFieldName;
+        StringBuilder sb = new StringBuilder();
+        sb.append("DROP PARTITION KEY ");
+        if (partitionFieldName != null) {
+            sb.append(partitionFieldName);
+        } else {
+            appendPartitionTransform(sb);
+        }
+        return sb.toString();
+    }
+
+    private void appendPartitionTransform(StringBuilder sb) {
+        if (transformName != null) {
+            sb.append(transformName);
+            if (transformArg != null) {
+                sb.append("(").append(transformArg);
+                if (columnName != null) {
+                    sb.append(", ").append(columnName);
+                }
+                sb.append(")");
+            } else if (columnName != null) {
+                sb.append("(").append(columnName).append(")");
+            }
+        } else if (columnName != null) {
+            sb.append(columnName);
+        }
     }
 }
