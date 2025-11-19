@@ -42,6 +42,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 
@@ -2173,32 +2174,68 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     std::pair<MetaServiceCode, std::string> ret;
     switch (request->op()) {
     case AlterInstanceRequest::DROP: {
-        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
-            std::string msg;
-            // check instance doesn't have any cluster.
-            if (instance->clusters_size() != 0) {
-                msg = "failed to drop instance, instance has clusters";
-                LOG(WARNING) << msg;
-                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
-            }
+        ret = alter_instance(
+                request, [&request, &instance_id](Transaction* txn, InstanceInfoPB* instance) {
+                    std::string msg;
+                    // check instance doesn't have any cluster.
+                    if (instance->clusters_size() != 0) {
+                        msg = "failed to drop instance, instance has clusters";
+                        LOG(WARNING) << msg;
+                        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                    }
 
-            instance->set_status(InstanceInfoPB::DELETED);
-            instance->set_mtime(
-                    duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+                    // check instance doesn't have any snapshot.
+                    MetaReader meta_reader(instance_id);
+                    std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+                    TxnErrorCode err = meta_reader.get_snapshots(txn, &snapshots);
+                    if (err != TxnErrorCode::TXN_OK) {
+                        msg = "failed to get snapshots";
+                        LOG(WARNING) << msg << " err=" << err;
+                        return std::make_pair(cast_as<ErrCategory::READ>(err), msg);
+                    }
+                    for (auto& [snapshot, _] : snapshots) {
+                        if (snapshot.status() != SnapshotStatus::SNAPSHOT_RECYCLED) {
+                            // still has snapshots, cannot drop
+                            msg = "failed to drop instance, instance has snapshots";
+                            LOG(WARNING) << msg;
+                            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                        }
+                    }
 
-            std::string ret = instance->SerializeAsString();
-            if (ret.empty()) {
-                msg = "failed to serialize";
-                LOG(ERROR) << msg;
-                return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
-            }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "drop instance json=" << proto_to_json(*instance);
-            return std::make_pair(MetaServiceCode::OK, ret);
-        });
+                    instance->set_status(InstanceInfoPB::DELETED);
+                    instance->set_mtime(
+                            duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+
+                    std::string ret = instance->SerializeAsString();
+                    if (ret.empty()) {
+                        msg = "failed to serialize";
+                        LOG(ERROR) << msg;
+                        return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
+                    }
+                    LOG(INFO) << "put instance_id=" << request->instance_id()
+                              << "drop instance json=" << proto_to_json(*instance);
+
+                    if (instance->has_source_instance_id() && instance->has_source_snapshot_id() &&
+                        !instance->source_instance_id().empty() &&
+                        !instance->source_snapshot_id().empty()) {
+                        Versionstamp snapshot_versionstamp;
+                        if (!SnapshotManager::parse_snapshot_versionstamp(
+                                    instance->source_snapshot_id(), &snapshot_versionstamp)) {
+                            msg = "failed to parse snapshot_id to versionstamp, snapshot_id=" +
+                                  instance->source_snapshot_id();
+                            LOG(WARNING) << msg;
+                            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                        }
+                        versioned::SnapshotReferenceKeyInfo ref_key_info {
+                                instance->source_instance_id(), snapshot_versionstamp, instance_id};
+                        std::string reference_key = versioned::snapshot_reference_key(ref_key_info);
+                        txn->remove(reference_key);
+                    }
+                    return std::make_pair(MetaServiceCode::OK, ret);
+                });
     } break;
     case AlterInstanceRequest::RENAME: {
-        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+        ret = alter_instance(request, [&request](Transaction* txn, InstanceInfoPB* instance) {
             std::string msg;
             std::string name = request->has_name() ? request->name() : "";
             if (name.empty()) {
@@ -2220,7 +2257,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
         });
     } break;
     case AlterInstanceRequest::ENABLE_SSE: {
-        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+        ret = alter_instance(request, [&request](Transaction* txn, InstanceInfoPB* instance) {
             std::string msg;
             if (instance->sse_enabled()) {
                 msg = "failed to enable sse, instance has enabled sse";
@@ -2246,7 +2283,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
         });
     } break;
     case AlterInstanceRequest::DISABLE_SSE: {
-        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+        ret = alter_instance(request, [&request](Transaction* txn, InstanceInfoPB* instance) {
             std::string msg;
             if (!instance->sse_enabled()) {
                 msg = "failed to disable sse, instance has disabled sse";
@@ -2275,7 +2312,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
         ret = resource_mgr_->refresh_instance(request->instance_id());
     } break;
     case AlterInstanceRequest::SET_OVERDUE: {
-        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+        ret = alter_instance(request, [&request](Transaction* txn, InstanceInfoPB* instance) {
             std::string msg;
 
             if (instance->status() == InstanceInfoPB::DELETED) {
@@ -2306,7 +2343,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
         });
     } break;
     case AlterInstanceRequest::SET_NORMAL: {
-        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+        ret = alter_instance(request, [&request](Transaction* txn, InstanceInfoPB* instance) {
             std::string msg;
 
             if (instance->status() == InstanceInfoPB::DELETED) {
@@ -2352,7 +2389,8 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
      * the provided values conform to the expected format and constraints.
      */
     case AlterInstanceRequest::SET_SNAPSHOT_PROPERTY: {
-        ret = alter_instance(request, [&request, &instance_id](InstanceInfoPB* instance) {
+        ret = alter_instance(request, [&request, &instance_id](Transaction* txn,
+                                                               InstanceInfoPB* instance) {
             std::string msg;
             auto properties = request->properties();
             if (properties.empty()) {
@@ -2471,7 +2509,8 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
 
 std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         const cloud::AlterInstanceRequest* request,
-        std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action) {
+        std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
+                action) {
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
     std::string instance_id = request->has_instance_id() ? request->instance_id() : "";
@@ -2515,7 +2554,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         LOG(WARNING) << msg;
         return std::make_pair(code, msg);
     }
-    auto r = action(&instance);
+    auto r = action(txn.get(), &instance);
     if (r.first != MetaServiceCode::OK) {
         return r;
     }
