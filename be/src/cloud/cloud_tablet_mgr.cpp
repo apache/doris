@@ -161,7 +161,7 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
                                                                 bool sync_delete_bitmap,
                                                                 SyncRowsetStats* sync_stats,
-                                                                bool local_only) {
+                                                                bool force_use_only_cached) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
@@ -180,13 +180,14 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     auto* handle = _cache->lookup(key);
 
     if (handle == nullptr) {
-        if (local_only) {
+        if (force_use_only_cached) {
             LOG(INFO) << "tablet=" << tablet_id
-                      << "does not exists in local tablet cache, because param local_only=true, "
+                      << "does not exists in local tablet cache, because param "
+                         "force_use_only_cached=true, "
                          "treat it as an error";
             return ResultError(Status::InternalError(
                     "tablet={} does not exists in local tablet cache, because param "
-                    "local_only=true, "
+                    "force_use_only_cached=true, "
                     "treat it as an error",
                     tablet_id));
         }
