@@ -504,6 +504,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
     } else if (_part_type == TPartitionType::LOCAL_RANDOM) {
+        DCHECK_LT(local_state.current_channel_idx, local_state.local_channel_ids.size())
+                << "local_state.current_channel_idx: " << local_state.current_channel_idx
+                << ", local_channel_ids: " << to_string(local_state.local_channel_ids);
+
         // 1. select channel
         auto& current_channel =
                 local_state
