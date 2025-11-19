@@ -62,8 +62,15 @@ public:
     void stop() override;
     bool stopped() override;
 
+    /* Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached tablet meta
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats = nullptr,
-                                      bool force_use_only_cached = false) override;
+                                      bool force_use_only_cached = false,
+                                      bool cache_on_miss = true) override;
 
     Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 

@@ -29,6 +29,8 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_block.h"
+#include "olap/base_tablet.h"
+#include "runtime/exec_env.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -71,7 +73,6 @@ FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_i
 
     while (iterator->valid()) {
         BlockMetaKey key = iterator->key();
-        BlockMeta meta = iterator->value();
 
         // Get all blocks for this hash using get_blocks_by_key
         try {
@@ -108,32 +109,45 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
             }
 
             for (int64_t tablet_id : tablet_ids_to_process) {
-                // TODO(zhengyu): Implement actual CloudMetaMgr or CloudTabletMgr integration
-                // For now, we'll use placeholder values
-                uint64_t create_time = 0;
+                uint64_t tablet_ctime = 0;
                 uint64_t ttl = 0;
 
-                // Simulate getting tablet metadata
-                // This should be replaced with actual CloudMetaMgr::get_tablet_meta call
-                bool has_ttl = (tablet_id % 10 == 0); // Example condition
-                if (has_ttl) {
-                    create_time = UnixSeconds(); // Current time as create time
-                    ttl = 3600;                  // 1 hour TTL
+                auto res = ExecEnv::get_tablet(tablet_id, nullptr, false, false);
+                if (!res.has_value()) {
+                    LOG(WARNING) << "Failed to get tablet for tablet_id: " << tablet_id
+                                 << ", err: " << res.error();
+                    continue;
+                }
+
+                auto tablet = res.value();
+                const auto& tablet_meta = tablet->tablet_meta();
+                if (tablet_meta != nullptr) {
+                    tablet_ctime = tablet_meta->creation_time();
+                }
+
+                int64_t ttl_seconds = tablet->ttl_seconds();
+                if (ttl_seconds > 0 && tablet_ctime > 0) {
+                    ttl = static_cast<uint64_t>(ttl_seconds);
                 }
 
                 // Update TTL info map
                 {
                     std::lock_guard<std::mutex> lock(_ttl_info_mutex);
                     if (ttl > 0) {
-                        _ttl_info_map[tablet_id] = TtlInfo {ttl, create_time};
+                        auto old_info_it = _ttl_info_map.find(tablet_id);
+                        bool was_zero_ttl = (old_info_it == _ttl_info_map.end() ||
+                                             old_info_it->second.ttl == 0);
+                        _ttl_info_map[tablet_id] = TtlInfo {ttl, tablet_ctime};
 
                         // If TTL changed from 0 to non-zero, convert blocks to TTL type
-                        auto old_info_it = _ttl_info_map.find(tablet_id);
-                        if (old_info_it == _ttl_info_map.end() || old_info_it->second.ttl == 0) {
+                        if (was_zero_ttl) {
                             FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
                             for (auto& block : blocks) {
                                 if (block->cache_type() != FileCacheType::TTL) {
-                                    block->change_cache_type(FileCacheType::TTL);
+                                    auto st = block->change_cache_type(FileCacheType::TTL);
+                                    if (!st.ok()) {
+                                        LOG(WARNING) << "Failed to convert block to TTL cache_type";
+                                    }
                                 }
                             }
                         }
@@ -144,9 +158,8 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                 }
             }
 
-            // Sleep for configured interval (use existing TTL GC interval)
-            std::this_thread::sleep_for(
-                    std::chrono::milliseconds(config::file_cache_background_ttl_gc_interval_ms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(
+                    config::file_cache_background_ttl_info_update_interval_ms));
 
         } catch (const std::exception& e) {
             LOG(WARNING) << "Exception in TTL update thread: " << e.what();
@@ -160,7 +173,7 @@ void BlockFileCacheTtlMgr::run_backgroud_expiration_check() {
 
     while (!_stop_background.load(std::memory_order_acquire)) {
         try {
-            std::unordered_map<int64_t, TtlInfo> ttl_info_copy;
+            std::map<int64_t, TtlInfo> ttl_info_copy;
 
             // Copy TTL info for processing
             {
@@ -171,12 +184,15 @@ void BlockFileCacheTtlMgr::run_backgroud_expiration_check() {
             uint64_t current_time = UnixSeconds();
 
             for (const auto& [tablet_id, ttl_info] : ttl_info_copy) {
-                if (ttl_info.create_time + ttl_info.ttl < current_time) {
+                if (ttl_info.tablet_ctime + ttl_info.ttl < current_time) {
                     // Tablet has expired, convert TTL blocks back to NORMAL type
                     FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
                     for (auto& block : blocks) {
                         if (block->cache_type() == FileCacheType::TTL) {
-                            block->change_cache_type(FileCacheType::NORMAL);
+                            auto st = block->change_cache_type(FileCacheType::NORMAL);
+                            if (!st.ok()) {
+                                LOG(WARNING) << "Failed to convert block back to NORMAL cache_type";
+                            }
                         }
                     }
 

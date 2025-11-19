@@ -27,6 +27,7 @@
 #include <optional>
 #include <thread>
 
+#include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -72,7 +73,6 @@ private:
     LockScopedTimer cache_lock_timer;
 
 class FSFileCacheStorage;
-class BlockFileCacheTtlMgr;
 
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
@@ -207,6 +207,8 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
+    /// Adjust expiration time for every block sharing the specified hash key.
+    void modify_expiration_time(const UInt128Wrapper& hash, uint64_t expiration_time);
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);

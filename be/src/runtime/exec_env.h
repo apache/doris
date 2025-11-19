@@ -170,9 +170,17 @@ public:
     }
 
     // Requires ExenEnv ready
+    /*
+     * Parameters:
+     * - tablet_id: the id of tablet to get
+     * - sync_stats: the stats of sync rowset
+     * - force_use_only_cached: whether only use cached data
+     * - cache_on_miss: whether cache the tablet meta when missing in cache
+     */
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
                                              SyncRowsetStats* sync_stats = nullptr,
-                                             bool force_use_only_cached = false);
+                                             bool force_use_only_cached = false,
+                                             bool cache_on_miss = true);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }

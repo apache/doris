@@ -26,6 +26,7 @@
 #include <thread>
 #include <unordered_set>
 
+#include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 
 namespace doris::io {
@@ -35,7 +36,7 @@ class CacheBlockMetaStore;
 
 struct TtlInfo {
     uint64_t ttl;
-    uint64_t create_time;
+    uint64_t tablet_ctime;
 };
 
 class BlockFileCacheTtlMgr {
@@ -45,16 +46,18 @@ public:
 
     void register_tablet_id(int64_t tablet_id);
 
-    // Background thread functions
+    // Background thread to update ttl_info_map
     void run_backgroud_update_ttl_info_map();
+    // Background thread to find expired tablet and evict from ttl queue
     void run_backgroud_expiration_check();
 
 private:
     FileBlocks get_file_blocks_from_tablet_id(int64_t tablet_id);
 
 private:
-    std::unordered_set<int64_t> _tablet_id_set;
-    std::map<int64_t, TtlInfo> _ttl_info_map;
+    // the set contains all the tablet ids which has cache data
+    std::unordered_set<int64_t> _tablet_id_set; //TODO(zhengyu): clean up old tablet ids
+    std::map<int64_t /* tablet_id */, TtlInfo> _ttl_info_map;
     BlockFileCache* _mgr;
     CacheBlockMetaStore* _meta_store;
 
