@@ -135,7 +135,7 @@ public class MergeAggregate implements RewriteRuleFactory {
             Map<ExprId, Expression> innerAggExprIdToAggFunc) {
         return (NamedExpression) e.rewriteDownShortCircuit(expr -> {
             if (expr instanceof AggregateFunction) {
-                AggregateFunction aggFunc = (AggregateFunction) expr.child(0);
+                AggregateFunction aggFunc = (AggregateFunction) expr;
                 ExprId childExprId = ((SlotReference) aggFunc.child(0)).getExprId();
                 return innerAggExprIdToAggFunc.getOrDefault(childExprId, expr);
             } else {
