@@ -971,8 +971,7 @@ bool VExpr::fast_execute(VExprContext* context, ColumnPtr& result_column) const 
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {
         // prepare a column to save result
-        result_column =
-                context->get_index_context()->get_index_result_column()[this];
+        result_column = context->get_index_context()->get_index_result_column()[this];
         if (_data_type->is_nullable()) {
             result_column = make_nullable(result_column);
         }
