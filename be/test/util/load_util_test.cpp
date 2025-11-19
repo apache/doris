@@ -44,7 +44,6 @@ TEST_F(LoadUtilTest, StreamingTest) {
         EXPECT_FALSE(LoadUtil::is_format_support_streaming(TFileFormatType::FORMAT_ORC));
         EXPECT_FALSE(LoadUtil::is_format_support_streaming(TFileFormatType::FORMAT_PROTO));
         EXPECT_FALSE(LoadUtil::is_format_support_streaming(TFileFormatType::FORMAT_JNI));
-        EXPECT_FALSE(LoadUtil::is_format_support_streaming(TFileFormatType::FORMAT_AVRO));
         EXPECT_FALSE(LoadUtil::is_format_support_streaming(TFileFormatType::FORMAT_UNKNOWN));
     }
 }

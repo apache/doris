@@ -57,7 +57,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
-#include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -1116,13 +1115,6 @@ Status FileScanner::_get_next_reader() {
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
             init_status = ((NewJsonReader*)(_cur_reader.get()))
                                   ->init_reader(_col_default_value_ctx, _is_load);
-            break;
-        }
-        case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
-                                                       range);
-            init_status =
-                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
