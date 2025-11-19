@@ -28,79 +28,20 @@ import java.util.Map;
 public class DropPartitionFieldOpTest {
 
     @Test
-    public void testIdentityTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp(null, null, "category");
-        Assertions.assertEquals(AlterOpType.SCHEMA_CHANGE, op.getOpType());
-        Assertions.assertNull(op.getTransformName());
-        Assertions.assertNull(op.getTransformArg());
-        Assertions.assertEquals("category", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION KEY category", op.toSql());
+    public void testDropPartitionField() {
+        DropPartitionFieldOp op = new DropPartitionFieldOp("ts_year");
+        Assertions.assertEquals(AlterOpType.DROP_PARTITION_FIELD, op.getOpType());
+        Assertions.assertEquals("ts_year", op.getPartitionFieldName());
+        Assertions.assertEquals("DROP PARTITION KEY ts_year", op.toSql());
 
         DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
         Assertions.assertNotNull(clause);
-        Assertions.assertNull(clause.getTransformName());
-        Assertions.assertNull(clause.getTransformArg());
-        Assertions.assertEquals("category", clause.getColumnName());
-    }
-
-    @Test
-    public void testTimeTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("year", null, "ts");
-        Assertions.assertEquals("year", op.getTransformName());
-        Assertions.assertNull(op.getTransformArg());
-        Assertions.assertEquals("ts", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION KEY year(ts)", op.toSql());
-
-        DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertEquals("year", clause.getTransformName());
-        Assertions.assertNull(clause.getTransformArg());
-        Assertions.assertEquals("ts", clause.getColumnName());
-    }
-
-    @Test
-    public void testBucketTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("bucket", 16, "id");
-        Assertions.assertEquals("bucket", op.getTransformName());
-        Assertions.assertEquals(16, op.getTransformArg());
-        Assertions.assertEquals("id", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION KEY bucket(16, id)", op.toSql());
-
-        DropPartitionFieldClause clause = (DropPartitionFieldClause) op.translateToLegacyAlterClause();
-        Assertions.assertEquals("bucket", clause.getTransformName());
-        Assertions.assertEquals(16, clause.getTransformArg());
-        Assertions.assertEquals("id", clause.getColumnName());
-    }
-
-    @Test
-    public void testTruncateTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("truncate", 10, "name");
-        Assertions.assertEquals("truncate", op.getTransformName());
-        Assertions.assertEquals(10, op.getTransformArg());
-        Assertions.assertEquals("name", op.getColumnName());
-        Assertions.assertEquals("DROP PARTITION KEY truncate(10, name)", op.toSql());
-    }
-
-    @Test
-    public void testMonthTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("month", null, "created_date");
-        Assertions.assertEquals("DROP PARTITION KEY month(created_date)", op.toSql());
-    }
-
-    @Test
-    public void testDayTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("day", null, "ts");
-        Assertions.assertEquals("DROP PARTITION KEY day(ts)", op.toSql());
-    }
-
-    @Test
-    public void testHourTransform() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("hour", null, "ts");
-        Assertions.assertEquals("DROP PARTITION KEY hour(ts)", op.toSql());
+        Assertions.assertEquals("ts_year", clause.getPartitionFieldName());
     }
 
     @Test
     public void testProperties() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("bucket", 32, "id");
+        DropPartitionFieldOp op = new DropPartitionFieldOp("id_bucket_16");
         Map<String, String> properties = op.getProperties();
         Assertions.assertNotNull(properties);
         Assertions.assertTrue(properties.isEmpty());
@@ -108,13 +49,13 @@ public class DropPartitionFieldOpTest {
 
     @Test
     public void testAllowOpMTMV() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("bucket", 16, "id");
+        DropPartitionFieldOp op = new DropPartitionFieldOp("id_bucket_16");
         Assertions.assertFalse(op.allowOpMTMV());
     }
 
     @Test
     public void testNeedChangeMTMVState() {
-        DropPartitionFieldOp op = new DropPartitionFieldOp("bucket", 16, "id");
+        DropPartitionFieldOp op = new DropPartitionFieldOp("id_bucket_16");
         Assertions.assertFalse(op.needChangeMTMVState());
     }
 }

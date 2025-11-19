@@ -30,12 +30,19 @@ public class AddPartitionFieldOpTest {
     @Test
     public void testIdentityTransform() {
         AddPartitionFieldOp op = new AddPartitionFieldOp(null, null, "category", null);
-        Assertions.assertEquals(AlterOpType.SCHEMA_CHANGE, op.getOpType());
+        Assertions.assertEquals(AlterOpType.ADD_PARTITION_FIELD, op.getOpType());
         Assertions.assertNull(op.getTransformName());
         Assertions.assertNull(op.getTransformArg());
         Assertions.assertEquals("category", op.getColumnName());
         Assertions.assertNull(op.getPartitionFieldName());
         Assertions.assertEquals("ADD PARTITION KEY category", op.toSql());
+
+        AddPartitionFieldClause clause = (AddPartitionFieldClause) op.translateToLegacyAlterClause();
+        Assertions.assertNotNull(clause);
+        Assertions.assertNull(clause.getTransformName());
+        Assertions.assertNull(clause.getTransformArg());
+        Assertions.assertEquals("category", clause.getColumnName());
+        Assertions.assertNull(clause.getPartitionFieldName());
     }
 
     @Test
@@ -50,6 +57,7 @@ public class AddPartitionFieldOpTest {
         Assertions.assertNull(clause.getTransformName());
         Assertions.assertNull(clause.getTransformArg());
         Assertions.assertEquals("category", clause.getColumnName());
+        Assertions.assertEquals("category_partition", clause.getPartitionFieldName());
     }
 
     @Test
@@ -73,6 +81,7 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("year", clause.getTransformName());
         Assertions.assertNull(clause.getTransformArg());
         Assertions.assertEquals("ts", clause.getColumnName());
+        Assertions.assertEquals("ts_year", clause.getPartitionFieldName());
     }
 
     @Test
@@ -97,6 +106,7 @@ public class AddPartitionFieldOpTest {
         Assertions.assertEquals("bucket", clause.getTransformName());
         Assertions.assertEquals(16, clause.getTransformArg());
         Assertions.assertEquals("id", clause.getColumnName());
+        Assertions.assertEquals("id_bucket_16", clause.getPartitionFieldName());
     }
 
     @Test

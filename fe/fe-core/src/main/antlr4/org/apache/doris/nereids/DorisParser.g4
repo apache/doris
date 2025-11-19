@@ -807,7 +807,7 @@ addPartitionFieldClause
     ;
 
 dropPartitionFieldClause
-    : DROP PARTITION KEY partitionTransform                                         #dropPartitionFieldClause
+    : DROP PARTITION KEY partitionFieldName=identifier                              #dropPartitionFieldClause
     ;
 
 replacePartitionFieldClause

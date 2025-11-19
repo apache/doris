@@ -83,17 +83,17 @@ public class AlterTableCommandTest {
     @Test
     void testDropPartitionFieldOp() {
         List<AlterTableOp> ops = new ArrayList<>();
-        ops.add(new DropPartitionFieldOp("bucket", 16, "id"));
+        ops.add(new DropPartitionFieldOp("id_bucket_16"));
         AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY bucket(16, id)");
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY id_bucket_16");
 
         ops.clear();
-        ops.add(new DropPartitionFieldOp("year", null, "ts"));
+        ops.add(new DropPartitionFieldOp("ts_year"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY year(ts)");
+        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY ts_year");
 
         ops.clear();
-        ops.add(new DropPartitionFieldOp(null, null, "category"));
+        ops.add(new DropPartitionFieldOp("category"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
         Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY category");
     }

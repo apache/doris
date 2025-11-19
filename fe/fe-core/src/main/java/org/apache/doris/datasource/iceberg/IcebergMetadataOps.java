@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DropPartitionFieldClause;
+import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
@@ -65,6 +66,7 @@ import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
+import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.view.View;
@@ -768,8 +770,36 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         refreshTable(dorisTable);
     }
 
-    public ExecutionAuthenticator getExecutionAuthenticator() {
-        return executionAuthenticator;
+    private Term getTransform(String transformName, String columnName, Integer transformArg) throws UserException {
+        if (columnName == null) {
+            throw new UserException("Column name is required for partition transform");
+        }
+        if (transformName == null) {
+            // identity transform
+            return Expressions.ref(columnName);
+        }
+        switch (transformName.toLowerCase()) {
+            case "bucket":
+                if (transformArg == null) {
+                    throw new UserException("Bucket transform requires a bucket count argument");
+                }
+                return Expressions.bucket(columnName, transformArg);
+            case "truncate":
+                if (transformArg == null) {
+                    throw new UserException("Truncate transform requires a width argument");
+                }
+                return Expressions.truncate(columnName, transformArg);
+            case "year":
+                return Expressions.year(columnName);
+            case "month":
+                return Expressions.month(columnName);
+            case "day":
+                return Expressions.day(columnName);
+            case "hour":
+                return Expressions.hour(columnName);
+            default:
+                throw new UserException("Unsupported partition transform: " + transformName);
+        }
     }
 
     /**
@@ -782,43 +812,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         String transformName = clause.getTransformName();
         Integer transformArg = clause.getTransformArg();
         String columnName = clause.getColumnName();
+        String partitionFieldName = clause.getPartitionFieldName();
+        Term transform = getTransform(transformName, columnName, transformArg);
 
-        if (transformName == null && columnName != null) {
-            // Identity transform
-            updateSpec.addField(columnName);
-        } else if (transformName != null && columnName != null) {
-            // Transform with column
-            String transformLower = transformName.toLowerCase();
-            switch (transformLower) {
-                case "bucket":
-                    if (transformArg == null) {
-                        throw new UserException("Bucket transform requires a bucket count argument");
-                    }
-                    updateSpec.addField(Expressions.bucket(columnName, transformArg));
-                    break;
-                case "truncate":
-                    if (transformArg == null) {
-                        throw new UserException("Truncate transform requires a width argument");
-                    }
-                    updateSpec.addField(Expressions.truncate(columnName, transformArg));
-                    break;
-                case "year":
-                    updateSpec.addField(Expressions.year(columnName));
-                    break;
-                case "month":
-                    updateSpec.addField(Expressions.month(columnName));
-                    break;
-                case "day":
-                    updateSpec.addField(Expressions.day(columnName));
-                    break;
-                case "hour":
-                    updateSpec.addField(Expressions.hour(columnName));
-                    break;
-                default:
-                    throw new UserException("Unsupported partition transform: " + transformName);
-            }
+        if (partitionFieldName != null) {
+            updateSpec.addField(partitionFieldName, transform);
         } else {
-            throw new UserException("Invalid partition field specification");
+            updateSpec.addField(transform);
         }
 
         try {
@@ -837,55 +837,40 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
-        String transformName = clause.getTransformName();
-        Integer transformArg = clause.getTransformArg();
-        String columnName = clause.getColumnName();
-
-        // For dropping, we need to find the partition field by matching the transform and column
-        // Iceberg's removeField method takes the field name (which is the partition field name, not the source column)
-        PartitionSpec currentSpec = icebergTable.spec();
-        String fieldNameToRemove = null;
-
-        for (PartitionField field : currentSpec.fields()) {
-            String sourceColumnName = icebergTable.schema().findColumnName(field.sourceId());
-            String fieldTransform = field.transform().toString();
-
-            boolean matches = false;
-            if (transformName == null && columnName != null) {
-                // Identity transform
-                matches = fieldTransform.equals("identity") && sourceColumnName.equals(columnName);
-            } else if (transformName != null && columnName != null) {
-                // Transform with column
-                String transformLower = transformName.toLowerCase();
-                if (transformArg != null) {
-                    // For bucket and truncate
-                    if (transformLower.equals("bucket")) {
-                        matches = fieldTransform.startsWith("bucket[")
-                                && fieldTransform.contains(String.valueOf(transformArg))
-                                && sourceColumnName.equals(columnName);
-                    } else if (transformLower.equals("truncate")) {
-                        matches = fieldTransform.startsWith("truncate[")
-                                && fieldTransform.contains(String.valueOf(transformArg))
-                                && sourceColumnName.equals(columnName);
-                    }
-                } else {
-                    // For time-based transforms
-                    matches = fieldTransform.toLowerCase().startsWith(transformLower)
-                            && sourceColumnName.equals(columnName);
-                }
-            }
-
-            if (matches) {
-                fieldNameToRemove = field.name();
-                break;
-            }
+        String partitionFieldName = clause.getPartitionFieldName();
+        if (partitionFieldName == null) {
+            throw new UserException("Partition field name is required for drop partition field");
         }
 
-        if (fieldNameToRemove == null) {
-            throw new UserException("Partition field not found: " + clause.toSql());
-        }
+        updateSpec.removeField(partitionFieldName);
 
-        updateSpec.removeField(fieldNameToRemove);
+        try {
+            executionAuthenticator.execute(() -> updateSpec.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
+                    + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable);
+    }
+
+    /**
+     * Replace partition field in Iceberg table for partition evolution
+     */
+    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldClause clause)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
+
+        String oldPartitionFieldName = clause.getOldPartitionFieldName();
+        String newTransformName = clause.getNewTransformName();
+        Integer newTransformArg = clause.getNewTransformArg();
+        String newColumnName = clause.getNewColumnName();
+        String newPartitionFieldName = clause.getNewPartitionFieldName();
+
+        Term transform = getTransform(newTransformName, newColumnName, newTransformArg);
+
+        updateSpec.removeField(oldPartitionFieldName);
+        updateSpec.addField(newPartitionFieldName, transform);
 
         try {
             executionAuthenticator.execute(() -> updateSpec.commit());

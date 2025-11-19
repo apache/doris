@@ -30,27 +30,15 @@ import java.util.Map;
  * DropPartitionFieldOp for Iceberg partition evolution
  */
 public class DropPartitionFieldOp extends AlterTableOp {
-    private final String transformName;
-    private final Integer transformArg;
-    private final String columnName;
+    private final String partitionFieldName;
 
-    public DropPartitionFieldOp(String transformName, Integer transformArg, String columnName) {
+    public DropPartitionFieldOp(String partitionFieldName) {
         super(AlterOpType.DROP_PARTITION_FIELD);
-        this.transformName = transformName;
-        this.transformArg = transformArg;
-        this.columnName = columnName;
+        this.partitionFieldName = partitionFieldName;
     }
 
-    public String getTransformName() {
-        return transformName;
-    }
-
-    public Integer getTransformArg() {
-        return transformArg;
-    }
-
-    public String getColumnName() {
-        return columnName;
+    public String getPartitionFieldName() {
+        return partitionFieldName;
     }
 
     @Override
@@ -60,7 +48,7 @@ public class DropPartitionFieldOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new DropPartitionFieldClause(transformName, transformArg, columnName);
+        return new DropPartitionFieldClause(partitionFieldName);
     }
 
     @Override
@@ -80,22 +68,6 @@ public class DropPartitionFieldOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("DROP PARTITION KEY ");
-        if (transformName != null) {
-            sb.append(transformName);
-            if (transformArg != null) {
-                sb.append("(").append(transformArg);
-                if (columnName != null) {
-                    sb.append(", ").append(columnName);
-                }
-                sb.append(")");
-            } else if (columnName != null) {
-                sb.append("(").append(columnName).append(")");
-            }
-        } else if (columnName != null) {
-            sb.append(columnName);
-        }
-        return sb.toString();
+        return "DROP PARTITION KEY " + partitionFieldName;
     }
 }
