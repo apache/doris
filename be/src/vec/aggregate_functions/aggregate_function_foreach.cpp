@@ -43,9 +43,12 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                     assert_cast<const DataTypeArray*>(remove_nullable(t).get())->get_nested_type();
             transform_arguments.push_back((item_type));
         }
+        auto result_item_type =
+                assert_cast<const DataTypeArray*>(remove_nullable(result_type).get())
+                        ->get_nested_type();
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function =
-                factory.get(nested_function_name, transform_arguments, result_type,
+                factory.get(nested_function_name, transform_arguments, result_item_type,
                             result_is_nullable, BeExecVersionManager::get_newest_version(), attr);
         if (!nested_function) {
             throw Exception(
