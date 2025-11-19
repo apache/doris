@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
@@ -24,10 +24,11 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 
+/**
+ * CopyIntoProperties
+ */
 public class CopyIntoProperties extends CopyProperties {
-
     private static final ImmutableSet<String> DATA_DESC_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(LINE_DELIMITER)
             .add(PARAM_STRIP_OUTER_ARRAY)
@@ -49,16 +50,19 @@ public class CopyIntoProperties extends CopyProperties {
         super(properties, "");
     }
 
-    public void analyze() throws AnalysisException {
-        analyzeTypeAndCompression();
-        analyzeSizeLimit();
-        analyzeOnError();
-        analyzeAsync();
-        analyzeStrictMode();
-        analyzeLoadParallelism();
-        analyzeForce();
-        analyzeUseDeleteSign();
-        for (Entry<String, String> entry : properties.entrySet()) {
+    /**
+     * validate
+     */
+    public void validate() throws AnalysisException {
+        validateTypeAndCompression();
+        validateSizeLimit();
+        validateOnError();
+        validateAsync();
+        validateStrictMode();
+        validateLoadParallelism();
+        validateForce();
+        validateUseDeleteSign();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!COPY_PROPERTIES.contains(entry.getKey())) {
                 throw new AnalysisException("Property '" + entry.getKey() + "' is invalid");
             }
@@ -85,9 +89,12 @@ public class CopyIntoProperties extends CopyProperties {
         return result;
     }
 
+    /**
+     * mergeProperties
+     */
     public void mergeProperties(StageProperties stageProperties) {
         Map<String, String> properties = stageProperties.getDefaultPropertiesWithoutPrefix();
-        for (Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!this.properties.containsKey(entry.getKey())) {
                 this.properties.put(entry.getKey(), entry.getValue());
             }
