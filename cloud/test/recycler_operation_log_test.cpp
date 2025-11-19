@@ -29,6 +29,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
@@ -125,6 +126,31 @@ static void remove_instance_info(TxnKv* txn_kv) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << "Failed to commit transaction";
 }
 
+// It will get the latest versioned values.
+TxnErrorCode read_operation_log(Transaction* txn, std::string_view log_key,
+                                Versionstamp* log_version, OperationLogPB* operation_log) {
+    std::string begin_key = encode_versioned_key(log_key, Versionstamp::min());
+    std::string end_key = encode_versioned_key(log_key, Versionstamp::max());
+    auto iter = blob_get_range(txn, begin_key, end_key);
+    if (!iter->valid()) {
+        TxnErrorCode err = iter->error_code();
+        if (err != TxnErrorCode::TXN_OK) {
+            return err;
+        }
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+    for (; iter->valid(); iter->next()) {
+        std::string_view key = iter->key();
+        if (!decode_versioned_key(&key, log_version)) {
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        if (!iter->parse_value(operation_log)) {
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+    }
+    return iter->error_code();
+}
+
 TEST(RecycleOperationLogTest, RecycleOneOperationLog) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
@@ -152,14 +178,13 @@ TEST(RecycleOperationLogTest, RecycleOneOperationLog) {
         // Put a empty operation log
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
-        std::string log_key_with_versionstamp = encode_versioned_key(log_key, versionstamp);
         OperationLogPB operation_log;
         operation_log.set_min_timestamp(versionstamp.version());
 
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        txn->put(log_key_with_versionstamp, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, versionstamp, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -218,7 +243,7 @@ TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -248,7 +273,7 @@ TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -312,7 +337,7 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -363,7 +388,7 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -481,7 +506,7 @@ TEST(RecycleOperationLogTest, RecycleCommitIndexLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -510,7 +535,7 @@ TEST(RecycleOperationLogTest, RecycleCommitIndexLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -556,7 +581,7 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -723,7 +748,7 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -848,7 +873,7 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLogWhenTxnIsNotVisible) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -929,7 +954,7 @@ TEST(RecycleOperationLogTest, RecycleUpdateTabletLog) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
@@ -1235,10 +1260,9 @@ TEST(RecycleOperationLogTest, RecycleCompactionLog) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string log_key = versioned::log_key({test_instance_id});
-        std::string value;
-        ASSERT_EQ(versioned_get(txn.get(), log_key, &log_version, &value), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(read_operation_log(txn.get(), log_key, &log_version, &operation_log),
+                  TxnErrorCode::TXN_OK);
 
-        ASSERT_TRUE(operation_log.ParseFromString(value));
         ASSERT_TRUE(operation_log.has_compaction());
 
         const auto& compaction_log = operation_log.compaction();
@@ -2202,7 +2226,7 @@ TEST(RecycleOperationLogTest, RecycleDeletedInstance) {
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 

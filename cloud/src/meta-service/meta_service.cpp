@@ -1186,16 +1186,10 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     if (is_versioned_write && update_tablet_log.tablet_ids_size() > 0) {
         OperationLogPB log;
         log.mutable_update_tablet()->Swap(&update_tablet_log);
-        std::string update_log_key = versioned::log_key(instance_id);
-        std::string operation_log_value;
-        if (!log.SerializeToString(&operation_log_value)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize update tablet log";
-            return;
-        }
-        versioned_put(txn.get(), update_log_key, operation_log_value);
-        LOG(INFO) << "put versioned update tablet log, key=" << hex(update_log_key)
-                  << " instance_id=" << instance_id << " log_size=" << operation_log_value.size();
+        std::string log_key = versioned::log_key(instance_id);
+        versioned::blob_put(txn.get(), log_key, log);
+        LOG(INFO) << "put update tablet operation log, key=" << hex(log_key)
+                  << " instance_id=" << instance_id;
     }
 
     err = txn->commit();
