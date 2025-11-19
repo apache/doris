@@ -181,7 +181,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                "column_separator" = "|"
                                );
                         """
-        exception """Insert has filtered data in strict mode"""
+        exception """null value for not null column"""
     }
     qt_sql_not_null_to_null_strict1 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
