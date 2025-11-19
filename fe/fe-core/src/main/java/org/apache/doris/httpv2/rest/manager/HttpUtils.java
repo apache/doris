@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
@@ -37,6 +38,8 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -51,6 +54,8 @@ import java.util.stream.Collectors;
  * used to forward http requests from manager to be.
  */
 public class HttpUtils {
+    private static final Logger LOG = LogManager.getLogger(HttpUtils.class);
+
     static final int REQUEST_SUCCESS_CODE = 0;
     static final int DEFAULT_TIME_OUT_MS = 2000;
 
@@ -150,7 +155,7 @@ public class HttpUtils {
      * @throws IOException if there's an error connecting to the HTTP resource
      * @throws IllegalArgumentException if the URI is null or invalid
      */
-    public static long getHttpFileSize(String uri) throws IOException {
+    public static long getHttpFileSize(String uri, Map<String, String> headers) throws IOException {
         if (uri == null || uri.trim().isEmpty()) {
             throw new IllegalArgumentException("HTTP URI is null or empty");
         }
@@ -168,6 +173,9 @@ public class HttpUtils {
             // Set common headers
             connection.setRequestProperty("User-Agent", "Doris-HttpUtils/1.0");
             connection.setRequestProperty("Accept", "*/*");
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                connection.setRequestProperty(entry.getKey(), entry.getValue());
+            }
 
             // Connect and get response
             connection.connect();
@@ -191,7 +199,8 @@ public class HttpUtils {
                         + ", message: " + connection.getResponseMessage());
             }
         } catch (IOException e) {
-            throw new IOException("Failed to get file size for URI: " + uri, e);
+            LOG.warn("Failed to get file size for URI: {}", uri, e);
+            throw new IOException("Failed to get file size for URI: " + uri + ". " + Util.getRootCauseMessage(e), e);
         } finally {
             if (connection != null) {
                 connection.disconnect();
