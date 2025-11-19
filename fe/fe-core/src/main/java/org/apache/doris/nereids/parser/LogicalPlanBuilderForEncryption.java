@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.antlr.v4.runtime.ParserRuleContext;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 
 import java.util.HashMap;
 import java.util.List;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -45,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -61,6 +61,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -558,27 +559,53 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
 
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
-        Set<Class<? extends AggregateFunction>> functionClasses = aggregateFunctions
-                .stream()
-                .map(AggregateFunction::getClass)
-                .collect(Collectors.toSet());
-
+        // Use for loop to replace Stream API
+        Set<Class<? extends AggregateFunction>> functionClasses = new HashSet<>();
         Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
-        if (!supportedAgg.keySet().containsAll(functionClasses)) {
-            return canNotPush;
+
+        boolean containsCount = false;
+        Set<SlotReference> checkNullSlots = new HashSet<>();
+
+        // Single loop through aggregateFunctions to handle multiple logic
+        for (AggregateFunction function : aggregateFunctions) {
+            Class<? extends AggregateFunction> functionClass = function.getClass();
+            functionClasses.add(functionClass);
+            // Check if any function has arity > 1
+            if (function.arity() > 1) {
+                return canNotPush;
+            }
+
+            // Check if contains Count function
+            if (functionClass.equals(Count.class)) {
+                containsCount = true;
+                if (!function.getArguments().isEmpty()) {
+                    Expression arg0 = function.getArguments().get(0);
+                    if (arg0 instanceof SlotReference) {
+                        checkNullSlots.add((SlotReference) arg0);
+                    } else if (arg0 instanceof Cast) {
+                        Expression child0 = arg0.child(0);
+                        if (child0 instanceof SlotReference) {
+                            checkNullSlots.add((SlotReference) child0);
+                        }
+                    }
+                }
+            }
+
+            // Check if function is supported by supportedAgg
+            if (!supportedAgg.containsKey(functionClass)) {
+                return canNotPush;
+            }
         }
+
         if (logicalScan instanceof LogicalOlapScan) {
             LogicalOlapScan logicalOlapScan = (LogicalOlapScan) logicalScan;
             KeysType keysType = logicalOlapScan.getTable().getKeysType();
-            if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
+            if (containsCount && keysType != KeysType.DUP_KEYS) {
                 return canNotPush;
             }
-            if (functionClasses.contains(Count.class) && logicalOlapScan.isDirectMvScan()) {
+            if (containsCount && logicalOlapScan.isDirectMvScan()) {
                 return canNotPush;
             }
-        }
-        if (aggregateFunctions.stream().anyMatch(fun -> fun.arity() > 1)) {
-            return canNotPush;
         }
 
         // TODO: refactor this to process slot reference or expression together
@@ -665,7 +692,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 // NULL value behavior in `count` function is zero, so
                 // we should not use row_count to speed up query. the col
                 // must be not null
-                if (column.isAllowNull()) {
+                if (column.isAllowNull() && checkNullSlots.contains(slot)) {
                     return canNotPush;
                 }
             }

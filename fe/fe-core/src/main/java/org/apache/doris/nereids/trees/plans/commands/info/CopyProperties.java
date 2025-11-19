@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import org.apache.commons.lang3.StringUtils;
@@ -26,11 +26,11 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * CopyProperties
+ */
 public class CopyProperties {
-    protected Map<String, String> properties;
-    protected String prefix;
-
-    private static final String FILE_PREFIX = "file.";
+    public static final String FILE_PREFIX = "file.";
     // properties for type, compression, column_separator
     public static final String TYPE = FILE_PREFIX + "type";
     public static final String COMPRESSION = FILE_PREFIX + "compression";
@@ -57,17 +57,18 @@ public class CopyProperties {
     // be recorded in meta service. So it may cause one file is copied to a table many times.
     public static final String FORCE = COPY_PREFIX + "force";
     public static final String USE_DELETE_SIGN = COPY_PREFIX + "use_delete_sign";
+    protected Map<String, String> properties = new HashMap<>();
+    protected String prefix;
 
+    /**
+     * CopyProperties
+     */
     public CopyProperties(Map<String, String> properties, String prefix) {
-        Map<String, String> newProperties = new HashMap<>();
-        for (String key : properties.keySet()) {
-            newProperties.put(key, properties.get(key));
-        }
-        this.properties = newProperties;
+        this.properties.putAll(properties);
         this.prefix = prefix;
     }
 
-    protected void analyzeTypeAndCompression() throws AnalysisException {
+    protected void validateTypeAndCompression() throws AnalysisException {
         // analyze type and compression: See {@link BrokerScanNode#formatType}, we only support COMPRESSION on CSV
         String compression = properties.get(addKeyPrefix(COMPRESSION));
         String type = properties.get(addKeyPrefix(TYPE));
@@ -77,7 +78,7 @@ public class CopyProperties {
         }
     }
 
-    protected void analyzeSizeLimit() throws AnalysisException {
+    protected void validateSizeLimit() throws AnalysisException {
         String key = addKeyPrefix(SIZE_LIMIT);
         if (properties.containsKey(key)) {
             String value = properties.get(key);
@@ -89,7 +90,7 @@ public class CopyProperties {
         }
     }
 
-    protected void analyzeLoadParallelism() throws AnalysisException {
+    protected void validateLoadParallelism() throws AnalysisException {
         String key = addKeyPrefix(LOAD_PARALLELISM);
         if (properties.containsKey(key)) {
             String value = properties.get(key);
@@ -101,7 +102,7 @@ public class CopyProperties {
         }
     }
 
-    protected void analyzeOnError() throws AnalysisException {
+    protected void validateOnError() throws AnalysisException {
         String key = addKeyPrefix(ON_ERROR);
         if (properties.containsKey(key)) {
             String value = properties.get(key);
@@ -121,23 +122,23 @@ public class CopyProperties {
         }
     }
 
-    protected void analyzeAsync() throws AnalysisException {
-        analyzeBooleanProperty(ASYNC);
+    protected void validateAsync() throws AnalysisException {
+        validateBooleanProperty(ASYNC);
     }
 
-    protected void analyzeStrictMode() throws AnalysisException {
-        analyzeBooleanProperty(STRICT_MODE);
+    protected void validateStrictMode() throws AnalysisException {
+        validateBooleanProperty(STRICT_MODE);
     }
 
-    protected void analyzeForce() throws AnalysisException {
-        analyzeBooleanProperty(FORCE);
+    protected void validateForce() throws AnalysisException {
+        validateBooleanProperty(FORCE);
     }
 
-    protected void analyzeUseDeleteSign() throws AnalysisException {
-        analyzeBooleanProperty(USE_DELETE_SIGN);
+    protected void validateUseDeleteSign() throws AnalysisException {
+        validateBooleanProperty(USE_DELETE_SIGN);
     }
 
-    protected void analyzeBooleanProperty(String keyWithoutPrefix) throws AnalysisException {
+    protected void validateBooleanProperty(String keyWithoutPrefix) throws AnalysisException {
         String key = addKeyPrefix(keyWithoutPrefix);
         if (properties.containsKey(key)) {
             String value = properties.get(key);
@@ -148,6 +149,7 @@ public class CopyProperties {
     }
 
     /**
+     * getSizeLimit
      * @return the size limit, note that 0 means no limit
      */
     public long getSizeLimit() {
@@ -158,6 +160,9 @@ public class CopyProperties {
         return 0;
     }
 
+    /**
+     * getMaxFilterRatio
+     */
     public double getMaxFilterRatio() {
         String key = addKeyPrefix(ON_ERROR);
         if (properties.containsKey(key)) {

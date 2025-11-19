@@ -42,10 +42,10 @@ public class CreateIndexOp extends AlterTableOp {
     // index internal class
     private Index index;
 
-    public CreateIndexOp(TableNameInfo tableName, IndexDefinition indexDef, boolean alter) {
+    public CreateIndexOp(TableNameInfo tableName, IndexDefinition indexDefinition, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
-        this.indexDef = indexDef;
+        this.indexDef = indexDefinition;
         this.alter = alter;
     }
 
@@ -85,7 +85,7 @@ public class CreateIndexOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
+        return new CreateIndexClause(tableName, indexDef, index, alter);
     }
 
     @Override
