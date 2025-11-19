@@ -968,8 +968,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not assign aggregation method on key column: " + newColName);
             } else if (null == newColumn.getAggregationType()) {
                 if (!newColumn.isKey()) {
-                    throw new DdlException("Please specify `key` as keyword for adding key column on AGG_KEYS table" 
-                        + ", invalid col=" + newColName);
+                    throw new DdlException(
+                            String.format("Please specify `key` as keyword for adding key column on AGG_KEYS table: %s",
+                            newColumn.getName()));
                 }
             } else if (newColumn.getAggregationType() == AggregateType.SUM && newColumn.getDefaultValue() != null
                     && !newColumn.getDefaultValue().equals("0")) {

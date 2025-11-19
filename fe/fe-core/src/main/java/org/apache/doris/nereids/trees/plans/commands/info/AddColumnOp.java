@@ -29,6 +29,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -161,7 +162,11 @@ public class AddColumnOp extends AlterTableOp {
             }
             if (keysType == KeysType.AGG_KEYS) {
                 if (aggregateType == null) {
-                    columnDef.setIsKey(true);
+                    if (!columnDef.isKey()) {
+                        throw new AnalysisException(
+                                String.format("Please specify `key` as keyword for adding key column"
+                                        + " on AGG_KEYS table: %s", columnDef.getName()));
+                    }
                 } else {
                     if (aggregateType == AggregateType.NONE) {
                         throw new AnalysisException(

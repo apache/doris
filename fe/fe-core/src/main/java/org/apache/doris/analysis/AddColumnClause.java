@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
