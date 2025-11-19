@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -416,7 +417,15 @@ public class ExpressionUtils {
      */
     public static NamedExpression replaceNameExpression(NamedExpression expr,
             Map<? extends Expression, ? extends Expression> replaceMap) {
-        Expression newExpr = replace(expr, replaceMap);
+        Expression newExpr = replaceNullSafe(expr, replaceMap,
+                exprToReplace -> {
+                    if (exprToReplace instanceof VirtualSlotReference) {
+                        VirtualSlotReference virtualSlot = (VirtualSlotReference) exprToReplace;
+                        return new SlotReference(virtualSlot.getExprId(), virtualSlot.getName(),
+                                virtualSlot.getDataType(), virtualSlot.nullable(), virtualSlot.getQualifier());
+                    }
+                    return null;
+                });
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;
         } else {
@@ -542,6 +551,38 @@ public class ExpressionUtils {
             result.add(replace(expr, replaceMap));
         }
         return result.build();
+    }
+
+    /**
+     * Top-down replacement over the expression tree.
+     * Logic:
+     * 1. For each visited node 'e', first try replaceMap.get(e).
+     * 2. If not found, invoke nullHandler.apply(e) to produce a fallback key (may be null).
+     * 3. If fallback key is non-null, try second lookup replaceMap.get(fallbackKey).
+     * 4. If still not found, keep original 'e'.
+     * Use case:
+     * - replaceMap stores physical Slot while tree contains VirtualSlotReference.
+     * - nullHandler converts VirtualSlotReference -> its underlying Slot (e.g. toSlot()) to enable replacement.
+     * Example:
+     *   replaceMap: slot(exprId=10) -> newExpr
+     *   current node: virtualSlot(exprId=10)
+     *   first lookup fails; nullHandler returns slot(exprId=10); second lookup succeeds -> replaced by newExpr.
+     */
+    public static Expression replaceNullSafe(Expression expr,
+                                             Map<? extends Expression, ? extends Expression> replaceMap,
+                                             Function<Expression, Expression> nullHandler) {
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr == null) {
+                Expression convertedExpr = nullHandler.apply(e);
+                if (convertedExpr == null) {
+                    return e;
+                }
+                replacedExpr = replaceMap.get(convertedExpr);
+                return replacedExpr == null ? e : replacedExpr;
+            }
+            return replacedExpr;
+        });
     }
 
     /**

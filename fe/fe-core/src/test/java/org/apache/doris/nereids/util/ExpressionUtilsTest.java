@@ -253,6 +253,68 @@ public class ExpressionUtilsTest extends TestWithFeService {
         Assertions.assertEquals(a, replacedExpression2);
     }
 
+    @Test
+    public void testReplaceNullSafeDirectMatch() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        Expression expr = new EqualTo(a, Literal.of(1));
+        Expression replaced = ExpressionUtils.replaceNullSafe(expr, replaceMap, e -> null);
+
+        Assertions.assertEquals(new EqualTo(b, Literal.of(1)), replaced);
+    }
+
+    @Test
+    public void testReplaceNullSafeFallbackMatch() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot aKey = new SlotReference("a_key", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(aKey, b);
+
+        Expression replaced = ExpressionUtils.replaceNullSafe(a, replaceMap, e -> e.equals(a) ? aKey : null);
+        Assertions.assertEquals(b, replaced);
+    }
+
+    @Test
+    public void testReplaceNullSafeNoHitKeepOriginal() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot missKey = new SlotReference("miss_key", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Expression replaced1 = ExpressionUtils.replaceNullSafe(a, replaceMap, e -> null);
+        Assertions.assertEquals(a, replaced1);
+
+        Expression replaced2 = ExpressionUtils.replaceNullSafe(a, replaceMap, e -> missKey);
+        Assertions.assertEquals(a, replaced2);
+    }
+
+    @Test
+    public void testReplaceNullSafeDeepTraversal() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot c = new SlotReference("c", IntegerType.INSTANCE);
+
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        replaceMap.put(a, b);
+
+        Expression expr = new And(Arrays.asList(
+                new EqualTo(a, Literal.of(1)),
+                new EqualTo(c, Literal.of(3))
+        ));
+        Expression replaced = ExpressionUtils.replaceNullSafe(expr, replaceMap, e -> null);
+
+        Expression expected = new And(Arrays.asList(
+                new EqualTo(b, Literal.of(1)),
+                new EqualTo(c, Literal.of(3))
+        ));
+        Assertions.assertEquals(expected, replaced);
+    }
+
     private void assertExpect(List<? extends Expression> originalExpressions,
             List<? extends Expression> shuttledExpressions,
             String... expectExpressions) {

@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -162,12 +163,17 @@ public class LogicalProperties {
         LogicalProperties that = (LogicalProperties) o;
         Set<Slot> thisOutSet = this.outputSetSupplier.get();
         Set<Slot> thatOutSet = that.outputSetSupplier.get();
-        if (!Objects.equals(thisOutSet, thatOutSet)) {
+        if (thisOutSet.size() != thatOutSet.size()) {
             return false;
         }
+        // construct key -> value map
+        Map<ExprId, Slot> thatOutMap = new HashMap<>();
+        for (Slot slot : thatOutSet) {
+            thatOutMap.put(slot.getExprId(), slot);
+        }
         for (Slot thisOutSlot : thisOutSet) {
-            Slot thatOutSlot = that.getOutputMap().get(thisOutSlot);
-            if (thisOutSlot.nullable() != thatOutSlot.nullable()) {
+            Slot thatOutSlot = thatOutMap.get(thisOutSlot.getExprId());
+            if (thatOutSlot == null || thisOutSlot.nullable() != thatOutSlot.nullable()) {
                 return false;
             }
         }
