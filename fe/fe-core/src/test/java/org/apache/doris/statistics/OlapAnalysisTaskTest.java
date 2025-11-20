@@ -111,8 +111,8 @@ public class OlapAnalysisTaskTest {
 
         new Expectations() {
             {
-                // tableIf.getRowCount();
-                // result = 20000000;
+                tableIf.getRowCount();
+                result = 20000000;
                 tableIf.getId();
                 result = 30001;
                 catalogIf.getId();
@@ -126,11 +126,10 @@ public class OlapAnalysisTaskTest {
 
         new MockUp<OlapAnalysisTask>() {
             @Mock
-            public ResultRow collectMinMaxCount() {
+            public ResultRow collectMinMax() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
-                values.add("20000000");
                 return new ResultRow(values);
             }
 

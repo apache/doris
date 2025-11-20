@@ -53,7 +53,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -63,8 +62,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String BASIC_STATS_TEMPLATE = "SELECT "
             + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) as min, "
-            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max, "
-            + "COUNT(1) as row_count "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
             + "FROM `${dbName}`.`${tblName}` ${index}";
 
     private boolean keyColumnSampleTooManyRows = false;
@@ -111,30 +109,19 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
         // Get basic stats, including min and max.
-        ResultRow minMaxCount = collectMinMaxCount();
-        BiFunction<ResultRow, Integer, String> escapeCell = (row, i) ->
-                StatisticsUtil.escapeSQL(row != null && row.getValues().size() > i ? row.getValues().get(i) : null);
-        String min = escapeCell.apply(minMaxCount, 0);
-        String max = escapeCell.apply(minMaxCount, 1);
-        String tableRowCountStr = escapeCell.apply(minMaxCount, 2);
-        long tableRowCount = -1;
-        if (tableRowCountStr != null) {
-            try {
-                tableRowCount = Long.parseLong(tableRowCountStr);
-            } catch (Exception e) {
-                // ignore parse exception
-            }
-        }
-        if (tableRowCount < 0) {
-            tableRowCount = info.indexId == -1
-                    ? tbl.getRowCount()
-                    : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
-        }
+        ResultRow minMax = collectMinMax();
+        String min = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 0
+                ? minMax.get(0) : null);
+        String max = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 1
+                ? minMax.get(1) : null);
 
         Map<String, String> params = buildSqlParams();
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
         params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+        long tableRowCount = info.indexId == -1
+                ? tbl.getRowCount()
+                : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
         getSampleParams(params, tableRowCount);
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql;
@@ -149,7 +136,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         runQuery(sql);
     }
 
-    protected ResultRow collectMinMaxCount() {
+    protected ResultRow collectMinMax() {
         long startTime = System.currentTimeMillis();
         Map<String, String> params = buildSqlParams();
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -159,7 +146,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             resultRow = stmtExecutor.executeInternalQuery().get(0);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime) + " Min max count SQL: "
+                LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime) + " Min max SQL: "
                         + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
             }
             // Release the reference to stmtExecutor, reduce memory usage.
