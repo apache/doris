@@ -22,7 +22,6 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
-#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -34,15 +33,15 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_handle.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
-#include "runtime_filter/runtime_filter_mgr.h"
-#include "util/hash_util.hpp"
-#include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {
+
+class QueryHandle;
 
 namespace pipeline {
 class PipelineFragmentContext;
@@ -177,12 +176,6 @@ public:
         return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
     }
 
-    bool ignore_runtime_filter_error() const {
-        return _query_options.__isset.ignore_runtime_filter_error
-                       ? _query_options.ignore_runtime_filter_error
-                       : false;
-    }
-
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
@@ -213,14 +206,6 @@ public:
     }
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
-
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
-        return _merge_controller_handler;
-    }
 
     bool is_nereids() const { return _is_nereids; }
 
@@ -299,6 +284,10 @@ public:
     void set_first_error_msg(std::string error_msg);
     std::string get_first_error_msg();
 
+    void set_query_handle(std::shared_ptr<QueryHandle> query_handle) {
+        _query_handle = query_handle;
+    }
+
 private:
     friend class QueryTaskController;
 
@@ -329,10 +318,6 @@ private:
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
     // This dependency indicates if memory is sufficient to execute.
     std::unique_ptr<pipeline::Dependency> _memory_sufficient_dependency;
-
-    // This shared ptr is never used. It is just a reference to hold the object.
-    // There is a weak ptr in runtime filter manager to reference this object.
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
@@ -377,6 +362,8 @@ private:
     std::string _load_error_url;
     std::string _first_error_msg;
 
+    std::shared_ptr<QueryHandle> _query_handle;
+
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     void add_fragment_profile(
@@ -392,8 +379,6 @@ public:
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
-
-    const TQueryOptions get_query_options() const { return _query_options; }
 };
 
 } // namespace doris

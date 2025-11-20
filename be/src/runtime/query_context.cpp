@@ -23,7 +23,6 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -32,7 +31,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
@@ -43,10 +41,8 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/query_task_controller.h"
-#include "runtime_filter/runtime_filter_definitions.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 
@@ -105,8 +101,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
             pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
-
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -231,10 +225,6 @@ QueryContext::~QueryContext() {
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
-    if (_merge_controller_handler) {
-        _merge_controller_handler->release_undone_filters(this);
-    }
-    _merge_controller_handler.reset();
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
