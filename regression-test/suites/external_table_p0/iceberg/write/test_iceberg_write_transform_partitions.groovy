@@ -64,6 +64,12 @@ suite("test_iceberg_write_transform_partitions", "p0,external,iceberg,external_d
         test_write_transform_partitions("truncate_int_10");
         test_write_transform_partitions("truncate_bigint_100");
         test_write_transform_partitions("truncate_decimal_10");
+        
+        // Time transform partitions (day/year/month/hour)
+        test_write_transform_partitions("day_partitioned");
+        test_write_transform_partitions("year_partitioned");
+        test_write_transform_partitions("month_partitioned");
+        test_write_transform_partitions("hour_partitioned");
     } finally {
         sql """ unset variable time_zone; """
     }
