@@ -34,7 +34,11 @@ TEST(CloudTaskWorkerPoolTest, ReportTabletCallbackWithDebugPoint) {
     ClusterInfo cluster_info;
     cluster_info.master_fe_addr.__set_port(9030);
 
-    Defer defer {[] { ExecEnv::GetInstance()->set_storage_engine(nullptr); }};
+    Defer defer {[] {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        DorisMetrics::instance()->report_all_tablets_requests_skip->set_value(0);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(0);
+    }};
 
     {
         // debug point report_tablet_callback.skip is enabled

@@ -31,6 +31,31 @@ public:
 };
 
 TEST_F(DorisMetricsTest, Normal) {
+    Defer defer {[] {
+        DorisMetrics::instance()->fragment_requests_total->set_value(0);
+        DorisMetrics::instance()->fragment_request_duration_us->set_value(0);
+        DorisMetrics::instance()->query_scan_bytes->set_value(0);
+        DorisMetrics::instance()->query_scan_rows->set_value(0);
+        DorisMetrics::instance()->push_requests_success_total->set_value(0);
+        DorisMetrics::instance()->push_requests_fail_total->set_value(0);
+        DorisMetrics::instance()->push_request_duration_us->set_value(0);
+        DorisMetrics::instance()->push_request_write_bytes->set_value(0);
+        DorisMetrics::instance()->push_request_write_rows->set_value(0);
+        DorisMetrics::instance()->create_tablet_requests_total->set_value(0);
+        DorisMetrics::instance()->drop_tablet_requests_total->set_value(0);
+        DorisMetrics::instance()->report_all_tablets_requests_skip->set_value(0);
+        DorisMetrics::instance()->schema_change_requests_total->set_value(0);
+        DorisMetrics::instance()->create_rollup_requests_total->set_value(0);
+        DorisMetrics::instance()->storage_migrate_requests_total->set_value(0);
+        DorisMetrics::instance()->delete_requests_total->set_value(0);
+        DorisMetrics::instance()->base_compaction_deltas_total->set_value(0);
+        DorisMetrics::instance()->cumulative_compaction_deltas_total->set_value(0);
+        DorisMetrics::instance()->base_compaction_bytes_total->set_value(0);
+        DorisMetrics::instance()->cumulative_compaction_bytes_total->set_value(0);
+        DorisMetrics::instance()->memory_pool_bytes_total->set_value(0);
+        DorisMetrics::instance()->get_remote_tablet_slow_time_ms->set_value(0);
+        DorisMetrics::instance()->get_remote_tablet_slow_cnt->set_value(0);
+    }};
     auto server_entity = DorisMetrics::instance()->server_entity();
     // check metric
     {
