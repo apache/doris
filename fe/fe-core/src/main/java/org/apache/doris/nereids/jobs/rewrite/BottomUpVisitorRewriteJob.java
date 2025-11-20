@@ -51,8 +51,7 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
     @Override
     public void execute(JobContext jobContext) {
         Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
-        Optional<Rules> relateRules
-                = TopDownVisitorRewriteJob.getRelatedRules(originPlan, rules, jobContext.getCascadesContext());
+        Optional<Rules> relateRules = RewriteUtil.getRelatedRules(rules, jobContext.getCascadesContext());
         if (!relateRules.isPresent()) {
             return;
         }
@@ -87,7 +86,7 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
                 return currentPlan;
             }
 
-            checkTimeout(jobContext);
+            RewriteUtil.checkTimeout(jobContext);
 
             ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(currentPlan.arity());
             boolean changed = false;
