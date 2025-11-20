@@ -113,9 +113,11 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    if (config::enable_stream_load_record) {
-        str = ctx->prepare_stream_load_record(str);
-        _save_stream_load_record(ctx, str);
+    if (config::enable_stream_load_record || config::enable_stream_load_record_to_audit_log_table) {
+        if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+            str = ctx->prepare_stream_load_record(str);
+            _save_stream_load_record(ctx, str);
+        }
     }
     // update statistics
     http_stream_requests_total->increment(1);
@@ -176,9 +178,12 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        if (config::enable_stream_load_record) {
-            str = ctx->prepare_stream_load_record(str);
-            _save_stream_load_record(ctx, str);
+        if (config::enable_stream_load_record ||
+            config::enable_stream_load_record_to_audit_log_table) {
+            if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+                str = ctx->prepare_stream_load_record(str);
+                _save_stream_load_record(ctx, str);
+            }
         }
         return -1;
     }
