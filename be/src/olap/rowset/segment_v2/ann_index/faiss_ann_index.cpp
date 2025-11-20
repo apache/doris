@@ -299,6 +299,7 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
     }
 
     if (params.index_type == FaissBuildParameter::IndexType::HNSW) {
+        set_type(AnnIndexType::HNSW);
         std::unique_ptr<faiss::IndexHNSW> hnsw_index;
         if (params.quantizer == FaissBuildParameter::Quantizer::SQ4) {
             if (params.metric_type == FaissBuildParameter::MetricType::L2) {
@@ -346,6 +347,7 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
 
         _index = std::move(hnsw_index);
     } else if (params.index_type == FaissBuildParameter::IndexType::IVF) {
+        set_type(AnnIndexType::IVF);
         std::unique_ptr<faiss::Index> ivf_index;
         if (params.metric_type == FaissBuildParameter::MetricType::L2) {
             _quantizer = std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_L2);
