@@ -43,7 +43,6 @@ import java.util.stream.Collectors;
 
 public class IcebergDlaTable extends HMSDlaTable {
 
-    private boolean isValidRelatedTableCached = false;
     private boolean isValidRelatedTable = false;
 
     public IcebergDlaTable(HMSExternalTable table) {
@@ -122,20 +121,15 @@ public class IcebergDlaTable extends HMSDlaTable {
 
     @Override
     protected boolean isValidRelatedTable() {
-        if (isValidRelatedTableCached) {
-            return isValidRelatedTable;
-        }
         isValidRelatedTable = false;
         Set<String> allFields = Sets.newHashSet();
         Table table = IcebergUtils.getIcebergTable(hmsTable);
         for (PartitionSpec spec : table.specs().values()) {
             if (spec == null) {
-                isValidRelatedTableCached = true;
                 return false;
             }
             List<PartitionField> fields = spec.fields();
             if (fields.size() != 1) {
-                isValidRelatedTableCached = true;
                 return false;
             }
             PartitionField partitionField = spec.fields().get(0);
@@ -144,12 +138,10 @@ public class IcebergDlaTable extends HMSDlaTable {
                     && !IcebergUtils.MONTH.equals(transformName)
                     && !IcebergUtils.DAY.equals(transformName)
                     && !IcebergUtils.HOUR.equals(transformName)) {
-                isValidRelatedTableCached = true;
                 return false;
             }
             allFields.add(table.schema().findColumnName(partitionField.sourceId()));
         }
-        isValidRelatedTableCached = true;
         isValidRelatedTable = allFields.size() == 1;
         return isValidRelatedTable;
     }

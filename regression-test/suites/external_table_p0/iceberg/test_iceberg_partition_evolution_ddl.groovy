@@ -147,8 +147,6 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     order_qt_partitions_after_drop """SELECT `partition`, spec_id, record_count FROM ${table5}\$partitions ORDER BY `partition`"""
 
     // Test 6: Drop partition field - time-based
-    // TODO: Doris doesn't support PARTITIONED BY with transform functions yet
-    /*
     String table6 = "test_drop_time_partition"
     sql """drop table if exists ${table6}"""
     sql """
@@ -157,7 +155,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
         name STRING,
         created_date DATE
     )
-    PARTITIONED BY (year(created_date));
+    PARTITION BY LIST (year(created_date)) ();
     """
     sql """INSERT INTO ${table6} VALUES (1, 'Alice', '2023-01-01'), (2, 'Bob', '2024-01-01')"""
     
@@ -166,11 +164,9 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     
     sql """INSERT INTO ${table6} VALUES (3, 'Charlie', '2025-01-01')"""
     qt_drop_time_2 """SELECT * FROM ${table6} ORDER BY id"""
-    */
+
 
     // Test 7: Drop partition field - bucket
-    // TODO: Doris doesn't support PARTITIONED BY with transform functions yet
-    /*
     String table7 = "test_drop_bucket_partition"
     sql """drop table if exists ${table7}"""
     sql """
@@ -179,7 +175,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
         name STRING,
         value DOUBLE
     )
-    PARTITIONED BY (bucket(16, id));
+    PARTITION BY LIST (bucket(16, id)) ();
     """
     sql """INSERT INTO ${table7} VALUES (1, 'Alice', 100.0), (2, 'Bob', 200.0)"""
     
@@ -188,7 +184,6 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     
     sql """INSERT INTO ${table7} VALUES (3, 'Charlie', 300.0)"""
     qt_drop_bucket_2 """SELECT * FROM ${table7} ORDER BY id"""
-    */
 
     // Test 8: Multiple partition evolution operations
     String table8 = "test_multiple_evolution"
@@ -232,7 +227,7 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
     
     test {
         sql """ALTER TABLE ${table9} DROP PARTITION KEY bucket(16, id)"""
-        exception "Partition field not found"
+        exception "Cannot find partition field to remove"
     }
 
     // Test 10: Error cases - invalid transform

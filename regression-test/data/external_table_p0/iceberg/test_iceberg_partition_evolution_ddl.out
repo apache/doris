@@ -51,6 +51,26 @@
 {"category":"B"}	0	1
 {"category":null}	1	1
 
+-- !drop_time_1 --
+id	int	Yes	true	\N	
+name	text	Yes	true	\N	
+created_date	date	Yes	true	\N	
+
+-- !drop_time_2 --
+1	Alice	2023-01-01
+2	Bob	2024-01-01
+3	Charlie	2025-01-01
+
+-- !drop_bucket_1 --
+id	int	Yes	true	\N	
+name	text	Yes	true	\N	
+value	double	Yes	true	\N	
+
+-- !drop_bucket_2 --
+1	Alice	100
+2	Bob	200
+3	Charlie	300
+
 -- !multiple_2 --
 1	Alice	2024-01-01T10:00	A
 2	Bob	2024-02-01T11:00	B
