@@ -295,6 +295,79 @@ TEST(AIFunctionTest, AISimilarityTest) {
     ASSERT_EQ(prompt, "Text 1: I like this dish\nText 2: This dish is very good");
 }
 
+TEST(AIFunctionTest, AISimilarityExecuteTest) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> text1 = {"I like this dish"};
+    std::vector<std::string> text2 = {"This dish is very good"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text1 = ColumnHelper::create_column<DataTypeString>(text1);
+    auto col_text2 = ColumnHelper::create_column<DataTypeString>(text2);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text1), std::make_shared<DataTypeString>(), "text1"});
+    block.insert({std::move(col_text2), std::make_shared<DataTypeString>(), "text2"});
+    block.insert({nullptr, std::make_shared<DataTypeFloat32>(), "result"});
+
+    ColumnNumbers arguments = {0, 1, 2};
+    size_t result_idx = 3;
+
+    auto similarity_func = FunctionAISimilarity::create();
+    Status exec_status =
+            similarity_func->execute_impl(ctx.get(), block, arguments, result_idx, text1.size());
+
+    ASSERT_TRUE(exec_status.ok());
+}
+
+TEST(AIFunctionTest, AISimilarityTrimWhitespace) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::pair<std::string, float>> test_cases = {
+            {"0.5", 0.5f},        {"1.0", 1.0f},     {"0.0", 0.0f},           {" 0.5", 0.5f},
+            {"0.5 ", 0.5f},       {" 0.5 ", 0.5f},   {"\n0.8", 0.8f},         {"0.3\n", 0.3f},
+            {"\n0.7\n", 0.7f},    {"\t0.2\t", 0.2f}, {" \n\t0.9 \n\t", 0.9f}, {"  0.1  ", 0.1f},
+            {"\r\n0.6\r\n", 0.6f}};
+
+    for (const auto& test_case : test_cases) {
+        setenv("AI_TEST_RESULT", test_case.first.c_str(), 1);
+
+        std::vector<std::string> resources = {"mock_resource"};
+        std::vector<std::string> text1 = {"Test text 1"};
+        std::vector<std::string> text2 = {"Test text 2"};
+        auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+        auto col_text1 = ColumnHelper::create_column<DataTypeString>(text1);
+        auto col_text2 = ColumnHelper::create_column<DataTypeString>(text2);
+
+        Block block;
+        block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+        block.insert({std::move(col_text1), std::make_shared<DataTypeString>(), "text1"});
+        block.insert({std::move(col_text2), std::make_shared<DataTypeString>(), "text2"});
+        block.insert({nullptr, std::make_shared<DataTypeFloat32>(), "result"});
+
+        ColumnNumbers arguments = {0, 1, 2};
+        size_t result_idx = 3;
+
+        auto similarity_func = FunctionAISimilarity::create();
+        Status exec_status = similarity_func->execute_impl(ctx.get(), block, arguments, result_idx,
+                                                           text1.size());
+
+        ASSERT_TRUE(exec_status.ok()) << "Failed for test case: '" << test_case.first << "'";
+
+        const auto& res_col =
+                assert_cast<const ColumnFloat32&>(*block.get_by_position(result_idx).column);
+        float val = res_col.get_data()[0];
+        ASSERT_FLOAT_EQ(val, test_case.second)
+                << "Failed for test case: '" << test_case.first
+                << "', expected: " << test_case.second << ", got: " << val;
+    }
+
+    unsetenv("AI_TEST_RESULT");
+}
+
 TEST(AIFunctionTest, AIFilterTest) {
     FunctionAIFilter function;
 
@@ -341,6 +414,87 @@ TEST(AIFunctionTest, AIFilterExecuteTest) {
             assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
     UInt8 val = res_col.get_data()[0];
     ASSERT_TRUE(val == 0);
+}
+
+TEST(AIFunctionTest, AIFilterTrimWhitespace) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::pair<std::string, UInt8>> test_cases = {
+            {"0", 0},     {"1", 1},           {" 0", 0},    {"0 ", 0},
+            {" 0 ", 0},   {"\n0", 0},         {"0\n", 0},   {"\n0\n", 0},
+            {"\t1\t", 1}, {" \n\t1 \n\t", 1}, {"  1  ", 1}, {"\r\n0\r\n", 0}};
+
+    for (const auto& test_case : test_cases) {
+        setenv("AI_TEST_RESULT", test_case.first.c_str(), 1);
+
+        std::vector<std::string> resources = {"mock_resource"};
+        std::vector<std::string> texts = {"Test input"};
+        auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+        auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+        Block block;
+        block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+        block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+        block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+        ColumnNumbers arguments = {0, 1};
+        size_t result_idx = 2;
+
+        auto filter_func = FunctionAIFilter::create();
+        Status exec_status =
+                filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+        ASSERT_TRUE(exec_status.ok()) << "Failed for test case: '" << test_case.first << "'";
+
+        const auto& res_col =
+                assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+        UInt8 val = res_col.get_data()[0];
+        ASSERT_EQ(val, test_case.second)
+                << "Failed for test case: '" << test_case.first
+                << "', expected: " << (int)test_case.second << ", got: " << (int)val;
+    }
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterInvalidValue) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> invalid_cases = {
+            "2",    "maybe", "ok",   "",      "   ", "01", "0.5",  "sure",  "truee", "falsee",
+            "yess", "noo",   "true", "false", "yes", "no", "TRUE", "FALSE", "YES",   "NO"};
+
+    for (const auto& invalid_value : invalid_cases) {
+        setenv("AI_TEST_RESULT", invalid_value.c_str(), 1);
+
+        std::vector<std::string> resources = {"mock_resource"};
+        std::vector<std::string> texts = {"Test input"};
+        auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+        auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+        Block block;
+        block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+        block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+        block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+        ColumnNumbers arguments = {0, 1};
+        size_t result_idx = 2;
+
+        auto filter_func = FunctionAIFilter::create();
+        Status exec_status =
+                filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+        ASSERT_FALSE(exec_status.ok())
+                << "Should have failed for invalid value: '" << invalid_value << "'";
+        ASSERT_TRUE(exec_status.to_string().find("Failed to parse boolean value") !=
+                    std::string::npos)
+                << "Error message should mention boolean parsing for value: '" << invalid_value
+                << "'";
+    }
+
+    unsetenv("AI_TEST_RESULT");
 }
 
 TEST(AIFunctionTest, ResourceNotFound) {

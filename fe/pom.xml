@@ -227,6 +227,7 @@ under the License.
         <parquet.version>1.16.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
+        <gcs.version>3.1.9</gcs.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <gcs.dependency.scope>compile</gcs.dependency.scope>
@@ -248,7 +249,7 @@ under the License.
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
-        <commons-lang3.version>3.17.0</commons-lang3.version>
+        <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
@@ -268,13 +269,13 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.18.0</log4j2.version>
-        <log4j-1.2.version>2.18.0</log4j-1.2.version>
-        <slf4j.version>2.0.6</slf4j.version>
+        <log4j2.version>2.25.2</log4j2.version>
+        <log4j-1.2.version>2.25.2</log4j-1.2.version>
+        <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.110.Final</netty-all.version>
+        <netty-all.version>4.1.128.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -284,9 +285,9 @@ under the License.
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <grpc.version>1.63.0</grpc.version>
-        <check.freamework.version>3.43.0</check.freamework.version>
-        <protobuf.version>3.24.3</protobuf.version>
+        <grpc.version>1.65.1</grpc.version>
+        <check.freamework.version>3.52.0</check.freamework.version>
+        <protobuf.version>3.25.8</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -296,7 +297,7 @@ under the License.
         <snappy-java.version>1.1.10.5</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
-        <fabric8.kubernetes.version>6.7.2</fabric8.kubernetes.version>
+        <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <logging-interceptor.version>4.12.0</logging-interceptor.version>
         <okhttp.version>4.9.3</okhttp.version>
         <okio.version>3.4.0</okio.version>
@@ -331,7 +332,7 @@ under the License.
         <lakesoul.version>2.6.2</lakesoul.version>
 
 
-        <commons-collections.version>3.2.2</commons-collections.version>
+        <commons-collections.version>4.5.0</commons-collections.version>
         <commons-compress.version>1.27.1</commons-compress.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
@@ -342,17 +343,18 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
-        <hadoop.version>3.3.6</hadoop.version>
+        <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
-        <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
-        <hbase.version>2.4.9</hbase.version>
+        <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
+        <hbase.version>2.6.3</hbase.version>
+        <jline.version>3.30.6</jline.version>
         <hbase-shaded-gson.version>4.1.7</hbase-shaded-gson.version>
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>2.7.18</spring.version>
-        <spring-framework.version>5.3.39</spring-framework.version>
+        <spring.version>3.5.7</spring.version>
+        <spring-framework.version>6.2.12</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
@@ -361,10 +363,11 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.57.v20241219</jetty.version>
+        <jetty.version>12.0.29</jetty.version>
+        <jetty-http.version>11.0.26</jetty-http.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
-        <icu4j.version>75.1</icu4j.version>
+        <icu4j.version>78.1</icu4j.version>
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
@@ -383,11 +386,11 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.2.36</azure.sdk.version>
+        <azure.sdk.version>1.3.2</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
-        <awssdk.version>2.29.26</awssdk.version>
+        <awssdk.version>2.37.2</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
         <mockito.version>4.11.0</mockito.version>
     </properties>
@@ -447,6 +450,12 @@ under the License.
                 <artifactId>ivy</artifactId>
                 <version>${ivy.version}</version>
             </dependency>
+            <!-- has conflict with jakarta.servlet-api-->
+            <dependency>
+                <groupId>org.eclipse.jetty.toolchain</groupId>
+                <artifactId>jetty-jakarta-servlet-api</artifactId>
+                <scope>test</scope>
+            </dependency>
             <dependency>
                 <groupId>com.ibm.icu</groupId>
                 <artifactId>icu4j</artifactId>
@@ -472,9 +481,30 @@ under the License.
                 <type>pom</type>
             </dependency>
             <dependency>
+                <groupId>org.eclipse.jetty.http2</groupId>
+                <artifactId>http2-client</artifactId>
+                <version>${jetty-http.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.http2</groupId>
+                <artifactId>http2-server</artifactId>
+                <version>${jetty-http.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.http2</groupId>
+                <artifactId>http2-http-client-transport</artifactId>
+                <version>${jetty-http.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.glassfish</groupId>
                 <artifactId>javax.el</artifactId>
                 <scope>provided</scope>
+            </dependency>
+            <!--not allowed to use jackson 1.x in fe module-->
+            <dependency>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-mapper-asl</artifactId>
+                <scope>test</scope>
             </dependency>
 
             <dependency>
@@ -506,6 +536,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-logging</artifactId>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-starter</artifactId>
                 <version>${spring.version}</version>
                 <exclusions>
@@ -530,6 +565,19 @@ under the License.
                         <artifactId>log4j-slf4j-impl</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--AWS BOM does not include this dependency-->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bundle</artifactId>
+                <version>${awssdk.version}</version>
             </dependency>
             <!-- woodstox -->
             <dependency>
@@ -590,6 +638,10 @@ under the License.
                         <artifactId>hibernate-validator</artifactId>
                     </exclusion>
                     <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-embed-jasper</artifactId>
+                    </exclusion>
+                    <exclusion>
                         <groupId>ch.qos.logback</groupId>
                         <artifactId>logback-classic</artifactId>
                     </exclusion>
@@ -647,8 +699,8 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop.thirdparty</groupId>
-                <artifactId>hadoop-shaded-protobuf_3_7</artifactId>
-                <version>${hadoop.thirdparty.protobuf_3_7.version}</version>
+                <artifactId>hadoop-shaded-protobuf_3_25</artifactId>
+                <version>${hadoop.thirdparty.protobuf_3_25.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -688,17 +740,11 @@ under the License.
                 <artifactId>kerb-core</artifactId>
                 <version>${kerby.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.zookeeper/zookeeper -->
+            <!-- anyway to avoid declare zookeeper again -->
             <dependency>
                 <groupId>org.apache.zookeeper</groupId>
                 <artifactId>zookeeper</artifactId>
-                <version>${zookeeper.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>ch.qos.logback</groupId>
-                        <artifactId>*</artifactId>
-                    </exclusion>
-                </exclusions>
+                <scope>test</scope>
             </dependency>
 
             <dependency>
@@ -975,6 +1021,11 @@ under the License.
                 <version>${protobuf.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java-util</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.checkerframework</groupId>
                 <artifactId>checker</artifactId>
                 <version>${check.freamework.version}</version>
@@ -1003,18 +1054,6 @@ under the License.
                 <groupId>com.github.mifmif</groupId>
                 <artifactId>generex</artifactId>
                 <version>${generex.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-client -->
-            <dependency>
-                <groupId>io.fabric8</groupId>
-                <artifactId>kubernetes-client</artifactId>
-                <version>${fabric8.kubernetes.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-model -->
-            <dependency>
-                <groupId>io.fabric8</groupId>
-                <artifactId>kubernetes-model</artifactId>
-                <version>${fabric8.kubernetes.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/logging-interceptor -->
             <dependency>
@@ -1144,6 +1183,11 @@ under the License.
                 <artifactId>hadoop-aws</artifactId>
                 <version>${hadoop.version}</version>
                 <exclusions>
+                    <!-- NB: Exclude the AWS SDK bundle because it’s a large monolithic package, and we only need the S3 modules to reduce dependency size.-->
+                    <exclusion>
+                        <groupId>software.amazon.awssdk</groupId>
+                        <artifactId>bundle</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-log4j12</artifactId>
@@ -1187,7 +1231,15 @@ under the License.
                     </exclusion>
                     <exclusion>
                         <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-webapp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
                         <artifactId>jetty-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.servlet.jsp</groupId>
+                        <artifactId>jsp-api</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>io.netty</groupId>
@@ -1200,6 +1252,10 @@ under the License.
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-reload4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-client</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1274,6 +1330,10 @@ under the License.
                         <groupId>commons-httpclient</groupId>
                     </exclusion>
                     <exclusion>
+                        <groupId>org.glassfish.web</groupId>
+                        <artifactId>javax.servlet.jsp</artifactId>
+                    </exclusion>
+                    <exclusion>
                         <artifactId>netty-all</artifactId>
                         <groupId>io.netty</groupId>
                     </exclusion>
@@ -1285,7 +1345,59 @@ under the License.
                         <groupId>org.apache.hive</groupId>
                         <artifactId>hive-storage-api</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-security</artifactId>
+                    </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-server</artifactId>
+                <version>${hbase.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.hbase</groupId>
+                        <artifactId>hbase-hadoop2-compat</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hbase.thirdparty</groupId>
+                        <artifactId>hbase-shaded-netty</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-jasper</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-client</artifactId>
+                <version>${hbase.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.hbase</groupId>
+                        <artifactId>hbase-hadoop2-compat</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hbase.thirdparty</groupId>
+                        <artifactId>hbase-shaded-netty</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-servlet</artifactId>
+                <version>${jetty-servlet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jline</groupId>
+                <artifactId>jline</artifactId>
+                <version>${jline.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
@@ -1316,8 +1428,8 @@ under the License.
                 <version>${parquet.version}</version>
             </dependency>
             <dependency>
-                <groupId>commons-collections</groupId>
-                <artifactId>commons-collections</artifactId>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-collections4</artifactId>
                 <version>${commons-collections.version}</version>
             </dependency>
             <dependency>
