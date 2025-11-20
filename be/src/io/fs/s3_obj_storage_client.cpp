@@ -311,9 +311,6 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
                          static_cast<int>(outcome.GetError().GetResponseCode()),
                          outcome.GetError().GetRequestId()}};
     }
-    return ObjectStorageHeadResponse {
-            .resp = ObjectStorageResponse::OK(),
-    };
 }
 
 ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOptions& opts,
@@ -334,6 +331,8 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
                 outcome.GetError().GetRequestId()};
     }
     *size_return = outcome.GetResult().GetContentLength();
+    // case for incomplete read
+    SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
         return {convert_to_obj_response(Status::InternalError(
                 "failed to read from {}(bytes read: {}, bytes req: {}), request_id: {}",
@@ -405,6 +404,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
                 static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                 delete_outcome.GetError().GetRequestId()};
     }
+    // case for partial delete object failure
+    SYNC_POINT_CALLBACK("s3_obj_storage_client::delete_objects", &delete_outcome);
     if (!delete_outcome.GetResult().GetErrors().empty()) {
         const auto& e = delete_outcome.GetResult().GetErrors().front();
         return {convert_to_obj_response(
@@ -470,6 +471,9 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
                         static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                         delete_outcome.GetError().GetRequestId()};
             }
+            // case for partial delete object failure
+            SYNC_POINT_CALLBACK("s3_obj_storage_client::delete_objects_recursively",
+                                &delete_outcome);
             if (!delete_outcome.GetResult().GetErrors().empty()) {
                 const auto& e = delete_outcome.GetResult().GetErrors().front();
                 return {convert_to_obj_response(Status::InternalError(
