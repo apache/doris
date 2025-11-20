@@ -55,6 +55,7 @@ class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
 class RuntimeProfile;
+class QueryHandle;
 
 struct LocalMergeContext {
     std::mutex mtx;
@@ -138,23 +139,19 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    Status init(std::shared_ptr<QueryContext> query_ctx,
-                const TRuntimeFilterParams& runtime_filter_params);
+    Status init(const TRuntimeFilterParams& runtime_filter_params);
 
     // handle merge rpc
-    Status merge(std::shared_ptr<QueryContext> query_ctx, const PMergeFilterRequest* request,
+    Status merge(std::shared_ptr<QueryHandle> query_handle, const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status send_filter_size(std::shared_ptr<QueryContext> query_ctx,
+    Status send_filter_size(std::shared_ptr<QueryHandle> query_handle,
                             const PSendFilterSizeRequest* request);
 
     std::string debug_string();
 
-    void release_undone_filters(QueryContext* query_ctx);
-
 private:
-    Status _init_with_desc(std::shared_ptr<QueryContext> query_ctx,
-                           const TRuntimeFilterDesc* runtime_filter_desc,
+    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
                            const std::vector<TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
 
