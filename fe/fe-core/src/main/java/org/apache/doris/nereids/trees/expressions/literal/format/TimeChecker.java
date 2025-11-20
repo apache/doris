@@ -19,9 +19,8 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 /**
  * Time literal format checker, support two types of time string:
- *   colon format: ([+-])?\d+:\d{1,2}(:\d{1,2}(.\d+)?)?
- * NOTICE: only process colon format, because we do not treat numeric format as a time type
- *   when do string literal corecion
+ * 1. numeric format: ([+-])?\d+(.\d+)?
+ * 2. colon format: ([+-])?\d+:\d{1,2}(:\d{1,2}(.\d+)?)?
  */
 public class TimeChecker extends FormatChecker {
     private static final TimeChecker INSTANCE = new TimeChecker();
@@ -35,6 +34,7 @@ public class TimeChecker extends FormatChecker {
                 // time
                 and("time format",
                     option("sign", or(ch('-'), ch('+'))),
+<<<<<<< HEAD
                     // colon-format
                     and("colon format",
                         digit(1), // hour
@@ -47,6 +47,22 @@ public class TimeChecker extends FormatChecker {
                                 option("micro second", nanoSecond())
                             )
                         ) // second
+=======
+                    or(
+                        // colon-format
+                        and("colon format",
+                            digit(1), // hour
+                            ch(':'),
+                            digit(1, 2), // minute
+                            option("second and micro second",
+                                and(
+                                    ch(':'),
+                                    digit(1, 2),
+                                    option("micro second", nanoSecond())
+                                )
+                            ) // second
+                        )
+>>>>>>> dc97f4efd76 ([opt](function) better signature match for time type)
                     )
                 );
     }
@@ -64,8 +80,7 @@ public class TimeChecker extends FormatChecker {
 
     private FormatChecker nanoSecond() {
         return and(
-            ch('.'),
-            digit(1)
-        );
+                ch('.'),
+                digit(1));
     }
 }
