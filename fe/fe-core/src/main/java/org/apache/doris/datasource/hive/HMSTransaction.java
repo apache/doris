@@ -268,10 +268,52 @@ public class HMSTransaction implements Transaction {
                         insertExistsPartitions.add(Pair.of(pu, hivePartitionStatistics));
                         break;
                     case NEW:
+                        // Check if partition really exists in HMS (may be cache miss in Doris)
+                        List<String> partitionValues = HiveUtil.toPartitionValues(pu.getName());
+                        boolean existsInHMS = false;
+                        try {
+                            Partition hmsPartition = hiveOps.getClient().getPartition(
+                                    nameMapping.getRemoteDbName(),
+                                    nameMapping.getRemoteTblName(),
+                                    partitionValues);
+                            existsInHMS = (hmsPartition != null);
+                        } catch (Exception e) {
+                            // Partition not found in HMS, treat as truly new
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Partition {} not found in HMS, will create it", pu.getName());
+                            }
+                        }
+
+                        if (existsInHMS) {
+                            // Partition exists in HMS but not in Doris cache
+                            // Treat as APPEND instead of NEW to avoid creation error
+                            LOG.info("Partition {} already exists in HMS (Doris cache miss), treating as APPEND",
+                                    pu.getName());
+                            insertExistsPartitions.add(Pair.of(pu, hivePartitionStatistics));
+                        } else {
+                            // Truly new partition, create it
+                            StorageDescriptor sd = table.getSd();
+                            String pathForHMS = this.fileType == TFileType.FILE_S3
+                                    ? writePath
+                                    : pu.getLocation().getTargetPath();
+                            HivePartition hivePartition = new HivePartition(
+                                    nameMapping,
+                                    false,
+                                    sd.getInputFormat(),
+                                    pathForHMS,
+                                    partitionValues,
+                                    Maps.newHashMap(),
+                                    sd.getOutputFormat(),
+                                    sd.getSerdeInfo().getSerializationLib(),
+                                    sd.getCols()
+                            );
+                            addPartition(
+                                    nameMapping, hivePartition, writePath,
+                                    pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
+                        }
+                        break;
                     case OVERWRITE:
                         StorageDescriptor sd = table.getSd();
-                        // For object storage (FILE_S3), use writePath to keep original scheme (oss://, cos://)
-                        // For HDFS, use targetPath which is the final path after rename
                         String pathForHMS = this.fileType == TFileType.FILE_S3
                                 ? writePath
                                 : pu.getLocation().getTargetPath();
@@ -286,9 +328,7 @@ public class HMSTransaction implements Transaction {
                                 sd.getSerdeInfo().getSerializationLib(),
                                 sd.getCols()
                         );
-                        if (updateMode == TUpdateMode.OVERWRITE) {
-                            dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
-                        }
+                        dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
                         addPartition(
                                 nameMapping, hivePartition, writePath,
                                 pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
@@ -375,6 +415,10 @@ public class HMSTransaction implements Transaction {
 
     public long getUpdateCnt() {
         return hivePartitionUpdates.stream().mapToLong(THivePartitionUpdate::getRowCount).sum();
+    }
+
+    public List<THivePartitionUpdate> getHivePartitionUpdates() {
+        return hivePartitionUpdates;
     }
 
     private void convertToInsertExistingPartitionAction(
