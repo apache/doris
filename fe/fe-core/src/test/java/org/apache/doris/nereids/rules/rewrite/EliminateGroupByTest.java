@@ -50,7 +50,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite();
         cheker.matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("age AS `max(age)`")));
     }
 
@@ -63,7 +63,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("age AS `min(age)`"))
                 );
     }
@@ -77,7 +77,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("cast(age as BIGINT) AS `sum(age)`"))
                 );
     }
@@ -91,7 +91,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql()
                                 .equals("if(age IS NULL, 0, 1) AS `count(age)`")
                                 && p.getProjects().get(1).getDataType().isBigIntType()
@@ -107,7 +107,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("cast(age as DOUBLE) AS `avg(age)`")
                                 && p.getProjects().get(1).getDataType().isDoubleType()
                         )
@@ -122,7 +122,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("1 AS `count(*)`")
                                 && p.getProjects().get(1).getDataType().isBigIntType()
                         )
@@ -137,7 +137,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("cast((cast(age as BIGINT) + 1) as DOUBLE) AS `avg(age+1)`")
                                 && p.getProjects().get(1).getDataType().isDoubleType()
                                 && p.getProjects().get(2).toSql().equals("abs(age) AS `min(abs(age))`")

@@ -115,13 +115,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                         .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
             } else {
                 throw new AnalysisException(String.format(
-                        "Input slot(s) not in child's output: %s in plan: %s\nchild output is: %s\nplan tree:\n%s",
+                        "Input slot(s) not in child's output: %s in plan: %s",
                         StringUtils.join(notFromChildren.stream().map(ExpressionTrait::toString)
                                 .collect(Collectors.toSet()), ", "),
-                        plan,
-                        plan.children().stream()
-                                .flatMap(child -> child.getOutput().stream())
-                                .collect(Collectors.toSet()),
                         plan.treeString()));
             }
         }
