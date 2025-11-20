@@ -64,7 +64,7 @@ public class IcebergMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
@@ -72,7 +72,7 @@ public class IcebergMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), executor);
 
         CacheFactory snapshotCacheFactory = new CacheFactory(
                 OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
@@ -80,8 +80,8 @@ public class IcebergMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
-        this.viewCache = tableCacheFactory.buildCache(key -> loadView(key), null, executor);
+        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), executor);
+        this.viewCache = tableCacheFactory.buildCache(key -> loadView(key), executor);
     }
 
     public Table getIcebergTable(ExternalTable dorisTable) {
