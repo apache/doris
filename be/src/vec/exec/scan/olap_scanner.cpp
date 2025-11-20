@@ -286,7 +286,7 @@ Status OlapScanner::open(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        res.append(", failed to initialize storage reader. tablet=" +
+        res.append("failed to initialize storage reader. tablet=" +
                    std::to_string(_tablet_reader_params.tablet->tablet_id()) +
                    ", backend=" + BackendOptions::get_localhost());
         return res;
