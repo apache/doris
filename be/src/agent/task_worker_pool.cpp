@@ -124,10 +124,6 @@ bool register_task_info(const TTaskType::type task_type, int64_t signature) {
         // no need to report task of these types
         return true;
     }
-    if (task_type == TTaskType::type::DROP && config::is_cloud_mode()) {
-        // cloud no need to report drop task status
-        return true;
-    }
 
     if (signature == -1) { // No need to report task with unintialized signature
         return true;
@@ -1871,6 +1867,8 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& drop_tablet_req = req.drop_tablet_req;
+    // here drop_tablet_req.tablet_id is the signature of the task, see DropReplicaTask in fe
+    Defer defer = [&] { remove_task_info(req.task_type, req.signature); };
     DBUG_EXECUTE_IF("WorkPoolCloudDropTablet.drop_tablet_callback.failed", {
         LOG_WARNING("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
                 .tag("tablet_id", drop_tablet_req.tablet_id);
