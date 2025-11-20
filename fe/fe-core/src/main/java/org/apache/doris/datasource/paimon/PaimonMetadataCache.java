@@ -60,7 +60,7 @@ public class PaimonMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
+        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), executor);
     }
 
     @NotNull
