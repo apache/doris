@@ -54,7 +54,7 @@ suite("test_file_cache_info") {
             `c_mktsegment` string NULL
         )
         DUPLICATE KEY(`c_custkey`)
-        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1  // only 1 tablet
+        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
         PROPERTIES (
             "file_cache_ttl_seconds" = "3600"
         )
@@ -127,3 +127,4 @@ suite("test_file_cache_info") {
 
     }
 }
+

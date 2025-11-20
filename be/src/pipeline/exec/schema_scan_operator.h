@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <unordered_map>
+
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "operator.h"
@@ -85,6 +87,9 @@ private:
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
+
+    // slot index mapping to src column index
+    std::unordered_map<int, int> _slot_offsets;
 };
 
 #include "common/compile_check_end.h"

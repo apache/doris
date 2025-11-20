@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
@@ -62,6 +65,13 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
+    }
+
+    protected void setExpressionOnFilter() {
+        LogicalFilter<?> filter = new LogicalFilter<LogicalEmptyRelation>(ImmutableSet.of(),
+                new LogicalEmptyRelation(new RelationId(1), ImmutableList.of()));
+        // AddMinMax run in filter plan
+        context = new ExpressionRewriteContext(filter, cascadesContext);
     }
 
     protected void assertRewrite(String expression, String expected) {

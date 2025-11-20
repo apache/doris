@@ -57,6 +57,10 @@
 #include "rapidjson/writer.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/cpu_info.h"
+#include "util/disk_info.h"
+#include "util/mem_info.h"
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
@@ -337,6 +341,8 @@ public:
     size_t size() const { return _base_reader->size(); }
 
     doris::Status close() { return _base_reader->close(); }
+
+    bool closed() { return _base_reader->closed(); }
 
 private:
     std::shared_ptr<doris::io::FileReader> _base_reader;
@@ -1217,15 +1223,16 @@ private:
                             continue;
                         }
 
-                        for (int i = 0; i < config.repeat; i++) {
-                            auto reader = std::make_unique<MicrobenchFileReader>(
-                                    status_or_reader.value(), job.read_limiter);
-                            doris::Defer defer {[&]() {
-                                if (auto status = reader->close(); !status.ok()) {
-                                    LOG(ERROR) << "close file reader failed" << status.to_string();
-                                }
-                            }};
+                        auto reader = std::make_unique<MicrobenchFileReader>(
+                                status_or_reader.value(), job.read_limiter);
 
+                        doris::Defer defer {[&]() {
+                            if (auto status = reader->close(); !status.ok()) {
+                                LOG(ERROR) << "close file reader failed" << status.to_string();
+                            }
+                        }};
+
+                        for (int i = 0; i < config.repeat; i++) {
                             size_t read_offset = 0;
                             size_t read_length = 0;
 
@@ -1971,17 +1978,22 @@ public:
 
         try {
             std::vector<std::vector<std::string>> config_info = doris::config::get_config_info();
-            rapidjson::Document d;
-            d.SetObject();
-            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
 
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 
-            // Write config array
+            writer.StartObject();
+
+            writer.Key("status");
+            writer.String("OK");
+
+            writer.Key("config");
+
             writer.StartArray();
+
             const std::string* conf_item_str = cntl->http_request().uri().GetQuery("conf_item");
             std::string conf_item = conf_item_str ? *conf_item_str : "";
+
             for (const auto& _config : config_info) {
                 if (!conf_item.empty()) {
                     if (_config[0] == conf_item) {
@@ -2000,19 +2012,14 @@ public:
                     writer.EndArray();
                 }
             }
+
             writer.EndArray();
 
-            // Set response headers
+            writer.EndObject();
+
             cntl->http_response().set_content_type("application/json");
-
-            // Build success response
-            d.AddMember("status", "OK", allocator);
-            d.AddMember("config", rapidjson::Value(buffer.GetString(), allocator), allocator);
-
-            buffer.Clear();
-            d.Accept(writer);
-
             cntl->response_attachment().append(buffer.GetString());
+
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error showing config: " << e.what();
 
@@ -2313,6 +2320,14 @@ void init_exec_env() {
         exit(-1);
     }
 
+    doris::CpuInfo::init();
+    doris::DiskInfo::init();
+    doris::MemInfo::init();
+
+    LOG(INFO) << doris::CpuInfo::debug_string();
+    LOG(INFO) << doris::DiskInfo::debug_string();
+    LOG(INFO) << doris::MemInfo::debug_string();
+
     auto* exec_env = doris::ExecEnv::GetInstance();
     auto status = exec_env->init_mem_env();
 
@@ -2359,6 +2374,11 @@ int main(int argc, char* argv[]) {
     std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
     if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
         LOG(ERROR) << "Error reading custom config file";
+        return -1;
+    }
+
+    if (!doris::config::enable_file_cache) {
+        LOG(ERROR) << "config::enbale_file_cache should be true!";
         return -1;
     }
 
