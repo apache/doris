@@ -17,12 +17,12 @@
 
 #include "io/cache/block_file_cache_ttl_mgr.h"
 
-#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -42,6 +42,8 @@ BlockFileCacheTtlMgr::BlockFileCacheTtlMgr(BlockFileCache* mgr, CacheBlockMetaSt
             std::thread(&BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map, this);
     _expiration_check_thread =
             std::thread(&BlockFileCacheTtlMgr::run_backgroud_expiration_check, this);
+    _tablet_id_flush_thread =
+            std::thread(&BlockFileCacheTtlMgr::run_background_tablet_id_flush, this);
 }
 
 BlockFileCacheTtlMgr::~BlockFileCacheTtlMgr() {
@@ -54,11 +56,65 @@ BlockFileCacheTtlMgr::~BlockFileCacheTtlMgr() {
     if (_expiration_check_thread.joinable()) {
         _expiration_check_thread.join();
     }
+
+    if (_tablet_id_flush_thread.joinable()) {
+        _tablet_id_flush_thread.join();
+    }
 }
 
 void BlockFileCacheTtlMgr::register_tablet_id(int64_t tablet_id) {
-    std::lock_guard<std::mutex> lock(_tablet_id_mutex);
-    _tablet_id_set.insert(tablet_id);
+    _tablet_id_queue.enqueue(tablet_id);
+}
+
+void BlockFileCacheTtlMgr::run_background_tablet_id_flush() {
+    Thread::set_self_name("ttl_mgr_flush");
+
+    static constexpr size_t kBatchSize = 1024;
+    std::vector<int64_t> pending;
+    pending.reserve(kBatchSize);
+
+    auto flush_pending = [this](std::vector<int64_t>* items) {
+        if (items->empty()) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(_tablet_id_mutex);
+        _tablet_id_set.insert(items->begin(), items->end());
+        items->clear();
+    };
+
+    while (!_stop_background.load(std::memory_order_acquire)) {
+        bool drained = false;
+        int64_t tablet_id = 0;
+        while (_tablet_id_queue.try_dequeue(tablet_id)) {
+            drained = true;
+            pending.push_back(tablet_id);
+            if (pending.size() >= kBatchSize) {
+                flush_pending(&pending);
+            }
+        }
+
+        flush_pending(&pending);
+
+        if (!drained) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(
+                    config::file_cache_background_tablet_id_flush_interval_ms));
+        }
+    }
+
+    // Drain remaining items before exit
+    int64_t tablet_id = 0;
+    while (_tablet_id_queue.try_dequeue(tablet_id)) {
+        pending.push_back(tablet_id);
+        if (pending.size() >= kBatchSize) {
+            std::lock_guard<std::mutex> lock(_tablet_id_mutex);
+            _tablet_id_set.insert(pending.begin(), pending.end());
+            pending.clear();
+        }
+    }
+    if (!pending.empty()) {
+        std::lock_guard<std::mutex> lock(_tablet_id_mutex);
+        _tablet_id_set.insert(pending.begin(), pending.end());
+    }
 }
 
 FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_id) {
@@ -101,8 +157,6 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
     while (!_stop_background.load(std::memory_order_acquire)) {
         try {
             std::unordered_set<int64_t> tablet_ids_to_process;
-
-            // Copy tablet IDs to process
             {
                 std::lock_guard<std::mutex> lock(_tablet_id_mutex);
                 tablet_ids_to_process = _tablet_id_set;
@@ -202,7 +256,6 @@ void BlockFileCacheTtlMgr::run_backgroud_expiration_check() {
                 }
             }
 
-            // Sleep for configured interval (use existing TTL GC interval)
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::file_cache_background_ttl_gc_interval_ms));
 

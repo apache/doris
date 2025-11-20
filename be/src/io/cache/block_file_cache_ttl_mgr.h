@@ -19,10 +19,11 @@
 
 #pragma once
 
+#include <concurrentqueue.h>
+
 #include <atomic>
 #include <map>
 #include <mutex>
-#include <set>
 #include <thread>
 #include <unordered_set>
 
@@ -50,13 +51,18 @@ public:
     void run_backgroud_update_ttl_info_map();
     // Background thread to find expired tablet and evict from ttl queue
     void run_backgroud_expiration_check();
+    // Background thread to drain the concurrent tablet-id queue into the dedup set
+    void run_background_tablet_id_flush();
 
 private:
     FileBlocks get_file_blocks_from_tablet_id(int64_t tablet_id);
 
 private:
-    // the set contains all the tablet ids which has cache data
-    std::unordered_set<int64_t> _tablet_id_set; //TODO(zhengyu): clean up old tablet ids
+    // Tablet ids waiting to be deduplicated + set of unique ids known to have cached data
+    moodycamel::ConcurrentQueue<int64_t> _tablet_id_queue;
+    std::unordered_set<int64_t> _tablet_id_set; // TODO(zhengyu): clean up old tablet ids
+    std::mutex _tablet_id_mutex;
+
     std::map<int64_t /* tablet_id */, TtlInfo> _ttl_info_map;
     BlockFileCache* _mgr;
     CacheBlockMetaStore* _meta_store;
@@ -64,8 +70,8 @@ private:
     std::atomic<bool> _stop_background;
     std::thread _update_ttl_thread;
     std::thread _expiration_check_thread;
+    std::thread _tablet_id_flush_thread;
 
-    std::mutex _tablet_id_mutex;
     std::mutex _ttl_info_mutex;
 };
 
