@@ -488,7 +488,11 @@ class Node(object):
             "environment": self.docker_env(),
             "image": self.get_image(),
             "ulimits": {
-                "core": -1
+                "core": -1,
+                "nofile": {
+                    "soft": 655350,
+                    "hard": 655350,
+                }
             },
             "security_opt": ["seccomp:unconfined"],
             "volumes": volumes,
