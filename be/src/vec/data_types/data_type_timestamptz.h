@@ -82,4 +82,5 @@ public:
 private:
     const UInt32 _scale = 6; // Default precision is 6
 };
+
 } // namespace doris::vectorized

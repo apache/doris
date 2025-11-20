@@ -230,7 +230,8 @@ inline WrapperType create_timestamptz_wrapper(FunctionContext* context,
     auto make_timestamptz_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
-        if constexpr (CastUtil::IsBaseCastFromType<FromDataType>) {
+        if constexpr (CastUtil::IsBaseCastFromType<FromDataType> ||
+                      IsTimeStampTzType<FromDataType>) {
             if (context->enable_strict_mode()) {
                 cast_to_timestamptz = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeTimeStampTz>>();

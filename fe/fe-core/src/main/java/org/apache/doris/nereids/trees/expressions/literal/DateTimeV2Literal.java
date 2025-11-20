@@ -21,10 +21,13 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -164,6 +167,15 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         if (targetType.isDateTimeType()) {
             return new DateTimeLiteral((DateTimeType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        }
+        if (targetType.isTimeStampTzType()) {
+            DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
+                    this,
+                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
+                    new StringLiteral("UTC")));
+            return new TimestampTzLiteral((TimeStampTzType) targetType,
+                    dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                    dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
         }
         return super.uncheckedCastTo(targetType);
     }

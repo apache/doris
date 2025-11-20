@@ -21,9 +21,12 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -163,8 +166,16 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (targetType.isTimeStampTzType()) {
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        } else if (targetType.isDateTimeV2Type()) {
+            DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
+                    year, month, day, hour, minute, second, microSecond);
+            dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
+                    dtV2Lit,
+                    new StringLiteral("UTC"),
+                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone)));
+            return dtV2Lit;
         }
-        return super.uncheckedCastTo(targetType);
+        throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 
     public Expression plusDays(long days) {
