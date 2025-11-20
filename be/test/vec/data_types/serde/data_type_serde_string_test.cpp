@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -32,12 +34,14 @@
 #include "runtime/types.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
@@ -193,6 +197,129 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
         }
     };
     test_func(*serde_str, column_str32);
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeStringSerDeTest, ArrowMemNotAligned) {
+    // 1.Prepare the data.
+    std::vector<std::string> strings = {"hello", "world!", "test", "unaligned", "memory"};
+
+    int32_t total_length = 0;
+    std::vector<int32_t> offsets = {0};
+    for (const auto& str : strings) {
+        total_length += static_cast<int32_t>(str.length());
+        offsets.push_back(total_length);
+    }
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> value_storage(total_length + 10);
+    std::vector<uint8_t> offset_storage((strings.size() + 1) * sizeof(int32_t) + 10);
+
+    uint8_t* unaligned_value_data = value_storage.data() + 1;
+    uint8_t* unaligned_offset_data = offset_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    int32_t current_pos = 0;
+    for (size_t i = 0; i < strings.size(); ++i) {
+        memcpy(unaligned_value_data + current_pos, strings[i].data(), strings[i].length());
+        current_pos += strings[i].length();
+    }
+
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        memcpy(unaligned_offset_data + i * sizeof(int32_t), &offsets[i], sizeof(int32_t));
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto value_buffer = arrow::Buffer::Wrap(unaligned_value_data, total_length);
+    auto offset_buffer =
+            arrow::Buffer::Wrap(unaligned_offset_data, offsets.size() * sizeof(int32_t));
+    auto arr = std::make_shared<arrow::StringArray>(strings.size(), offset_buffer, value_buffer);
+
+    const auto* offsets_ptr = arr->raw_value_offsets();
+    uintptr_t address = reinterpret_cast<uintptr_t>(offsets_ptr);
+    EXPECT_EQ((reinterpret_cast<uintptr_t>(address) % 4), 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st = serde_str->read_column_from_arrow(*column_str32, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeStringSerDeTest, ArrowMemNotAlignedNestedArr) {
+    // 1.Prepare the data.
+    std::vector<std::string> string_data = {"hello", "world", "test", "a", "b", "c"};
+    std::vector<int32_t> string_offsets = {0};
+    int32_t current_offset = 0;
+    for (const auto& str : string_data) {
+        current_offset += static_cast<int32_t>(str.length());
+        string_offsets.push_back(current_offset);
+    }
+
+    std::vector<int32_t> list_offsets = {0, 2, 3, 6, 6};
+    std::vector<uint8_t> value_data;
+    for (const auto& str : string_data) {
+        value_data.insert(value_data.end(), str.begin(), str.end());
+    }
+
+    const int64_t num_lists = list_offsets.size() - 1;
+    const int64_t offset_element_size = sizeof(int32_t);
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> list_offset_storage(list_offsets.size() * offset_element_size + 10);
+    uint8_t* unaligned_list_offsets = list_offset_storage.data() + 1;
+
+    std::vector<uint8_t> string_offset_storage(string_offsets.size() * offset_element_size + 10);
+    uint8_t* unaligned_string_offsets = string_offset_storage.data() + 1;
+
+    std::vector<uint8_t> value_storage(value_data.size() + 10);
+    uint8_t* unaligned_values = value_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    for (size_t i = 0; i < list_offsets.size(); ++i) {
+        memcpy(unaligned_list_offsets + i * offset_element_size, &list_offsets[i],
+               offset_element_size);
+    }
+
+    for (size_t i = 0; i < string_offsets.size(); ++i) {
+        memcpy(unaligned_string_offsets + i * offset_element_size, &string_offsets[i],
+               offset_element_size);
+    }
+
+    memcpy(unaligned_values, value_data.data(), value_data.size());
+
+    // 4. Create Arrow array with unaligned memory
+    auto value_buffer = arrow::Buffer::Wrap(unaligned_values, value_data.size());
+    auto string_offsets_buffer =
+            arrow::Buffer::Wrap(unaligned_string_offsets, string_offsets.size() * sizeof(int32_t));
+    auto string_array = std::make_shared<arrow::StringArray>(string_offsets.size() - 1,
+                                                             string_offsets_buffer, value_buffer);
+    auto list_offsets_buffer =
+            arrow::Buffer::Wrap(unaligned_list_offsets, list_offsets.size() * offset_element_size);
+    auto list_offsets_array =
+            std::make_shared<arrow::Int32Array>(list_offsets.size(), list_offsets_buffer);
+
+    auto arr = std::make_shared<arrow::ListArray>(arrow::list(arrow::utf8()), num_lists,
+                                                  list_offsets_buffer, string_array);
+
+    const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arr.get());
+    auto arrow_offsets_array = concrete_array->offsets();
+    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+
+    const auto* offsets_ptr = arrow_offsets->raw_values();
+    uintptr_t offsets_address = reinterpret_cast<uintptr_t>(offsets_ptr);
+    EXPECT_EQ(offsets_address % 4, 1);
+
+    const auto* values_ptr = string_array->value_data()->data();
+    uintptr_t values_address = reinterpret_cast<uintptr_t>(values_ptr);
+    EXPECT_EQ(values_address % 4, 1);
+
+    // 5.Test read_column_from_arrow
+    auto ser_col = ColumnArray::create(ColumnString::create(), ColumnOffset64::create());
+    cctz::time_zone tz;
+    auto serde_list = std::make_shared<DataTypeArraySerDe>(serde_str);
+    auto st = serde_list->read_column_from_arrow(*ser_col, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
 }
 
 } // namespace doris::vectorized
