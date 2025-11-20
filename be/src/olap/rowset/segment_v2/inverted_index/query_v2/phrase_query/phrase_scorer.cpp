@@ -90,6 +90,7 @@ uint32_t PhraseScorer<TPostings>::norm() const {
 template <typename TPostings>
 float PhraseScorer<TPostings>::score() {
     if (_similarity) {
+        LOG(ERROR) << "ph: " << _phrase_count << ", norm: " << norm();
         return _similarity->score(_phrase_count, norm());
     } else {
         return 1.0F;

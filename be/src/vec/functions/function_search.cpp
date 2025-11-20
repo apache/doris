@@ -196,6 +196,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                 data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+        const std::shared_ptr<IndexQueryContext>& index_query_context,
         InvertedIndexResultBitmap& bitmap_result) const {
     if (iterators.empty() || data_type_with_names.empty()) {
         LOG(INFO) << "No indexed columns or iterators available, returning empty result, dsl:"
@@ -205,18 +206,14 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
-    auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
-
     // Pass field_bindings to resolver for variant subcolumn detection
-    FieldReaderResolver resolver(data_type_with_names, iterators, context,
+    FieldReaderResolver resolver(data_type_with_names, iterators, index_query_context,
                                  search_param.field_bindings);
 
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
-    RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
-                                          &root_binding_key));
+    RETURN_IF_ERROR(build_query_recursive(search_param.root, index_query_context, resolver,
+                                          &root_query, &root_binding_key));
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
                   << search_param.original_dsl;
@@ -260,7 +257,10 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     ResolverAdapter null_resolver(resolver);
     exec_ctx.null_resolver = &null_resolver;
 
-    auto weight = root_query->weight(false);
+    bool enable_scoring =
+            (index_query_context && index_query_context->collection_similarity != nullptr);
+
+    auto weight = root_query->weight(enable_scoring);
     if (!weight) {
         LOG(WARNING) << "search: Failed to build query weight";
         bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
@@ -281,6 +281,10 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     uint32_t matched_docs = 0;
     while (doc != query_v2::TERMINATED) {
         roaring->add(doc);
+        if (enable_scoring) {
+            float score = scorer->score();
+            index_query_context->collection_similarity->collect(doc, score);
+        }
         ++matched_docs;
         doc = scorer->advance();
     }
