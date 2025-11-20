@@ -816,13 +816,19 @@ std::string Field::to_string() const {
         const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(v).to_string();
     }
+    if (type == TYPE_FLOAT) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
+        return fmt::format("{}", v);
+    }
+    if (type == TYPE_DOUBLE) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
+        return fmt::format("{}", v);
+    }
     MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
     MATCH_PRIMITIVE_TYPE(TYPE_TINYINT);
     MATCH_PRIMITIVE_TYPE(TYPE_SMALLINT);
     MATCH_PRIMITIVE_TYPE(TYPE_INT);
     MATCH_PRIMITIVE_TYPE(TYPE_BIGINT);
-    MATCH_PRIMITIVE_TYPE(TYPE_FLOAT);
-    MATCH_PRIMITIVE_TYPE(TYPE_DOUBLE);
     MATCH_PRIMITIVE_TYPE(TYPE_TIME);
     MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
     //    MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
