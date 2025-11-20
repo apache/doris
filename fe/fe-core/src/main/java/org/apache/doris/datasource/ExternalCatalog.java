@@ -109,10 +109,6 @@ public abstract class ExternalCatalog
     public static final String DORIS_VERSION_VALUE = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
     public static final String USE_META_CACHE = "use_meta_cache";
 
-    // default: false, so mapping to string directly keep compatibility
-    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
-    protected Optional<Boolean> enableMappingVarbinary = Optional.empty();
-
     public static final String CREATE_TIME = "create_time";
     public static final boolean DEFAULT_USE_META_CACHE = true;
 
@@ -131,7 +127,7 @@ public abstract class ExternalCatalog
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
             USE_META_CACHE,
-            ENABLE_MAPPING_VARBINARY);
+            CatalogProperty.ENABLE_MAPPING_VARBINARY);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
@@ -247,16 +243,13 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-        if (catalogProperty.getOrDefault(ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
-            catalogProperty.addProperty(ENABLE_MAPPING_VARBINARY, "false");
+        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
+            catalogProperty.setEnableMappingVarbinary(false);
         }
-        enableMappingVarbinary = Optional.of(
-                Boolean.valueOf(catalogProperty.getOrDefault(ENABLE_MAPPING_VARBINARY,
-                        "false")));
     }
 
     public boolean getEnableMappingVarbinary() {
-        return enableMappingVarbinary.orElse(false);
+        return catalogProperty.getEnableMappingVarbinary();
     }
 
     // we need check auth fallback for kerberos or simple

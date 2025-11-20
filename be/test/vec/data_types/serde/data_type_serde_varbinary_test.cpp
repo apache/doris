@@ -77,12 +77,10 @@ TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
     {
         auto out = ColumnString::create();
         VectorBufferWriter bw(*out);
-        auto st = serde.serialize_one_cell_to_json(*col, 1, bw, opt); // 使用第二行做例子
+        auto st = serde.serialize_one_cell_to_json(*col, 1, bw, opt);
         EXPECT_TRUE(st.ok()) << st.to_string();
         bw.commit();
-        // 提取写入的字符串
         auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
-        // nesting_level ==1 不加引号，直接比较原字节
         auto original = assert_cast<ColumnVarbinary&>(*col).get_data_at(1);
         EXPECT_EQ(written.size, original.size);
         EXPECT_EQ(memcmp(written.data, original.data, original.size), 0);
@@ -331,77 +329,54 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) 
     EXPECT_EQ(batch->numElements, 0);
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonNestingLevels) {
-    // nesting_level == 1: no quotes
-    {
-        DataTypeVarbinarySerDe serde1(/*nesting_level=*/1);
-        auto col = ColumnVarbinary::create();
-        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
-        std::string v = std::string("A\0B", 3); // include NUL
-        vb->insert_data(v.data(), v.size());
-        DataTypeSerDe::FormatOptions opt;
-        auto out = ColumnString::create();
-        VectorBufferWriter bw(*out);
-        auto st = serde1.serialize_one_cell_to_json(*col, 0, bw, opt);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        bw.commit();
-        auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
-        EXPECT_EQ(written.size, v.size());
-        EXPECT_EQ(memcmp(written.data, v.data(), v.size()), 0);
-    }
-    // nesting_level >= 2: wrap with quotes
-    {
-        DataTypeVarbinarySerDe serde2(/*nesting_level=*/2);
-        auto col = ColumnVarbinary::create();
-        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
-        std::string v = std::string("hello", 5);
-        vb->insert_data(v.data(), v.size());
-        DataTypeSerDe::FormatOptions opt;
-        auto out = ColumnString::create();
-        VectorBufferWriter bw(*out);
-        auto st = serde2.serialize_one_cell_to_json(*col, 0, bw, opt);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        bw.commit();
-        auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
-        ASSERT_GE(written.size, v.size() + 2);
-        EXPECT_EQ(written.data[0], '"');
-        EXPECT_EQ(written.data[written.size - 1], '"');
-        EXPECT_EQ(memcmp(written.data + 1, v.data(), v.size()), 0);
-    }
+TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonWithRawBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+
+    // Test binary data with embedded NUL character
+    std::string v = std::string("A\0B", 3);
+    vb->insert_data(v.data(), v.size());
+
+    DataTypeSerDe::FormatOptions opt;
+    auto out = ColumnString::create();
+    VectorBufferWriter bw(*out);
+    auto st = serde.serialize_one_cell_to_json(*col, 0, bw, opt);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    bw.commit();
+
+    auto written = assert_cast<ColumnString&>(*out).get_data_at(0);
+    EXPECT_EQ(written.size, v.size());
+    EXPECT_EQ(memcmp(written.data, v.data(), v.size()), 0);
 }
 
-TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithQuotesAndEscape) {
-    // nesting_level >= 2: trim quotes then unescape
+TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithRawBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = assert_cast<ColumnVarbinary*>(col.get());
+
+    // Test 1: String with quotes and backslash, inserted as-is
     {
-        DataTypeVarbinarySerDe serde2(/*nesting_level=*/2);
-        auto col = ColumnVarbinary::create();
-        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
-        std::string json = "\"a\\b\""; // "a\b"
+        std::string json = R"("a\b")";
         Slice s(json.data(), json.size());
         DataTypeSerDe::FormatOptions opt;
-        opt.escape_char = '\\';
-        auto st = serde2.deserialize_one_cell_from_json(*vb, s, opt);
+        auto st = serde.deserialize_one_cell_from_json(*vb, s, opt);
         EXPECT_TRUE(st.ok()) << st.to_string();
         auto inserted = vb->get_data_at(vb->size() - 1);
-        std::string expected = "ab";
-        EXPECT_EQ(inserted.size, expected.size());
-        EXPECT_EQ(memcmp(inserted.data, expected.data(), expected.size()), 0);
+        EXPECT_EQ(inserted.size, json.size());
+        EXPECT_EQ(memcmp(inserted.data, json.data(), json.size()), 0);
     }
-    // nesting_level == 1: no trim, only unescape
+
+    // Test 2: Pure binary data
     {
-        DataTypeVarbinarySerDe serde1(/*nesting_level=*/1);
-        auto col = ColumnVarbinary::create();
-        auto* vb = assert_cast<ColumnVarbinary*>(col.get());
-        std::string json = "c\\d"; // c\d -> cd
-        Slice s(json.data(), json.size());
+        std::string binary_data = std::string("\x01\x02\x03\x00\xFF", 5);
+        Slice s(binary_data.data(), binary_data.size());
         DataTypeSerDe::FormatOptions opt;
-        opt.escape_char = '\\';
-        auto st = serde1.deserialize_one_cell_from_json(*vb, s, opt);
+        auto st = serde.deserialize_one_cell_from_json(*vb, s, opt);
         EXPECT_TRUE(st.ok()) << st.to_string();
         auto inserted = vb->get_data_at(vb->size() - 1);
-        std::string expected = "cd";
-        EXPECT_EQ(inserted.size, expected.size());
-        EXPECT_EQ(memcmp(inserted.data, expected.data(), expected.size()), 0);
+        EXPECT_EQ(inserted.size, binary_data.size());
+        EXPECT_EQ(memcmp(inserted.data, binary_data.data(), binary_data.size()), 0);
     }
 }
 

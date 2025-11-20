@@ -70,7 +70,7 @@ public class ScalarType extends Type {
 
     public static final int MAX_JSONB_LENGTH = 0x7fffffff - 4;
 
-    public static final int MAX_VARBINARY_LENGTH = 0x7fffffff;
+    public static final int MAX_VARBINARY_LENGTH = 0x7fffffff; // 2GB/int32 max length
 
     // Hive, mysql, sql server standard.
     public static final int MAX_DECIMALV2_PRECISION = 27;

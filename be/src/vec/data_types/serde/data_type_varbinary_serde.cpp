@@ -120,14 +120,13 @@ Status DataTypeVarbinarySerDe::serialize_one_cell_to_json(const IColumn& column,
     ColumnPtr ptr = result.first;
     row_num = result.second;
     const auto& value = assert_cast<const ColumnVarbinary&>(*ptr).get_data_at(row_num);
-
-    if (_nesting_level > 1) {
-        bw.write('"');
-    }
     bw.write(value.data, value.size);
-    if (_nesting_level > 1) {
-        bw.write('"');
-    }
+    return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                              const FormatOptions& options) const {
+    assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
     return Status::OK();
 }
 

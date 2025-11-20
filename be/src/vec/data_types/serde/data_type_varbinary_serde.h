@@ -47,17 +47,9 @@ public:
                                     BufferWritable& bw, FormatOptions& options) const override {
         return Status::NotSupported("serialize_column_to_json with type " + column.get_name());
     }
+
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        if (_nesting_level >= 2) {
-            slice.trim_quote();
-        }
-        if (options.escape_char != 0) {
-            escape_string(slice.data, &slice.size, options.escape_char);
-        }
-        assert_cast<ColumnVarbinary&>(column).insert_data(slice.data, slice.size);
-        return Status::OK();
-    }
+                                          const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
@@ -70,6 +62,7 @@ public:
                               int64_t end) const override {
         return Status::NotSupported("write_column_to_pb with type " + column.get_name());
     }
+
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
