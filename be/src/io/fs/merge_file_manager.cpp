@@ -30,6 +30,10 @@
 #include <sstream>
 #include <unordered_set>
 
+#ifdef BE_TEST
+#include "cpp/sync_point.h"
+#endif
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
@@ -99,7 +103,8 @@ Status MergeFileManager::create_new_merge_file_state(
     path_stream << "data/merge_file/" << path_bucket << "/" << uuid;
 
     merge_file_state = std::make_unique<MergeFileState>();
-    merge_file_state->merge_file_path = path_stream.str();
+    const std::string relative_path = path_stream.str();
+    merge_file_state->merge_file_path = relative_path;
     merge_file_state->create_time = std::time(nullptr);
     merge_file_state->create_timestamp = std::chrono::steady_clock::now();
     merge_file_state->state = MergeFileStateEnum::INIT;
@@ -109,8 +114,9 @@ Status MergeFileManager::create_new_merge_file_state(
     // Create file writer for the merge file
     FileWriterPtr new_writer;
     FileWriterOptions opts;
-    RETURN_IF_ERROR(merge_file_state->file_system->create_file(
-            Path(merge_file_state->merge_file_path), &new_writer, &opts));
+    RETURN_IF_ERROR(
+            merge_file_state->file_system->create_file(Path(relative_path), &new_writer, &opts));
+    merge_file_state->merge_file_path = new_writer->path().native();
     merge_file_state->writer = std::move(new_writer);
 
     return Status::OK();
@@ -606,6 +612,10 @@ Status MergeFileManager::upload_merge_file(const std::string& merge_file_path, F
 
 Status MergeFileManager::update_meta_service(const std::string& merge_file_path,
                                              const cloud::MergedFileInfoPB& merge_file_info) {
+#ifdef BE_TEST
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("MergeFileManager::update_meta_service", Status::OK(),
+                                      merge_file_path, &merge_file_info);
+#endif
     VLOG_DEBUG << "Updating meta service for merge file: " << merge_file_path << " with "
                << merge_file_info.total_file_num() << " small files"
                << ", total bytes: " << merge_file_info.total_file_bytes();

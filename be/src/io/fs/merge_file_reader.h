@@ -25,11 +25,9 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 
-namespace doris {
-struct IOContext;
-}
-
 namespace doris::io {
+
+struct IOContext;
 
 // FileReader wrapper that reads data from merge file using offset and size
 // It wraps an inner reader that points to the merge file,

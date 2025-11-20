@@ -25,6 +25,7 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -153,6 +154,13 @@ public:
 
     S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
 
+#ifdef BE_TEST
+    void set_client_creator_for_test(
+            std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator);
+
+    void clear_client_creator_for_test();
+#endif
+
 private:
     std::shared_ptr<io::ObjStorageClient> _create_s3_client(const S3ClientConf& s3_conf);
     std::shared_ptr<io::ObjStorageClient> _create_azure_client(const S3ClientConf& s3_conf);
@@ -170,6 +178,9 @@ private:
     std::unordered_map<uint64_t, std::shared_ptr<io::ObjStorageClient>> _cache;
     std::string _ca_cert_file_path;
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
+#ifdef BE_TEST
+    std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> _test_client_creator;
+#endif
 };
 
 } // end namespace doris
