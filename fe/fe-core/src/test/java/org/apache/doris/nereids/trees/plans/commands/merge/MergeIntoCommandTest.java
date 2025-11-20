@@ -34,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -134,17 +136,18 @@ public class MergeIntoCommandTest {
         MergeIntoCommand command = new MergeIntoCommand(
                 ImmutableList.of("ctl", "db", "tbl"), Optional.of("alias"), Optional.empty(),
                 source, onClause, matchedClauses, notMatchedClauses);
+        UnboundSlot unboundSlot = new UnboundSlot("alias", "__DORIS_DELETE_SIGN__");
 
         Class<?> clazz = Class.forName("org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand");
-        Method generateBranchLabel = clazz.getDeclaredMethod("generateBranchLabel");
+        Method generateBranchLabel = clazz.getDeclaredMethod("generateBranchLabel", NamedExpression.class);
         generateBranchLabel.setAccessible(true);
-        NamedExpression result = (NamedExpression) generateBranchLabel.invoke(command);
+        NamedExpression result = (NamedExpression) generateBranchLabel.invoke(command, unboundSlot);
         Expression matchedLabel = new If(new IntegerLiteral(1), new IntegerLiteral(0),
                 new If(new IntegerLiteral(2), new IntegerLiteral(1), new IntegerLiteral(2)));
         Expression notMatchedLabel = new If(new IntegerLiteral(3), new IntegerLiteral(3),
                 new If(new IntegerLiteral(4), new IntegerLiteral(4), new IntegerLiteral(5)));
-        NamedExpression expected = new UnboundAlias(new If(onClause, matchedLabel, notMatchedLabel),
-                "__DORIS_MERGE_INTO_BRANCH_LABEL__");
+        NamedExpression expected = new UnboundAlias(new If(new Not(new IsNull(unboundSlot)),
+                matchedLabel, notMatchedLabel), "__DORIS_MERGE_INTO_BRANCH_LABEL__");
         Assertions.assertEquals(expected, result);
     }
 
