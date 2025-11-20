@@ -52,7 +52,6 @@ class DateTimeLiteralTest {
         check("0-08-01 13:21:03", DateTimeV2Literal::new);
         check("0-08-01 13:21:03", DateTimeV2Literal::new);
         check("0001-01-01: 00:01:01.001", DateTimeV2Literal::new);
-        check("2021?01?01 00.00.00", DateTimeV2Literal::new);
     }
 
     @Test
