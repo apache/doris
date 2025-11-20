@@ -136,7 +136,7 @@ public class MTMVPlanUtil {
         ctx.getState().reset();
         ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
-        ctx.getSessionVariable().setAffectQueryResultSessionVariables(sessionVariables);
+        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
         // Debug session variable should be disabled when refreshed
         ctx.getSessionVariable().skipDeletePredicate = false;
         ctx.getSessionVariable().skipDeleteBitmap = false;

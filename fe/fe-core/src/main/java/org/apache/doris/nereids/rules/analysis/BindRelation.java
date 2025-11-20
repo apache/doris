@@ -592,7 +592,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 .getAndCacheViewInfo(tableQualifier, view);
         Plan analyzedPlan;
         Map<String, String> currentSessionVars =
-                parentContext.getConnectContext().getSessionVariable().getAffectQueryResultVariables();
+                parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
             analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);

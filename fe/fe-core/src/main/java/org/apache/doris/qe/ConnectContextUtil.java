@@ -100,6 +100,6 @@ public class ConnectContextUtil {
         if (ctx == null || ctx.getSessionVariable() == null) {
             return null;
         }
-        return ctx.getSessionVariable().getAffectQueryResultVariables();
+        return ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
     }
 }

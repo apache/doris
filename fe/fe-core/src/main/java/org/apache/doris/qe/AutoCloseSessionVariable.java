@@ -46,7 +46,7 @@ public class AutoCloseSessionVariable implements AutoCloseable {
             this.previousVariable = connectContext.getSessionVariable();
         }
         SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.setAffectQueryResultSessionVariables(
+        sessionVariable.setAffectQueryResultInPlanSessionVariables(
                 affectQueryResultVariables == null ? Maps.newHashMap() : affectQueryResultVariables);
         this.connectContext.setSessionVariable(sessionVariable);
     }

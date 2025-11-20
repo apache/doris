@@ -379,7 +379,7 @@ public class MTMV extends OlapTable {
         // 2. If no guardexpr is present, rewriting is possible.
         // Determine if current session variables match MV creation session variables
         Map<String, String> currentSessionVars =
-                connectionContext.getSessionVariable().getAffectQueryResultVariables();
+                connectionContext.getSessionVariable().getAffectQueryResultInPlanVariables();
         boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, this.sessionVariables);
 

@@ -895,7 +895,9 @@ public class VariableMgr {
         String convertBoolToLongMethod() default "";
         // If the variable affects the outcome, set it to true.
         // If this value is true, it will ignore needForward and enforce forwarding.
-        boolean affectQueryResult() default false;
+        boolean affectQueryResultInPlan() default false;
+
+        boolean affectQueryResultInExecution() default false;
     }
 
     public static class VarContext {

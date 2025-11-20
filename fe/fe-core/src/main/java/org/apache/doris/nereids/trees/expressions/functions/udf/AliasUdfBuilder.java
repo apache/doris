@@ -91,7 +91,7 @@ public class AliasUdfBuilder extends UdfBuilder {
         Map<String, String> sessionVariables = aliasUdf.getSessionVariables();
         ConnectContext ctx = ConnectContext.get();
         Map<String, String> currentSessionVars = ctx == null
-                ? Maps.newHashMap() : ctx.getSessionVariable().getAffectQueryResultVariables();
+                ? Maps.newHashMap() : ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
         Expression analyzedExpression;
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
             Expression processedExpression = TypeCoercionUtils.processBoundFunction(boundAliasFunction);

@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TSerdeDialect;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -86,6 +87,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final List<Field> affectQueryResultFields;
+    public static final List<Field> affectQueryResultInPlanFields;
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
@@ -908,15 +910,25 @@ public class SessionVariable implements Serializable, Writable {
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
 
     static {
-        affectQueryResultFields = Arrays.stream(SessionVariable.class.getDeclaredFields())
-                .filter(f -> {
-                    VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                    if (varAttr == null) {
-                        return false;
-                    }
-                    f.setAccessible(true);
-                    return varAttr.affectQueryResult();
-                }).collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Field> builderForAll = ImmutableList.builder();
+        ImmutableList.Builder<Field> builderForPlan = ImmutableList.builder();
+        Field[] fields = SessionVariable.class.getDeclaredFields();
+        for (Field f : fields) {
+            VarAttr varAttr = f.getAnnotation(VarAttr.class);
+            if (varAttr == null || VariableAnnotation.DEPRECATED.equals(
+                    varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                continue;
+            }
+            f.setAccessible(true);
+            if (varAttr.affectQueryResultInPlan()) {
+                builderForPlan.add(f);
+                builderForAll.add(f);
+            } else if (varAttr.affectQueryResultInExecution()) {
+                builderForAll.add(f);
+            }
+        }
+        affectQueryResultInPlanFields = builderForPlan.build();
+        affectQueryResultFields = builderForAll.build();
     }
 
     /**
@@ -959,9 +971,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否允许将带有 CAST 表达式的谓词下推到 JDBC 外部表。",
                     "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."})
     public boolean enableJdbcCastPredicatePushDown = true;
-
-    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE, affectQueryResult = true)
-    public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -1058,7 +1067,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSingleDistinctColumnOpt = false;
 
     // Set sqlMode to empty string
-    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true, affectQueryResultInPlan = true)
     public long sqlMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
 
     @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
@@ -1163,10 +1172,10 @@ public class SessionVariable implements Serializable, Writable {
     public int netReadTimeout = 600;
 
     // The current time zone
-    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
-    @VariableMgr.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResult = true,
+    @VariableMgr.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResultInExecution = true,
             setter = "setLcTimeNames")
     public String lcTimeNames = "en_US";
 
@@ -1358,7 +1367,7 @@ public class SessionVariable implements Serializable, Writable {
             name = SHOW_HIDDEN_COLUMNS,
             flag = VariableMgr.SESSION_ONLY,
             needForward = true,
-            affectQueryResult = true
+            affectQueryResultInPlan = true
     )
     public boolean showHiddenColumns = false;
 
@@ -1704,7 +1713,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
     private boolean returnObjectDataAsBinary = false;
 
-    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
     private String blockEncryptionMode = "";
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
@@ -1716,10 +1725,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
 
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResultInExecution = true)
     private boolean checkOverflowForDecimal = true;
 
-    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResult = true, description = {
+    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResultInPlan = true, description = {
             "当 decimal 数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
             + " a decimal numerical calculation overflows,"
             + "the maximum number of decimal scale that the result can be retained"
@@ -1927,25 +1936,27 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true,
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
     public boolean skipStorageEngineMerge = false;
 
     /**
      * For debug purpose, skip delete predicate when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true, affectQueryResultInExecution = true)
     public boolean skipDeletePredicate = false;
 
     /**
      * For debug purpose, skip delete sign when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true, affectQueryResultInPlan = true)
     public boolean skipDeleteSign = false;
 
     /**
      * For debug purpose, skip delete bitmap when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true,
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
     public boolean skipDeleteBitmap = false;
 
     // This variable replace the original FE config `recover_with_skip_missing_version`.
@@ -1958,7 +1969,8 @@ public class SessionVariable implements Serializable, Writable {
     // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
     // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
     // this variable will not work.
-    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION, affectQueryResultInPlan = true,
+            affectQueryResultInExecution = true)
     public boolean skipMissingVersion = false;
 
     // This variable is used to control whether to skip the bad tablet.
@@ -1966,7 +1978,8 @@ public class SessionVariable implements Serializable, Writable {
     // the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care
     // about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and
     // load the remaining data into a new table.
-    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET,  affectQueryResultInPlan = true,
+            affectQueryResultInExecution = true)
     public boolean skipBadTablet = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
@@ -2002,9 +2015,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = true;
-
-    @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
-    public long groupConcatMaxLen = 2147483646;
 
     @VariableMgr.VarAttr(
             name = USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER,
@@ -2337,7 +2347,7 @@ public class SessionVariable implements Serializable, Writable {
     public int invertedIndexConjunctionOptThreshold = 1000;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
-            affectQueryResult = true,
+            affectQueryResultInExecution = true,
             description = {"这个参数用来限制查询时扩展的词项（terms）的数量，以此来控制查询的性能",
                     "This parameter is used to limit the number of term expansions during a query,"
                     + " thereby controlling query performance"})
@@ -2359,7 +2369,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析 sql 使用的方言", "The dialect used to parse sql."},
-            affectQueryResult = true
+            affectQueryResultInPlan = true
     )
     public String sqlDialect = "doris";
 
@@ -2372,7 +2382,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
                     "The output format dialect of each data type returned to the MySQL client."},
             options = {"doris", "presto", "trino"},
-            affectQueryResult = true
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true
     )
     public String serdeDialect = "doris";
 
@@ -2643,7 +2653,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
-            description = {"cast 使用严格模式", "Use strict mode for cast"}, affectQueryResult = true)
+            description = {"cast 使用严格模式", "Use strict mode for cast"}, affectQueryResultInPlan = true)
     public boolean enableStrictCast = false;
 
     @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = {"用于控制在包含多个 DISTINCT 函数的 SQL 查询中所采用的"
@@ -2783,7 +2793,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用 Decimal256 类型",
-            "Set to true to enable Decimal256 type" }, affectQueryResult = true)
+            "Set to true to enable Decimal256 type" }, affectQueryResultInPlan = true)
     public boolean enableDecimal256 = false;
 
     @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
@@ -2961,7 +2971,7 @@ public class SessionVariable implements Serializable, Writable {
         "in 条件 value 数量大于这个 threshold 后将不会走 fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
                 + " fast_execute will not be used."
-    }, affectQueryResult = true)
+    }, affectQueryResultInExecution = true)
     public int inListValueCountThreshold = 10;
 
     @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
@@ -3011,7 +3021,7 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableTextValidateUtf8 = true;
 
-    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, affectQueryResult = true,
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, affectQueryResultInPlan = true,
             description = {
                 "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
                 "Skip checking transactional hive version file '_orc_acid_version.'"
@@ -3137,7 +3147,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
-    @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResult = true,
+    @VariableMgr.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResultInExecution = true,
             description = {"是否启用扩展的正则表达式，支持如 look-around 类的零宽断言",
                     "Enable extended regular expressions, support look-around zero-width assertions"})
     public boolean enableExtendedRegex = false;
@@ -5089,7 +5099,8 @@ public class SessionVariable implements Serializable, Writable {
             Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResultInPlan()
+                        || varAttr.affectQueryResultInExecution())) {
                     continue;
                 }
                 map.put(varAttr.name(), String.valueOf(f.get(this)));
@@ -5109,7 +5120,8 @@ public class SessionVariable implements Serializable, Writable {
             for (Field f : fields) {
                 f.setAccessible(true);
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResult())) {
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResultInPlan()
+                        || varAttr.affectQueryResultInExecution())) {
                     continue;
                 }
                 String val = variables.get(varAttr.name());
@@ -5774,49 +5786,37 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public Map<String, String> getAffectQueryResultVariables() {
-        HashMap<String, String> map = new HashMap<String, String>();
+    public Map<String, String> getAffectQueryResultInPlanVariables() {
+        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         try {
-            Field[] fields = SessionVariable.class.getDeclaredFields();
-            for (Field f : fields) {
+            for (Field f : affectQueryResultInPlanFields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.affectQueryResult() || VariableAnnotation.DEPRECATED.equals(
-                        varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
-                map.put(varAttr.name(), String.valueOf(f.get(this)));
+                builder.put(varAttr.name(), String.valueOf(f.get(this)));
             }
         } catch (IllegalAccessException e) {
             LOG.error("failed to get affect query result variables", e);
         }
-        return map;
+        return builder.build();
     }
 
-    public void setAffectQueryResultSessionVariables(Map<String, String> variables) {
+    public void setAffectQueryResultInPlanSessionVariables(Map<String, String> variables) {
         if (variables == null || variables.isEmpty()) {
             return;
         }
         try {
-            Field[] fields = SessionVariable.class.getDeclaredFields();
-            for (Field f : fields) {
-                f.setAccessible(true);
+            for (Field f : affectQueryResultInPlanFields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
-                if (varAttr == null || !varAttr.affectQueryResult() || VariableAnnotation.DEPRECATED.equals(
-                        varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
-                    continue;
-                }
                 String val = variables.get(varAttr.name());
                 if (val == null) {
                     continue;
                 }
-
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("set affect query result variable: {} = {}", varAttr.name(), val);
                 }
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
         } catch (Throwable e) {
-            LOG.error("failed to set forward variables", e);
+            LOG.error("failed to set affect query result variables", e);
         }
     }
 }

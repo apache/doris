@@ -467,7 +467,7 @@ public class BindSink implements AnalysisRuleFactory {
         // It's the same reason for moving the processing of materialized columns down.
         for (Column column : generatedColumns) {
             Map<String, String> currentSessionVars =
-                    ctx.connectContext.getSessionVariable().getAffectQueryResultVariables();
+                    ctx.connectContext.getSessionVariable().getAffectQueryResultInPlanVariables();
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 GeneratedColumnInfo info = column.getGeneratedColumnInfo();
@@ -496,7 +496,7 @@ public class BindSink implements AnalysisRuleFactory {
             Preconditions.checkArgument(refs != null,
                     "mv column %s 's ref column cannot be null", column);
             Map<String, String> currentSessionVars =
-                    ctx.connectContext.getSessionVariable().getAffectQueryResultVariables();
+                    ctx.connectContext.getSessionVariable().getAffectQueryResultInPlanVariables();
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 Expression parsedExpression = expressionParser.parseExpression(
