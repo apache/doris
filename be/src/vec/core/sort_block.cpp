@@ -89,7 +89,10 @@ Status sort_block(Block& src_block, Block& dest_block, const SortDescription& de
 
             // Now we only consider extremum_num for nullable columns.
             std::pair<uint32_t, uint32_t> extremum_range = {
-                    0, columns_with_sort_desc.back().first->is_nullable() ? size : 0};
+                    0, !columns_with_sort_desc.empty() &&
+                                       columns_with_sort_desc.back().first->is_nullable()
+                               ? size
+                               : 0};
             // TODO: ColumnSorter should be constructed only once.
             for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
                 ColumnSorter sorter(columns_with_sort_desc[i], limit);
