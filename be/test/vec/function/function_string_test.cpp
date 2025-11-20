@@ -786,7 +786,7 @@ TEST(function_string_test, function_string_reverse_test) {
                  std::string("👦‍👧‍👩‍👨")},
                 {{std::string("안녕하세요")}, std::string("요세하녕안")},
                 {{std::string("Tab\tSeparated")},
-                 std::string("detarapeS\tbaT")}, // 包含制表符的字符串
+                 std::string("detarapeS\tbaT")},                        // 包含制表符的字符串
                 {{std::string("\nNewLine")}, std::string("eniLweN\n")}, // 包含换行符的字符串
                 {{std::string("123\n456")}, std::string("654\n321")},   // 混合数字和换行符
                 {{std::string("\x01\x02\x03\x04")},
@@ -804,9 +804,9 @@ TEST(function_string_test, function_string_reverse_test) {
                 {{std::string("0010110")}, std::string("0110100")},     // 二进制序列
                 {{std::string("readme.md")}, std::string("dm.emdaer")}, // 包含点的文件名
                 {{std::string("info@example.com")},
-                 std::string("moc.elpmaxe@ofni")},                            // 电子邮件地址
-                {{std::string("1234567890")}, std::string("0987654321")},     // 纯数字
-                {{std::string("!@#$%^&*()_+")}, std::string("+_)(*&^%$#@!")}, // 纯特殊字符
+                 std::string("moc.elpmaxe@ofni")},                              // 电子邮件地址
+                {{std::string("1234567890")}, std::string("0987654321")},       // 纯数字
+                {{std::string("!@#$%^&*()_+")}, std::string("+_)(*&^%$#@!")},   // 纯特殊字符
                 {{std::string("UPPERlower123")}, std::string("321rewolREPPU")}, // 大小写和数字
                 {{std::string("测试中文字符")}, std::string("符字文中试测")},   // 中文字符
                 {{std::string("日本語テスト")}, std::string("トステ語本日")},   // 日文测试
@@ -830,24 +830,24 @@ TEST(function_string_test, function_string_length_test) {
             {{Null()}, Null()},
             {{std::string("123321!@#@$!@%!@#!@$!@")}, std::int32_t(22)},
             {{std::string("123")}, std::int32_t(3)},
-            {{std::string("Hello, World!")}, std::int32_t(13)}, // 正常ASCII字符
-            {{std::string("Привет, мир!")}, std::int32_t(21)}, // 俄文，使用Cyrillic characters
+            {{std::string("Hello, World!")}, std::int32_t(13)},  // 正常ASCII字符
+            {{std::string("Привет, мир!")}, std::int32_t(21)},   // 俄文，使用Cyrillic characters
             {{std::string("こんにちは世界")}, std::int32_t(21)}, // 日文，每个字符通常3字节
             {{std::string("안녕하세요세계")}, std::int32_t(21)}, // 韩文字符
-            {{std::string("你好，世界！")}, std::int32_t(18)}, // 简体中文，每个字符通常3字节
-            {{std::string("مرحبا بالعالم!")}, std::int32_t(26)},            // 阿拉伯语
-            {{std::string("1234567890")}, std::int32_t(10)},                // 数字
+            {{std::string("你好，世界！")}, std::int32_t(18)},   // 简体中文，每个字符通常3字节
+            {{std::string("مرحبا بالعالم!")}, std::int32_t(26)}, // 阿拉伯语
+            {{std::string("1234567890")}, std::int32_t(10)},     // 数字
             {{std::string("👨‍👨‍👧‍👦")}, std::int32_t(25)}, // 家庭成员Emoji
             {{std::string("🇺🇸🇨🇳🇯🇵🇰🇷")}, std::int32_t(32)},                  // 国旗Emoji
             {{std::string("\u00F1")},
              std::int32_t(2)}, // ñ，为拉丁字母n with tilde，UTF-8中占用2字节
             {{std::string("\u65E5\u672C\u8A9E")}, std::int32_t(9)}, // 日本语，每个字符通常3个字节
-            {{std::string("Hello, 世界！")}, std::int32_t(16)}, // 混合ASCII和非ASCII字符
-            {{std::string("😀😃😄😁")}, std::int32_t(16)},      // Emoji，每个通常4个字节
+            {{std::string("Hello, 世界！")}, std::int32_t(16)},     // 混合ASCII和非ASCII字符
+            {{std::string("😀😃😄😁")}, std::int32_t(16)},          // Emoji，每个通常4个字节
             {{std::string("Quick brown 狐 jumps over a lazy 狗.")}, std::int32_t(38)}, // 混合字符串
-            {{std::string("Löwe 老虎 Léopard")}, std::int32_t(21)}, // 欧洲文字和中文的混合
-            {{std::string("Café 美丽")}, std::int32_t(12)},         // 带重音的字符
-            {{std::string("Björk")}, std::int32_t(6)},              // 北欧名称
+            {{std::string("Löwe 老虎 Léopard")}, std::int32_t(21)},          // 欧洲文字和中文的混合
+            {{std::string("Café 美丽")}, std::int32_t(12)},                  // 带重音的字符
+            {{std::string("Björk")}, std::int32_t(6)},                       // 北欧名称
             {{std::string("¿Dónde está la biblioteca?")}, std::int32_t(29)}, // 西班牙语句子
             {{std::string("Zażółć gęślą jaźń")}, std::int32_t(26)}, // 波兰语句子，含特殊字符
             {{Null()}, Null()},                                     // 空值
@@ -3830,16 +3830,14 @@ TEST(function_string_test, function_unicode_normalize_nfc_basic) {
         DataSet data_set = {
                 {{cafe_decomposed, std::string("NFC")}, cafe_composed},
         };
-        static_cast<void>(
-                check_function<DataTypeString, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 
     {
         DataSet data_set = {
                 {{cafe_composed, std::string("NFC")}, cafe_composed},
         };
-        static_cast<void>(
-                check_function<DataTypeString, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -3858,27 +3856,23 @@ TEST(function_string_test, function_unicode_normalize_modes_and_trim) {
         DataSet data_set = {
                 {{cafe_composed, std::string("  nFd  ")}, cafe_decomposed},
         };
-        static_cast<void>(
-                check_function<DataTypeString, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 
     {
         DataSet data_set = {
                 {{std::string("ABC 123"), std::string(" nfkc_cf ")}, std::string("abc 123")},
         };
-        static_cast<void>(
-                check_function<DataTypeString, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 
     {
         DataSet data_set = {
                 {{std::string("plain-ascii"), std::string("NFKD")}, std::string("plain-ascii")},
         };
-        static_cast<void>(
-                check_function<DataTypeString, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
-
 
 TEST(function_string_test, function_unicode_normalize_mode_not_const) {
     std::string func_name = "unicode_normalize";
@@ -3892,8 +3886,7 @@ TEST(function_string_test, function_unicode_normalize_mode_not_const) {
             {{std::string("abc"), std::string("NFC")}, std::string("abc")},
     };
 
-    Status st =
-            check_function<DataTypeString, true>(func_name, input_types, data_set);
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
     EXPECT_NE(Status::OK(), st);
 }
 
@@ -3909,8 +3902,7 @@ TEST(function_string_test, function_unicode_normalize_invalid_mode) {
             {{std::string("abc"), std::string("INVALID_MODE")}, std::string("abc")},
     };
 
-    Status st =
-            check_function<DataTypeString, true>(func_name, input_types, data_set);
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
     EXPECT_NE(Status::OK(), st);
 }
 

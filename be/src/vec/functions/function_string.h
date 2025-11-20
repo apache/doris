@@ -5272,12 +5272,11 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments.size() != 2 || !is_string_type(arguments[0]->get_primitive_type())
-                || !is_string_type(arguments[1]->get_primitive_type())) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "Illegal type {} and {} of arguments of function {}",
-                    arguments[0]->get_name(), arguments[1]->get_name(), get_name());
+        if (arguments.size() != 2 || !is_string_type(arguments[0]->get_primitive_type()) ||
+            !is_string_type(arguments[1]->get_primitive_type())) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} and {} of arguments of function {}",
+                                   arguments[0]->get_name(), arguments[1]->get_name(), get_name());
         }
         return arguments[0];
     }
@@ -5327,8 +5326,8 @@ public:
 
         if (U_FAILURE(status) || normalizer == nullptr) {
             return Status::InvalidArgument(
-                    "Failed to get normalizer instance for mode '{}' in function {}: {}",
-                    mode, get_name(), u_errorName(status));
+                    "Failed to get normalizer instance for mode '{}' in function {}: {}", mode,
+                    get_name(), u_errorName(status));
         }
 
         auto state = std::make_shared<UnicodeNormalizeState>();
@@ -5342,17 +5341,16 @@ public:
         auto* state = reinterpret_cast<UnicodeNormalizeState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (state == nullptr || state->normalizer == nullptr) {
-            return Status::RuntimeError(
-                    "unicode_normalize function state is not initialized");
+            return Status::RuntimeError("unicode_normalize function state is not initialized");
         }
 
         ColumnPtr col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto* col_str = check_and_get_column<ColumnString>(col.get());
         if (col_str == nullptr) {
-            return Status::RuntimeError(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name());
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
         }
 
         const auto& data = col_str->get_chars();
@@ -5367,8 +5365,7 @@ public:
 
         std::string tmp;
         for (size_t i = 0; i < rows; ++i) {
-            const char* begin =
-                    reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t len = offsets[i] - offsets[i - 1];
 
             normalize_one(state->normalizer, begin, len, tmp);
@@ -5398,8 +5395,7 @@ private:
         }
     }
 
-    static void normalize_one(const icu::Normalizer2* normalizer,
-                              const char* input, size_t length,
+    static void normalize_one(const icu::Normalizer2* normalizer, const char* input, size_t length,
                               std::string& output) {
         if (length == 0) {
             output.clear();
