@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.connectivity;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.metastore.HiveGlueMetaStoreProperties;
 import org.apache.doris.datasource.property.metastore.HiveHMSProperties;
 import org.apache.doris.datasource.property.metastore.IcebergGlueMetaStoreProperties;
@@ -95,7 +96,7 @@ public class CatalogConnectivityTestCoordinator {
             metaTester.testConnection();
         } catch (Exception e) {
             throw new DdlException(metaTester.getTestType() + " connectivity test failed: "
-                    + e.getMessage());
+                    + Util.getRootCauseMessage(e));
         }
 
         // Store warehouse location for later use
@@ -142,7 +143,7 @@ public class CatalogConnectivityTestCoordinator {
         try {
             tester.testFeConnection();
         } catch (Exception e) {
-            throw new DdlException(tester.getTestType() + " connectivity test failed: " + e.getMessage());
+            throw new DdlException(tester.getTestType() + " connectivity test failed: " + Util.getRootCauseMessage(e));
         }
 
         // Test BE connection
@@ -150,7 +151,7 @@ public class CatalogConnectivityTestCoordinator {
             tester.testBeConnection();
         } catch (Exception e) {
             throw new DdlException(tester.getTestType()
-                    + " connectivity test failed (compute node): " + e.getMessage());
+                    + " connectivity test failed (compute node): " + Util.getRootCauseMessage(e));
         }
     }
 
@@ -240,14 +241,14 @@ public class CatalogConnectivityTestCoordinator {
         try {
             tester.testFeConnection();
         } catch (Exception e) {
-            throw new DdlException("HDFS connectivity test failed: " + e.getMessage());
+            throw new DdlException("HDFS connectivity test failed: " + Util.getRootCauseMessage(e));
         }
 
         // Test BE connection
         try {
             tester.testBeConnection();
         } catch (Exception e) {
-            throw new DdlException("HDFS connectivity test failed (compute node): " + e.getMessage());
+            throw new DdlException("HDFS connectivity test failed (compute node): " + Util.getRootCauseMessage(e));
         }
     }
 
