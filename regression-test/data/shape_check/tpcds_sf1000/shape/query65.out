@@ -9,35 +9,33 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DECIMALV3(38, 5)) <= (0.1 * sb.ave))) build RFs:RF4 ss_store_sk->[s_store_sk,ss_store_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF3 ss_item_sk->[i_item_sk]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(item.i_current_price,item.i_wholesale_cost,item.i_brand)] apply RFs: RF3
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF4
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 ss_sold_date_sk->[d_date_sk]
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_month_seq <= 1187) and (date_dim.d_month_seq >= 1176))
---------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF4
 ------------------------PhysicalProject
---------------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(item.i_current_price,item.i_wholesale_cost,item.i_brand)]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store] apply RFs: RF4
+--------------------------PhysicalOlapScan[store] apply RFs: RF4
 ----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashAgg[GLOBAL]
---------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 ss_sold_date_sk->[d_date_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_month_seq <= 1187) and (date_dim.d_month_seq >= 1176))
---------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------filter((date_dim.d_month_seq <= 1187) and (date_dim.d_month_seq >= 1176))
+----------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[store_sales]
 
