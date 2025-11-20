@@ -101,7 +101,8 @@ enum TPrimitiveType {
   UINT32 = 40, // only used in BE to represent offsets
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
-  VARBINARY = 43 // represent varbinary type
+  VARBINARY = 43, // represent varbinary type
+  TIMESTAMPTZ = 44 //  timestamp with time zone
 }
 
 enum TTypeNodeType {

@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
@@ -112,7 +113,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             Type keyType = columns.get(i).getType();
             // If column type is datatime and key type is date, we should convert date to datetime.
             // if it's max value, no need to parse.
-            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2())) {
+            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2() || keyType.isTimeStampTz())) {
                 Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
                 partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
@@ -136,6 +137,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             return new DateTimeLiteral(value);
         } else if (type.isDatetimeV2()) {
             return new DateTimeV2Literal(value);
+        } else if (type.isTimeStampTz()) {
+            return new TimestampTzLiteral(value);
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");
@@ -542,7 +545,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 if (type != PrimitiveType.DATETIMEV2) {
                     key.setType(Type.fromPrimitiveType(type));
                 }
-                if (type.isDateV2Type()) {
+                if (type.isDateV2LikeType()) {
                     try {
                         key.checkValueValid();
                     } catch (AnalysisException e) {
