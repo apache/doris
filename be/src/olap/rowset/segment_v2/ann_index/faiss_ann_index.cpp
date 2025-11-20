@@ -117,18 +117,28 @@ private:
     std::string _previous_name;
 };
 
+class IDSelectorRoaring : public faiss::IDSelector {
+public:
+    explicit IDSelectorRoaring(const roaring::Roaring* roaring) : _roaring(roaring) {
+        DCHECK(_roaring != nullptr);
+    }
+
+    bool is_member(faiss::idx_t id) const final {
+        if (id < 0) {
+            return false;
+        }
+        return _roaring->contains(cast_set<vectorized::UInt32>(id));
+    }
+
+private:
+    const roaring::Roaring* _roaring;
+};
+
 } // namespace
 std::unique_ptr<faiss::IDSelector> FaissVectorIndex::roaring_to_faiss_selector(
         const roaring::Roaring& roaring) {
-    std::vector<faiss::idx_t> ids;
-    ids.resize(roaring.cardinality());
-
-    size_t i = 0;
-    for (roaring::Roaring::const_iterator it = roaring.begin(); it != roaring.end(); ++it, ++i) {
-        ids[i] = cast_set<faiss::idx_t>(*it);
-    }
-    // construct derived and wrap into base unique_ptr explicitly
-    return std::unique_ptr<faiss::IDSelector>(new faiss::IDSelectorBatch(ids.size(), ids.data()));
+    // Wrap the roaring bitmap directly to avoid copying ids into an intermediate buffer.
+    return std::unique_ptr<faiss::IDSelector>(new IDSelectorRoaring(&roaring));
 }
 
 void FaissVectorIndex::update_roaring(const faiss::idx_t* labels, const size_t n,
