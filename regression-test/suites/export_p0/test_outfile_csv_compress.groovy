@@ -213,5 +213,33 @@ suite("test_outfile_csv_compress", "p0") {
                 "compress_type" = "gz"
             );
             """
+
+    // test bom compress
+    def result = sql """
+            select * from ${table_name}
+            into outfile "${outFilePath}"
+            FORMAT AS CSV
+            PROPERTIES(
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
+                "s3.secret_key"="${sk}",
+                "s3.access_key" = "${ak}",
+                "compress_type" = "gz",
+                "with_bom" = "true"
+            );
+        """
+    def outfile_url = result[0][3]
+    print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
+    qt_select """ select c1, c2 from s3(
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
+                "ACCESS_KEY"= "${ak}",
+                "SECRET_KEY" = "${sk}",
+                "format" = "csv",
+                "with_bom" = "true",
+                "provider" = "${getS3Provider()}",
+                "region" = "${region}",
+                "compress_type" = "gz"
+            ) order by c1, c2 limit 10;
+            """
 }
 
