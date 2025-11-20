@@ -251,6 +251,18 @@ private:
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);
 
+    uint32_t get_brpc_heavy_work_pool_threads();
+
+    uint32_t get_brpc_heavy_work_pool_max_queue_size();
+
+    uint32_t get_brpc_light_work_pool_threads();
+
+    uint32_t get_brpc_light_work_pool_max_queue_size();
+
+    uint32_t get_brpc_arrow_flight_work_pool_threads();
+
+    uint32_t get_brpc_arrow_flight_work_pool_max_queue_size();
+
 protected:
     ExecEnv* _exec_env = nullptr;
 
