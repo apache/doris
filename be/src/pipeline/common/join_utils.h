@@ -65,6 +65,7 @@ using HashTableVariants = std::variant<
         DirectPrimaryTypeHashTableContext<vectorized::UInt16>,
         DirectPrimaryTypeHashTableContext<vectorized::UInt32>,
         DirectPrimaryTypeHashTableContext<vectorized::UInt64>,
+        DirectPrimaryTypeHashTableContext<vectorized::UInt128>,
         FixedKeyHashTableContext<vectorized::UInt64>, FixedKeyHashTableContext<vectorized::UInt128>,
         FixedKeyHashTableContext<vectorized::UInt136>,
         FixedKeyHashTableContext<vectorized::UInt256>, MethodOneString>;
@@ -192,6 +193,13 @@ inline void try_convert_to_direct_mapping(
 
 inline void try_convert_to_direct_mapping(
         PrimaryTypeHashTableContext<vectorized::UInt64>* context,
+        const vectorized::ColumnRawPtrs& key_columns,
+        const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
+    primary_to_direct_mapping(context, key_columns, variant_ptrs);
+}
+
+inline void try_convert_to_direct_mapping(
+        PrimaryTypeHashTableContext<vectorized::UInt128>* context,
         const vectorized::ColumnRawPtrs& key_columns,
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
