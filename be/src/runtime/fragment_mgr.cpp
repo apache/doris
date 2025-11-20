@@ -728,8 +728,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         query_ctx = QueryContext::create(query_id, _exec_env, params.query_options,
                                                          params.coord, params.is_nereids,
                                                          params.current_connect_fe, query_source);
-                        auto query_handle =
-                                std::make_shared<QueryHandle>(query_id, parent.query_options, query_ctx);
+                        auto query_handle = std::make_shared<QueryHandle>(
+                                query_id, parent.query_options, query_ctx);
                         _query_handle_map.insert(query_id, query_handle);
                         query_ctx->set_query_handle(query_handle);
                         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker());
