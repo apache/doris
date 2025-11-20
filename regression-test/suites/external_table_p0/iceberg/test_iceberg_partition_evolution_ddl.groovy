@@ -257,4 +257,50 @@ suite("test_iceberg_partition_evolution_ddl", "p0,external,doris,external_docker
         sql """ALTER TABLE internal.test_internal_table_db.test_internal_table ADD PARTITION KEY id"""
         exception "ADD PARTITION KEY is only supported for Iceberg tables"
     }
+
+    // Test 13: Add partition field with AS key name and drop by key name
+    String table13 = "test_add_partition_key_with_alias"
+    sql """drop table if exists ${table13}"""
+    sql """
+    CREATE TABLE ${table13} (
+        id INT,
+        ts DATETIME
+    );
+    """
+    sql """INSERT INTO ${table13} VALUES (1, '2024-01-01 08:00:00'), (2, '2024-02-02 09:00:00')"""
+
+    sql """ALTER TABLE ${table13} ADD PARTITION KEY year(ts) AS ts_year"""
+    sql """INSERT INTO ${table13} VALUES (3, '2025-03-03 10:00:00')"""
+    qt_add_partition_key_alias """SELECT * FROM ${table13} ORDER BY id"""
+    order_qt_add_partition_key_alias_partitions """SELECT `partition`, spec_id, record_count FROM ${table13}\$partitions ORDER BY `partition`"""
+
+    // drop by custom key name
+    sql """ALTER TABLE ${table13} DROP PARTITION KEY ts_year"""
+    sql """INSERT INTO ${table13} VALUES (4, '2026-04-04 11:00:00')"""
+    qt_drop_partition_key_alias """SELECT * FROM ${table13} ORDER BY id"""
+
+    // Test 14: Replace partition field with/without AS key name
+    String table14 = "test_replace_partition_field"
+    sql """drop table if exists ${table14}"""
+    sql """
+    CREATE TABLE ${table14} (
+        id INT,
+        ts DATETIME
+    );
+    """
+    sql """INSERT INTO ${table14} VALUES (1, '2024-01-01 00:00:00'), (2, '2024-02-01 00:00:00')"""
+
+    sql """ALTER TABLE ${table14} ADD PARTITION KEY day(ts) AS ts_day"""
+    sql """INSERT INTO ${table14} VALUES (3, '2024-01-05 00:00:00')"""
+
+    // Replace without AS (key name becomes default transform name)
+    sql """ALTER TABLE ${table14} REPLACE PARTITION KEY ts_day WITH month(ts)"""
+    sql """INSERT INTO ${table14} VALUES (4, '2024-03-15 00:00:00')"""
+
+    // Replace with AS to specify new name explicitly
+    sql """ALTER TABLE ${table14} REPLACE PARTITION KEY ts_month WITH year(ts) AS ts_year"""
+    sql """INSERT INTO ${table14} VALUES (5, '2025-04-20 00:00:00')"""
+
+    qt_replace_partition_key_data """SELECT * FROM ${table14} ORDER BY id"""
+    order_qt_replace_partition_key_partitions """SELECT `partition`, spec_id, record_count FROM ${table14}\$partitions ORDER BY `partition`"""
 }
