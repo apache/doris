@@ -1728,11 +1728,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResultInExecution = true)
     private boolean checkOverflowForDecimal = true;
 
-    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResultInPlan = true, description = {
-            "当 decimal 数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
-            + " a decimal numerical calculation overflows,"
-            + "the maximum number of decimal scale that the result can be retained"
-    })
+    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResultInPlan = true,
+            description = {
+                    "当 decimal 数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
+                    + " a decimal numerical calculation overflows,"
+                    + "the maximum number of decimal scale that the result can be retained"}
+    )
     public int decimalOverflowScale = 6;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
