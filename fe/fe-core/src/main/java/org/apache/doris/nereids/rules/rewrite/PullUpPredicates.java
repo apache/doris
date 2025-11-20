@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -369,10 +370,15 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             inferPredicates.addAll(PredicateInferUtils.inferPredicate(predicates));
         }
         Set<Expression> newPredicates = new LinkedHashSet<>(inferPredicates.size());
-        Set<Slot> outputSet = plan.getOutputSet();
-
+        Set<ExprId> outputSet = plan.getOutputExprIdSet();
         for (Expression inferPredicate : inferPredicates) {
-            if (outputSet.containsAll(inferPredicate.getInputSlots())) {
+            // Use ExprId-based checks here.
+            // After Materialized View (MV) transparent rewrite, the plan outputs are SlotReference.
+            // If the original outputs were VirtualSlotReference, a slot-object based check would
+            // wrongly conclude that the filter does not reference the plan's output slots,
+            // causing the filter predicate to be dropped from newPredicates.
+            // Comparing by ExprId avoids the SlotReference vs. VirtualSlotReference mismatch.
+            if (outputSet.containsAll(inferPredicate.getInputSlotExprIds())) {
                 newPredicates.add(inferPredicate);
             }
         }

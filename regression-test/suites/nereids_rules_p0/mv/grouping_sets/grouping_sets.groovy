@@ -765,7 +765,7 @@ suite("materialized_view_grouping_sets") {
             left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
             group by
             CUBE (t1.l_partkey, t1.l_suppkey, o_orderdate)
-            having grouping(t1.l_suppkey) > 0;
+            having grouping(t1.l_suppkey) >= 1;
             """
     order_qt_query17_before "${query17}"
     async_mv_rewrite_success(db, mv17, query17, "mv17")

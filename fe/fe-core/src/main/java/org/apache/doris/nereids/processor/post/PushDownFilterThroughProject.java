@@ -28,6 +28,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * merge consecutive projects
@@ -48,8 +49,15 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
                 .anyMatch(Expression::containsUniqueFunction)) {
             return filter;
         }
+        // Try to rewrite the filter's conjuncts using the project's alias mapping.
+        // replaceNullAware is all-or-nothing: it returns null if any conjunct cannot be fully
+        // rewritten by childAlias (Variant slots are allowed to pass through).
+        Set<Expression> conjuncts = ExpressionUtils.replaceNullAware(filter.getConjuncts(), childAlias);
+        if (conjuncts == null) {
+            return filter;
+        }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
-                ExpressionUtils.replace(filter.getConjuncts(), childAlias), project.child());
+                conjuncts, project.child());
         return ((AbstractPhysicalPlan) project.withChildren(newFilter.accept(this, context)))
                 .copyStatsAndGroupIdFrom(project);
     }

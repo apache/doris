@@ -588,6 +588,38 @@ public class ExpressionUtils {
     /**
      * replaceNullAware, if could not be replaced by map, the return null
      */
+    public static Set<Expression> replaceNullAware(Set<Expression> exprs,
+                                                    Map<? extends Expression, ? extends Expression> replaceMap) {
+        ImmutableSet.Builder<Expression> result = ImmutableSet.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            Expression replacedNullAware = replaceNullAware(expr, replaceMap);
+            if (replacedNullAware == null) {
+                return null;
+            }
+            result.add(replacedNullAware);
+        }
+        return result.build();
+    }
+
+    /**
+     * replaceNullAware, if could not be replaced by map, the return null
+     */
+    public static List<Expression> replaceNullAware(List<Expression> exprs,
+                                           Map<? extends Expression, ? extends Expression> replaceMap) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            Expression replacedNullAware = replaceNullAware(expr, replaceMap);
+            if (replacedNullAware == null) {
+                return null;
+            }
+            result.add(replacedNullAware);
+        }
+        return result.build();
+    }
+
+    /**
+     * replaceNullAware, if could not be replaced by map, the return null
+     */
     public static Expression replaceNullAware(Expression expr,
             Map<? extends Expression, ? extends Expression> replaceMap) {
         Set<Boolean> containNull = new HashSet<>();
