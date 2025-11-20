@@ -124,10 +124,6 @@ bool register_task_info(const TTaskType::type task_type, int64_t signature) {
         // no need to report task of these types
         return true;
     }
-    if (task_type == TTaskType::type::DROP && config::is_cloud_mode()) {
-        // cloud no need to report drop task status
-        return true;
-    }
 
     if (signature == -1) { // No need to report task with unintialized signature
         return true;
@@ -419,6 +415,8 @@ Status _submit_task(const TAgentTaskRequest& task,
     // TODO(plat1ko): check task request member
 
     // Set the receiving time of task so that we can determine whether it is timed out later
+    // exist a path task_worker_pool <- agent_server <- backend_service <- BackendService
+    // use the arg BackendService_submit_tasks_args.tasks is not const, so modify is ok
     (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
     auto st = submit_op(task);
     if (!st.ok()) [[unlikely]] {
@@ -617,7 +615,7 @@ Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     });
 }
 
-Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskRequest& task) {
+Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(TAgentTaskRequest& task) {
     const TTaskType::type task_type = task.task_type;
     int64_t signature = task.signature;
     std::string type_str;
@@ -657,7 +655,7 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
     } while (false);
 
     // Set the receiving time of task so that we can determine whether it is timed out later
-    (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
+    task.__set_recv_time(time(nullptr));
 
     LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
     return Status::OK();
@@ -1872,6 +1870,8 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& drop_tablet_req = req.drop_tablet_req;
+    // here drop_tablet_req.tablet_id is the signature of the task, see DropReplicaTask in fe
+    Defer defer = [&] { remove_task_info(req.task_type, req.signature); };
     DBUG_EXECUTE_IF("WorkPoolCloudDropTablet.drop_tablet_callback.failed", {
         LOG_WARNING("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
                 .tag("tablet_id", drop_tablet_req.tablet_id);
@@ -1926,6 +1926,9 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
               << " push_type=" << push_req.push_type;
     std::vector<TTabletInfo> tablet_infos;
 
+    // exist a path task_worker_pool <- agent_server <- backend_service <- BackendService
+    // use the arg BackendService_submit_tasks_args.tasks is not const
+    // and push_req will be modify, so modify is ok
     EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();

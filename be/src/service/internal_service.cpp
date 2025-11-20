@@ -68,6 +68,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "olap/data_dir.h"
+#include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -414,6 +415,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         LOG(INFO) << "open load stream, load_id=" << request->load_id()
                   << ", src_id=" << request->src_id();
 
+        std::vector<BaseTabletSPtr> tablets;
         for (const auto& req : request->tablets()) {
             BaseTabletSPtr tablet;
             if (auto res = ExecEnv::get_tablet(req.tablet_id()); !res.has_value()) [[unlikely]] {
@@ -428,6 +430,14 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             resp->set_index_id(req.index_id());
             resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
             tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+            tablets.push_back(tablet);
+        }
+        if (!tablets.empty()) {
+            auto* tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
+            for (const auto& tablet : tablets) {
+                BaseDeltaWriter::collect_tablet_load_rowset_num_info(tablet.get(),
+                                                                     tablet_load_infos);
+            }
         }
 
         LoadStream* load_stream = nullptr;

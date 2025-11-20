@@ -191,9 +191,9 @@ private:
                                                GetDeleteBitmapResponse& res,
                                                int64_t bytes_threadhold);
 
-    void check_table_size_correctness(const RowsetMeta& rs_meta);
-    int64_t get_segment_file_size(const RowsetMeta& rs_meta);
-    int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);
+    void check_table_size_correctness(RowsetMeta& rs_meta);
+    int64_t get_segment_file_size(RowsetMeta& rs_meta);
+    int64_t get_inverted_index_file_size(RowsetMeta& rs_meta);
 };
 
 } // namespace cloud

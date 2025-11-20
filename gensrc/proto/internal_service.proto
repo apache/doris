@@ -956,6 +956,7 @@ message PTabletSchemaWithIndex {
 message POpenLoadStreamResponse {
     optional PStatus status = 1;
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 3;
 }
 
 message PFailedTablet {
@@ -970,6 +971,7 @@ message PLoadStreamResponse {
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
     optional bool eos = 6;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 7;
 }
 
 message PStreamHeader {

@@ -498,7 +498,7 @@ public:
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
-        std::string str_value(const_cast<const char*>(value->data), value->size);
+        std::string str_value(value->data, value->size);
         return _set.find(str_value);
     }
 
@@ -565,7 +565,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data());
+            _value.data = _begin->data();
             _value.size = _begin->length();
             return &_value;
         }
@@ -715,7 +715,6 @@ public:
         const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
-        auto* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
@@ -729,15 +728,15 @@ public:
         for (size_t i = 0; i < rows; ++i) {
             uint32_t len = offset[i] - offset[i - 1];
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(StringRef(cursor, len));
+                result_data[i] = _set.find(StringRef(data, len));
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(StringRef(cursor, len));
+                result_data[i] = !_set.find(StringRef(data, len));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(cursor, len));
+                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(data, len));
             } else { // (is_nullable && is_negative)
-                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(cursor, len)));
+                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(data, len)));
             }
-            cursor += len;
+            data += len;
         }
     }
 
@@ -748,7 +747,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data);
+            _value.data = _begin->data;
             _value.size = _begin->size;
             return &_value;
         }

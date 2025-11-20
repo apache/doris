@@ -175,7 +175,7 @@ suite("test_generated_column_fault_tolerance_nereids") {
     PROPERTIES("replication_num" = "1");
     ;"""
     // qt_common_default_test_insert_null
-    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
+    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "null value for not null column"
     test {
         sql "INSERT INTO test_gen_col_common_ft(a,b) values(1,null);"
         exception exception_str

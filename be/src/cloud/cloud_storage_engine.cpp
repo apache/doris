@@ -280,8 +280,8 @@ bool CloudStorageEngine::stopped() {
 
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
                                                       SyncRowsetStats* sync_stats,
-                                                      bool force_use_cache) {
-    return _tablet_mgr->get_tablet(tablet_id, false, true, sync_stats, force_use_cache)
+                                                      bool force_use_only_cached) {
+    return _tablet_mgr->get_tablet(tablet_id, false, true, sync_stats, force_use_only_cached)
             .transform([](auto&& t) { return static_pointer_cast<BaseTablet>(std::move(t)); });
 }
 

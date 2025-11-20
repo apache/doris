@@ -398,7 +398,8 @@ public:
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
-            std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+            std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
+                    action);
 
     bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                        const GetDeleteBitmapUpdateLockRequest* request,
@@ -473,6 +474,10 @@ private:
     std::pair<MetaServiceCode, std::string> batch_get_partition_versions(
             const GetVersionRequest* request, GetVersionResponse* response,
             std::string_view instance_id, KVStats& stats);
+
+    void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
+                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   std::string& msg, KVStats& stats);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
