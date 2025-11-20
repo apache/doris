@@ -25,8 +25,11 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------filter(OR[AND[i_category IN ('Books', 'Children', 'Electronics'),i_class IN ('audio', 'history', 'school-uniforms')],AND[i_category IN ('Men', 'Shoes', 'Sports'),i_class IN ('pants', 'tennis', 'womens')]] and i_category IN ('Books', 'Children', 'Electronics', 'Men', 'Shoes', 'Sports') and i_class IN ('audio', 'history', 'pants', 'school-uniforms', 'tennis', 'womens'))
 ------------------------------------------PhysicalOlapScan[item] apply RFs: RF0
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
+--------------------------------------hashAgg[GLOBAL]
+----------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------hashAgg[LOCAL]
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[store]
 

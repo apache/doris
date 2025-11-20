@@ -24,8 +24,11 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter(OR[AND[i_category IN ('Books', 'Children', 'Electronics'),i_class IN ('personal', 'portable', 'reference', 'self-help'),i_brand IN ('exportiunivamalg #9', 'scholaramalgamalg #14', 'scholaramalgamalg #7', 'scholaramalgamalg #9')],AND[i_category IN ('Men', 'Music', 'Women'),i_class IN ('accessories', 'classical', 'fragrances', 'pants'),i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'importoamalg #1')]] and i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'exportiunivamalg #9', 'importoamalg #1', 'scholaramalgamalg #14', 'scholaramalgamalg #7', 'scholaramalgamalg #9') and i_category IN ('Books', 'Children', 'Electronics', 'Men', 'Music', 'Women') and i_class IN ('accessories', 'classical', 'fragrances', 'pants', 'personal', 'portable', 'reference', 'self-help'))
 ----------------------------------------PhysicalOlapScan[item] apply RFs: RF0
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
+------------------------------------hashAgg[GLOBAL]
+--------------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------------hashAgg[LOCAL]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store]
 

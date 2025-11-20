@@ -19,8 +19,11 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_dow = 1) and d_year IN (2000, 2001, 2002))
 ------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
+--------------------------------hashAgg[GLOBAL]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------hashAgg[LOCAL]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
 ----------------------------PhysicalProject
 ------------------------------filter((store.s_number_employees <= 295) and (store.s_number_employees >= 200))
 --------------------------------PhysicalOlapScan[store]

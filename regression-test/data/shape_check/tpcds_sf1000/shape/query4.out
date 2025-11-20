@@ -14,16 +14,22 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------filter(d_year IN (1999, 2000))
 --------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales] apply RFs: RF3
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3
 ----------PhysicalProject
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF3
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF3
 ----------------------PhysicalProject
 ------------------------filter(d_year IN (1999, 2000))
 --------------------------PhysicalOlapScan[date_dim]
@@ -36,8 +42,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------filter(d_year IN (1999, 2000))
 --------------------------PhysicalOlapScan[date_dim] apply RFs: RF2
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales] apply RFs: RF3
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[web_sales] apply RFs: RF3
 --------PhysicalProject
 ----------PhysicalOlapScan[customer]
 --PhysicalResultSink

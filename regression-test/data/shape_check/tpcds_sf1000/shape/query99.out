@@ -15,8 +15,11 @@ PhysicalResultSink
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF1 sm_ship_mode_sk->[cs_ship_mode_sk]
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF0 w_warehouse_sk->[cs_warehouse_sk]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
+------------------------------hashAgg[GLOBAL]
+--------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------hashAgg[LOCAL]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[warehouse]
 --------------------------PhysicalProject

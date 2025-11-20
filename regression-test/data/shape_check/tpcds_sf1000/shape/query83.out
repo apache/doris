@@ -16,8 +16,11 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF11 d_date_sk->[cr_returned_date_sk]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 i_item_sk->[cr_item_sk]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF10 RF11
+--------------------------------hashAgg[GLOBAL]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------hashAgg[LOCAL]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF10 RF11
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item] apply RFs: RF12 RF13
 ----------------------------PhysicalProject
@@ -41,8 +44,11 @@ PhysicalResultSink
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF6 sr_item_sk->[i_item_sk]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item] apply RFs: RF6 RF13
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF7
+--------------------------------hashAgg[GLOBAL]
+----------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------hashAgg[LOCAL]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF7
 ----------------------------PhysicalProject
 ------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
 --------------------------------PhysicalProject
@@ -62,8 +68,11 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[wr_returned_date_sk]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_returns.wr_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[wr_item_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2 RF3
+----------------------------hashAgg[GLOBAL]
+------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------hashAgg[LOCAL]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2 RF3
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalProject

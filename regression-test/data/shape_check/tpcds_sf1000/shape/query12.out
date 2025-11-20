@@ -17,8 +17,11 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter(i_category IN ('Books', 'Electronics', 'Men'))
 --------------------------------PhysicalOlapScan[item] apply RFs: RF0
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
+----------------------------hashAgg[GLOBAL]
+------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------hashAgg[LOCAL]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_date <= '2001-07-15') and (date_dim.d_date >= '2001-06-15'))
 ----------------------------PhysicalOlapScan[date_dim]

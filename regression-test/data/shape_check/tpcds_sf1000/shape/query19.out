@@ -26,8 +26,11 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 2002))
 ----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF4
+------------------------------------hashAgg[GLOBAL]
+--------------------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------------------hashAgg[LOCAL]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF4
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer]
 --------------------PhysicalProject

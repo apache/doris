@@ -20,9 +20,12 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF0 ss_store_sk->[s_store_sk]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store] apply RFs: RF0
-------------------------PhysicalProject
---------------------------filter((store_sales.ss_net_profit <= 25000.00) and (store_sales.ss_net_profit >= 0.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF3
+------------------------hashAgg[GLOBAL]
+--------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------hashAgg[LOCAL]
+------------------------------PhysicalProject
+--------------------------------filter((store_sales.ss_net_profit <= 25000.00) and (store_sales.ss_net_profit >= 0.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3
 ------------PhysicalProject
 --------------filter((date_dim.d_year = 2001))
 ----------------PhysicalOlapScan[date_dim]

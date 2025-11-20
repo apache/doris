@@ -22,8 +22,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF0 ss_ticket_number->[sr_ticket_number];RF1 ss_item_sk->[sr_item_sk]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0 RF1
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF4
+--------------------------------hashAgg[GLOBAL]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF4
 ----------------------------PhysicalProject
 ------------------------------filter((store.s_market_id = 5))
 --------------------------------PhysicalOlapScan[store]

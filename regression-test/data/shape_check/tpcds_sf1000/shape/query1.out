@@ -11,8 +11,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------filter((date_dim.d_year = 2000))
 --------------------PhysicalOlapScan[date_dim] apply RFs: RF0
-----------------PhysicalProject
-------------------PhysicalOlapScan[store_returns]
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[store_returns]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
