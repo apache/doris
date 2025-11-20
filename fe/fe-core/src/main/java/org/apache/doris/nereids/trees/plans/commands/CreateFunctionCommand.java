@@ -1053,7 +1053,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         String.format("param %s's datatype is missed", unboundSlot.getName()));
             }
-            return new SlotReference(unboundSlot.getName(), dataType);
+            return new SlotReference(unboundSlot.getName(), dataType, unboundSlot.isNameFromChild());
         }
     }
 

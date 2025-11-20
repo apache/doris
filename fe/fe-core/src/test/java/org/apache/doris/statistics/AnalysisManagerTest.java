@@ -161,11 +161,11 @@ public class AnalysisManagerTest {
         };
 
         SlotReference slot1 = new SlotReference(new ExprId(1), "slot1", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column1, table, column1, ImmutableList.of());
+                new ArrayList<>(), table, column1, table, column1, ImmutableList.of(), false);
         SlotReference slot2 = new SlotReference(new ExprId(2), "slot2", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column2, table, column2, ImmutableList.of());
+                new ArrayList<>(), table, column2, table, column2, ImmutableList.of(), false);
         SlotReference slot3 = new SlotReference(new ExprId(3), "slot3", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column3, table, column3, ImmutableList.of());
+                new ArrayList<>(), table, column3, table, column3, ImmutableList.of(), false);
         Set<Slot> set1 = new HashSet<>();
         set1.add(slot1);
         set1.add(slot2);

@@ -287,7 +287,7 @@ public class BindExpression implements AnalysisRuleFactory {
             boundGenerators.add(generator);
 
             Slot boundSlot = new SlotReference(slot.getNameParts().get(1), generator.getDataType(),
-                    generator.nullable(), ImmutableList.of(slot.getNameParts().get(0)));
+                    generator.nullable(), ImmutableList.of(slot.getNameParts().get(0)), slot.isNameFromChild());
             outputSlots.add(boundSlot);
             // the boundSlot may has two situation:
             // 1. the expandColumnsAlias is not empty, we should use make boundSlot expand to multi alias

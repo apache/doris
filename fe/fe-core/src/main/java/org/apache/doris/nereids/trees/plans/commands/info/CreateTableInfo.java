@@ -1094,7 +1094,7 @@ public class CreateTableInfo {
         Map<Slot, SlotRefAndIdx> translateMap = Maps.newHashMap();
         for (int i = 0; i < columns.size(); i++) {
             ColumnDefinition column = columns.get(i);
-            Slot slot = new SlotReference(column.getName(), column.getType());
+            Slot slot = new SlotReference(column.getName(), column.getType(), false);
             columnToSlotReference.put(column.getName(), slot);
             nameToColumnDefinition.put(column.getName(), column);
             SlotRef slotRef = new SlotRef(null, column.getName());

@@ -50,8 +50,8 @@ import java.util.Set;
 public class InferPredicateByReplaceTest {
     @Test
     public void testInferWithEqualTo() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         EqualTo equalTo = new EqualTo(a, b);
         Set<Expression> inputs = new HashSet<>();
         inputs.add(equalTo);
@@ -63,8 +63,8 @@ public class InferPredicateByReplaceTest {
     @Test
     public void testInferWithInPredicate() {
         // abs(a) IN (1, 2, 3)
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         InPredicate inPredicate = new InPredicate(new Abs(a),
                 ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2), new IntegerLiteral(3)));
         EqualTo equalTo = new EqualTo(a, b);
@@ -79,8 +79,8 @@ public class InferPredicateByReplaceTest {
     @Test
     public void testInferWithInPredicateNotSupport() {
         // a IN (1, b)
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         InPredicate inPredicate = new InPredicate(a,
                 ImmutableList.of(new IntegerLiteral(1), b));
         EqualTo equalTo = new EqualTo(a, b);
@@ -94,8 +94,8 @@ public class InferPredicateByReplaceTest {
 
     @Test
     public void testInferWithNotPredicate() {
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
         InPredicate inPredicate = new InPredicate(a, ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2)));
         Not notPredicate = new Not(inPredicate);
         EqualTo equalTo = new EqualTo(a, b);
@@ -111,8 +111,8 @@ public class InferPredicateByReplaceTest {
     @Test
     public void testInferWithLikePredicate() {
         // a LIKE 'test%'
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
-        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
         EqualTo equalTo = new EqualTo(a, b);
         Like like = new Like(a, new StringLiteral("test%"));
         Set<Expression> inputs = new HashSet<>();
@@ -128,8 +128,8 @@ public class InferPredicateByReplaceTest {
     @Test
     public void testInferWithLikePredicateNotSupport() {
         // a LIKE b
-        SlotReference a = new SlotReference("a", StringType.INSTANCE);
-        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
         EqualTo equalTo = new EqualTo(a, b);
         Like like = new Like(a, b);
         Set<Expression> inputs = new HashSet<>();
@@ -142,8 +142,8 @@ public class InferPredicateByReplaceTest {
 
     @Test
     public void testInferWithOrPredicate() {
-        SlotReference a = new SlotReference("a", DateTimeV2Type.SYSTEM_DEFAULT);
-        SlotReference b = new SlotReference("b", DateTimeV2Type.SYSTEM_DEFAULT);
+        SlotReference a = new SlotReference("a", DateTimeV2Type.SYSTEM_DEFAULT, false);
+        SlotReference b = new SlotReference("b", DateTimeV2Type.SYSTEM_DEFAULT, false);
         EqualTo equalTo = new EqualTo(a, b);
         Or or = new Or(new GreaterThan(a, new DateTimeV2Literal("2022-02-01 10:00:00")),
                 new LessThan(a, new DateTimeV2Literal("2022-01-01 10:00:00")));
@@ -157,8 +157,8 @@ public class InferPredicateByReplaceTest {
 
     @Test
     public void testInferWithPredicateDateTrunc() {
-        SlotReference a = new SlotReference("a", DateTimeV2Type.SYSTEM_DEFAULT);
-        SlotReference b = new SlotReference("b", DateTimeV2Type.SYSTEM_DEFAULT);
+        SlotReference a = new SlotReference("a", DateTimeV2Type.SYSTEM_DEFAULT, false);
+        SlotReference b = new SlotReference("b", DateTimeV2Type.SYSTEM_DEFAULT, false);
         EqualTo equalTo = new EqualTo(a, b);
         GreaterThan greaterThan = new GreaterThan(new DateTrunc(a, new VarcharLiteral("year")), new DateTimeV2Literal("2022-02-01 10:00:00"));
         Set<Expression> inputs = new HashSet<>();
@@ -171,11 +171,11 @@ public class InferPredicateByReplaceTest {
 
     @Test
     public void testValidForInfer() {
-        SlotReference a = new SlotReference("a", TinyIntType.INSTANCE);
+        SlotReference a = new SlotReference("a", TinyIntType.INSTANCE, false);
         Cast castExprA = new Cast(a, IntegerType.INSTANCE);
-        SlotReference b = new SlotReference("b", BigIntType.INSTANCE);
+        SlotReference b = new SlotReference("b", BigIntType.INSTANCE, false);
         Cast castExprB = new Cast(b, IntegerType.INSTANCE);
-        SlotReference c = new SlotReference("c", DateType.INSTANCE);
+        SlotReference c = new SlotReference("c", DateType.INSTANCE, false);
         Cast castExprC = new Cast(c, IntegerType.INSTANCE);
 
         EqualTo equalTo1 = new EqualTo(castExprA, castExprB);
@@ -189,9 +189,9 @@ public class InferPredicateByReplaceTest {
     @Test
     public void testNotInferWithTransitiveEqualitySameTable() {
         // a = b, b = c
-        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
-        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t1"), false);
         EqualTo equalTo1 = new EqualTo(a, b);
         EqualTo equalTo2 = new EqualTo(b, c);
         Set<Expression> inputs = new HashSet<>();

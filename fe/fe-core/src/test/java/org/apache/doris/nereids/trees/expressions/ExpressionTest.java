@@ -36,14 +36,14 @@ public class ExpressionTest {
         Assertions.assertTrue(new StringLiteral("abc").isConstant());
 
         // slot reference is not constant
-        Assertions.assertFalse(new SlotReference("a", IntegerType.INSTANCE).isConstant());
+        Assertions.assertFalse(new SlotReference("a", IntegerType.INSTANCE, false).isConstant());
 
         // `1 + 2` is constant
         Assertions.assertTrue(new Add(new IntegerLiteral(1), new IntegerLiteral(2)).isConstant());
 
         // `a + 1` is not constant
         Assertions.assertFalse(
-                new Add(new SlotReference("a", IntegerType.INSTANCE), new IntegerLiteral(1)).isConstant());
+                new Add(new SlotReference("a", IntegerType.INSTANCE, false), new IntegerLiteral(1)).isConstant());
     }
 
     @Test

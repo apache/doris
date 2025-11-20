@@ -216,7 +216,7 @@ public class PartitionPruneExpressionExtractorTest {
         }
         if (expression instanceof UnboundSlot) {
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0))));
+            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0)), false));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
@@ -241,11 +241,11 @@ public class PartitionPruneExpressionExtractorTest {
     }
 
     private Map<String, Slot> createPartitionSlots() {
-        SlotReference slotReference1 = new SlotReference("P1", StringType.INSTANCE);
-        SlotReference slotReference2 = new SlotReference("P2", IntegerType.INSTANCE);
-        SlotReference slotReference3 = new SlotReference("P3", StringType.INSTANCE);
-        SlotReference slotReference4 = new SlotReference("P4", IntegerType.INSTANCE);
-        SlotReference slotReference5 = new SlotReference("P5", StringType.INSTANCE);
+        SlotReference slotReference1 = new SlotReference("P1", StringType.INSTANCE, false);
+        SlotReference slotReference2 = new SlotReference("P2", IntegerType.INSTANCE, false);
+        SlotReference slotReference3 = new SlotReference("P3", StringType.INSTANCE, false);
+        SlotReference slotReference4 = new SlotReference("P4", IntegerType.INSTANCE, false);
+        SlotReference slotReference5 = new SlotReference("P5", StringType.INSTANCE, false);
         return ImmutableMap.of(
             "P1", slotReference1,
             "P2", slotReference2,

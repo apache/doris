@@ -31,18 +31,18 @@ import org.junit.jupiter.api.Test;
 public class ExpressionEqualsTest {
     private final ExprId exprId = new ExprId(1);
     private final Expression child1 = new SlotReference(exprId, "child",
-            IntegerType.INSTANCE, false, Lists.newArrayList());
+            IntegerType.INSTANCE, false, Lists.newArrayList(), false);
     private final Expression left1 = new SlotReference(exprId, "left",
-            IntegerType.INSTANCE, false, Lists.newArrayList());
+            IntegerType.INSTANCE, false, Lists.newArrayList(), false);
     private final Expression right1 = new SlotReference(exprId, "right",
-            IntegerType.INSTANCE, false, Lists.newArrayList());
+            IntegerType.INSTANCE, false, Lists.newArrayList(), false);
 
     private final Expression child2 = new SlotReference(exprId, "child",
-            IntegerType.INSTANCE, false, Lists.newArrayList());
+            IntegerType.INSTANCE, false, Lists.newArrayList(), false);
     private final Expression left2 = new SlotReference(exprId, "left",
-            IntegerType.INSTANCE, false, Lists.newArrayList());
+            IntegerType.INSTANCE, false, Lists.newArrayList(), false);
     private final Expression right2 = new SlotReference(exprId, "right",
-            IntegerType.INSTANCE, false, Lists.newArrayList());
+            IntegerType.INSTANCE, false, Lists.newArrayList(), false);
 
     @Test
     public void testComparisonPredicate() {

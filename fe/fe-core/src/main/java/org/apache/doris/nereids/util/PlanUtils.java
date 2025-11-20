@@ -426,7 +426,7 @@ public class PlanUtils {
         @Override
         public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
             DataType dataType = columnTypes.getOrDefault(unboundSlot.getName(), VarcharType.MAX_VARCHAR_TYPE);
-            return new SlotReference(unboundSlot.getName(), dataType);
+            return new SlotReference(unboundSlot.getName(), dataType, unboundSlot.isNameFromChild());
         }
     }
 

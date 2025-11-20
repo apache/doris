@@ -36,7 +36,7 @@ class TopnToMaxTest extends ExpressionRewriteTestHelper {
                 bottomUp(TopnToMax.INSTANCE)
         ));
 
-        Slot slot = new SlotReference("a", StringType.INSTANCE);
+        Slot slot = new SlotReference("a", StringType.INSTANCE, false);
         assertRewrite(new TopN(slot, Literal.of(1)), new Max(slot));
     }
 }
