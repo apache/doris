@@ -175,6 +175,9 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     rowset_meta->set_index_disk_size(24);
     rowset_meta->set_empty(false);
 
+    TabletSchemaPB* rowset_schema = rowset_meta->mutable_tablet_schema();
+    rowset_schema->CopyFrom(*schema_pb);
+
     // new ids
     int64_t tablet_id = 20006;
     int64_t replica_id = 2;
@@ -185,6 +188,56 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     // save the meta file
     std::string meta_file = clone_dir + "/" + std::to_string(tablet_id) + ".hdr";
     EXPECT_TRUE(TabletMeta::save(meta_file, tablet_meta_pb).ok());
+
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_id(tablet_id);
+    create_tablet_req.__set_replica_id(replica_id);
+    create_tablet_req.__set_table_id(table_id);
+    create_tablet_req.__set_partition_id(partition_id);
+    create_tablet_req.__set_version(1);
+
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_schema_hash(schema_hash);
+    tablet_schema.__set_short_key_column_count(schema_pb->num_short_key_columns());
+    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+
+    std::vector<TColumn> columns;
+    for (int i = 0; i < schema_pb->column_size(); i++) {
+        const ColumnPB& column_pb = schema_pb->column(i);
+        TColumn tcolumn;
+        tcolumn.__set_column_name(column_pb.name());
+        tcolumn.__set_is_key(column_pb.is_key());
+        TColumnType col_type;
+        col_type.__set_type(TPrimitiveType::INT);
+        tcolumn.__set_column_type(col_type);
+        tcolumn.__set_is_allow_null(column_pb.is_nullable());
+        if (!column_pb.is_key()) {
+            tcolumn.__set_aggregation_type(TAggregationType::SUM);
+        }
+        columns.push_back(tcolumn);
+    }
+    tablet_schema.__set_columns(columns);
+
+    std::vector<TOlapTableIndex> indexes;
+    for (int i = 0; i < schema_pb->index_size(); i++) {
+        TOlapTableIndex tindex;
+        tindex.__set_index_id(2001 + i);
+        tindex.__set_index_name("test_index");
+        tindex.__set_index_type(TIndexType::BITMAP);
+        tindex.__set_columns({"k1"});
+        tindex.__set_column_unique_ids({0});
+        indexes.push_back(tindex);
+    }
+    tablet_schema.__set_indexes(indexes);
+
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    std::vector<DataDir*> stores;
+    stores.push_back(_data_dir);
+    RuntimeProfile profile("CreateTablet");
+
+    Status status = _engine->tablet_manager()->create_tablet(create_tablet_req, stores, &profile);
+    EXPECT_TRUE(status.ok()) << "Failed to create tablet: " << status;
 
     auto result = _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, tablet_id, replica_id,
                                                               table_id, partition_id, schema_hash);
@@ -206,7 +259,7 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     // verify index
     EXPECT_EQ(converted_meta_pb.schema().index_size(), 1);
     const TabletIndexPB& converted_index = converted_meta_pb.schema().index(0);
-    EXPECT_EQ(converted_index.index_id(), 1001);
+    EXPECT_EQ(converted_index.index_id(), 2001);
     EXPECT_EQ(converted_index.index_name(), "test_index");
     EXPECT_EQ(converted_index.index_type(), IndexType::BITMAP);
     EXPECT_EQ(converted_index.col_unique_id_size(), 1);
@@ -224,5 +277,20 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     EXPECT_EQ(converted_rowset_meta.end_version(), 1);
     EXPECT_EQ(converted_rowset_meta.num_rows(), 100);
     EXPECT_EQ(converted_rowset_meta.total_disk_size(), 1024);
+    EXPECT_TRUE(converted_rowset_meta.has_tablet_schema());
+
+    // verify rowset schema
+    const TabletSchemaPB& converted_rowset_schema = converted_rowset_meta.tablet_schema();
+    EXPECT_EQ(converted_rowset_schema.num_short_key_columns(), 1);
+    EXPECT_EQ(converted_rowset_schema.column_size(), 2);
+    EXPECT_EQ(converted_rowset_schema.index_size(), 1);
+
+    // verify rowset index
+    const TabletIndexPB& converted_rowset_index = converted_rowset_schema.index(0);
+    EXPECT_EQ(converted_rowset_index.index_id(), 2001);
+    EXPECT_EQ(converted_rowset_index.index_name(), "test_index");
+    EXPECT_EQ(converted_rowset_index.index_type(), IndexType::BITMAP);
+    EXPECT_EQ(converted_rowset_index.col_unique_id_size(), 1);
+    EXPECT_EQ(converted_rowset_index.col_unique_id(0), 0);
 }
 } // namespace doris
