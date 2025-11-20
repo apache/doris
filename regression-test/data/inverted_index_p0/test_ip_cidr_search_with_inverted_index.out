@@ -5,6 +5,7 @@
 -- !sql_without_ii_0 --
 
 -- !sql_without_ii_1 --
+5	255.255.255.255	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	true
 
 -- !sql_without_ii_2 --
 
@@ -14,7 +15,7 @@
 -- !sql_without_ii_4 --
 
 -- !sql_without_ii_5 --
-5	255.255.255.255	\N	\N
+5	255.255.255.255	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	false
 
 -- !sql_without_ii_6 --
 
@@ -27,6 +28,7 @@
 -- !sql_with_ii_0 --
 
 -- !sql_with_ii_1 --
+5	255.255.255.255	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	true
 
 -- !sql_with_ii_2 --
 
@@ -36,7 +38,7 @@
 -- !sql_with_ii_4 --
 
 -- !sql_with_ii_5 --
-5	255.255.255.255	\N	\N
+5	255.255.255.255	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	false
 
 -- !sql_with_ii_6 --
 
@@ -47,6 +49,7 @@
 -- !sql_with_ii_9 --
 
 -- !sql --
+5	255.255.255.255	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
 -- !sql --
 
@@ -54,7 +57,7 @@
 2	42.117.228.166	2001:16a0:2:200a::2
 
 -- !sql --
-5	255.255.255.255	\N
+5	255.255.255.255	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
 -- !sql --
 
