@@ -126,6 +126,7 @@ std::string FieldSchema::debug_string() const {
         ss << "]";
     } else {
         ss << ", physical_type=" << physical_type;
+        ss << " , doris_type=" << data_type->get_name();
     }
     ss << ")";
     return ss.str();

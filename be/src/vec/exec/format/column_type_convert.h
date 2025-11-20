@@ -928,21 +928,26 @@ public:
 };
 
 /*
-we treat the byte_array type in parquet
-if byte_array with logical type or converted as byte_array_utf8 used String type
-if byte_array without logical type and converted as byte_array used VarBinary type
-case 1: byte_array_utf8 in parquet -> string column in table
-case 2: byte_array in parquet -> binary column in table
-case 3: byte_array_utf8 in parquet -> binary column in table
-case 4: byte_array in parquet ->  string column in table
-so:
-case 1: src_logical_type is string,  dst_logical_type is string  => no convert
-case 2: src_logical_type is binary,  dst_logical_type is binary  => no convert
-case 3: src_logical_type is string,  dst_logical_type is binary  => need convert
-    and _cached_src_physical_type is string, so need handle here VarBinaryConverter<TYPE_STRING, TYPE_VARBINARY>
-case 4: src_logical_type is binary,  dst_logical_type is string  => need convert
-    _cached_src_physical_type is string still (see get_physical_column function), although src_logical_type is binary, and we except is varbinary column
-    but in order to compatibility and simplicity, so need handle here VarBinaryConverter<TYPE_STRING, TYPE_STRING>
+VarBinaryConverter handles type conversions between String and VarBinary types when reading Parquet files.
+
+Background:
+- Parquet BYTE_ARRAY with UTF8 logical type -> read as String in Doris
+- Parquet BYTE_ARRAY without logical type -> read as VarBinary in Doris
+
+Conversion Cases:
+┌─────────────────────────┬──────────────────────┬─────────────────────┬─────────────────────────────┐
+│ Case │ Parquet Type        │ Table Column Type    │ Action              │ Converter                   │
+├─────────────────────────┼──────────────────────┼─────────────────────┼─────────────────────────────┤
+│ 1    │ BYTE_ARRAY (UTF8)   │ String               │ No conversion       │ N/A (ConsistentConverter)   │
+│ 2    │ BYTE_ARRAY (binary) │ VarBinary            │ No conversion       │ N/A (ConsistentConverter)   │
+│ 3    │ BYTE_ARRAY (UTF8)   │ VarBinary            │ String -> VarBinary │ VarBinaryConverter<STRING, VARBINARY> │
+│ 4    │ BYTE_ARRAY (binary) │ String               │ VarBinary -> String │ VarBinaryConverter<STRING, STRING>    │
+└─────────────────────────┴──────────────────────┴─────────────────────┴─────────────────────────────┘
+
+Note on Case 4:
+Even though the Parquet logical type is binary, _cached_src_physical_type remains STRING type
+(see get_physical_column function). For compatibility and simplicity, we use VarBinaryConverter<STRING, STRING>
+instead of creating a separate VarBinary column type.
 */
 
 template <PrimitiveType FromPtype, PrimitiveType ToPtype>
