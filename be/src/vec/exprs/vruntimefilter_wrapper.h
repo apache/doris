@@ -68,7 +68,13 @@ public:
                           uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,
                           bool* can_filter_all) const override;
 
-    uint64_t get_digest(uint64_t seed) const override { return _impl->get_digest(seed); }
+    uint64_t get_digest(uint64_t seed) const override {
+        seed = _impl->get_digest(seed);
+        if (seed) {
+            return HashUtil::crc_hash64(&_null_aware, sizeof(_null_aware), seed);
+        }
+        return seed;
+    }
 
     VExprSPtr get_impl() const override { return _impl; }
 
