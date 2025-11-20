@@ -78,6 +78,7 @@ public class HeartbeatMgr extends MasterDaemon {
     private final ExecutorService executor;
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
+    private final ExecutorService abortTxnExecutor;
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -86,6 +87,8 @@ public class HeartbeatMgr extends MasterDaemon {
         this.nodeMgr = nodeMgr;
         this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
+        this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
+                Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -195,7 +198,7 @@ public class HeartbeatMgr extends MasterDaemon {
                         // oldStartTime > 0 means it is not the first heartbeat
                         if (!isReplay && Config.enable_abort_txn_by_checking_coordinator_be
                                 && oldStartTime != newStartTime && oldStartTime > 0) {
-                            submitAbortTxnTask(() -> Env.getCurrentGlobalTransactionMgr()
+                            submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
                                     .abortTxnWhenCoordinateBeRestart(be.getId(), be.getHost(), newStartTime),
                                     "restart");
                         }
@@ -205,7 +208,7 @@ public class HeartbeatMgr extends MasterDaemon {
                         if (!isReplay && System.currentTimeMillis() - be.getLastUpdateMs()
                                 >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L
                                 && be.getLastUpdateMs() > 0) {
-                            submitAbortTxnTask(() -> Env.getCurrentGlobalTransactionMgr()
+                            submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
                                     .abortTxnWhenCoordinateBeDown(be.getId(), be.getHost(), 100), "down");
                         }
                     }
@@ -233,21 +236,24 @@ public class HeartbeatMgr extends MasterDaemon {
         return false;
     }
 
-    private void submitAbortTxnTask(Runnable task, String reason) {
-        Thread thread = new Thread(() -> {
-            long start = System.currentTimeMillis();
-            LOG.info("start abort txn task, reason={}, start_ts={}", reason, start);
-            try {
-                task.run();
-                long duration = System.currentTimeMillis() - start;
-                LOG.info("finish abort txn task, reason={}, start_ts={}, cost_ms={}", reason, start, duration);
-            } catch (Exception e) {
-                long duration = System.currentTimeMillis() - start;
-                LOG.warn("abort txn task({}) failed, start_ts={}, cost_ms={}", reason, start, duration, e);
-            }
-        }, "abort-txn-thread");
-        thread.setDaemon(true);
-        thread.start();
+    private void submitAbortTxnTaskByExecutor(Runnable task, String reason) {
+        long start = System.currentTimeMillis();
+        try {
+            abortTxnExecutor.submit(() -> {
+                LOG.info("start abort txn task, reason={}, start_ts={}", reason, start);
+                try {
+                    task.run();
+                    long duration = System.currentTimeMillis() - start;
+                    LOG.info("finish abort txn task, reason={}, start_ts={}, cost_ms={}", reason, start, duration);
+                } catch (Exception e) {
+                    long duration = System.currentTimeMillis() - start;
+                    LOG.warn("abort txn task({}) failed, start_ts={}, cost_ms={}", reason, start, duration, e);
+                }
+            });
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - start;
+            LOG.warn("failed to submit abort txn task({}), start_ts={}, cost_ms={}", reason, start, duration, e);
+        }
     }
 
     // backend heartbeat

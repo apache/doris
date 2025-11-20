@@ -3796,12 +3796,6 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
-    bool inject_error = false;
-    TEST_SYNC_POINT_CALLBACK("MetaServiceImpl::abort_txn_with_coordinator", &inject_error);
-    if (inject_error) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-        err = TxnErrorCode::TXN_TOO_OLD;
-    }
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
         code = cast_as<ErrCategory::CREATE>(err);

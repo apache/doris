@@ -31,40 +31,16 @@ suite("test_cloud_add_backend_heartbeat", 'p0, docker') {
     ]
     options.setFeNum(1)
     options.setBeNum(1)
+    options.enableDebugPoints()
     options.cloudMode = true
-
-    // curl "175.43.101.1:5000/MetaService/http/v1/injection_point?token=greedisgood9999&op=set&name=resource_manager::set_safe_drop_time&behavior=change_args&value=[-1]"
-    def inject_to_ms_api = { msHttpPort, key, value, check_func ->
-        httpTest {
-            op "get"
-            endpoint msHttpPort
-            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=change_args&value=${value}"
-            check check_func
-        }
-    }
-
-    def enable_ms_inject_api = { msHttpPort, check_func ->
-        httpTest {
-            op "get"
-            endpoint msHttpPort
-            uri "/MetaService/http/v1/injection_point?token=${token}&op=enable"
-            check check_func
-        }
-    }
 
     docker(options) {
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
         logger.info("ms1 addr={}, port={}, ms endpoint={}", ms.host, ms.httpPort, msHttpPort)
-        // inject point, to change abort_txn_with_coordinator
-        inject_to_ms_api.call(msHttpPort, "MetaServiceImpl::abort_txn_with_coordinator", URLEncoder.encode('[true]', "UTF-8")) {
-                respCode, body ->
-                    log.info("inject MetaServiceImpl::abort_txn_with_coordinator resp: ${body} ${respCode}".toString()) 
-        }
-        enable_ms_inject_api.call(msHttpPort) {
-            respCode, body ->
-            log.info("enable inject resp: ${body} ${respCode}".toString()) 
-        }
+
+        GetDebugPoint().enableDebugPointForAllFEs("FE.abortTxnWhenCoordinateBeRestart.slow")
+
         cluster.addBackend(10, "new_cluster")
 
         sql """admin set frontend config("cloud_tablet_rebalancer_interval_second"="3");"""
