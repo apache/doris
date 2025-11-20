@@ -158,18 +158,17 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
 
     std::unordered_map<doris::ColumnId, std::unordered_map<const doris::vectorized::VExpr*, bool>>
             common_expr_inverted_index_status;
-    auto inverted_index_context = std::make_shared<doris::vectorized::InvertedIndexContext>(
+    auto inverted_index_context = std::make_shared<doris::vectorized::IndexExecContext>(
             std::vector<doris::ColumnId>(),
             std::vector<std::unique_ptr<doris::segment_v2::IndexIterator>>(),
             std::vector<doris::vectorized::IndexFieldNameAndTypePair>(),
             common_expr_inverted_index_status, nullptr);
-    expr_ctx.set_inverted_index_context(inverted_index_context);
+    expr_ctx.set_index_context(inverted_index_context);
     doris::RuntimeState state;
     doris::RowDescriptor row_desc;
     EXPECT_TRUE(in_expr->prepare(&state, row_desc, &expr_ctx).ok());
     EXPECT_TRUE(in_expr->evaluate_inverted_index(&expr_ctx, 100).ok());
-    EXPECT_FALSE(expr_ctx.get_inverted_index_context()->has_inverted_index_result_for_expr(
-            in_expr.get()));
-    EXPECT_TRUE(expr_ctx.get_inverted_index_context()->_inverted_index_result_bitmap.empty());
-    EXPECT_TRUE(expr_ctx.get_inverted_index_context()->_expr_inverted_index_status.empty());
+    EXPECT_FALSE(expr_ctx.get_index_context()->has_index_result_for_expr(in_expr.get()));
+    EXPECT_TRUE(expr_ctx.get_index_context()->_index_result_bitmap.empty());
+    EXPECT_TRUE(expr_ctx.get_index_context()->_expr_index_status.empty());
 }
