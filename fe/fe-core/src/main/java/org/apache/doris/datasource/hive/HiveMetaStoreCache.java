@@ -107,6 +107,7 @@ public class HiveMetaStoreCache {
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
     // After hive 3, transactional table's will have file '_orc_acid_version' with value >= '2'.
     public static final String HIVE_ORC_ACID_VERSION_FILE = "_orc_acid_version";
+    public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final HMSExternalCatalog catalog;
     private JobConf jobConf;
@@ -285,11 +286,12 @@ public class HiveMetaStoreCache {
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 
-    public ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
+    private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
-        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        Preconditions.checkState(partitionValues.size() == types.size(),
+                ERR_CACHE_INCONSISTENCY + partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
@@ -452,6 +454,7 @@ public class HiveMetaStoreCache {
         return getPartitionValues(key);
     }
 
+    @VisibleForTesting
     public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
         return partitionValuesCache.get(key);
     }
