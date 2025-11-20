@@ -601,7 +601,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column m   Map<STRING, INT>   AFTER username """
+        sql """ alter  table ${tbName1} add  column m   Map<STRING, INT> key  AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
         waitForSchemaChangeDone({
             sql getTableStatusSql
@@ -629,7 +629,7 @@ suite("test_agg_schema_value_add", "p0") {
     expectException({
         sql initTable
         sql initTableData
-        sql """ alter  table ${tbName1} add  column   c_array  ARRAY<int(11)>   AFTER username """
+        sql """ alter  table ${tbName1} add  column   c_array  ARRAY<int(11)> key AFTER username """
         insertSql = " insert into ${tbName1} values(923456689, 'Alice', [6,7,8], 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
