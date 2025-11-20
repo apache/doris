@@ -118,6 +118,7 @@ private:
     std::unique_ptr<rocksdb::DB> _db;
     rocksdb::Options _options;
     std::unique_ptr<rocksdb::ColumnFamilyHandle> _file_cache_meta_cf_handle;
+    std::atomic<bool> _initialized {false};
 
     enum class OperationType { PUT, DELETE };
     struct WriteOperation {
