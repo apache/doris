@@ -31,22 +31,19 @@ CustomNormalizer::CustomNormalizer(Builder* builder) {
 }
 
 ReaderPtr CustomNormalizer::init_reader(ReaderPtr reader) {
-    for (const auto& char_filter_factory : _char_filters) {
-        reader = char_filter_factory->create(reader);
+    for (const auto& filter : _char_filters) {
+        reader = filter->create(reader);
     }
     return reader;
 }
 
 TokenStreamComponentsPtr CustomNormalizer::create_components() {
-    auto tokenizer = _keyword_tokenizer->create();
-
-    TokenStreamPtr token_stream = tokenizer;
-
-    for (const auto& token_filter_factory : _token_filters) {
-        token_stream = token_filter_factory->create(token_stream);
+    auto tk = _keyword_tokenizer->create();
+    TokenStreamPtr ts = tk;
+    for (const auto& filter : _token_filters) {
+        ts = filter->create(ts);
     }
-
-    return std::make_shared<TokenStreamComponents>(tokenizer, token_stream);
+    return std::make_shared<TokenStreamComponents>(tk, ts);
 }
 
 TokenStream* CustomNormalizer::tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) {
@@ -61,19 +58,20 @@ TokenStream* CustomNormalizer::reusableTokenStream(const TCHAR* fieldName,
 }
 
 TokenStream* CustomNormalizer::tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) {
-    auto filtered_reader = init_reader(reader);
-    auto components = create_components();
-    components->set_reader(filtered_reader);
-    return components->get_token_stream().get();
+    auto r = init_reader(reader);
+    auto token_stream = create_components();
+    token_stream->set_reader(r);
+    token_stream->get_token_stream()->reset();
+    return new TokenStreamWrapper(token_stream->get_token_stream());
 }
 
 TokenStream* CustomNormalizer::reusableTokenStream(const TCHAR* fieldName,
                                                    const ReaderPtr& reader) {
+    auto r = init_reader(reader);
     if (_reuse_token_stream == nullptr) {
         _reuse_token_stream = create_components();
     }
-    auto filtered_reader = init_reader(reader);
-    _reuse_token_stream->set_reader(filtered_reader);
+    _reuse_token_stream->set_reader(r);
     return _reuse_token_stream->get_token_stream().get();
 }
 
@@ -82,17 +80,13 @@ CustomNormalizerPtr CustomNormalizer::build_custom_normalizer(
     if (config == nullptr) {
         throw Exception(ErrorCode::ILLEGAL_STATE, "Null configuration detected.");
     }
-
     CustomNormalizer::Builder builder;
-
     for (const auto& filter_config : config->get_char_filter_configs()) {
         builder.add_char_filter(filter_config->get_name(), filter_config->get_params());
     }
-
     for (const auto& filter_config : config->get_token_filter_configs()) {
         builder.add_token_filter(filter_config->get_name(), filter_config->get_params());
     }
-
     return builder.build();
 }
 

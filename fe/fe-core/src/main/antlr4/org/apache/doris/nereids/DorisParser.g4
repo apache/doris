@@ -2105,6 +2105,7 @@ nonReserved
     | NGRAM_BF
     | NO
     | NON_NULLABLE
+    | NORMALIZER
     | NULLS
     | OF
     | OFF

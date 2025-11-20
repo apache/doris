@@ -20,9 +20,12 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
+#include <unordered_set>
 #include <utility>
 
 namespace doris {
+
+const std::unordered_set<std::string> IndexPolicyMgr::BUILTIN_NORMALIZERS = {"lowercase"};
 
 void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& policys_to_update,
                                           const std::vector<int64_t>& policys_to_delete) {
@@ -90,22 +93,25 @@ AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
 
     auto name_it = _name_to_id.find(name);
     if (name_it == _name_to_id.end()) {
+        if (is_builtin_normalizer(name)) {
+            return build_builtin_normalizer(name);
+        }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
 
     auto policy_it = _policys.find(name_it->second);
     if (policy_it == _policys.end()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with id: " + name);
     }
 
     const auto& index_policy = policy_it->second;
-
-    auto type_it = index_policy.properties.find(PROP_TYPE);
-    if (type_it != index_policy.properties.end() && type_it->second == "normalizer") {
-        return build_normalizer_from_policy(index_policy);
-    } else {
+    if (index_policy.type == TIndexPolicyType::ANALYZER) {
         return build_analyzer_from_policy(index_policy);
+    } else if (index_policy.type == TIndexPolicyType::NORMALIZER) {
+        return build_normalizer_from_policy(index_policy);
     }
+
+    throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with type: " + name);
 }
 
 AnalyzerPtr IndexPolicyMgr::build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer) {
@@ -217,6 +223,23 @@ void IndexPolicyMgr::process_filter_configs(
             add_config_func(filter_name, {});
         }
     }
+}
+
+bool IndexPolicyMgr::is_builtin_normalizer(const std::string& name) {
+    return BUILTIN_NORMALIZERS.contains(name);
+}
+
+AnalyzerPtr IndexPolicyMgr::build_builtin_normalizer(const std::string& name) {
+    using namespace segment_v2::inverted_index;
+
+    if (name == "lowercase") {
+        CustomNormalizerConfig::Builder builder;
+        builder.add_token_filter_config("lowercase", Settings {});
+        auto config = builder.build();
+        return CustomNormalizer::build_custom_normalizer(config);
+    }
+
+    throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown builtin normalizer: " + name);
 }
 
 } // namespace doris

@@ -154,8 +154,17 @@ public class InvertedIndexUtil {
     }
 
     public static String getInvertedIndexAnalyzerName(Map<String, String> properties) {
-        String analyzerName = properties == null ? null : properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
-        return analyzerName != null ? analyzerName : "";
+        if (properties == null) {
+            return "";
+        }
+
+        String analyzerName = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (analyzerName != null && !analyzerName.isEmpty()) {
+            return analyzerName;
+        }
+
+        String normalizerName = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        return normalizerName != null ? normalizerName : "";
     }
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
@@ -223,6 +232,7 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_STOPWORDS_KEY,
                 INVERTED_INDEX_DICT_COMPRESSION_KEY,
                 INVERTED_INDEX_ANALYZER_NAME_KEY,
+                INVERTED_INDEX_NORMALIZER_NAME_KEY,
                 INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY
         ));
 

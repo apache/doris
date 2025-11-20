@@ -345,6 +345,7 @@ public:
         _properties.erase(INVERTED_INDEX_PARSER_KEY);
         _properties.erase(INVERTED_INDEX_PARSER_KEY_ALIAS);
         _properties.erase(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        _properties.erase(INVERTED_INDEX_NORMALIZER_NAME_KEY);
     }
 
     std::string field_pattern() const {

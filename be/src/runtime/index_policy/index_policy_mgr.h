@@ -20,6 +20,7 @@
 #include <gen_cpp/AgentService_types.h>
 
 #include <shared_mutex>
+#include <unordered_set>
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/normalizer/custom_normalizer.h"
@@ -44,16 +45,21 @@ private:
     AnalyzerPtr build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer);
     AnalyzerPtr build_normalizer_from_policy(const TIndexPolicy& index_policy_normalizer);
 
-    constexpr static auto PROP_TOKENIZER = "tokenizer";
-    constexpr static auto PROP_CHAR_FILTER = "char_filter";
-    constexpr static auto PROP_TOKEN_FILTER = "token_filter";
-    constexpr static auto PROP_TYPE = "type";
-
     void process_filter_configs(
             const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
             const std::string& error_prefix,
             std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                     add_config_func);
+
+    bool is_builtin_normalizer(const std::string& name);
+    AnalyzerPtr build_builtin_normalizer(const std::string& name);
+
+    constexpr static auto PROP_TOKENIZER = "tokenizer";
+    constexpr static auto PROP_CHAR_FILTER = "char_filter";
+    constexpr static auto PROP_TOKEN_FILTER = "token_filter";
+    constexpr static auto PROP_TYPE = "type";
+
+    static const std::unordered_set<std::string> BUILTIN_NORMALIZERS;
 
     std::shared_mutex _mutex;
 

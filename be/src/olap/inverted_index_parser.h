@@ -98,6 +98,7 @@ const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
 
 const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
+const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
