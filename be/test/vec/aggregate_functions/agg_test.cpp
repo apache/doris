@@ -232,7 +232,7 @@ TEST(AggTest, datetime_min_max_test) {
         register_aggregate_function_minmax(factory);
         DataTypePtr data_type = std::make_shared<DataTypeDateTime>();
         DataTypes data_types = {data_type};
-        auto agg_function = factory.get("min", data_types, false, -1);
+        auto agg_function = factory.get("min", data_types, data_type, false, -1);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
@@ -257,7 +257,7 @@ TEST(AggTest, datetime_min_max_test) {
         register_aggregate_function_minmax(factory);
         DataTypePtr data_type = std::make_shared<DataTypeDateTime>();
         DataTypes data_types = {data_type};
-        auto agg_function = factory.get("max", data_types, false, -1);
+        auto agg_function = factory.get("max", data_types, data_type, false, -1);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
@@ -292,7 +292,7 @@ TEST(AggTest, date_replace_test) {
     register_aggregate_function_replace_reader_load(factory);
     DataTypePtr data_type = std::make_shared<DataTypeDate>();
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get("replace_load", data_types, false, -1);
+    auto agg_function = factory.get("replace_load", data_types, data_type, false, -1);
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -336,7 +336,7 @@ TEST(AggTest, datetime_replace_if_not_null_test) {
     register_aggregate_function_replace_reader_load(factory);
     DataTypePtr data_type = make_nullable(std::make_shared<DataTypeDateTime>());
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get("replace_if_not_null_load", data_types, true, -1);
+    auto agg_function = factory.get("replace_if_not_null_load", data_types, data_type, true, -1);
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
