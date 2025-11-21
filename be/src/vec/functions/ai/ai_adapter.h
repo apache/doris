@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "http/http_client.h"
 #include "http/http_headers.h"
@@ -96,8 +97,16 @@ public:
     // Set authentication headers for the HTTP client
     virtual Status set_authentication(HttpClient* client) const = 0;
 
-    virtual void init(const TAIResource& config) { _config = config; }
+    virtual void init(const TAIResource& config) {
+        LOG(INFO) << "[AI_CHECK]: Initializing AI adapter with provider type: "
+                  << config.provider_type << ", model: " << config.model_name
+                  << ", endpoint: " << config.endpoint;
+        _config = config;
+    }
     virtual void init(const AIResource& config) {
+        LOG(INFO) << "[AI_CHECK]: Initializing AI adapter from AIResource with provider type: "
+                  << config.provider_type << ", model: " << config.model_name
+                  << ", endpoint: " << config.endpoint;
         _config.endpoint = config.endpoint;
         _config.provider_type = config.provider_type;
         _config.model_name = config.model_name;
@@ -158,14 +167,18 @@ protected:
 class VoyageAIAdapter : public AIAdapter {
 public:
     Status set_authentication(HttpClient* client) const override {
+        LOG(INFO) << "[AI_CHECK]: Setting VoyageAI authentication";
         client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
         client->set_content_type("application/json");
+        LOG(INFO) << "[AI_CHECK]: VoyageAI authentication set successfully";
 
         return Status::OK();
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building VoyageAI embedding request with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -192,20 +205,24 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: VoyageAI embedding request built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing VoyageAI embedding response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse VoyageAI embedding response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
         if (!doc.HasMember("data") || !doc["data"].IsArray()) {
+            LOG(ERROR) << "[AI_CHECK]: Invalid VoyageAI embedding response format";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
@@ -227,8 +244,10 @@ public:
         }*/
         const auto& data = doc["data"];
         results.reserve(data.Size());
+        LOG(INFO) << "[AI_CHECK]: Processing " << data.Size() << " embedding entries";
         for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
             if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+                LOG(ERROR) << "[AI_CHECK]: Invalid embedding entry at index " << i;
                 return Status::InternalError("Invalid {} response format: {}",
                                              _config.provider_type, response_body);
             }
@@ -237,6 +256,8 @@ public:
                            std::back_inserter(results.emplace_back()),
                            [](const auto& val) { return val.GetFloat(); });
         }
+        LOG(INFO) << "[AI_CHECK]: VoyageAI embedding response parsed successfully, "
+                  << results.size() << " embeddings extracted";
 
         return Status::OK();
     }
@@ -257,6 +278,7 @@ class LocalAdapter : public AIAdapter {
 public:
     // Local deployments typically don't need authentication
     Status set_authentication(HttpClient* client) const override {
+        LOG(INFO) << "[AI_CHECK]: Setting Local adapter authentication (no auth required)";
         client->set_content_type("application/json");
         return Status::OK();
     }
@@ -264,25 +286,31 @@ public:
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Local adapter request payload with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
         if (!_config.model_name.empty()) {
+            LOG(INFO) << "[AI_CHECK]: Using model: " << _config.model_name;
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
         }
 
         // If 'temperature' and 'max_tokens' are set, add them to the request body.
         if (_config.temperature != -1) {
+            LOG(INFO) << "[AI_CHECK]: Setting temperature: " << _config.temperature;
             doc.AddMember("temperature", _config.temperature, allocator);
         }
         if (_config.max_tokens != -1) {
+            LOG(INFO) << "[AI_CHECK]: Setting max_tokens: " << _config.max_tokens;
             doc.AddMember("max_tokens", _config.max_tokens, allocator);
         }
 
         rapidjson::Value messages(rapidjson::kArrayType);
         if (system_prompt && *system_prompt) {
+            LOG(INFO) << "[AI_CHECK]: Adding system prompt with length " << strlen(system_prompt);
             rapidjson::Value sys_msg(rapidjson::kObjectType);
             sys_msg.AddMember("role", "system", allocator);
             sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
@@ -300,16 +328,19 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: Local adapter request payload built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body,
                           std::vector<std::string>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Local adapter response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse Local adapter response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
@@ -317,6 +348,7 @@ public:
         // Handle various response formats from local LLMs
         // Format 1: OpenAI-compatible format with choices/message/content
         if (doc.HasMember("choices") && doc["choices"].IsArray()) {
+            LOG(INFO) << "[AI_CHECK]: Parsing OpenAI-compatible format";
             const auto& choices = doc["choices"];
             results.reserve(choices.Size());
 
@@ -331,63 +363,78 @@ public:
             }
 
             if (!results.empty()) {
+                LOG(INFO) << "[AI_CHECK]: Successfully parsed " << results.size()
+                          << " results from choices format";
                 return Status::OK();
             }
         }
 
         // Format 2: Simple response with just "text" or "content" field
         if (doc.HasMember("text") && doc["text"].IsString()) {
+            LOG(INFO) << "[AI_CHECK]: Parsing text format";
             results.emplace_back(doc["text"].GetString());
             return Status::OK();
         }
 
         if (doc.HasMember("content") && doc["content"].IsString()) {
+            LOG(INFO) << "[AI_CHECK]: Parsing content format";
             results.emplace_back(doc["content"].GetString());
             return Status::OK();
         }
 
         // Format 3: Response field (Ollama format)
         if (doc.HasMember("response") && doc["response"].IsString()) {
+            LOG(INFO) << "[AI_CHECK]: Parsing Ollama response format";
             results.emplace_back(doc["response"].GetString());
             return Status::OK();
         }
 
+        LOG(ERROR) << "[AI_CHECK]: Unsupported response format from local AI";
         return Status::NotSupported("Unsupported response format from local AI.");
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Local embedding request with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
         if (!_config.model_name.empty()) {
+            LOG(INFO) << "[AI_CHECK]: Setting embedding model: " << _config.model_name;
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
         }
 
         add_dimension_params(doc, allocator);
+        LOG(INFO) << "[AI_CHECK]: Added dimension parameters for Local embedding";
 
         rapidjson::Value input(rapidjson::kArrayType);
         for (const auto& msg : inputs) {
             input.PushBack(rapidjson::Value(msg.c_str(), allocator), allocator);
         }
         doc.AddMember("input", input, allocator);
+        LOG(INFO) << "[AI_CHECK]: Added " << inputs.size()
+                  << " input texts to Local embedding request";
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: Local embedding request built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Local embedding response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse Local embedding response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
@@ -396,10 +443,13 @@ public:
         rapidjson::Value embedding;
         if (doc.HasMember("data") && doc["data"].IsArray()) {
             // "data":["object":"embedding", "embedding":[0.1, 0.2...], "index":0]
+            LOG(INFO) << "[AI_CHECK]: Parsing Local embedding response in 'data' format";
             const auto& data = doc["data"];
             results.reserve(data.Size());
+            LOG(INFO) << "[AI_CHECK]: Processing " << data.Size() << " Local embedding entries";
             for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
                 if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+                    LOG(ERROR) << "[AI_CHECK]: Invalid Local embedding entry at index " << i;
                     return Status::InternalError("Invalid {} response format",
                                                  _config.provider_type);
                 }
@@ -410,16 +460,20 @@ public:
             }
         } else if (doc.HasMember("embedding") && doc["embedding"].IsArray()) {
             // "embedding":[0.1, 0.2, ...]
+            LOG(INFO) << "[AI_CHECK]: Parsing Local embedding response in 'embedding' format";
             results.reserve(1);
             embedding = doc["embedding"];
             std::transform(embedding.Begin(), embedding.End(),
                            std::back_inserter(results.emplace_back()),
                            [](const auto& val) { return val.GetFloat(); });
         } else {
+            LOG(ERROR) << "[AI_CHECK]: Invalid Local embedding response format";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
 
+        LOG(INFO) << "[AI_CHECK]: Local embedding response parsed successfully, " << results.size()
+                  << " embeddings extracted";
         return Status::OK();
     }
 };
@@ -428,8 +482,10 @@ public:
 class OpenAIAdapter : public VoyageAIAdapter {
 public:
     Status set_authentication(HttpClient* client) const override {
+        LOG(INFO) << "[AI_CHECK]: Setting OpenAI authentication";
         client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
         client->set_content_type("application/json");
+        LOG(INFO) << "[AI_CHECK]: OpenAI authentication set successfully";
 
         return Status::OK();
     }
@@ -437,11 +493,14 @@ public:
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building OpenAI request payload with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
         if (_config.endpoint.ends_with("responses")) {
+            LOG(INFO) << "[AI_CHECK]: Using OpenAI responses endpoint format";
             /*{
               "model": "gpt-4.1-mini",
               "input": [
@@ -453,18 +512,23 @@ public:
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
+            LOG(INFO) << "[AI_CHECK]: Set OpenAI model: " << _config.model_name;
 
             // If 'temperature' and 'max_tokens' are set, add them to the request body.
             if (_config.temperature != -1) {
+                LOG(INFO) << "[AI_CHECK]: Setting OpenAI temperature: " << _config.temperature;
                 doc.AddMember("temperature", _config.temperature, allocator);
             }
             if (_config.max_tokens != -1) {
+                LOG(INFO) << "[AI_CHECK]: Setting OpenAI max_output_tokens: " << _config.max_tokens;
                 doc.AddMember("max_output_tokens", _config.max_tokens, allocator);
             }
 
             // input
             rapidjson::Value input(rapidjson::kArrayType);
             if (system_prompt && *system_prompt) {
+                LOG(INFO) << "[AI_CHECK]: Adding OpenAI system prompt with length "
+                          << strlen(system_prompt);
                 rapidjson::Value sys_msg(rapidjson::kObjectType);
                 sys_msg.AddMember("role", "system", allocator);
                 sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
@@ -477,7 +541,10 @@ public:
                 input.PushBack(message, allocator);
             }
             doc.AddMember("input", input, allocator);
+            LOG(INFO) << "[AI_CHECK]: Added " << inputs.size()
+                      << " input messages to OpenAI request";
         } else {
+            LOG(INFO) << "[AI_CHECK]: Using OpenAI completions endpoint format";
             /*{
               "model": "gpt-4",
               "messages": [
@@ -489,17 +556,22 @@ public:
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
+            LOG(INFO) << "[AI_CHECK]: Set OpenAI model: " << _config.model_name;
 
             // If 'temperature' and 'max_tokens' are set, add them to the request body.
             if (_config.temperature != -1) {
+                LOG(INFO) << "[AI_CHECK]: Setting OpenAI temperature: " << _config.temperature;
                 doc.AddMember("temperature", _config.temperature, allocator);
             }
             if (_config.max_tokens != -1) {
+                LOG(INFO) << "[AI_CHECK]: Setting OpenAI max_tokens: " << _config.max_tokens;
                 doc.AddMember("max_tokens", _config.max_tokens, allocator);
             }
 
             rapidjson::Value messages(rapidjson::kArrayType);
             if (system_prompt && *system_prompt) {
+                LOG(INFO) << "[AI_CHECK]: Adding OpenAI system prompt with length "
+                          << strlen(system_prompt);
                 rapidjson::Value sys_msg(rapidjson::kObjectType);
                 sys_msg.AddMember("role", "system", allocator);
                 sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
@@ -512,28 +584,33 @@ public:
                 messages.PushBack(message, allocator);
             }
             doc.AddMember("messages", messages, allocator);
+            LOG(INFO) << "[AI_CHECK]: Added " << inputs.size() << " messages to OpenAI request";
         }
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: OpenAI request payload built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body,
                           std::vector<std::string>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing OpenAI response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse OpenAI response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
 
         if (doc.HasMember("output") && doc["output"].IsArray()) {
             /// for responses endpoint
+            LOG(INFO) << "[AI_CHECK]: Parsing OpenAI responses endpoint format";
             /*{
               "output": [
                 {
@@ -551,11 +628,13 @@ public:
             }*/
             const auto& output = doc["output"];
             results.reserve(output.Size());
+            LOG(INFO) << "[AI_CHECK]: Processing " << output.Size() << " OpenAI output entries";
 
             for (rapidjson::SizeType i = 0; i < output.Size(); i++) {
                 if (!output[i].HasMember("content") || !output[i]["content"].IsArray() ||
                     output[i]["content"].Empty() || !output[i]["content"][0].HasMember("text") ||
                     !output[i]["content"][0]["text"].IsString()) {
+                    LOG(ERROR) << "[AI_CHECK]: Invalid OpenAI output format at index " << i;
                     return Status::InternalError("Invalid output format in {} response: {}",
                                                  _config.provider_type, response_body);
                 }
@@ -564,6 +643,7 @@ public:
             }
         } else if (doc.HasMember("choices") && doc["choices"].IsArray()) {
             /// for completions endpoint
+            LOG(INFO) << "[AI_CHECK]: Parsing OpenAI completions endpoint format";
             /*{
               "object": "chat.completion",
               "model": "gpt-4",
@@ -581,11 +661,13 @@ public:
             }*/
             const auto& choices = doc["choices"];
             results.reserve(choices.Size());
+            LOG(INFO) << "[AI_CHECK]: Processing " << choices.Size() << " OpenAI choice entries";
 
             for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
                 if (!choices[i].HasMember("message") ||
                     !choices[i]["message"].HasMember("content") ||
                     !choices[i]["message"]["content"].IsString()) {
+                    LOG(ERROR) << "[AI_CHECK]: Invalid OpenAI choice format at index " << i;
                     return Status::InternalError("Invalid choice format in {} response: {}",
                                                  _config.provider_type, response_body);
                 }
@@ -593,10 +675,13 @@ public:
                 results.emplace_back(choices[i]["message"]["content"].GetString());
             }
         } else {
+            LOG(ERROR) << "[AI_CHECK]: Invalid OpenAI response format";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
 
+        LOG(INFO) << "[AI_CHECK]: OpenAI response parsed successfully, " << results.size()
+                  << " results extracted";
         return Status::OK();
     }
 
@@ -695,14 +780,18 @@ protected:
 class GeminiAdapter : public AIAdapter {
 public:
     Status set_authentication(HttpClient* client) const override {
+        LOG(INFO) << "[AI_CHECK]: Setting Gemini authentication";
         client->set_header("x-goog-api-key", _config.api_key);
         client->set_content_type("application/json");
+        LOG(INFO) << "[AI_CHECK]: Gemini authentication set successfully";
         return Status::OK();
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Gemini request payload with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -732,6 +821,8 @@ public:
 
         }*/
         if (system_prompt && *system_prompt) {
+            LOG(INFO) << "[AI_CHECK]: Adding Gemini system instruction with length "
+                      << strlen(system_prompt);
             rapidjson::Value system_instruction(rapidjson::kObjectType);
             rapidjson::Value parts(rapidjson::kArrayType);
 
@@ -756,13 +847,16 @@ public:
             contents.PushBack(content, allocator);
         }
         doc.AddMember("contents", contents, allocator);
+        LOG(INFO) << "[AI_CHECK]: Added " << inputs.size() << " content parts to Gemini request";
 
         // If 'temperature' and 'max_tokens' are set, add them to the request body.
         rapidjson::Value generationConfig(rapidjson::kObjectType);
         if (_config.temperature != -1) {
+            LOG(INFO) << "[AI_CHECK]: Setting Gemini temperature: " << _config.temperature;
             generationConfig.AddMember("temperature", _config.temperature, allocator);
         }
         if (_config.max_tokens != -1) {
+            LOG(INFO) << "[AI_CHECK]: Setting Gemini maxOutputTokens: " << _config.max_tokens;
             generationConfig.AddMember("maxOutputTokens", _config.max_tokens, allocator);
         }
         doc.AddMember("generationConfig", generationConfig, allocator);
@@ -771,20 +865,24 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: Gemini request payload built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body,
                           std::vector<std::string>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Gemini response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse Gemini response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
         if (!doc.HasMember("candidates") || !doc["candidates"].IsArray()) {
+            LOG(ERROR) << "[AI_CHECK]: Invalid Gemini response format, missing candidates";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
@@ -804,6 +902,7 @@ public:
         }*/
         const auto& candidates = doc["candidates"];
         results.reserve(candidates.Size());
+        LOG(INFO) << "[AI_CHECK]: Processing " << candidates.Size() << " Gemini candidates";
 
         for (rapidjson::SizeType i = 0; i < candidates.Size(); i++) {
             if (!candidates[i].HasMember("content") ||
@@ -812,6 +911,7 @@ public:
                 candidates[i]["content"]["parts"].Empty() ||
                 !candidates[i]["content"]["parts"][0].HasMember("text") ||
                 !candidates[i]["content"]["parts"][0]["text"].IsString()) {
+                LOG(ERROR) << "[AI_CHECK]: Invalid Gemini candidate format at index " << i;
                 return Status::InternalError("Invalid candidate format in {} response",
                                              _config.provider_type);
             }
@@ -819,11 +919,15 @@ public:
             results.emplace_back(candidates[i]["content"]["parts"][0]["text"].GetString());
         }
 
+        LOG(INFO) << "[AI_CHECK]: Gemini response parsed successfully, " << results.size()
+                  << " results extracted";
         return Status::OK();
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Gemini embedding request with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -845,8 +949,10 @@ public:
         if (!model_name.starts_with("models/")) {
             model_name = "models/" + model_name;
         }
+        LOG(INFO) << "[AI_CHECK]: Set Gemini embedding model: " << model_name;
         doc.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
         add_dimension_params(doc, allocator);
+        LOG(INFO) << "[AI_CHECK]: Added dimension parameters for Gemini embedding";
 
         rapidjson::Value content(rapidjson::kObjectType);
         for (const auto& input : inputs) {
@@ -857,25 +963,31 @@ public:
             content.AddMember("parts", parts, allocator);
         }
         doc.AddMember("content", content, allocator);
+        LOG(INFO) << "[AI_CHECK]: Added " << inputs.size()
+                  << " content parts to Gemini embedding request";
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: Gemini embedding request built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Gemini embedding response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse Gemini embedding response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
         if (!doc.HasMember("embedding") || !doc["embedding"].IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Invalid Gemini embedding response format";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
@@ -887,6 +999,7 @@ public:
         }*/
         const auto& embedding = doc["embedding"];
         if (!embedding.HasMember("values") || !embedding["values"].IsArray()) {
+            LOG(ERROR) << "[AI_CHECK]: Invalid Gemini embedding values format";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
@@ -894,6 +1007,8 @@ public:
                        std::back_inserter(results.emplace_back()),
                        [](const auto& val) { return val.GetFloat(); });
 
+        LOG(INFO) << "[AI_CHECK]: Gemini embedding response parsed successfully, extracted "
+                  << results[0].size() << " dimensions";
         return Status::OK();
     }
 
@@ -910,9 +1025,12 @@ protected:
 class AnthropicAdapter : public VoyageAIAdapter {
 public:
     Status set_authentication(HttpClient* client) const override {
+        LOG(INFO) << "[AI_CHECK]: Setting Anthropic authentication with version "
+                  << _config.anthropic_version;
         client->set_header("x-api-key", _config.api_key);
         client->set_header("anthropic-version", _config.anthropic_version);
         client->set_content_type("application/json");
+        LOG(INFO) << "[AI_CHECK]: Anthropic authentication set successfully";
 
         return Status::OK();
     }
@@ -920,6 +1038,8 @@ public:
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Anthropic request payload with " << inputs.size()
+                  << " inputs";
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -936,16 +1056,22 @@ public:
 
         // If 'temperature' and 'max_tokens' are set, add them to the request body.
         doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        LOG(INFO) << "[AI_CHECK]: Set Anthropic model: " << _config.model_name;
         if (_config.temperature != -1) {
+            LOG(INFO) << "[AI_CHECK]: Setting Anthropic temperature: " << _config.temperature;
             doc.AddMember("temperature", _config.temperature, allocator);
         }
         if (_config.max_tokens != -1) {
+            LOG(INFO) << "[AI_CHECK]: Setting Anthropic max_tokens: " << _config.max_tokens;
             doc.AddMember("max_tokens", _config.max_tokens, allocator);
         } else {
             // Keep the default value, Anthropic requires this parameter
+            LOG(INFO) << "[AI_CHECK]: Setting Anthropic default max_tokens: 2048";
             doc.AddMember("max_tokens", 2048, allocator);
         }
         if (system_prompt && *system_prompt) {
+            LOG(INFO) << "[AI_CHECK]: Adding Anthropic system prompt with length "
+                      << strlen(system_prompt);
             doc.AddMember("system", rapidjson::Value(system_prompt, allocator), allocator);
         }
 
@@ -957,24 +1083,29 @@ public:
             messages.PushBack(message, allocator);
         }
         doc.AddMember("messages", messages, allocator);
+        LOG(INFO) << "[AI_CHECK]: Added " << inputs.size() << " messages to Anthropic request";
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
+        LOG(INFO) << "[AI_CHECK]: Anthropic request payload built: " << request_body;
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body,
                           std::vector<std::string>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Anthropic response: " << response_body;
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse Anthropic response";
             return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
                                          response_body);
         }
         if (!doc.HasMember("content") || !doc["content"].IsArray()) {
+            LOG(ERROR) << "[AI_CHECK]: Invalid Anthropic response format, missing content";
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
@@ -989,11 +1120,14 @@ public:
         }*/
         const auto& content = doc["content"];
         results.reserve(1);
+        LOG(INFO) << "[AI_CHECK]: Processing " << content.Size() << " Anthropic content blocks";
 
         std::string result;
         for (rapidjson::SizeType i = 0; i < content.Size(); i++) {
             if (!content[i].HasMember("type") || !content[i]["type"].IsString() ||
                 !content[i].HasMember("text") || !content[i]["text"].IsString()) {
+                LOG(WARNING) << "[AI_CHECK]: Skipping invalid Anthropic content block at index "
+                             << i;
                 continue;
             }
 
@@ -1006,6 +1140,9 @@ public:
         }
 
         results.emplace_back(std::move(result));
+        LOG(INFO)
+                << "[AI_CHECK]: Anthropic response parsed successfully, extracted text with length "
+                << results[0].length();
         return Status::OK();
     }
 };
@@ -1013,34 +1150,44 @@ public:
 // Mock adapter used only for UT to bypass real HTTP calls and return deterministic data.
 class MockAdapter : public AIAdapter {
 public:
-    Status set_authentication(HttpClient* client) const override { return Status::OK(); }
+    Status set_authentication(HttpClient* client) const override {
+        LOG(INFO) << "[AI_CHECK]: Setting Mock adapter authentication (no auth required)";
+        return Status::OK();
+    }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Mock request payload (no-op)";
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body,
                           std::vector<std::string>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Mock response: " << response_body;
         results.emplace_back(response_body);
+        LOG(INFO) << "[AI_CHECK]: Mock response parsed successfully";
         return Status::OK();
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
+        LOG(INFO) << "[AI_CHECK]: Building Mock embedding request (no-op)";
         return Status::OK();
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
+        LOG(INFO) << "[AI_CHECK]: Parsing Mock embedding response: " << response_body;
         rapidjson::Document doc;
         doc.SetObject();
         doc.Parse(response_body.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
+            LOG(ERROR) << "[AI_CHECK]: Failed to parse Mock embedding response";
             return Status::InternalError("Failed to parse embedding response");
         }
         if (!doc.HasMember("embedding") || !doc["embedding"].IsArray()) {
+            LOG(ERROR) << "[AI_CHECK]: Invalid Mock embedding response format";
             return Status::InternalError("Invalid embedding response format");
         }
 
@@ -1048,6 +1195,8 @@ public:
         std::transform(doc["embedding"].Begin(), doc["embedding"].End(),
                        std::back_inserter(results.emplace_back()),
                        [](const auto& val) { return val.GetFloat(); });
+        LOG(INFO) << "[AI_CHECK]: Mock embedding response parsed successfully, extracted "
+                  << results[0].size() << " dimensions";
         return Status::OK();
     }
 };
@@ -1055,6 +1204,7 @@ public:
 class AIAdapterFactory {
 public:
     static std::shared_ptr<AIAdapter> create_adapter(const std::string& provider_type) {
+        LOG(INFO) << "[AI_CHECK]: Creating AI adapter for provider type: " << provider_type;
         static const std::unordered_map<std::string, std::function<std::shared_ptr<AIAdapter>()>>
                 adapters = {{"LOCAL", []() { return std::make_shared<LocalAdapter>(); }},
                             {"OPENAI", []() { return std::make_shared<OpenAIAdapter>(); }},
@@ -1070,7 +1220,13 @@ public:
                             {"MOCK", []() { return std::make_shared<MockAdapter>(); }}};
 
         auto it = adapters.find(provider_type);
-        return (it != adapters.end()) ? it->second() : nullptr;
+        if (it != adapters.end()) {
+            LOG(INFO) << "[AI_CHECK]: Successfully created adapter for " << provider_type;
+            return it->second();
+        } else {
+            LOG(ERROR) << "[AI_CHECK]: Unknown provider type: " << provider_type;
+            return nullptr;
+        }
     }
 };
 

@@ -29,12 +29,16 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Base class for AI related functions.
  */
 public abstract class AIFunction extends ScalarFunction
         implements PropagateNullable, ExplicitlyCastableSignature {
+    private static final Logger LOG = LogManager.getLogger(AIFunction.class);
+
     /**
      * constructor with at least 1 argument.
      */
@@ -57,6 +61,7 @@ public abstract class AIFunction extends ScalarFunction
 
             //Check if the resource is valid
             String resourceName = getArgument(0).toString().replaceAll("^['\"]|['\"]$", "");
+            LOG.info("[AI_CHECK]: Checking AI resource '{}'", resourceName);
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
             if (!(resource instanceof AIResource)) {
                 throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
@@ -73,6 +78,7 @@ public abstract class AIFunction extends ScalarFunction
      */
     public static String getResourceName() throws AnalysisException {
         String resourceName = ConnectContext.get().getSessionVariable().defaultAIResource;
+        LOG.info("[AI_CHECK]: Using default AI resource from session variable: {}", resourceName);
         if (Strings.isNullOrEmpty(resourceName)) {
             throw new AnalysisException("Please specify the AI Resource in argument "
                     + "or session variable.");
