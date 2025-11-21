@@ -73,9 +73,7 @@ class Block {
 
 private:
     using Container = ColumnsWithTypeAndName;
-    using IndexByName = phmap::flat_hash_map<String, size_t>;
     Container data;
-    IndexByName index_by_name;
 
 public:
     Block() = default;
@@ -108,8 +106,6 @@ public:
     void erase_tail(size_t start);
     /// remove the columns at the specified positions
     void erase(const std::set<size_t>& positions);
-    /// remove the column with the specified name
-    void erase(const String& name);
     // T was std::set<int>, std::vector<int>, std::list<int>
     template <class T>
     void erase_not_in(const T& container) {
@@ -120,7 +116,13 @@ public:
         std::swap(data, new_data);
     }
 
-    void initialize_index_by_name();
+    std::unordered_map<std::string, uint32_t> get_name_to_pos_map() const {
+        std::unordered_map<std::string, uint32_t> name_to_index_map;
+        for (uint32_t i = 0; i < data.size(); ++i) {
+            name_to_index_map[data[i].name] = i;
+        }
+        return name_to_index_map;
+    }
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) {
@@ -146,13 +148,6 @@ public:
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
-    ColumnWithTypeAndName& get_by_name(const std::string& name);
-    const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
-
-    // return nullptr when no such column name
-    ColumnWithTypeAndName* try_get_by_name(const std::string& name);
-    const ColumnWithTypeAndName* try_get_by_name(const std::string& name) const;
-
     Container::iterator begin() { return data.begin(); }
     Container::iterator end() { return data.end(); }
     Container::const_iterator begin() const { return data.begin(); }
@@ -160,9 +155,9 @@ public:
     Container::const_iterator cbegin() const { return data.cbegin(); }
     Container::const_iterator cend() const { return data.cend(); }
 
-    bool has(const std::string& name) const;
-
-    size_t get_position_by_name(const std::string& name) const;
+    // Get position of column by name. Returns -1 if there is no column with that name.
+    // ATTN: this method is O(N). better maintain name -> position map in caller if you need to call it frequently.
+    int get_position_by_name(const std::string& name) const;
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
@@ -358,11 +353,6 @@ public:
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
-    // remove tmp columns in block
-    // in inverted index apply logic, in order to optimize query performance,
-    // we built some temporary columns into block
-    void erase_tmp_columns() noexcept;
-
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);
 
@@ -383,9 +373,6 @@ private:
     DataTypes _data_types;
     std::vector<std::string> _names;
 
-    using IndexByName = phmap::flat_hash_map<String, size_t>;
-    IndexByName index_by_name;
-
 public:
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);
@@ -393,27 +380,19 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
-                 bool igore_trivial_slot = false);
-
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()),
               _data_types(block->get_data_types()),
-              _names(block->get_names()) {
-        initialize_index_by_name();
-    }
+              _names(block->get_names()) {}
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()),
               _data_types(block.get_data_types()),
-              _names(block.get_names()) {
-        initialize_index_by_name();
-    }
+              _names(block.get_names()) {}
 
     void operator=(MutableBlock&& m_block) {
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
-        initialize_index_by_name();
     }
 
     size_t rows() const;
@@ -544,7 +523,6 @@ public:
                     _columns[i] = _data_types[i]->create_column();
                 }
             }
-            initialize_index_by_name();
         } else {
             if (_columns.size() != block.columns()) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -591,9 +569,6 @@ public:
     Status add_rows(const Block* block, size_t row_begin, size_t length);
     Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
-    /// remove the column with the specified name
-    void erase(const String& name);
-
     std::string dump_data(size_t row_limit = 100) const;
     std::string dump_data_json(size_t row_limit = 100) const;
 
@@ -619,15 +594,8 @@ public:
 
     std::vector<std::string>& get_names() { return _names; }
 
-    bool has(const std::string& name) const;
-
-    size_t get_position_by_name(const std::string& name) const;
-
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
-
-private:
-    void initialize_index_by_name();
 };
 
 struct IteratorRowRef {

@@ -35,26 +35,9 @@ public class LambdaFunctionExpr extends Expr {
     private ArrayList<Expr> slotExprs = new ArrayList<>();
     @SerializedName("ps")
     private ArrayList<Expr> params = new ArrayList<>();
-    private int columnId = 0;
 
     private LambdaFunctionExpr() {
         // use for serde only
-    }
-
-    public LambdaFunctionExpr(Expr e, String arg, List<Expr> params) {
-        this.names.add(arg);
-        this.slotExprs.add(e);
-        this.params.addAll(params);
-        columnId = 0;
-        this.setType(Type.LAMBDA_FUNCTION);
-    }
-
-    public LambdaFunctionExpr(Expr e, ArrayList<String> args, List<Expr> params) {
-        this.names.addAll(args);
-        this.slotExprs.add(e);
-        this.params.addAll(params);
-        columnId = 0;
-        this.setType(Type.LAMBDA_FUNCTION);
     }
 
     // for Nereids
@@ -72,7 +55,6 @@ public class LambdaFunctionExpr extends Expr {
         this.names.addAll(rhs.names);
         this.slotExprs.addAll(rhs.slotExprs);
         this.params.addAll(rhs.params);
-        this.columnId = rhs.columnId;
     }
 
     @Override

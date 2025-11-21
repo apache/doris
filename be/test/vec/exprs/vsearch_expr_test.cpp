@@ -70,6 +70,10 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
+    Status execute_column(VExprContext* context, const Block* block,
+                          ColumnPtr& result_column) const override {
+        return Status::OK();
+    }
 };
 
 const std::string& intern_column_name(const std::string& name) {
@@ -88,13 +92,13 @@ VExprSPtr create_slot_ref(int column_id, const std::string& column_name) {
     return slot;
 }
 
-std::shared_ptr<InvertedIndexContext> make_inverted_context(
+std::shared_ptr<IndexExecContext> make_inverted_context(
         std::vector<ColumnId>& col_ids,
         std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         std::vector<IndexFieldNameAndTypePair>& storage_types,
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& status_map) {
-    return std::make_shared<InvertedIndexContext>(col_ids, index_iterators, storage_types,
-                                                  status_map, nullptr);
+    return std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
+                                              nullptr);
 }
 
 } // namespace
@@ -1064,8 +1068,8 @@ TEST_F(VSearchExprTest, TestCollectSearchInputsWithUnsupportedChildType) {
     VExprContext context(dummy_expr);
 
     // This should trigger the collect_search_inputs function, but since we don't have
-    // a real InvertedIndexContext, it will return early with Status::OK
-    // If we had a real InvertedIndexContext, it would reach the unsupported child type error
+    // a real IndexExecContext, it will return early with Status::OK
+    // If we had a real IndexExecContext, it would reach the unsupported child type error
     auto status = vsearch_expr->evaluate_inverted_index(&context, 100);
     EXPECT_TRUE(status.ok()); // Early return due to nullptr index_context
 }
@@ -1141,7 +1145,7 @@ TEST_F(VSearchExprTest, TestEvaluateInvertedIndexWithEmptyIterators) {
     // This covers lines 138-141 in evaluate_inverted_index
     auto vsearch_expr = VSearchExpr::create_shared(test_node);
 
-    // Create a mock InvertedIndexContext that returns empty iterators
+    // Create a mock IndexExecContext that returns empty iterators
     // For now, we test the early return path when index_context is nullptr
     auto dummy_expr = VSearchExpr::create_shared(test_node);
     VExprContext context(dummy_expr);
@@ -1297,8 +1301,8 @@ TEST_F(VSearchExprTest, FastExecuteReturnsPrecomputedColumn) {
 
     auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
     MutableColumnPtr result_column = ColumnUInt8::create();
-    inverted_ctx->set_inverted_index_result_column_for_expr(expr.get(), std::move(result_column));
-    context->set_inverted_index_context(inverted_ctx);
+    inverted_ctx->set_index_result_column_for_expr(expr.get(), std::move(result_column));
+    context->set_index_context(inverted_ctx);
 
     Block block;
     int result_column_id = -1;
@@ -1321,7 +1325,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexFailsWithoutStorageType) {
 
     auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
-    context->set_inverted_index_context(inverted_ctx);
+    context->set_index_context(inverted_ctx);
 
     auto status = expr->evaluate_inverted_index(context.get(), 128);
     EXPECT_FALSE(status.ok());
@@ -1339,7 +1343,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexWithUnsupportedChildReturnsError) {
 
     auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
-    context->set_inverted_index_context(inverted_ctx);
+    context->set_index_context(inverted_ctx);
 
     auto status = expr->evaluate_inverted_index(context.get(), 64);
     EXPECT_FALSE(status.ok());
@@ -1359,7 +1363,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
 
     auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
-    context->set_inverted_index_context(inverted_ctx);
+    context->set_index_context(inverted_ctx);
 
     auto status = expr->evaluate_inverted_index(context.get(), 32);
     EXPECT_TRUE(status.ok());
@@ -1380,7 +1384,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
 
     auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
     auto context = std::make_shared<VExprContext>(expr);
-    context->set_inverted_index_context(inverted_ctx);
+    context->set_index_context(inverted_ctx);
 
     auto status = expr->evaluate_inverted_index(context.get(), 256);
     EXPECT_FALSE(status.ok());
@@ -1388,7 +1392,7 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
     EXPECT_FALSE(status_map[0][expr.get()]);
 }
 
-// Note: Full testing with actual InvertedIndexContext and real iterators
+// Note: Full testing with actual IndexExecContext and real iterators
 // would require complex setup and is better suited for integration tests
 // The tests above cover the main execution paths in evaluate_inverted_index
 

@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
@@ -147,5 +150,20 @@ class DateTimeExtractAndTransformTest {
         Assertions.assertEquals(3, result.getScale());
         result = (DateTimeV2Literal) DateTimeExtractAndTransform.fromMicroSecond(second);
         Assertions.assertEquals(6, result.getScale());
+    }
+
+    @Test
+    public void testFromUnixTimeNegativeThrows() {
+        BigIntLiteral negative = new BigIntLiteral(-1L);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(negative));
+    }
+
+    @Test
+    public void testFromUnixTimeOutOfRangeThrows() {
+        BigDecimal big = new BigDecimal("253402272000000000");
+        DecimalV3Literal dec = new DecimalV3Literal(big);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(dec));
     }
 }

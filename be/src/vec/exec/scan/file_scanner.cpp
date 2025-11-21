@@ -544,6 +544,9 @@ Status FileScanner::_check_output_block_types() {
 Status FileScanner::_init_src_block(Block* block) {
     if (!_is_load) {
         _src_block_ptr = block;
+
+        // todo: maybe do not need to build name to index map every time
+        _src_block_name_to_idx = block->get_name_to_pos_map();
         return Status::OK();
     }
     RETURN_IF_ERROR(_check_output_block_types());
@@ -610,7 +613,7 @@ Status FileScanner::_cast_to_input_block(Block* block) {
             // skip variant type
             continue;
         }
-        auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
+        auto& arg = _src_block_ptr->get_by_position(_src_block_name_to_idx[slot_desc->col_name()]);
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
         auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
@@ -638,7 +641,8 @@ Status FileScanner::_fill_columns_from_path(size_t rows) {
     }
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : _partition_col_descs) {
-        auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
+        auto doris_column =
+                _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first]).column;
         // _src_block_ptr points to a mutable block created by this class itself, so const_cast can be used here.
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
@@ -671,7 +675,8 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
     for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto mutable_column = _src_block_ptr->get_by_name(kv.first).column->assume_mutable();
+            auto mutable_column = _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first])
+                                          .column->assume_mutable();
             auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
@@ -691,10 +696,15 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
-                auto origin_column_type = _src_block_ptr->get_by_name(kv.first).type;
+                auto origin_column_type =
+                        _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first]).type;
                 bool is_nullable = origin_column_type->is_nullable();
+                if (!_src_block_name_to_idx.contains(kv.first)) {
+                    return Status::InternalError("Column {} not found in src block {}", kv.first,
+                                                 _src_block_ptr->dump_structure());
+                }
                 _src_block_ptr->replace_by_position(
-                        _src_block_ptr->get_position_by_name(kv.first),
+                        _src_block_name_to_idx[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
                 _src_block_ptr->erase(result_column_id);
             }

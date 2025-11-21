@@ -25,17 +25,14 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Class describing between predicates. After successful analysis, we equal
  * the between predicate to a conjunctive/disjunctive compound predicate
  * to be handed to the backend.
  */
+@Deprecated
 public class BetweenPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(BetweenPredicate.class);
-
     @SerializedName("inb")
     private boolean isNotBetween;
 
@@ -61,10 +58,6 @@ public class BetweenPredicate extends Predicate {
         return new BetweenPredicate(this);
     }
 
-    public boolean isNotBetween() {
-        return isNotBetween;
-    }
-
     @Override
     protected void toThrift(TExprNode msg) {
         throw new IllegalStateException(
@@ -85,13 +78,6 @@ public class BetweenPredicate extends Predicate {
         return children.get(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "BETWEEN "
                 + children.get(1).toSql(disableTableName, needExternalSql, tableType, table) + " AND " + children.get(2)
                 .toSql(disableTableName, needExternalSql, tableType, table);
-    }
-
-    @Override
-    public String toDigestImpl() {
-        String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toDigest() + " " + notStr + "BETWEEN "
-                + children.get(1).toDigest() + " AND " + children.get(2).toDigest();
     }
 
     @Override

@@ -20,12 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
@@ -40,7 +40,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -856,7 +856,7 @@ public class Column implements GsonPostProcessable {
 
         if (indexes != null) {
             for (Index index : indexes) {
-                if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
+                if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
                     List<String> columns = index.getColumns();
                     if (this.name.equalsIgnoreCase(columns.get(0))) {
                         builder.setHasBitmapIndex(true);
@@ -1224,7 +1224,7 @@ public class Column implements GsonPostProcessable {
     public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
         List<Index> indexes = olapTable.getIndexes();
         for (Index index : indexes) {
-            if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
+            if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
                 List<String> columns = index.getColumns();
                 if (tColumn.getColumnName().equals(columns.get(0))) {
                     tColumn.setHasBitmapIndex(true);

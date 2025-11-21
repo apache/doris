@@ -548,7 +548,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     if [[ "${THRIFT_SOURCE}" == 'thrift-0.16.0' ]]; then
         cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            for patch_file in "${TP_PATCH_DIR}"/thrift-0.16*; do
+            for patch_file in "${TP_PATCH_DIR}"/thrift-*; do
                 echo "patch ${patch_file}"
                 patch -p1 --ignore-whitespace <"${patch_file}"
             done
@@ -589,7 +589,10 @@ fi
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE
     if [[ ! -f "$PATCHED_MARK" ]] ; then
-        patch -p1 <"${TP_PATCH_DIR}/cctz-civil-cache.patch"
+        for patch_file in "${TP_PATCH_DIR}"/cctz-*; do
+            echo "patch ${patch_file}"
+            patch -p1 --ignore-whitespace <"${patch_file}"
+        done
         touch "$PATCHED_MARK"
     fi
     cd -

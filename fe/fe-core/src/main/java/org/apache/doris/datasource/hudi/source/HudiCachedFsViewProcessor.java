@@ -48,7 +48,7 @@ public class HudiCachedFsViewProcessor {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.fsViewCache = partitionCacheFactory.buildCache(this::createFsView, null, executor);
+        this.fsViewCache = partitionCacheFactory.buildCache(this::createFsView, executor);
     }
 
     private HoodieTableFileSystemView createFsView(FsViewKey key) {

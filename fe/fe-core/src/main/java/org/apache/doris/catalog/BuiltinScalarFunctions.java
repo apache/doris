@@ -201,6 +201,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
@@ -605,7 +606,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayPopFront.class, "array_popfront"),
             scalar(ArrayPosition.class, "array_position"),
             scalar(ArrayProduct.class, "array_product"),
-            scalar(ArrayPushBack.class, "Array_pushback"),
+            scalar(ArrayPushBack.class, "Array_pushback", "array_append"),
             scalar(ArrayPushFront.class, "Array_pushfront"),
             scalar(ArrayRange.class, "array_range", "sequence"),
             scalar(ArrayRemove.class, "array_remove"),
@@ -737,6 +738,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Exp.class, "exp"),
             scalar(ExportSet.class, "export_set"),
             scalar(ExtractUrlParameter.class, "extract_url_parameter"),
+            scalar(Factorial.class, "factorial"),
             scalar(Field.class, "field"),
             scalar(FindInSet.class, "find_in_set"),
             scalar(FirstSignificantSubdomain.class, "first_significant_subdomain"),

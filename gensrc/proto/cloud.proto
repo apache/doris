@@ -1818,6 +1818,7 @@ message UpdateDeleteBitmapRequest {
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
+    optional int64 store_version = 52;
 }
 
 message UpdateDeleteBitmapResponse {

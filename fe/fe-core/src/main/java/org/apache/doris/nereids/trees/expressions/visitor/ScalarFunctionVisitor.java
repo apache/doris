@@ -176,6 +176,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
@@ -212,6 +213,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
@@ -1131,6 +1133,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(daysDiff, context);
     }
 
+    default R visitDayHourAdd(DayHourAdd dayHourAdd, C context) {
+        return visitScalarFunction(dayHourAdd, context);
+    }
+
     default R visitDaysAdd(DaysAdd daysAdd, C context) {
         return visitScalarFunction(daysAdd, context);
     }
@@ -1293,6 +1299,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitExtractUrlParameter(ExtractUrlParameter extractUrlParameter, C context) {
         return visitScalarFunction(extractUrlParameter, context);
+    }
+
+    default R visitFactorial(Factorial factorial, C context) {
+        return visitScalarFunction(factorial, context);
     }
 
     default R visitField(Field field, C context) {

@@ -187,10 +187,20 @@ void set_error_response(PFetchPeerDataResponse* response, const std::string& err
     response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
 }
 
-Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block,
+Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t file_size,
                        doris::CacheBlockPB* output) {
     std::string data;
-    data.resize(file_block->range().size());
+    // ATTN: calculate the rightmost boundary value of the block, due to inaccurate current block meta information.
+    // see CachedRemoteFileReader::read_at_impl for more details.
+    // Ensure file_size >= file_block->offset() to avoid underflow
+    if (file_size < file_block->offset()) {
+        LOG(WARNING) << "file_size (" << file_size << ") < file_block->offset("
+                     << file_block->offset() << ")";
+        return Status::InternalError<false>("file_size less than block offset");
+    }
+    size_t read_size = std::min(static_cast<size_t>(file_size - file_block->offset()),
+                                file_block->range().size());
+    data.resize(read_size);
 
     auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                       std::chrono::steady_clock::now().time_since_epoch())
@@ -206,6 +216,8 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block,
     g_file_cache_get_by_peer_read_cache_file_latency << (end_read_file_ts - begin_read_file_ts);
 
     if (read_st.ok()) {
+        output->set_block_offset(static_cast<int64_t>(file_block->offset()));
+        output->set_block_size(static_cast<int64_t>(read_size));
         output->set_data(std::move(data));
         return Status::OK();
     } else {
@@ -245,10 +257,7 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
 
             g_file_cache_get_by_peer_blocks_num << 1;
             doris::CacheBlockPB* out = response->add_datas();
-            out->set_block_offset(static_cast<int64_t>(fb->offset()));
-            out->set_block_size(static_cast<int64_t>(fb->range().size()));
-
-            Status read_status = read_file_block(fb, out);
+            Status read_status = read_file_block(fb, request->file_size(), out);
             if (!read_status.ok()) {
                 set_error_response(response, "read cache file error");
                 return read_status;
