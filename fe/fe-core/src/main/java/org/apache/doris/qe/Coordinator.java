@@ -19,8 +19,10 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -89,6 +91,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -3183,6 +3186,8 @@ public class Coordinator implements CoordInterface {
         }
 
         Map<TNetworkAddress, TPipelineFragmentParams> toThrift(int backendNum) {
+            LOG.info("[AI_CHECK]: Start toThrift in Coordinator for fragment {}",
+                    fragment.getFragmentId().asInt());
             Set<SortNode> topnSortNodes = scanNodes.stream()
                     .filter(scanNode -> scanNode instanceof OlapScanNode)
                     .flatMap(scanNode -> scanNode.getTopnFilterSortNodes().stream()).collect(Collectors.toSet());
@@ -3235,6 +3240,18 @@ public class Coordinator implements CoordInterface {
                     if (ignoreDataDistribution) {
                         params.setParallelInstances(parallelTasksNum);
                     }
+
+                    // Used for AI Functions
+                    Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+                    for (Resource resource : Env.getCurrentEnv().getResourceMgr()
+                                                    .getResource(Resource.ResourceType.AI)) {
+                        if (resource instanceof AIResource) {
+                            aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
+                        }
+                    }
+
+                    params.setAiResources(aiResourceMap);
+
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());
