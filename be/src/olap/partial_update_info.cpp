@@ -433,9 +433,12 @@ Status FixedReadPlan::fill_missing_columns(
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
                             assert_cast<vectorized::ColumnInt64*>(missing_col.get());
-                    auto_inc_column->insert_from(
-                            *block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get(),
-                            idx);
+                    int pos = block->get_position_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
+                    if (pos == -1) {
+                        return Status::InternalError("auto increment column not found in block {}",
+                                                     block->dump_structure());
+                    }
+                    auto_inc_column->insert_from(*block->get_by_position(pos).column.get(), idx);
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
