@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -1300,5 +1301,98 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("admin rotate tde root key properties()")
                 .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageContains("mismatched input ')' expecting");
+    }
+
+    @Test
+    public void testMergeInto() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        LogicalPlan logicalPlan;
+
+        // base case
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + target alias
+        sql = "MERGE INTO target target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + target alias with as
+        sql = "MERGE INTO target AS target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + insert column list
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + without not matched
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE ";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + without delete matched
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN NOT MATCHED THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + without update matched
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case + insert with case predicate
+        sql = "MERGE INTO target USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED AND source.c1 < 10 THEN INSERT (c1, c2, c3) VALUES (c1, c2, c3)";
+        logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(MergeIntoCommand.class, logicalPlan);
+
+        // base case without and matched or not matched
+        String invalidSql1 = "MERGE INTO target USING source ON target.c1 = source.c1 ";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql1));
+
+        // base case without using
+        String invalidSql2 = "MERGE INTO target ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql2));
+
+        // base case without on clause
+        String invalidSql3 = "MERGE INTO target USING source "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql3));
+
+        // base case without target table
+        String invalidSql4 = "MERGE INTO USING source ON target.c1 = source.c1 "
+                + "WHEN MATCHED AND target.c2 > 5 THEN UPDATE SET c2 = c2 * 5 "
+                + "WHEN MATCHED THEN DELETE "
+                + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql4));
     }
 }
