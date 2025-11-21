@@ -416,11 +416,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
             return Collections.emptyMap();
         }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) this.getCatalog());
-        List<Type> partitionColumnTypes = this.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this));
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                this, partitionColumnTypes);
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
         // transfer id to name
         BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
@@ -983,10 +980,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public long getNewestUpdateVersionOrTime() {
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(this,
-                getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this)));
         List<HivePartition> partitionList = cache.getAllPartitionsWithCache(this,
                 Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
         if (CollectionUtils.isEmpty(partitionList)) {
@@ -1062,16 +1059,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (isView()) {
             return null;
         }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) catalog);
-        List<Type> partitionColumnTypes = getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this));
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(this);
+        List<Type> partitionColumnTypes = getPartitionColumnTypes(snapshot);
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
             // It is ok to get partition values from cache,
             // no need to worry that this call will invalid or refresh the cache.
             // because it has enough space to keep partition info of all tables in cache.
-            partitionValues = cache.getPartitionValues(this, partitionColumnTypes);
+            partitionValues = getHivePartitionValues(snapshot);
             if (partitionValues == null || partitionValues.getPartitionNameToIdMap() == null) {
                 LOG.warn("Partition values for hive table {} is null", name);
             } else {
@@ -1191,5 +1187,26 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private Table loadHiveTable() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getTable(getRemoteDbName(), remoteName);
+    }
+
+    public HiveMetaStoreCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) this.getCatalog());
+        try {
+            List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
+            return cache.getPartitionValues(this, partitionColumnTypes);
+        } catch (Exception e) {
+            if (e.getMessage().contains(HiveMetaStoreCache.ERR_CACHE_INCONSISTENCY)) {
+                LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
+                                + "Clearing cache and retrying to get partition values.",
+                        this.getCatalog().getName(), this.getDbName(), this.getName(), e);
+                ExternalSchemaCache schemaCache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+                schemaCache.invalidateTableCache(this);
+                List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
+                return cache.getPartitionValues(this, partitionColumnTypes);
+            } else {
+                throw e;
+            }
+        }
     }
 }
