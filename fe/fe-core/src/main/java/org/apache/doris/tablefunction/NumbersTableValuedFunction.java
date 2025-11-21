@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataGenFunctionName;
 import org.apache.doris.thrift.TDataGenScanRange;
@@ -122,7 +124,12 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
             }
         }
         if (backendList.isEmpty()) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         Collections.shuffle(backendList);

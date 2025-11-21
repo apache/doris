@@ -188,6 +188,7 @@ import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -2096,7 +2097,12 @@ public class StmtExecutor {
             }
         }
         if (address == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         // 5. send rpc to BE
