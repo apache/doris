@@ -93,6 +93,8 @@ public class SapHanaJdbcExecutor extends BaseJdbcExecutor {
             case VARCHAR:
             case STRING:
                 return resultSet.getObject(columnIndex + 1);
+            case VARBINARY:
+                return resultSet.getObject(columnIndex + 1, byte[].class);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
