@@ -487,6 +487,7 @@ Status VectorizedIfNullExpr::execute_column(VExprContext* context, const Block* 
 
     ColumnPtr first_column;
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, first_column));
+    first_column = first_column->convert_to_full_column_if_const();
 
     if (!first_column->is_nullable()) {
         result_column = first_column;
