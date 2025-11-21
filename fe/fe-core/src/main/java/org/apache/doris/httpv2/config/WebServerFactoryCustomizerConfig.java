@@ -35,7 +35,7 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
     public void customize(ConfigurableJettyWebServerFactory factory) {
         if (Config.enable_https) {
             ((JettyServletWebServerFactory) factory).setConfigurations(
-                    Collections.singleton(new HttpToHttpsJettyConfig())
+                    Collections.singletonList(new HttpToHttpsJettyConfig())
             );
 
             factory.addServerCustomizers(

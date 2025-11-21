@@ -1081,6 +1081,40 @@ message PGetTabletRowsetsResponse {
     optional DeleteBitmapPB delete_bitmap = 3;
 }
 
+message CacheBlockReqest {
+    // PEER_FILE_CACHE_BLOCK
+    optional int64 block_offset = 1;
+    optional int64 block_size = 2;
+}
+
+message PFetchPeerDataRequest {
+    enum Type {
+        PEER_FILE_RANGE = 1;
+        PEER_FILE_CACHE_BLOCK = 2;
+    }
+    optional Type type = 1;
+    // obj path, let peer calc hash, and download file cache
+    // PEER_FILE_RANGE and PEER_FILE_CACHE_BLOCK use
+    optional string path = 2;
+
+    // PEER_FILE_RANGE
+    optional int64 file_offset = 3;
+    optional int64 file_size = 4;
+    // PEER_FILE_CACHE_BLOCK
+    repeated CacheBlockReqest cache_req = 5;
+}
+
+message CacheBlockPB {
+    optional int64 block_offset = 1;
+    optional int64 block_size = 2;
+    optional bytes data = 3;
+}
+
+message PFetchPeerDataResponse {
+    optional PStatus status = 1;
+    repeated CacheBlockPB datas = 2;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1137,5 +1171,6 @@ service PBackendService {
     rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);
     rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
+    rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
 };
 

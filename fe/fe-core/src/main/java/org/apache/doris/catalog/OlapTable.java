@@ -102,7 +102,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -3442,7 +3442,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
+        Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions(this);
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
         long visibleVersion = partitionVersions.containsKey(partitionName) ? partitionVersions.get(partitionName)
                 : getPartitionOrAnalysisException(partitionName).getVisibleVersion();

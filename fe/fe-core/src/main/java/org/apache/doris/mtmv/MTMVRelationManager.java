@@ -40,7 +40,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -102,9 +102,7 @@ public class MTMVRelationManager implements MTMVHookService {
             if (!mtmv.isUseForRewrite()) {
                 continue;
             }
-            BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
-            if (isMVPartitionValid(mtmv, ctx, forceConsistent,
-                    relatedTableInfo == null ? null : queryUsedPartitions.get(relatedTableInfo.toList()))) {
+            if (isMVPartitionValid(mtmv, ctx, forceConsistent, queryUsedPartitions)) {
                 res.add(mtmv);
             }
         }
@@ -133,10 +131,10 @@ public class MTMVRelationManager implements MTMVHookService {
 
     @VisibleForTesting
     public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-            Set<String> relatedPartitions) {
+            Map<List<String>, Set<String>> queryUsedPartitions) {
         long currentTimeMillis = System.currentTimeMillis();
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
-                mtmv, ctx, currentTimeMillis, forceConsistent, relatedPartitions);
+                mtmv, ctx, currentTimeMillis, forceConsistent, queryUsedPartitions);
         // MTMVRewriteUtil.getMTMVCanRewritePartitions is time-consuming behavior, So record for used later
         ctx.getStatementContext().getMvCanRewritePartitionsMap().putIfAbsent(
                 new BaseTableInfo(mtmv), mtmvCanRewritePartitions);

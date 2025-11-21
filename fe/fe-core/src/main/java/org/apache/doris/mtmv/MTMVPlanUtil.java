@@ -41,7 +41,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -81,7 +83,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -91,6 +95,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
+    private static final Logger LOG = LogManager.getLogger(MTMVPlanUtil.class);
 
     // The rules should be disabled when generate MTMV cache
     // Because these rules may change the plan structure and cause the plan can not match the mv
@@ -447,6 +452,12 @@ public class MTMVPlanUtil {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
                             + Util.getTempTableDisplayName(table.getName()) + ")");
                 }
+                if (table instanceof ExternalTable) {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    if (externalTable.isView()) {
+                        throw new AnalysisException("can not contain external VIEW");
+                    }
+                }
             }
             MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
@@ -551,10 +562,37 @@ public class MTMVPlanUtil {
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)
             throws JobException {
         MTMVPartitionInfo originalMvPartitionInfo = mtmv.getMvPartitionInfo();
-        if (!analyzedMvPartitionInfo.equals(originalMvPartitionInfo)) {
+        if (!checkMTMVPartitionInfoLike(originalMvPartitionInfo, analyzedMvPartitionInfo)) {
             throw new JobException("async materialized view partition info changed, analyzed: %s, original: %s",
                     analyzedMvPartitionInfo.toInfoString(), originalMvPartitionInfo.toInfoString());
         }
+    }
+
+    private static boolean checkMTMVPartitionInfoLike(MTMVPartitionInfo originalMvPartitionInfo,
+            MTMVPartitionInfo analyzedMvPartitionInfo) {
+        if (!originalMvPartitionInfo.getPartitionType().equals(analyzedMvPartitionInfo.getPartitionType())) {
+            return false;
+        }
+        if (originalMvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return true;
+        }
+        // because old version only support one pct table, so can not use equal
+        if (!analyzedMvPartitionInfo.getPctInfos().containsAll(originalMvPartitionInfo.getPctInfos())) {
+            return false;
+        }
+        if (originalMvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            try {
+                MTMVPartitionExprService originalExprService = MTMVPartitionExprFactory.getExprService(
+                        originalMvPartitionInfo.getExpr());
+                MTMVPartitionExprService analyzedExprService = MTMVPartitionExprFactory.getExprService(
+                        analyzedMvPartitionInfo.getExpr());
+                return originalExprService.equals(analyzedExprService);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                LOG.warn(e);
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void checkColumnIfChange(MTMV mtmv, List<ColumnDefinition> analyzedColumnDefinitions)
