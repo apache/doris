@@ -189,6 +189,8 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;

@@ -1497,6 +1497,16 @@ public class ConnectContext {
         return Pair.of(clusterName, clusterFrom);
     }
 
+    public String getDefaultCloudCluster() {
+        List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
+            return defaultCluster;
+        }
+
+        return null;
+    }
+
     public StatsErrorEstimator getStatsErrorEstimator() {
         return statsErrorEstimator;
     }
