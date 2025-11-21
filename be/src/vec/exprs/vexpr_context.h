@@ -172,7 +172,9 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
-    [[nodiscard]] Status execute(Block* block, ColumnPtr& result_column);
+    [[nodiscard]] Status execute(const Block* block, ColumnPtr& result_column);
+    [[nodiscard]] DataTypePtr execute_type(const Block* block);
+    [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
 
     VExprSPtr root() { return _root; }
@@ -208,20 +210,19 @@ public:
 
     bool all_expr_inverted_index_evaluated();
 
-    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
-                                             size_t column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                              size_t column_to_keep);
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,
-                                                  bool accept_null, Block* block,
+                                                  bool accept_null, const Block* block,
                                                   IColumn::Filter* result_filter,
                                                   bool* can_filter_all);
 
-    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts, Block* block,
-                                                  ColumnUInt8& null_map,
+    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts,
+                                                  const Block* block, ColumnUInt8& null_map,
                                                   IColumn::Filter& result_filter);
 
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
