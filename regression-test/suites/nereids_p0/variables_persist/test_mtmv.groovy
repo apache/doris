@@ -40,7 +40,9 @@ suite("test_mtmv") {
     // turn off and refresh
     sql """set enable_decimal256=false;
     insert into test_decimal_mul_overflow_for_mv values(1.12345,1.234567);"""
-
+    sql """
+            REFRESH MATERIALIZED VIEW mv_var_1 auto
+        """
     def db = context.config.getDbNameByFile(context.file)
     def job_name = getJobName(db, "mv_var_1");
     waitingMTMVTaskFinished(job_name)

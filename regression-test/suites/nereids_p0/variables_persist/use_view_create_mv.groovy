@@ -41,11 +41,13 @@ suite("use_view_create_mv") {
         ON COMMIT
         PROPERTIES ('replication_num' = '1')
         as select * from v_for_mv_view;
-        insert into test_decimal_mul_overflow_for_mv values(1.12345,1.234567);
+        insert into t_for_mv_view values(1.12345,1.234567);
     """
     sql """set enable_decimal256=false;
-    insert into test_decimal_mul_overflow_for_mv values(1.12345,1.234567);"""
-
+    insert into t_for_mv_view values(1.12345,1.234567);"""
+    sql """
+            REFRESH MATERIALIZED VIEW mv_var_1 auto
+        """
     def db = context.config.getDbNameByFile(context.file)
     def job_name = getJobName(db, "mv_view");
     waitingMTMVTaskFinished(job_name)
